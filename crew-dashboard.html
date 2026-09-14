@@ -3446,10 +3446,20 @@
                 : `<label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload aircraft image"><i data-lucide="plane" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
             const livs = liveriesFor(f.type);
             const livList = livs.map(n=>`<option value="${escapeHtml(n)}">`).join('');
+            /* WHO TOOK THE PICTURE.
+               Only shown once there IS a picture, because a credit box on a row
+               with no photograph in it is a question nobody can answer. Filled
+               in for you when the photo came from the community library — that
+               library records a contributor for every picture, and it used to
+               be dropped the moment the photo was used here. */
+            const credit = f.image ? `
+                <input data-f="photographer" value="${escapeHtml(f.photographer||'')}" placeholder="Photo by…"
+                    title="Whoever took this photograph. Shown under the aircraft on your website."
+                    class="w-32 shrink-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">` : '';
             return `<div class="struct-row flex items-center gap-2" data-kind="fleet" data-idx="${i}">${img}
                 <input data-f="type" list="acTypeList" value="${escapeHtml(f.type||'')}" placeholder="Aircraft (e.g. Airbus A320)" class="w-40 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <input data-f="name" list="livList-${i}" value="${escapeHtml(f.name||'')}" placeholder="${escapeHtml(liveryPlaceholder(f))}" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                <datalist id="livList-${i}">${livList}</datalist>
+                <datalist id="livList-${i}">${livList}</datalist>${credit}
                 <span data-fleetwarn class="shrink-0 text-amber-500">${fleetWarnHtml(f)}</span>
                 <button data-autopic title="Find a photo for this aircraft &amp; livery" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)] shrink-0"><i data-lucide="image" class="w-4 h-4"></i></button>
                 <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`;
@@ -3472,8 +3482,27 @@
                 const d=await r.json().catch(()=>null);
                 const url = (d && !d.isPlaceholder) ? (d.imageUrl || (Array.isArray(d.imageUrls) && d.imageUrls[0]) || '') : '';
                 if(url && /^https:\/\//i.test(url)){
-                    f.image=url; renderStructure();
-                    if(note){ note.textContent='Photo added — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
+                    f.image=url;
+                    /* AND WHO IT BELONGS TO.
+                       The library records a contributor for every picture, per
+                       image slot, and this used to take the address and leave
+                       the name behind — so a fleet page built entirely out of
+                       other people's photographs credited none of them. The
+                       name is picked from the slot the URL actually came from,
+                       which for a multi-image entry is not always the first.
+                       "System" is the library's own placeholder for a picture
+                       nobody claimed, and is not a person to credit. */
+                    const slot = Array.isArray(d.imageUrls) ? d.imageUrls.indexOf(url) : -1;
+                    const who = (Array.isArray(d.imageContributors) && slot >= 0 && d.imageContributors[slot]
+                        ? d.imageContributors[slot].name : d.contributorName) || '';
+                    f.photographer = (who && who !== 'System') ? String(who).slice(0,80) : '';
+                    renderStructure();
+                    if(note){
+                        note.textContent = f.photographer
+                            ? `Photo added, by ${f.photographer} — remember to Save.`
+                            : 'Photo added — remember to Save.';
+                        note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                    }
                 } else if(note){
                     note.textContent='No photo found for that aircraft & livery yet — upload one if you like.'; note.className='text-sm muted';
                 }
@@ -3506,7 +3535,7 @@
             const w=row.querySelector('[data-fleetwarn]');
             if(w){ w.innerHTML=fleetWarnHtml(f); if(window.lucide) lucide.createIcons(); }
         }
-        function addFleet(){ FLEET.push({type:'',name:'',image:''}); renderStructure(); focusNewRow('fleetRows'); }
+        function addFleet(){ FLEET.push({type:'',name:'',image:'',photographer:'',photoLink:''}); renderStructure(); focusNewRow('fleetRows'); }
         function renderBadgePreview(){
             document.getElementById('rankPreview').innerHTML = RANKS.length?RANKS.map(badgeHtml).join(''):'<span class="text-xs faint">No ranks yet.</span>';
             document.getElementById('rolePreview').innerHTML = ROLES.length?ROLES.map(r=>badgeHtml(r)).join(''):'<span class="text-xs faint">No roles yet.</span>';
@@ -3631,7 +3660,10 @@
                     const row=(del||clr||pic)&&(del||clr||pic).closest('[data-idx]'); if(!row) return;
                     const arr=arrForKind(row.getAttribute('data-kind')); const idx=+row.getAttribute('data-idx');
                     if(del){ arr.splice(idx,1); renderStructure(); }
-                    else if(clr){ arr[idx].image=''; renderStructure(); }
+                    // The credit belongs to the picture. Removing one and leaving
+                    // the other behind attributes the NEXT photograph to whoever
+                    // took the last one.
+                    else if(clr){ arr[idx].image=''; arr[idx].photographer=''; arr[idx].photoLink=''; renderStructure(); }
                     else if(pic){ resolveFleetPicture(idx, { force:true, notify:true }); }
                 });
                 host.addEventListener('change', async e=>{
@@ -3673,7 +3705,12 @@
                         const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/badge-image`,{ method:'POST', headers:{Authorization:'Bearer '+token}, body:fd });
                         const d=await res.json().catch(()=>({}));
                         if(!res.ok){ note.textContent=d.error||'Upload failed.'; note.className='text-sm text-red-500'; return; }
-                        arr[idx].image=d.url; renderStructure();
+                        arr[idx].image=d.url;
+                        // An upload is the airline's own picture until they say
+                        // otherwise, so it carries no credit — and certainly not
+                        // the one left over from the library photo it replaced.
+                        if(kind==='fleet'){ arr[idx].photographer=''; arr[idx].photoLink=''; }
+                        renderStructure();
                         note.textContent='Image uploaded — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
                     }catch{ note.textContent='Upload failed. Try again.'; note.className='text-sm text-red-500'; }
                 });

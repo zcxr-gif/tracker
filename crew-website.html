@@ -1141,16 +1141,28 @@
          * are the same on every section — so they are folded into a disclosure
          * at the bottom. Open when a picture is already set, because then they
          * are the fields somebody came here to change. */
-        const own = def.fields.filter(f => f.group !== 'background');
+        const own = def.fields.filter(f => !f.group);
         const bg = def.fields.filter(f => f.group === 'background');
+        const lay = def.fields.filter(f => f.group === 'layout');
+        /* SHAPE AND SURROUNDINGS, folded away like the background controls.
+         *
+         * These are the answers to "does this have to be in a box" and "why is
+         * the nose cut off my aeroplane", and a VA who is not asking either
+         * should not have to read past them to reach the words. Open when they
+         * are already set to something, because then they are what somebody
+         * came here to change. */
+        const laySet = lay.some(f => b.props[f.key] && b.props[f.key] !== 'none'
+            && b.props[f.key] !== 'on' && b.props[f.key] !== 'fill');
+        const fold = (open, title, fields) => `
+                <details class="border-t hair pt-3 mt-3" ${open ? 'open' : ''}>
+                    <summary class="text-xs font-bold uppercase tracking-wide muted cursor-pointer">${title}</summary>
+                    <div class="space-y-3 mt-3">${fields.map(f => fieldHtml(f, b.props[f.key])).join('')}</div>
+                </details>`;
         $('form').innerHTML = own.map(f => fieldHtml(f, b.props[f.key])).join('')
-            + (bg.length ? `
-                <details class="border-t hair pt-3 mt-3" ${b.props.bgImage ? 'open' : ''}>
-                    <summary class="text-xs font-bold uppercase tracking-wide muted cursor-pointer">
-                        Picture behind this section${b.props.bgImage ? ' <span class="accent-text normal-case">· on</span>' : ''}
-                    </summary>
-                    <div class="space-y-3 mt-3">${bg.map(f => fieldHtml(f, b.props[f.key])).join('')}</div>
-                </details>` : '');
+            + (bg.length ? fold(!!b.props.bgImage,
+                `Picture behind this section${b.props.bgImage ? ' <span class="accent-text normal-case">· on</span>' : ''}`, bg) : '')
+            + (lay.length ? fold(laySet,
+                `Containers &amp; cropping${laySet ? ' <span class="accent-text normal-case">· changed</span>' : ''}`, lay) : '');
         if (def.live) {
             $('liveNote').textContent = 'The rows in this section are read from your crew center every time somebody opens the page. You choose the heading and how many; the airline fills in the rest.';
             $('liveNote').classList.remove('hidden');

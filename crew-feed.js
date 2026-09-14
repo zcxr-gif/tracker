@@ -149,6 +149,16 @@
     var text = function (v) { return String(v == null ? '' : v).trim(); };
     var icao = function (v) { return text(v).toUpperCase(); };
     var https = function (v) { return /^https:\/\//i.test(text(v)) ? text(v) : ''; };
+    // One row built from a shared half and a specific half. Written out rather
+    // than Object.assign because everything else in this file is ES5 and a
+    // single modern call would decide, silently, which browsers a VA's public
+    // website works in.
+    var assign = function (a, b) {
+        var out = {}, k;
+        for (k in a) if (Object.prototype.hasOwnProperty.call(a, k)) out[k] = a[k];
+        for (k in b) if (Object.prototype.hasOwnProperty.call(b, k)) out[k] = b[k];
+        return out;
+    };
 
     /* =====================================================================
      * ROUTES
@@ -772,6 +782,106 @@
     }
 
     /* ---------------------------------------------------------------------
+     * WHAT THE AEROPLANE ACTUALLY IS
+     *
+     * A fleet page that says "Boeing 787-10" and "Ocean" twelve times tells a
+     * reader who already knows aeroplanes nothing they did not know, and tells
+     * everybody else nothing at all. What a visitor is actually asking is how
+     * big it is and how far it goes — that is what makes a fleet page a fleet
+     * page rather than a list of names.
+     *
+     * Published manufacturer figures: typical two-class seating, design range,
+     * cruise, and the engine count. Not the airline's own configuration, which
+     * nobody has a field for and which would be a guess — the card says
+     * "typical" and means it.
+     *
+     * Matched on the same canonical Infinite Flight type string as SHAPES
+     * above, with the same rule: the first hit wins, so the specific patterns
+     * come first. An unrecognised type gets nothing rather than an average of
+     * other people's aeroplanes.
+     * ------------------------------------------------------------------- */
+    var SPECS = [
+        // ── Airbus ───────────────────────────────────────────────────────
+        [/a380/i,                   { seats: 545, range: 8000, cruise: 'Mach 0.85', engines: 4 }],
+        [/a350|\ba359\b/i,          { seats: 315, range: 8100, cruise: 'Mach 0.85', engines: 2 }],
+        [/a340-?600|a346/i,         { seats: 326, range: 7900, cruise: 'Mach 0.83', engines: 4 }],
+        [/a330-?900|a339|a330neo/i, { seats: 287, range: 7200, cruise: 'Mach 0.82', engines: 2 }],
+        [/a330/i,                   { seats: 277, range: 6350, cruise: 'Mach 0.82', engines: 2 }],
+        [/a321neo|a21n/i,           { seats: 200, range: 4000, cruise: 'Mach 0.78', engines: 2 }],
+        [/a321/i,                   { seats: 185, range: 3200, cruise: 'Mach 0.78', engines: 2 }],
+        [/a320neo|a20n/i,           { seats: 165, range: 3500, cruise: 'Mach 0.78', engines: 2 }],
+        [/a320/i,                   { seats: 150, range: 3300, cruise: 'Mach 0.78', engines: 2 }],
+        [/a319/i,                   { seats: 124, range: 3700, cruise: 'Mach 0.78', engines: 2 }],
+        [/a318/i,                   { seats: 107, range: 3100, cruise: 'Mach 0.78', engines: 2 }],
+        // ── Boeing ───────────────────────────────────────────────────────
+        [/787-?10|b78x/i,           { seats: 336, range: 6430, cruise: 'Mach 0.85', engines: 2 }],
+        [/787-?9|b789/i,            { seats: 296, range: 7565, cruise: 'Mach 0.85', engines: 2 }],
+        [/787/i,                    { seats: 248, range: 7355, cruise: 'Mach 0.85', engines: 2 }],
+        [/777-?300|b77w/i,          { seats: 396, range: 7370, cruise: 'Mach 0.84', engines: 2 }],
+        [/777-?200lr|b77l/i,        { seats: 317, range: 8555, cruise: 'Mach 0.84', engines: 2 }],
+        [/777/i,                    { seats: 313, range: 7065, cruise: 'Mach 0.84', engines: 2 }],
+        [/767/i,                    { seats: 261, range: 5980, cruise: 'Mach 0.80', engines: 2 }],
+        [/747-?8/i,                 { seats: 467, range: 7730, cruise: 'Mach 0.86', engines: 4 }],
+        [/747-?400/i,               { seats: 416, range: 7260, cruise: 'Mach 0.85', engines: 4 }],
+        [/747/i,                    { seats: 366, range: 6850, cruise: 'Mach 0.84', engines: 4 }],
+        [/757/i,                    { seats: 200, range: 3915, cruise: 'Mach 0.80', engines: 2 }],
+        [/737 ?max|b38m|737-?8 ?max/i, { seats: 178, range: 3550, cruise: 'Mach 0.79', engines: 2 }],
+        [/737-?900/i,               { seats: 178, range: 2950, cruise: 'Mach 0.79', engines: 2 }],
+        [/737-?800/i,               { seats: 162, range: 2935, cruise: 'Mach 0.79', engines: 2 }],
+        [/737-?700/i,               { seats: 126, range: 3010, cruise: 'Mach 0.79', engines: 2 }],
+        [/737/i,                    { seats: 162, range: 2935, cruise: 'Mach 0.79', engines: 2 }],
+        [/717/i,                    { seats: 106, range: 2060, cruise: 'Mach 0.77', engines: 2 }],
+        // ── Regional, trijets, turboprops ────────────────────────────────
+        [/crj-?1000|crjx/i,         { seats: 100, range: 1620, cruise: 'Mach 0.78', engines: 2 }],
+        [/crj-?900/i,               { seats: 86, range: 1550, cruise: 'Mach 0.78', engines: 2 }],
+        [/crj-?700/i,               { seats: 70, range: 1378, cruise: 'Mach 0.78', engines: 2 }],
+        [/crj/i,                    { seats: 50, range: 1700, cruise: 'Mach 0.74', engines: 2 }],
+        [/e-?190|erj-?190/i,        { seats: 100, range: 2450, cruise: 'Mach 0.78', engines: 2 }],
+        [/e-?175|erj-?175|embraer/i,{ seats: 78, range: 2150, cruise: 'Mach 0.78', engines: 2 }],
+        [/md-?11/i,                 { seats: 293, range: 6840, cruise: 'Mach 0.82', engines: 3 }],
+        [/dc-?10/i,                 { seats: 285, range: 5200, cruise: 'Mach 0.82', engines: 3 }],
+        [/dash ?8|q400|dh8/i,       { seats: 78, range: 1100, cruise: '360 kt', engines: 2 }],
+        [/caravan|c-?208|\b208\b/i, { seats: 9, range: 1070, cruise: '175 kt', engines: 1 }],
+        // ── Light and business ───────────────────────────────────────────
+        [/citation|c-?750/i,        { seats: 9, range: 3070, cruise: 'Mach 0.90', engines: 2 }],
+        [/sr-?22|cirrus/i,          { seats: 3, range: 1169, cruise: '183 kt', engines: 1 }],
+        [/c-?172|cessna 172/i,      { seats: 3, range: 640, cruise: '122 kt', engines: 1 }],
+        [/xcub|cub/i,               { seats: 1, range: 800, cruise: '145 kt', engines: 1 }],
+        [/spitfire/i,               { seats: 0, range: 410, cruise: '320 kt', engines: 1 }],
+        // ── Military ─────────────────────────────────────────────────────
+        [/c-?17|globemaster/i,      { seats: 0, range: 2400, cruise: 'Mach 0.76', engines: 4 }],
+        [/c-?130|hercules/i,        { seats: 0, range: 2050, cruise: '292 kt', engines: 4 }],
+        [/a-?10/i,                  { seats: 0, range: 2240, cruise: '300 kt', engines: 2 }],
+        [/f-?22/i,                  { seats: 0, range: 1600, cruise: 'Mach 1.8', engines: 2 }],
+        [/f-?18|super hornet/i,     { seats: 0, range: 1275, cruise: 'Mach 1.6', engines: 2 }],
+        [/f-?16/i,                  { seats: 0, range: 2280, cruise: 'Mach 1.6', engines: 1 }],
+    ];
+
+    function specFor(name) {
+        var s = text(name);
+        if (!s) return null;
+        for (var i = 0; i < SPECS.length; i++) if (SPECS[i][0].test(s)) return SPECS[i][1];
+        return null;
+    }
+
+    // 7,565 rather than 7565. A four-figure distance with no separator reads as
+    // a part number at the size this prints at.
+    function group(n) { return String(n).replace(/\B(?=(\d{3})+$)/g, ','); }
+
+    /** The spec line as one string, so a template can print it with one field
+     *  and a design that wants it split can still read the parts. Empty when
+     *  we do not know the type — an invented figure on an airline's own website
+     *  is worse than a card that does not mention one. */
+    function specLine(spec) {
+        if (!spec) return '';
+        var bits = [];
+        if (spec.seats > 0) bits.push(spec.seats + ' seats');
+        if (spec.range) bits.push(group(spec.range) + ' nm');
+        if (spec.cruise) bits.push(spec.cruise);
+        return bits.join(' · ');
+    }
+
+    /* ---------------------------------------------------------------------
      * FLEET — the aircraft the VA declared, and the liveries they fly them in.
      *
      * `type` is the aircraft and `name` is the livery, both as the canonical
@@ -805,20 +915,43 @@
                     // without a line changing here.
                     var by = text(f.photographer || f.credit);
                     var byHref = https(f.photoLink || f.creditUrl);
+                    var spec = specFor(aircraft || livery);
+
+                    /* WHAT THE CARD SAYS ABOUT THE PICTURE, ON THE PICTURE.
+                     *
+                     * `credit` is the line under the card and has always been
+                     * there. `mark` is new and is a small chip in the corner of
+                     * the picture itself, because a credit that only exists
+                     * under a card is a credit that does not travel: the
+                     * picture is what gets screenshotted, linked and reposted.
+                     *
+                     * Whose name goes on it follows who made it, and nothing
+                     * else. A photograph belongs to the photographer, so the
+                     * mark is THEIR name — stamping ours across somebody else's
+                     * work would be the opposite of attribution. A VA's own
+                     * unattributed upload is theirs and gets no mark at all.
+                     * The drawn outlines are ours, and those say Inflight. */
+                    var common = {
+                        aircraft: aircraft, livery: livery,
+                        seats: spec && spec.seats > 0 ? String(spec.seats) : '',
+                        range: spec && spec.range ? group(spec.range) + ' nm' : '',
+                        cruise: spec ? spec.cruise : '',
+                        engines: spec ? String(spec.engines) : '',
+                        specs: specLine(spec),
+                    };
 
                     if (own) {
-                        return {
-                            aircraft: aircraft, livery: livery,
+                        return assign(common, {
                             image: own, fit: 'cover',
                             fallback: drawn,
                             // The VA's own upload. Credited to nobody, because
                             // it is theirs — unless they named a photographer.
                             credit: by ? 'Photo: ' + by : '',
                             creditHref: by ? byHref : '',
-                        };
+                            mark: by,
+                        });
                     }
-                    return {
-                        aircraft: aircraft, livery: livery,
+                    return assign(common, {
                         // Drawn, not fetched. See AIRCRAFT PICTURES above.
                         image: drawn,
                         fallback: drawn,
@@ -830,7 +963,8 @@
                         // paid in words; turning it into an advert on somebody
                         // else's website is not the same thing.
                         creditHref: '',
-                    };
+                        mark: 'Inflight',
+                    });
                 });
             return rows.length ? rows : null;
         });

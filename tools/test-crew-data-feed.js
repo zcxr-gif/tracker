@@ -670,6 +670,58 @@ const ROUTES = [
             /^data:image/.test(air[4].image), air[4].image.slice(0, 24));
     }
 
+    /* =====================================================================
+     * WHAT THE AEROPLANE IS, AND WHOSE PICTURE OF IT THIS IS
+     *
+     * A fleet page that prints a type and a livery twelve times tells a reader
+     * who already knows aeroplanes nothing and everybody else nothing at all.
+     * And most of the photographs on one are not the airline's: the fleet
+     * editor takes them from the community library, which records who supplied
+     * every one of them.
+     * =================================================================== */
+    section('crew-feed.js — what it carries, how far it goes, and whose photo');
+    {
+        const { feed } = loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', fleet: [
+            { type: 'Boeing 787-10 Dreamliner', name: 'Ocean', image: 'https://cdn.test/789.jpg', photographer: 'Jan Polet' },
+            { type: 'Airbus A320-200', name: 'House', image: 'https://cdn.test/320.jpg' },
+            { type: 'Airbus A350-900', name: 'Retro' },
+            { type: 'Cessna 172 Skyhawk', name: 'Trainer' },
+            { type: 'Sopwith Camel', name: 'Vintage' },
+        ] } } });
+        const air = await feed.fleet();
+
+        ok('an airliner says how many it seats and how far it goes',
+            air[0].specs === '336 seats · 6,430 nm · Mach 0.85', air[0].specs);
+        ok('…and hands the parts over separately too',
+            air[0].seats === '336' && air[0].range === '6,430 nm' && air[0].engines === '2',
+            JSON.stringify({ seats: air[0].seats, range: air[0].range, engines: air[0].engines }));
+        ok('a four-figure range is grouped, not read as a part number',
+            /8,100 nm/.test(air[2].specs), air[2].specs);
+        // The whole point of a table rather than a default: a Cessna is not an
+        // airliner and must not be described as one.
+        ok('a light aircraft gets its own figures', air[3].specs === '3 seats · 640 nm · 122 kt', air[3].specs);
+        // An invented figure on an airline's own website is worse than a card
+        // that does not mention one.
+        ok('a type we do not recognise says nothing rather than guessing',
+            air[4].specs === '' && air[4].seats === '' && air[4].cruise === '',
+            JSON.stringify({ specs: air[4].specs, seats: air[4].seats }));
+
+        /* THE MARK, which is the credit where it cannot be separated from the
+           picture. Whose name goes on it follows who made it and nothing else:
+           stamping ours across a photographer's work would be the opposite of
+           attribution. */
+        ok('a photographer is named on the picture itself', air[0].mark === 'Jan Polet', air[0].mark);
+        ok('…and under it', air[0].credit === 'Photo: Jan Polet', air[0].credit);
+        ok('an airline’s own upload carries no mark at all',
+            air[1].mark === '' && air[1].credit === '', JSON.stringify([air[1].mark, air[1].credit]));
+        ok('an outline we drew says Inflight', air[2].mark === 'Inflight', air[2].mark);
+        ok('…and a photographer with a page gets a link to it',
+            (await loadFeed({ '/api/va-ads/by-slug/amv': { body: { name: 'X', fleet: [
+                { type: 'Airbus A320-200', name: 'H', image: 'https://cdn.test/a.jpg',
+                  photographer: 'A Name', photoLink: 'https://example.test/a' },
+            ] } } }).feed.fleet())[0].creditHref === 'https://example.test/a');
+    }
+
     {
         /* THE OUTLINE IS DRAWN IN THE AIRLINE'S OWN COLOUR.
          *
