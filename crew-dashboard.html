@@ -34,6 +34,11 @@
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
          only has to say where the backend is and hand it the session. -->
     <script src="/crewEvents.js"></script>
+    <!-- The network, drawn here rather than fetched. The route map proper is
+         MapLibre over OpenFreeMap and is the better thing when it loads; this
+         is what the crew centre shows when it does not. No tiles, no engine, no
+         host to be blocked by an office proxy or an ad-blocker. -->
+    <script src="/crewNetMap.js"></script>
     <!-- The shared panel chrome the four modules below are built from: the
          slide-over shell, the toast, the API helper and the date formatting.
          Must load before them. -->
@@ -5371,16 +5376,31 @@
         const RM={ map:null, ready:false, data:null, routeFeat:[], aptFeat:[], aptCoords:{}, markers:[], activeOnly:true, canManage:false, styleDark:false, dataHadRoutes:false };
 
         let _rmLibPromise=null;
+        /* THE ENGINE, AND A DEADLINE.
+         *
+         * Two things were wrong with the old loader. A rejection was CACHED, so
+         * one bad minute on the network left the map broken for the rest of the
+         * session — pressing Map again re-used the failed promise and failed
+         * instantly, which reads as "this feature is broken" rather than "try
+         * again". And there was no deadline at all: a script tag that neither
+         * loads nor errors (a proxy that blackholes the request rather than
+         * refusing it, which is what most of them do) left the spinner turning
+         * for ever. */
         function rmLoadMapLibre(){
             if(window.maplibregl) return Promise.resolve();
             if(_rmLibPromise) return _rmLibPromise;
             _rmLibPromise=new Promise((resolve,reject)=>{
+                let settled=false;
+                const done=(err)=>{ if(settled) return; settled=true; clearTimeout(timer); err?reject(err):resolve(); };
                 const css=document.createElement('link'); css.rel='stylesheet';
                 css.href=`https://unpkg.com/maplibre-gl@${RM_MAPLIBRE_VERSION}/dist/maplibre-gl.css`; document.head.appendChild(css);
                 const s=document.createElement('script');
                 s.src=`https://unpkg.com/maplibre-gl@${RM_MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
-                s.onload=()=>resolve(); s.onerror=()=>reject(new Error('map engine failed to load')); document.head.appendChild(s);
-            });
+                s.onload=()=>done(window.maplibregl?null:new Error('map engine loaded but did not start'));
+                s.onerror=()=>done(new Error('map engine failed to load'));
+                document.head.appendChild(s);
+                const timer=setTimeout(()=>done(new Error('map engine timed out')), 9000);
+            }).catch((err)=>{ _rmLibPromise=null; throw err; });
             return _rmLibPromise;
         }
 
@@ -5479,8 +5499,12 @@
             const at=document.getElementById('rmActiveToggle'); if(at) at.style.display=RM.canManage?'':'none';
             document.addEventListener('keydown',rmEsc);
             if(!RM._obs){ RM._obs=new MutationObserver(()=>{ if(document.getElementById('routeMap').classList.contains('hidden'))return; if(isDark()!==RM.styleDark) rmBuildMap(); }); RM._obs.observe(document.documentElement,{attributes:true,attributeFilter:['class']}); }
-            try{ await rmLoadMapLibre(); await rmFetch(); rmBuildMap(); }
-            catch(err){ rmFail(err&&err.message); }
+            RM.fallback=false;
+            // The network first, whatever happens to the engine: the data is
+            // ours and it is what the fallback draws from.
+            try{ await rmFetch(); }catch{}
+            try{ await rmLoadMapLibre(); rmBuildMap(); }
+            catch(err){ rmDrawFallback(err&&err.message); }
             if(window.lucide) lucide.createIcons();
         }
         function rmEsc(e){ if(e.key==='Escape') closeRouteMap(); }
@@ -5490,12 +5514,110 @@
             document.removeEventListener('keydown',rmEsc);
             RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
             if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; } RM.ready=false;
+            clearTimeout(RM._watchdog);
+            // The drawn map is markup in the canvas, not a library instance, so
+            // closing has to clear it or it is still there behind the next one.
+            if(RM.fallback){ document.getElementById('rmCanvas').innerHTML=''; RM.fallback=false; rmHideFallbackNote(); }
         }
         function rmFail(msg){
             document.getElementById('rmLoading').classList.add('hidden');
             const e=document.getElementById('rmEmpty'); e.classList.remove('hidden');
             document.getElementById('rmEmptyTitle').textContent='Map unavailable';
             document.getElementById('rmEmptyMsg').textContent=msg||"The map engine couldn't load. Check your connection and try again.";
+        }
+
+        /* ===================================================================
+         * THE MAP WHEN THE MAP DOES NOT COME
+         *
+         * The slippy map is two third-party hosts away: the engine from a CDN
+         * and the basemap from a tile service. Either one being blocked — an
+         * office proxy, an ad-blocker that eats tile hosts, a school network, a
+         * bad minute — produced a crew centre whose route map simply did not
+         * work, with a spinner or a sentence where the network should be.
+         *
+         * There is no reason for that. The route data is ours and already
+         * loaded, and the VA's own public website draws the same network with
+         * no network access at all. So the crew centre draws it too. It is a
+         * plainer map — coastlines, arcs, the busiest fields named — and it is
+         * the whole network, honestly, every time.
+         * ================================================================ */
+        function rmFallbackRoutes(){
+            // Same filters as the real map, read from the same controls, so the
+            // two views never disagree about what the network is.
+            const acSel=document.getElementById('rmAircraft'); const aircraft=acSel?acSel.value:'';
+            const sEl=document.getElementById('rmSearch'); const search=(sEl?sEl.value:'').trim().toUpperCase();
+            const kindSel=document.getElementById('rmKind'); const kind=kindSel?kindSel.value:'';
+            let rows=((RM.data&&RM.data.routes)||[]).filter(r=>r.mapped&&r.o&&r.d);
+            if(RM.activeOnly) rows=rows.filter(r=>r.active);
+            if(kind==='own') rows=rows.filter(r=>r.kind!=='codeshare');
+            else if(kind==='codeshare') rows=rows.filter(r=>r.kind==='codeshare');
+            if(aircraft) rows=rows.filter(r=>r.aircraft===aircraft);
+            if(search) rows=rows.filter(r=>String(r.origin).includes(search)||String(r.destination).includes(search));
+            return rows.map(r=>({ id:String(r.id), origin:r.origin, destination:r.destination, o:r.o, d:r.d,
+                active:r.active!==false, codeshare:r.kind==='codeshare' }));
+        }
+        function rmDrawFallback(why){
+            RM.fallback=true;
+            if(why) RM._why=why;
+            if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; }
+            RM.ready=false;
+            RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
+            document.getElementById('rmLoading').classList.add('hidden');
+            const canvas=document.getElementById('rmCanvas');
+            if(!window.CrewNetMap){ return rmFail(why); }
+            RM.accent=rmAccent();
+            document.getElementById('routeMap').style.setProperty('--rm-accent',RM.accent);
+            const rows=rmFallbackRoutes();
+            const drawn=CrewNetMap.draw(canvas, {
+                routes: rows, accent: RM.accent, dark: isDark(),
+                onAirport: (icao)=>rmFocusAirport(icao),
+                onRoute: (id)=>rmFocusRoute(id),
+            });
+            // The stats row reads GeoJSON features, because the real map's
+            // filtered set is GeoJSON. Same numbers either way, so the rows are
+            // dressed as features rather than the counting being written twice.
+            const feats=rows.map(r=>({properties:{
+                origin:r.origin, destination:r.destination, codeshare:r.codeshare,
+                distanceNm:(((RM.data&&RM.data.routes)||[]).find(x=>String(x.id)===r.id)||{}).distanceNm||0,
+            }}));
+            rmUpdateStats(feats, [...new Set(rows.flatMap(r=>[r.origin,r.destination]))].map(i=>({properties:{icao:i}})));
+            // An empty network and an unreachable map are different problems and
+            // get different words.
+            const empty=document.getElementById('rmEmpty');
+            if(!drawn){
+                empty.classList.remove('hidden');
+                const any=((RM.data&&RM.data.routes)||[]).some(r=>r.mapped);
+                document.getElementById('rmEmptyTitle').textContent=any?'No routes match':'No routes on the map yet';
+                document.getElementById('rmEmptyMsg').textContent=any
+                    ?'Try clearing the aircraft filter or airport search.'
+                    :"Add routes with valid ICAO airports and they'll appear here as a live network.";
+            } else empty.classList.add('hidden');
+            rmShowFallbackNote(why||RM._why);
+        }
+        /* Said, not hidden. A reader who can see their network drawn but plainer
+         * than usual deserves to know why, and to be able to ask for the other
+         * one back once whatever was in the way has gone. */
+        function rmShowFallbackNote(why){
+            let n=document.getElementById('rmFallbackNote');
+            if(!n){
+                n=document.createElement('div');
+                n.id='rmFallbackNote';
+                n.className='absolute left-1/2 -translate-x-1/2 top-[4.5rem] z-20 surface hair rounded-lg px-3 py-2 text-xs shadow-sm flex items-center gap-2 max-w-[calc(100%-2rem)]';
+                n.innerHTML='<span class="muted"></span><button type="button" onclick="rmRetryEngine()" class="font-semibold accent-text shrink-0">Try again</button>';
+                document.getElementById('routeMap').appendChild(n);
+            }
+            n.querySelector('span').textContent='Showing a simplified map — the interactive one could not load'
+                + (why?` (${why})`:'') + '.';
+            n.classList.remove('hidden');
+        }
+        function rmHideFallbackNote(){
+            const n=document.getElementById('rmFallbackNote'); if(n) n.classList.add('hidden');
+        }
+        async function rmRetryEngine(){
+            rmHideFallbackNote();
+            document.getElementById('rmLoading').classList.remove('hidden');
+            try{ await rmLoadMapLibre(); RM.fallback=false; document.getElementById('rmCanvas').innerHTML=''; rmBuildMap(); }
+            catch(err){ rmDrawFallback(err&&err.message); }
         }
         function rmBuildMap(){
             document.getElementById('rmLoading').classList.remove('hidden');
@@ -5508,9 +5630,25 @@
                 center:[8,28], zoom:1.3, minZoom:0.6, maxZoom:9, attributionControl:false, dragRotate:false });
             RM.map=map;
             map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
-            map.on('load',()=>{ rmAddLayers(); RM.ready=true; rmApplyFilters(); rmFitAll(); map.resize();
+            /* A DEADLINE ON THE BASEMAP TOO.
+             *
+             * `load` fires once the style has arrived. If the tile host is the
+             * thing being blocked — which is the commoner of the two, because
+             * ad-blockers eat tile hosts — it never fires: no error the old code
+             * looked at, no map, and a spinner that turns for ever. The network
+             * is drawn instead, which is the part the reader came for. */
+            clearTimeout(RM._watchdog);
+            RM._watchdog=setTimeout(()=>{
+                if(RM.ready||RM.fallback) return;
+                rmDrawFallback('the basemap did not arrive');
+            }, 10000);
+            map.on('load',()=>{ clearTimeout(RM._watchdog); RM.fallback=false; rmHideFallbackNote();
+                rmAddLayers(); RM.ready=true; rmApplyFilters(); rmFitAll(); map.resize();
                 document.getElementById('rmLoading').classList.add('hidden'); });
-            map.on('error',()=>{}); // swallow tile hiccups; the network overlay still renders
+            // A tile that hiccups once is not a reason to throw the map away —
+            // the network overlay still renders over the gap. A style that never
+            // arrives at all is, and the watchdog above is what catches it.
+            map.on('error',()=>{});
         }
         function rmAddLayers(){
             const map=RM.map, accent=RM.accent;
@@ -5572,6 +5710,8 @@
             t.style.left=Math.max(8,x)+'px'; t.style.top=Math.max(8,y)+'px';
         }
         function rmApplyFilters(){
+            // Same controls, same answer, whichever map is on screen.
+            if(RM.fallback) return rmDrawFallback(RM._why);
             if(!RM.map||!RM.ready) return;
             const acSel=document.getElementById('rmAircraft'); const aircraft=acSel?acSel.value:'';
             const sEl=document.getElementById('rmSearch'); const search=(sEl?sEl.value:'').trim().toUpperCase();
@@ -5636,21 +5776,29 @@
             host.innerHTML=chips.join(''); if(window.lucide) lucide.createIcons();
         }
         function rmToggleActive(){ if(!RM.canManage) return; RM.activeOnly=!RM.activeOnly; rmApplyFilters(); }
+        /* The rail is the point of tapping something, and it is the same rail on
+         * either map. Only the HIGHLIGHT is MapLibre's — the drawn map has no
+         * paint properties to set — so the two lines that talk to the engine are
+         * guarded rather than the whole function being written twice. */
         function rmFocusAirport(icao,keep){
             RM.focusApt=icao; RM.focusRoute=null;
             const match=['any',['==',['get','origin'],icao],['==',['get','destination'],icao]];
-            RM.map.setFilter('rm-routes-hi',match);
-            RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',match,0.9,0.1]);
-            const touching=(RM.filteredRoutes||[]).filter(f=>f.properties.origin===icao||f.properties.destination===icao).map(f=>f.properties);
+            if(RM.map&&RM.ready){
+                RM.map.setFilter('rm-routes-hi',match);
+                RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',match,0.9,0.1]);
+            }
+            const touching=(RM.filteredRoutes||RM.routeFeat||[]).filter(f=>f.properties.origin===icao||f.properties.destination===icao).map(f=>f.properties);
             rmOpenAirportRail(icao,touching);
-            if(!keep) rmFitFeatures(touching);
+            if(!keep&&RM.map&&RM.ready) rmFitFeatures(touching);
         }
         function rmFocusRoute(id,keep){
             id=String(id); RM.focusRoute=id; RM.focusApt=null;
-            RM.map.setFilter('rm-routes-hi',['==',['get','id'],id]);
-            RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',['==',['get','id'],id],0.95,0.1]);
+            if(RM.map&&RM.ready){
+                RM.map.setFilter('rm-routes-hi',['==',['get','id'],id]);
+                RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',['==',['get','id'],id],0.95,0.1]);
+            }
             const r=RM.routeFeat.find(f=>f.properties.id===id);
-            if(r){ rmOpenRouteRail(r.properties); if(!keep) rmFitFeatures([r.properties]); }
+            if(r){ rmOpenRouteRail(r.properties); if(!keep&&RM.map&&RM.ready) rmFitFeatures([r.properties]); }
         }
         function rmClearFocus(){
             RM.focusApt=null; RM.focusRoute=null;
@@ -5789,6 +5937,9 @@
             rmRailShow(head, body);
         }
         function rmFitAll(){
+            // The drawn map fits itself: it is cropped to the network every time
+            // it is drawn, so redrawing IS fitting.
+            if(RM.fallback) return rmDrawFallback();
             if(!RM.map||!RM.ready) return;
             const apts=RM.filteredApts||[];
             if(!apts.length) return;
