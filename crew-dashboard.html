@@ -18,6 +18,17 @@
          a VA that has never chosen gets `essential`, which matches nothing in
          that sheet and leaves this page exactly as it was. -->
     <script src="/crewSkin.js"></script>
+    <!-- Keeps the airline's accent readable: the ink that sits on it, and a
+         version of it that stays legible as text on this page. See crewAccent.js.
+         After the skin, so the ground it measures against is the one in force. -->
+    <script src="/crewAccent.js"></script>
+    <!-- The walk around the page a first-time reader gets. Self-contained:
+         its own styles, no library, and it wears whatever palette is in force. -->
+    <script src="/crewTour.js"></script>
+    <!-- The moment between signing in and being in: a ring while the page
+         loads, a tick when it is ready, then the airline's own mark. Only ever
+         after a sign-in, and it lifts on a ceiling whatever happens. -->
+    <script src="/crewSplash.js"></script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
@@ -104,7 +115,21 @@
         .surface{ background:var(--surface); border:1px solid var(--line); }
         .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
         .muted{ color:var(--muted); } .faint{ color:var(--faint); }
-        .accent-text{ color:var(--accent); } .accent-bg{ background:var(--accent); }
+        /* THE HIGHLIGHTS, READABLE WHATEVER COLOUR THE AIRLINE PICKED.
+
+           --accent is the airline's own hex and is used unchanged as a block of
+           colour. The two properties beside it are derived from it by
+           crewAccent.js: --accent-ink is the ink that is legible ON it (a cream
+           or sky-blue brand needs dark text, not the white this used to hard-code
+           and then hide under), and --accent-on is the accent moved far enough in
+           lightness to be readable AS text on this page — which is what stops a
+           near-black accent from vanishing into the dark interface.
+
+           The compound selector is deliberate: it out-specifies the text-white
+           utility these controls are written with, without an !important. */
+        .accent-text{ color:var(--accent-on, var(--accent)); }
+        .accent-bg{ background:var(--accent-fill, var(--accent)); }
+        .accent-bg, .accent-bg.text-white{ color:var(--accent-ink, #fff); }
         .tile{ transition:border-color .2s, transform .2s; }
         /* Schedule settings: the picked booking mode reads as picked, and the
            label takes the focus ring because the radio inside it is sr-only. */
@@ -635,6 +660,18 @@
             </div>
             <div class="p-5">
               <div data-panel="appearance" class="space-y-6">
+                <!-- THE WALK AROUND, again. It runs itself once per browser;
+                     this is how somebody gets it back — a new staff member on a
+                     shared machine, or an owner who skipped it on the first day
+                     and would now like to know what the tiles are. -->
+                <div class="flex items-center justify-between gap-3 rounded-xl border hair p-3.5">
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold">Show me around</div>
+                        <div class="text-xs muted">A short walk through this page. Nothing is changed by it.</div>
+                    </div>
+                    <button onclick="replayTour()" class="accent-bg text-sm font-semibold px-3.5 py-2 rounded-md hover:opacity-90 transition shrink-0">Start</button>
+                </div>
+
                 <!-- INTERFACE — which of the two looks the crew center wears.
                      Above Layout on purpose: this is the bigger decision of the
                      two, and the layout presets below are arrangements WITHIN
@@ -724,6 +761,23 @@
               <div data-panel="crew" class="space-y-6 hidden">
                 <!-- Crew structure — ranks + roles (owner / staff) -->
                 <div id="crewStructureBlock">
+                    <!-- WHERE THE AIRLINE IS FROM.
+                         Two letters, and everything else is derived from them:
+                         the flag in your website's footer, and the country's
+                         name in whatever language the reader's browser is set
+                         to. Nothing to upload and nothing to spell. -->
+                    <div class="mb-5">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Where you fly from</h3>
+                        <p class="text-xs muted mb-2">Your country of origin. Its flag goes in the footer of your website.</p>
+                        <div class="flex items-center gap-2">
+                            <span id="countryFlag" class="text-2xl leading-none w-8 text-center" aria-hidden="true"></span>
+                            <input id="countryInput" maxlength="2" value="" placeholder="IN" oninput="onCountryInput()" class="w-20 surface hair rounded-md px-2.5 py-2 text-sm uppercase tracking-widest focus:outline-none focus:border-[var(--ink)]">
+                            <span id="countryName" class="text-sm muted flex-1 min-w-0 truncate"></span>
+                            <button onclick="saveCountry(this)" class="accent-bg text-white rounded-lg px-3 py-2 text-sm font-semibold hover:opacity-90 transition shrink-0">Save</button>
+                        </div>
+                        <p id="countryNote" class="hidden text-sm mt-2"></p>
+                    </div>
+
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Crew structure</h3>
                     <p class="text-xs muted mb-1">Pick an icon or upload your own badge art (a transparent PNG looks best). Need to cut out a background? <a href="https://www.remove.bg/upload" target="_blank" rel="noopener" class="accent-text font-medium underline">remove.bg</a></p>
                     <p class="text-xs muted mb-3 inline-flex items-start gap-1.5"><i data-lucide="hard-drive-upload" class="w-3.5 h-3.5 mt-0.5 shrink-0"></i> <span>Inflight hosts your badge art for you — it won’t use your own storage.</span></p>
@@ -745,7 +799,10 @@
                     <div>
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm font-semibold">Roles</span>
-                            <button onclick="addRole()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                            <div class="flex items-center gap-3">
+                                <button id="roleStarter" onclick="starterRoles()" class="text-xs muted hover:text-[var(--ink)] font-medium">Use a starter set</button>
+                                <button onclick="addRole()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                            </div>
                         </div>
                         <!-- The "Staff" tick here is a BADGE, not a permission,
                              and the two were being confused: an owner naming a
@@ -753,7 +810,7 @@
                              reasonably expect that person to gain something, and
                              nothing in the product read that flag. Say what it
                              does, and say where the permissions actually are. -->
-                        <p class="text-xs muted mb-2">Roles are <b>badges on the roster</b> — a title next to a pilot's name. The <b>Staff</b> tick only marks the badge as a staff one; it grants no access.
+                        <p class="text-xs muted mb-2">Roles are <b>badges on the roster</b> — a title next to a pilot's name. The <b>Staff</b> tick marks the badge as a staff one and puts its holders on your website's <b>Who runs it</b> section; it grants no access. The order matters there: whoever holds the <b>first</b> role is featured at the top.
                             To choose what somebody can <b>do</b>, use <button type="button" onclick="setCat('team')" class="accent-text font-semibold underline">Settings › Team</button>.</p>
                         <div id="rolePreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
                         <div id="roleRows" class="space-y-2"></div>
@@ -3483,12 +3540,20 @@
             </div>`;
         }
         function roleRowHtml(r,i){
-            return `<div class="struct-row flex items-center gap-2" data-kind="roles" data-idx="${i}">
-                <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
-                ${badgeControl(r)}
-                <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Role name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                <label class="flex items-center gap-1 text-[11px] muted shrink-0 cursor-pointer"><input data-f="staff" type="checkbox" ${r.staff?'checked':''}> Staff</label>
-                <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            // The message belongs to the ROLE, not to the person holding it —
+            // so the chief executive's welcome survives a handover instead of
+            // leaving with them. It is a second line rather than another box on
+            // the first, because a sentence typed into a 10ch input is a
+            // sentence nobody can read back.
+            return `<div class="struct-row space-y-2" data-kind="roles" data-idx="${i}">
+                <div class="flex items-center gap-2">
+                    <input data-f="color" type="color" value="${isHex(r.color)?r.color:'#4f46e5'}" class="w-8 h-8 rounded-md border hair bg-transparent p-0 shrink-0 cursor-pointer">
+                    ${badgeControl(r)}
+                    <input data-f="name" value="${escapeHtml(r.name||'')}" placeholder="Role name" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <label class="flex items-center gap-1 text-[11px] muted shrink-0 cursor-pointer"><input data-f="staff" type="checkbox" ${r.staff?'checked':''}> Staff</label>
+                    <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+                <input data-f="message" value="${escapeHtml(r.message||'')}" maxlength="400" placeholder="A short word from whoever holds this role — shown on your website (optional)" class="w-full surface hair rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--ink)]">
             </div>`;
         }
         function renderStructure(){
@@ -3502,6 +3567,8 @@
                 document.getElementById('roleRows').innerHTML = ROLES.map(roleRowHtml).join('');
                 const fr=document.getElementById('fleetRows'); if(fr) fr.innerHTML = FLEET.map(fleetRowHtml).join('');
                 document.getElementById('rankStarter').classList.toggle('hidden', RANKS.length>0);
+                const roleStarter=document.getElementById('roleStarter');
+                if(roleStarter) roleStarter.classList.toggle('hidden', ROLES.length>0);
                 renderBadgePreview();
                 if(window.lucide) lucide.createIcons();
             });
@@ -3613,7 +3680,26 @@
             });
         }
         function addRank(){ RANKS.push({name:'',minHours:RANKS.length?0:0,color:'#4f46e5',icon:'star',requiresCheck:false,checkNote:''}); renderStructure(); focusNewRow('rankRows'); }
-        function addRole(){ ROLES.push({name:'',color:'#4f46e5',icon:'shield',staff:false}); renderStructure(); focusNewRow('roleRows'); }
+        function addRole(){ ROLES.push({name:'',color:'#4f46e5',icon:'shield',staff:false,message:''}); renderStructure(); focusNewRow('roleRows'); }
+        /* The structure almost every VA ends up with, in the order almost every
+         * VA wants it read: the chief executive first, their deputy second, then
+         * the people who actually run the departments.
+         *
+         * The ORDER is not cosmetic. A VA's website features the holder of the
+         * FIRST role — see the staff section in the site builder — so the list
+         * starting at the top of the airline is what puts the right person at
+         * the top of the page. */
+        function starterRoles(){
+            ROLES=[
+                {name:'Chief Executive Officer',color:'#b45309',icon:'crown',staff:true,message:''},
+                {name:'Chief Operating Officer',color:'#0f766e',icon:'shield',staff:true,message:''},
+                {name:'Head of Operations',color:'#d97706',icon:'route',staff:true,message:''},
+                {name:'Head of Recruitment',color:'#16a34a',icon:'user-plus',staff:true,message:''},
+                {name:'Head of Events',color:'#db2777',icon:'calendar',staff:true,message:''},
+                {name:'Head of Media',color:'#0ea5e9',icon:'camera',staff:true,message:''},
+            ];
+            renderStructure();
+        }
         function starterRanks(){
             RANKS=[{name:'Cadet',minHours:0,color:'#64748b',icon:'star'},{name:'Second Officer',minHours:25,color:'#0ea5e9',icon:'chevrons-up'},{name:'First Officer',minHours:100,color:'#4f46e5',icon:'award'},{name:'Captain',minHours:300,color:'#d97706',icon:'medal'},{name:'Senior Captain',minHours:750,color:'#dc2626',icon:'crown'}];
             renderStructure();
@@ -3644,6 +3730,62 @@
             if(status>=400)  return `The server refused the save (${status}) without saying why. Please report this number.`;
             return `Could not save (server said ${status}).`;
         }
+        /* ---- Country of origin -------------------------------------------
+         *
+         * Stored as two letters. The flag is BUILT from them — a pair of
+         * regional-indicator code points — rather than fetched, so there is no
+         * image to host and none to go missing, and the name comes from the
+         * browser's own country list rather than from a table we would have to
+         * keep. A browser too old for either shows the code, which is still
+         * the country said plainly.
+         * ---------------------------------------------------------------- */
+        let COUNTRY='';
+        function flagEmoji(cc){
+            const c=String(cc||'').toUpperCase();
+            if(!/^[A-Z]{2}$/.test(c)) return '';
+            try{ return String.fromCodePoint(0x1F1E6+c.charCodeAt(0)-65, 0x1F1E6+c.charCodeAt(1)-65); }catch{ return ''; }
+        }
+        function countryNameOf(cc){
+            const c=String(cc||'').toUpperCase();
+            if(!/^[A-Z]{2}$/.test(c)) return '';
+            try{ return new Intl.DisplayNames(undefined,{type:'region'}).of(c)||''; }catch{ return ''; }
+        }
+        function renderCountry(){
+            const box=document.getElementById('countryInput'); if(!box) return;
+            if(document.activeElement!==box) box.value=COUNTRY;
+            const cc=String(box.value||'').toUpperCase();
+            document.getElementById('countryFlag').textContent=flagEmoji(cc);
+            // An unrecognised pair is named as such rather than left blank: two
+            // letters that are not a country look exactly like two that are.
+            const named=countryNameOf(cc);
+            document.getElementById('countryName').textContent=cc.length===2 ? (named||'Not a country code') : '';
+        }
+        function onCountryInput(){
+            const box=document.getElementById('countryInput');
+            box.value=String(box.value||'').replace(/[^A-Za-z]/g,'').toUpperCase().slice(0,2);
+            renderCountry();
+        }
+        async function saveCountry(btn){
+            const note=document.getElementById('countryNote');
+            const say=(msg,cls)=>{ note.textContent=msg; note.className='text-sm mt-2 '+cls; note.classList.remove('hidden'); };
+            const cc=String(document.getElementById('countryInput').value||'').toUpperCase();
+            if(cc && !/^[A-Z]{2}$/.test(cc)) return say('A country code is two letters — IN, MX, GB. Leave it empty for none.','text-amber-600 dark:text-amber-400');
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return say('Sign in as owner or staff to save this.','muted');
+            const stop=busy(btn,'Saving…');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ country: cc }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok) return say(d.error||saveFailureReason(res.status),'text-red-500');
+                COUNTRY=typeof d.country==='string'?d.country:cc;
+                renderCountry();
+                say(COUNTRY?`Saved — ${countryNameOf(COUNTRY)||COUNTRY}.`:'Saved — no country set.','text-emerald-600 dark:text-emerald-400');
+            }catch{ say('Server unreachable. Please try again.','text-red-500'); }
+            finally{ stop(); }
+        }
+
         async function saveStructure(kind, btn){
             const stop=busy(btn,'Saving…');
             try{ await saveStructureInner(kind); } finally{ stop(); }
@@ -7655,6 +7797,7 @@
             // Not applied here: the mode is resolved in one place (boot, below),
             // because a device-local choice and a ?topics= preview both outrank
             // what the crew record says and this is only one of the three.
+            if(typeof b.country==='string'){ COUNTRY=b.country.toUpperCase(); renderCountry(); }
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
             if(Array.isArray(b.fleet)) FLEET=normalizeFleet(b.fleet);
@@ -7719,8 +7862,46 @@
             }
             el.textContent=name;
             roleEl.textContent=who.oversight?'Inflight · Oversight':(ROLE_LABEL[who.role]||'Member');
-            av.textContent=initials(name,'');
+            // Their Discord picture where they have linked one — /me carries it
+            // — and their initials where they have not. The stored session has
+            // no avatar in it, so a first paint from localStorage draws the
+            // initials and loadMe replaces them a moment later.
+            paintAvatar(av, who.discord && who.discord.avatar, name);
         }
+
+        /* ---- THE PICTURE ON THE AVATAR BUTTON ----------------------------
+         *
+         * A pilot who has linked Discord has a picture of themselves already,
+         * and the crew centre was drawing their initials over it. Initials are
+         * the right fallback and a poor first choice: a roster of six people
+         * whose names all begin with J is six identical circles.
+         *
+         * THE URL IS RE-CHECKED HERE even though the backend built it from a
+         * closed alphabet (see avatarUrl in crewDiscord.js). It goes in an src,
+         * and an src is where a wrong string stops being a broken image.
+         *
+         * AND IT FALLS BACK ON ERROR. The avatar HASH is stored at link time
+         * and Discord changes it the moment somebody changes their picture, so
+         * a URL that worked in March is a 404 in June. The initials go back the
+         * instant the image fails, which is the difference between a stale
+         * avatar and a broken-image glyph in the corner of every page.
+         */
+        function paintAvatar(el, url, name){
+            if(!el) return;
+            const initial = initials(name || '', '');
+            const ok = (u) => { try{ const x=new URL(String(u||'')); return x.protocol==='https:' && x.hostname==='cdn.discordapp.com'; }catch{ return false; } };
+            if(!ok(url)){ el.textContent = initial; return; }
+            const img = document.createElement('img');
+            img.className = 'w-full h-full rounded-full object-cover';
+            img.alt = '';
+            img.decoding = 'async';
+            img.referrerPolicy = 'no-referrer';
+            img.addEventListener('error', () => { el.textContent = initial; });
+            img.src = url;
+            el.textContent = '';
+            el.appendChild(img);
+        }
+
         function readSession(){
             let s=null; try{ s=JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null'); }catch{}
             IS_OWNER = !!(s && (s.role==='owner' || s.oversight));
@@ -7829,8 +8010,79 @@
             window.addEventListener('focus', catchUp);
         }
 
+        /* ---- The walk around, for somebody who has just arrived ----------
+         *
+         * An owner signing in for the first time is handed the densest screen
+         * on the platform and told nothing about it. These are seven sentences
+         * about what is already in front of them, in the order the work
+         * actually happens: set the database up, then the people, then the
+         * flying, then how it all looks.
+         *
+         * Every step names something the reader can SEE. A step whose target is
+         * not on this page — the setup banner on a crew centre that is already
+         * connected, a tile a staff member has no permission for — is dropped
+         * by crewTour.js rather than spotlighting an empty rectangle, which is
+         * why several of these are written to be true either way.
+         *
+         * It runs once per browser per crew centre. "Show me around" in the
+         * settings drawer replays it, which is the only reason the steps are
+         * registered even when they are not shown.
+         */
+        function offerTour(){
+            if(!window.CrewTour) return;
+            const steps=[
+                {
+                    title:`Welcome to ${CREW_NAME||'your crew centre'}`,
+                    body:'Ninety seconds on what is on this page and where the work happens. You can leave at any point — nothing here changes anything.',
+                },
+                {
+                    el:'#onboard',
+                    title:'Start here',
+                    body:'Your crew, your flights and your pilots\u2019 logins live in your own database, not ours. One token sets it up, and most of this page stays empty until it is done.',
+                },
+                {
+                    el:'.r-identity',
+                    title:'Your airline, as a recruit sees it',
+                    body:'Your name, logo and tagline come from your Inflight VA profile. Roster and Schedule are the two screens you will open most.',
+                },
+                {
+                    el:'#crewStats',
+                    title:'How the airline is doing',
+                    body:'Pilots, flying in the last thirty days, hours logged and reports waiting on you. Counted in your own database — a dash means we have not learned that figure yet, never zero.',
+                },
+                {
+                    el:'#toolGrid',
+                    title:'Everything you run',
+                    body:'The roster, the route network, the schedule, events, the noticeboard and your website. Press Customize above to choose which of these tiles you keep and in what order.',
+                },
+                {
+                    el:'[data-crew-search]',
+                    title:'Anything, by name',
+                    body:'A pilot, a route, an event, a setting. Type here or press the slash key from anywhere on the page.',
+                },
+                {
+                    el:'#meAvatar',
+                    title:'That is the tour',
+                    body:'Your account sits here. The walk is in Settings \u203a Appearance if you would like it again — and the roster is the usual next stop.',
+                },
+            ];
+            CrewTour.offer({ id:'staff', version:1, slug:getSlug(), steps });
+        }
+        /* Replaying it means closing the drawer it was started from: every step
+         * points at the page underneath, and a spotlight behind a full-screen
+         * settings panel is a dark rectangle over nothing. */
+        function replayTour(){
+            if(!window.CrewTour) return;
+            closeSettings();
+            setTimeout(()=>CrewTour.replay('staff'), 260);
+        }
+
         // ---- Boot ----
         (async function(){
+            // Before anything is drawn: if this is an arrival from the sign-in
+            // page, the cover goes up now and comes down when the page below it
+            // is worth looking at.
+            if(window.CrewSplash) CrewSplash.arm({ slug:getSlug() });
             wireLiveUpdates();
             renderTiles(); readSession();
             const b = await resolveBranding();
@@ -7880,6 +8132,12 @@
             // who is asking — which is how a panel loads signed out and then
             // has to reload itself.
             if(window.CrewTopics) CrewTopics.start();
+            // The page is worth looking at now. The cover completes its ring,
+            // draws the tick, shows the airline and lifts.
+            if(window.CrewSplash) CrewSplash.done({ name:CREW_NAME, logo:(b&&b.logo)||'' });
+            // And the walk waits for it: a spotlight opening under a full-page
+            // cover is a dark rectangle over nothing.
+            if(window.CrewSplash) CrewSplash.whenClear(offerTour); else offerTour();
         })();
     </script>
 </body>

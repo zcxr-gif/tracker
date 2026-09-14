@@ -15,6 +15,10 @@
          Sets data-skin on <html> before the first paint; a VA that has never
          chosen gets `essential`, which leaves this page exactly as it was. -->
     <script src="/crewSkin.js"></script>
+    <!-- Keeps the airline's accent readable: the ink that sits on it, and a
+         version of it that stays legible as text on this page. See crewAccent.js.
+         After the skin, so the ground it measures against is the one in force. -->
+    <script src="/crewAccent.js"></script>
     <!-- For its confirm dialog. This builder is reached by navigating the crew
          center, which can itself be framed in a VA's own site or the app's Crew
          Center overlay — and window.confirm is blocked outright in a
@@ -40,7 +44,21 @@
         .surface{ background:var(--surface); border:1px solid var(--line); }
         .hair{ border-color:var(--line); }
         .muted{ color:var(--muted); } .faint{ color:var(--faint); }
-        .accent-text{ color:var(--accent); } .accent-bg{ background:var(--accent); }
+        /* THE HIGHLIGHTS, READABLE WHATEVER COLOUR THE AIRLINE PICKED.
+
+           --accent is the airline's own hex and is used unchanged as a block of
+           colour. The two properties beside it are derived from it by
+           crewAccent.js: --accent-ink is the ink that is legible ON it (a cream
+           or sky-blue brand needs dark text, not the white this used to hard-code
+           and then hide under), and --accent-on is the accent moved far enough in
+           lightness to be readable AS text on this page — which is what stops a
+           near-black accent from vanishing into the dark interface.
+
+           The compound selector is deliberate: it out-specifies the text-white
+           utility these controls are written with, without an !important. */
+        .accent-text{ color:var(--accent-on, var(--accent)); }
+        .accent-bg{ background:var(--accent-fill, var(--accent)); }
+        .accent-bg, .accent-bg.text-white{ color:var(--accent-ink, #fff); }
         ::placeholder{ color:var(--faint); }
         input,select,textarea{ font-family:inherit; max-width:100%; }
         .field{
@@ -48,8 +66,10 @@
             border-radius:.6rem; padding:.5rem .65rem; font-size:.875rem; outline:none;
         }
         .field:focus{ border-color:var(--accent); }
+        /* Same rule as .accent-bg: the ink is decided by how bright the
+           airline's accent is, not assumed to be the page's surface colour. */
         .btn{
-            background:var(--accent); color:var(--surface); border-radius:.6rem;
+            background:var(--accent-fill, var(--accent)); color:var(--accent-ink, var(--surface)); border-radius:.6rem;
             padding:.5rem .9rem; font-size:.875rem; font-weight:600; display:inline-flex;
             align-items:center; gap:.4rem; justify-content:center;
         }

@@ -31,7 +31,10 @@
      const pulse = await CrewFeed.activity();     // [] of what the airline did
 
    The full set: routes, network, stats, events, schedule, notices, activity,
-   posts, handle, brand, ranks, fleet, roles, hubs, partners.
+   posts, handle, brand, ranks, fleet, roles, staff, roster, hubs, partners.
+
+   `roles` is the airline's DEPARTMENTS and `staff` is the PEOPLE holding them
+   — name, rank, Community handle, and the short word the role carries.
 
    `hubs` and `partners` are WORKED OUT from the route map rather than stored
    anywhere — a route map already knows which airports carry the most sectors
@@ -544,14 +547,58 @@
         return get('/api/va-ads/by-slug/' + encodeURIComponent(CFG.va));
     }
 
+    /* THE FLAG, FROM THE CODE.
+     *
+     * A country is stored as two letters and nothing else, so the flag is
+     * BUILT rather than fetched: a pair of regional-indicator code points is
+     * an emoji every platform already has, which means no image to host, none
+     * to go missing, and nothing to get wrong about a country's borders.
+     *
+     * A platform that will not draw the pair (Windows, famously) shows the two
+     * letters instead — which is still the country, said plainly. */
+    function flagOf(cc) {
+        var c = text(cc).toUpperCase();
+        if (!/^[A-Z]{2}$/.test(c) || typeof String.fromCodePoint !== 'function') return '';
+        return String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65, 0x1F1E6 + c.charCodeAt(1) - 65);
+    }
+
+    /* And the country's NAME from the same two letters, in the visitor's own
+     * language where the browser can. Derived rather than stored so there is
+     * one spelling of every country on the platform; '' where the browser is
+     * too old to know, which removes the element rather than printing a code
+     * at somebody. */
+    function countryName(cc) {
+        var c = text(cc).toUpperCase();
+        if (!/^[A-Z]{2}$/.test(c)) return '';
+        try { return new Intl.DisplayNames(undefined, { type: 'region' }).of(c) || ''; }
+        catch (e) { return ''; }
+    }
+
     function brand() {
         return brandRaw().then(function (d) {
             if (!d || !text(d.name)) return null;
             var join = d.join || {};
+            var country = /^[A-Za-z]{2}$/.test(text(d.country)) ? text(d.country).toUpperCase() : '';
             return {
                 name: text(d.name),
                 code: text(d.code),
                 tagline: text(d.tagline),
+                // Where the airline is from: the code, the flag drawn from it,
+                // and the country's name. A site's footer wants the flag and
+                // the name; the code is there for anything that wants to sort
+                // or group by it.
+                country: country,
+                flag: flagOf(country),
+                countryName: countryName(country),
+                // The two of them as one line — "🇲🇽 Mexico" — for the common
+                // case of a footer saying where the airline is from. ONE field
+                // rather than two because a page that draws them separately
+                // needs two [data-crew-figure] holders to stay tidy, and a
+                // browser that knows the flag but not the country's name would
+                // then lose both. The code stands in for a name the browser
+                // cannot supply; the flag alone stands in for a browser that
+                // draws neither.
+                origin: country ? (flagOf(country) + ' ' + (countryName(country) || country)).trim() : '',
                 logo: https(d.logo),
                 banner: https(d.banner),
                 website: https(d.website),
@@ -874,6 +921,135 @@
         });
     }
 
+    /* ---------------------------------------------------------------------
+     * THE ROSTER — everybody who flies for the airline.
+     *
+     * GET /api/crew/<slug>/roster
+     *
+     * `staff` below is the handful of people who run it; this is the crew. An
+     * applicant reading a VA's website wants to know how many pilots are
+     * actually there and what a rank ladder looks like once people are on it —
+     * "62 pilots" in a statistic is a number, and a list with sixty-two names
+     * and their hours against them is an airline.
+     *
+     * The endpoint is the one the crew centre's own roster screen reads, and it
+     * carries no more than that screen shows a signed-out visitor: a name, a
+     * callsign, the rank the ladder puts them on, and hours. No e-mail, no
+     * login, no Community handle — that last one is the deliberate difference
+     * from `staff`, where a person holding a public role has opted into being
+     * findable and a line pilot has not.
+     *
+     * PILOTS WHO HAVE LEFT ARE NOT ON IT. A roster row marked inactive is
+     * somebody the airline has stopped counting, and a website that lists them
+     * is overstating itself. Leave of absence is not leaving, so it stays —
+     * carried as `status` for a site that wants to say so.
+     *
+     * Ordered by hours, most first, because that is the order the list is
+     * interesting in and the order a rank ladder reads down.
+     * ------------------------------------------------------------------- */
+    function roster(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 500;
+        return crew('/roster').then(function (d) {
+            if (!d || !Array.isArray(d.roster)) return null;
+            var rows = d.roster
+                .filter(function (m) { return m && text(m.name); })
+                .filter(function (m) { return opts.includeInactive ? true : m.status !== 'inactive'; })
+                .map(function (m) {
+                    var rank = m.rank || {};
+                    var hours = num(m.hours) || 0;
+                    return {
+                        name: text(m.name),
+                        callsign: text(m.callsign),
+                        role: text(m.role),
+                        rank: text(rank.name),
+                        rankColor: /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text(rank.color)) ? text(rank.color) : '',
+                        rankImage: https(rank.image),
+                        hours: hours,
+                        // The figure as a person would write it, so a template
+                        // does not have to know that 1204 means hours or where
+                        // the thousands separator goes in the reader's locale.
+                        hoursText: hours ? hours.toLocaleString() + ' h' : '',
+                        status: text(m.status) || 'active',
+                        // 'On leave' or '' — never 'Active', which is every
+                        // other row and therefore says nothing.
+                        note: m.status === 'loa' ? 'On leave' : '',
+                    };
+                })
+                .sort(function (a, b) { return b.hours - a.hours || a.name.localeCompare(b.name); })
+                .slice(0, limit);
+            return rows.length ? rows : null;
+        });
+    }
+
+    /* ---------------------------------------------------------------------
+     * WHO RUNS THE AIRLINE
+     *
+     * GET /api/crew/<slug>/staff
+     *
+     * The people, not the departments. `roles` above answers "what teams does
+     * this airline have" and is right for a row of labels; this answers "who
+     * are you", which is the question somebody deciding whether to apply is
+     * actually asking, and the one every VA answered with a paragraph of prose
+     * and a screenshot of Discord.
+     *
+     * A pilot is here because staff gave them a role the airline declared —
+     * never because they are on the roster. `ifc` is their Infinite Flight
+     * Community handle and `ifcUrl` the profile it belongs to, built by the
+     * backend from a closed alphabet; a handle that is not one arrives without
+     * a URL and the name is drawn without a link.
+     *
+     * `message` is the ROLE's short word rather than the person's, so the
+     * chief executive's welcome survives the day somebody else takes the
+     * chair. `lead` marks whoever holds the first role the airline listed,
+     * for a site that wants to feature them above the rest.
+     * ------------------------------------------------------------------- */
+    function staff(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 24;
+        return crew('/staff').then(function (d) {
+            if (!d || !Array.isArray(d.staff)) return null;
+            var rows = d.staff
+                .filter(function (m) { return m && text(m.name); })
+                .slice(0, limit)
+                .map(function (m) {
+                    var handle = text(m.ifc).replace(/^@/, '');
+                    var url = https(m.ifcUrl);
+                    return {
+                        name: text(m.name),
+                        role: text(m.role),
+                        roleColor: /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text(m.roleColor)) ? text(m.roleColor) : '',
+                        roleImage: https(m.roleImage),
+                        rank: text(m.rank),
+                        rankColor: /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text(m.rankColor)) ? text(m.rankColor) : '',
+                        rankImage: https(m.rankImage),
+                        callsign: text(m.callsign),
+                        message: text(m.message),
+                        // Two spellings of the same fact, because a template
+                        // wants the handle to READ as one ("@rjb") and the
+                        // profile to be where it goes. Both are empty for a
+                        // staff member who has not linked a Community account,
+                        // and an empty href is unwrapped by the list painter
+                        // rather than left as a dead link.
+                        ifc: handle ? '@' + handle : '',
+                        ifcUrl: handle ? url : '',
+                        lead: !!m.lead,
+                        // The same fact as a class name, so a template can say
+                        // which card is the airline's and let the stylesheet
+                        // decide what that means. A boolean interpolated into
+                        // markup reads as the word "true"; this does not.
+                        leadClass: m.lead ? 'is-lead' : '',
+                        // Initials, for a card with no photograph — which is
+                        // every card, because the crew centre holds no portrait
+                        // of anybody and asking for one is not this feature.
+                        initials: text(m.name).split(/\s+/).slice(0, 2)
+                            .map(function (w) { return w.charAt(0).toUpperCase(); }).join(''),
+                    };
+                });
+            return rows.length ? rows : null;
+        });
+    }
+
     /* =====================================================================
      * DECLARATIVE PAINTING
      *
@@ -1019,7 +1195,7 @@
         routes: routes, events: events, schedule: schedule,
         notices: notices, activity: activity, posts: posts,
         ranks: ranks, fleet: fleet, roles: roles,
-        hubs: hubs, partners: partners,
+        hubs: hubs, partners: partners, staff: staff, roster: roster,
     };
 
     function escapeHtml(s) {
@@ -1131,7 +1307,8 @@
         routes: routes, network: network, stats: stats,
         events: events, schedule: schedule, notices: notices,
         activity: activity, posts: posts, handle: handle,
-        brand: brand, ranks: ranks, fleet: fleet, roles: roles,
+        brand: brand, ranks: ranks, fleet: fleet, roles: roles, staff: staff,
+        roster: roster,
         hubs: hubs, partners: partners, silhouette: silhouette,
         paintBrand: paintBrand,
         paintStats: paintStats, mount: mount,
