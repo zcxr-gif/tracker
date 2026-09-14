@@ -100,10 +100,20 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
         }
         if (p.endsWith('/settings') && req.method() === 'POST') {
             const b = body();
-            writes.push({ what: 'settings', fleet: (b.fleet || []).map(f => f.type) });
+            writes.push({ what: 'settings', fleet: (b.fleet || []).map(f => f.type),
+                liveries: (b.fleet || []).map(f => f.name), rows: b.fleet || [] });
             return json({ ok: true, fleet: b.fleet || [] });
         }
-        if (p.endsWith('/crew/aircraft-metadata')) return json({ ok: true, aircraft: ['Boeing 777-200ER', 'Boeing 787-9 Dreamliner', 'Embraer E175', 'Airbus A380-800'], liveries: {} });
+        if (p.endsWith('/crew/aircraft-metadata')) return json({ ok: true,
+            aircraft: ['Boeing 777-200ER', 'Boeing 787-9 Dreamliner', 'Embraer E175', 'Airbus A380-800'],
+            liveries: {
+                'Boeing 777-200ER': ['British Airways', 'Generic'],
+                'Boeing 787-9 Dreamliner': ['British Airways', 'Generic'],
+                'Airbus A380-800': ['British Airways', 'Emirates', 'Generic'],
+                // Deliberately WITHOUT a British Airways option, to prove a miss
+                // leaves the row blank rather than picking something arbitrary.
+                'Embraer E175': ['Generic'],
+            } });
         if (p.includes('/aircraft/lookup')) return json({ isPlaceholder: true, imageUrl: null, contributorName: 'System' });
         if (p.endsWith('/routes')) return json({ routes: [], ranks: [] });
         if (p.endsWith('/route-map')) return json({ routes: [], airports: [], stats: {} });
@@ -172,6 +182,21 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
 
     const fleetOffer = await page.evaluate(() => [...document.querySelectorAll('#libFleetAdd [data-lib-type]')]
         .map(e => e.parentElement.textContent.trim()));
+    // A fleet row is a type AND a livery. Without one it cannot be picked on a
+    // route (routableFleet) and no photo is ever fetched (resolveFleetPicture).
+    ok('every new aircraft is offered a livery',
+        (await page.evaluate(() => document.querySelectorAll('#libFleetAdd [data-lib-livery]').length)) === 2);
+    ok('…pre-filled with the airline’s own where it exists',
+        (await page.evaluate(() => LIB_NEWTYPES.find(x => /A380/.test(x.type)).livery)) === 'British Airways');
+    ok('…left blank rather than guessed where it does not',
+        (await page.evaluate(() => LIB_NEWTYPES.find(x => /E175/.test(x.type)).livery)) === '');
+    ok('…and the blank one is called out',
+        /no livery yet/i.test(await page.evaluate(() => document.getElementById('libFleetBlanks').textContent)));
+    // Set it, and the warning should clear itself.
+    await page.selectOption('#libFleetAdd [data-lib-livery="1"]', 'Generic');
+    await page.waitForTimeout(150);
+    ok('…which clears once a livery is chosen',
+        !/no livery yet/i.test(await page.evaluate(() => document.getElementById('libFleetBlanks').textContent)));
     ok('the aircraft it would add are named', fleetOffer.length === 2, JSON.stringify(fleetOffer));
     ok('…and the A380 picked a moment ago is among them',
         fleetOffer.some(t => /A380-800/.test(t)), JSON.stringify(fleetOffer));
@@ -272,6 +297,10 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     ok('the fleet was saved too', !!fleetSave);
     ok('…with the type that was left ticked',
         fleetSave && fleetSave.fleet.includes('Airbus A380-800'), JSON.stringify(fleetSave && fleetSave.fleet));
+    ok('…carrying the livery, not just the type',
+        fleetSave && fleetSave.liveries.includes('British Airways'), JSON.stringify(fleetSave && fleetSave.liveries));
+    ok('…so the new rows are pickable on a route',
+        fleetSave && fleetSave.rows.filter(r => /A380/.test(r.type)).every(r => r.name));
     ok('…without the one that was unticked',
         fleetSave && !fleetSave.fleet.includes('Embraer E175'), JSON.stringify(fleetSave && fleetSave.fleet));
     ok('…and the fleet it already had is intact',

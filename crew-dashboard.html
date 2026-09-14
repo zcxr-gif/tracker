@@ -5378,6 +5378,10 @@
 
         function openRouteLib(){
             mountRouteLib();
+            // The confirm step offers a livery per aircraft, and the canonical
+            // list comes from the same catalogue the fleet editor uses. Asked for
+            // on open so it has arrived by the time anyone reaches step three.
+            loadFleetMeta();
             LIB_AIRLINE=null; LIB_PICKED=new Set(); LIB_PLAN=null; LIB_NEWTYPES=[];
             LIB_CS={ mode:'own', partner:'' };
             libStep(1);
@@ -5665,25 +5669,59 @@
             // The fleet half. Every type these routes need that the VA does not
             // already operate, pre-ticked and individually untickable — agreed to
             // here rather than appearing in the fleet on its own.
+            /* A FLEET ROW IS AN AIRCRAFT *AND* A LIVERY, AND A ROW WITHOUT ONE
+             * IS HALF A ROW.
+             *
+             * This used to add the type alone. That looks fine in the fleet
+             * editor and is nearly useless everywhere else: routableFleet()
+             * offers only rows that have BOTH, so the aeroplane the import just
+             * added could not be picked on a route; fleetHeldBack() then told
+             * the VA their new aircraft "need a livery before they can be
+             * picked"; and resolveFleetPicture returns early without one, so the
+             * promised photo was never even fetched.
+             *
+             * So the livery is asked for here, pre-filled with the airline's own
+             * where the catalogue has it — which is nearly always what somebody
+             * importing British Airways' network wants on their 777. */
             const have=new Set(FLEET.map(f=>acNorm(f.type)));
             const needed=[...new Set(picked.map(r=>String(r.aircraft||'').trim()).filter(Boolean))]
                 .filter(t=>!have.has(acNorm(t))).sort();
-            LIB_NEWTYPES=needed.map(t=>({type:t, take:true}));
+            const airlineName=(LIB_AIRLINE&&LIB_AIRLINE.airline&&LIB_AIRLINE.airline.name)||'';
+            LIB_NEWTYPES=needed.map(t=>({ type:t, take:true, livery:libSuggestLivery(t, airlineName) }));
+
             const fbox=document.getElementById('libFleetAdd');
             if(!needed.length){ fbox.classList.add('hidden'); fbox.innerHTML=''; }
             else{
+                const blanks=LIB_NEWTYPES.filter(x=>!x.livery).length;
                 fbox.classList.remove('hidden');
                 fbox.innerHTML=`<div class="rounded-lg surface hair p-3">
                     <div class="text-xs font-semibold uppercase tracking-wider faint mb-1">Add to your fleet</div>
-                    <p class="text-xs muted mb-2">These routes are flown on ${escapeHtml(n(needed.length,'aircraft type','aircraft types'))} you don’t operate yet. Ticked ones are added to your fleet and get a photo from the community library where there is one.</p>
-                    <div class="space-y-1">${needed.map((t,i)=>`
-                        <label class="flex items-center gap-2 text-sm cursor-pointer">
-                            <input type="checkbox" data-lib-type="${i}" checked class="accent-[var(--accent)]">
-                            <span>${escapeHtml(t)}</span>
-                        </label>`).join('')}</div>
+                    <p class="text-xs muted mb-2">These routes need ${escapeHtml(n(needed.length,'aircraft type','aircraft types'))} you don’t operate yet. Each needs a livery as well as a type — that’s what makes it pickable on a route and what finds it a photo. ${airlineName?escapeHtml(airlineName)+'’s own livery is filled in where Infinite Flight has it.':''}</p>
+                    <div class="space-y-1.5">${LIB_NEWTYPES.map((x,i)=>{
+                        const livs=libLiveriesFor(x.type);
+                        return `<div class="flex items-center gap-2 text-sm">
+                            <input type="checkbox" data-lib-type="${i}" checked class="accent-[var(--accent)] shrink-0">
+                            <span class="flex-1 min-w-0 truncate">${escapeHtml(x.type)}</span>
+                            ${livs.length
+                                ? `<select data-lib-livery="${i}" class="surface hair rounded-md px-2 py-1 text-xs max-w-[12rem]">
+                                       <option value="">— no livery yet —</option>
+                                       ${livs.map(l=>`<option value="${escapeHtml(l)}" ${acNorm(l)===acNorm(x.livery)?'selected':''}>${escapeHtml(l)}</option>`).join('')}
+                                   </select>`
+                                : `<span class="text-[11px] faint shrink-0">no liveries listed</span>`}
+                        </div>`; }).join('')}</div>
+                    <p id="libFleetBlanks" class="text-[11px] mt-2 ${blanks?'text-amber-600 dark:text-amber-400':'faint'}">${
+                        blanks
+                            ? escapeHtml(`${blanks} ${blanks===1?'aircraft has':'aircraft have'} no livery yet. ${blanks===1?'It':'They'} will be added, but can’t be picked on a route until you set one — here or in the fleet editor.`)
+                            : 'Each gets a photo from the community library where there is one, credited to whoever supplied it.'}</p>
                 </div>`;
                 fbox.querySelectorAll('[data-lib-type]').forEach(el=>{
                     el.addEventListener('change',()=>{ LIB_NEWTYPES[Number(el.getAttribute('data-lib-type'))].take=el.checked; });
+                });
+                fbox.querySelectorAll('[data-lib-livery]').forEach(el=>{
+                    el.addEventListener('change',()=>{
+                        LIB_NEWTYPES[Number(el.getAttribute('data-lib-livery'))].livery=el.value;
+                        libSyncFleetBlanks();
+                    });
                 });
             }
             libSyncCommit();
@@ -5739,6 +5777,43 @@
             });
         }
 
+        // The canonical liveries Infinite Flight has for a type, from the same
+        // catalogue the fleet editor offers. Empty when the catalogue has not
+        // arrived, which degrades to a free-standing type rather than a broken
+        // dialog — the VA sets the livery in the fleet editor as they always did.
+        function libLiveriesFor(type){
+            try{ return (LIV_INDEX && LIV_INDEX.get(acNorm(type))) || []; }catch{ return []; }
+        }
+        /* THE AIRLINE'S OWN LIVERY, WHERE IT EXISTS.
+         *
+         * Somebody importing British Airways' network wants British Airways on
+         * the 777, and having to pick it twenty times is the kind of tedium this
+         * whole screen exists to remove. Exact match first, then a containing
+         * match so "Emirates" finds "Emirates - 1999" and a catalogue entry that
+         * carries a suffix still counts.
+         *
+         * Only ever a DEFAULT: every row is a select the VA can change, and a
+         * miss leaves it blank rather than picking something arbitrary. */
+        function libSuggestLivery(type, airline){
+            const livs=libLiveriesFor(type);
+            if(!livs.length || !airline) return '';
+            const want=acNorm(airline).replace(/\b(airlines?|airways|air|virtual|group|co|inc|ltd)\b/g,'').trim();
+            const exact=livs.find(l=>acNorm(l)===acNorm(airline));
+            if(exact) return exact;
+            if(!want) return '';
+            return livs.find(l=>{ const f=acNorm(l); return f.includes(want)||want.includes(f); }) || '';
+        }
+        // Re-counts the "no livery yet" line in place, so changing a select says
+        // so immediately instead of only on the next redraw.
+        function libSyncFleetBlanks(){
+            const el=document.getElementById('libFleetBlanks'); if(!el) return;
+            const blanks=LIB_NEWTYPES.filter(x=>x.take && !x.livery).length;
+            el.className='text-[11px] mt-2 '+(blanks?'text-amber-600 dark:text-amber-400':'faint');
+            el.textContent = blanks
+                ? `${blanks} ${blanks===1?'aircraft has':'aircraft have'} no livery yet. ${blanks===1?'It':'They'} will be added, but can’t be picked on a route until you set one — here or in the fleet editor.`
+                : 'Each gets a photo from the community library where there is one, credited to whoever supplied it.';
+        }
+
         function libSyncCommit(){
             const d=LIB_PLAN||{};
             const agreed=document.getElementById('libAgree').checked;
@@ -5784,8 +5859,10 @@
                 if(adding.length){
                     const before=FLEET.length;
                     for(const t of adding){
-                        if(FLEET.some(f=>acNorm(f.type)===acNorm(t.type) && !String(f.name||'').trim())) continue;
-                        FLEET.push({type:t.type, name:'', image:'', imageAuto:false, photographer:'', photoLink:''});
+                        // Already there, in this very livery.
+                        if(FLEET.some(f=>acNorm(f.type)===acNorm(t.type)
+                            && acNorm(f.name)===acNorm(t.livery))) continue;
+                        FLEET.push({type:t.type, name:t.livery||'', image:'', imageAuto:false, photographer:'', photoLink:''});
                     }
                     if(FLEET.length>before){
                         renderStructure(); renderFleetCount();
