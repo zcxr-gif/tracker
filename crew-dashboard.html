@@ -1678,6 +1678,7 @@
                 <div class="drawer-actions flex items-center gap-2">
                     <button onclick="openFleet()" title="The aircraft these routes are flown on" class="wide-only-btn surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition items-center gap-1"><i data-lucide="plane" class="w-4 h-4"></i> Fleet</button>
                     <button id="viewMapBtn" onclick="openRouteMap()" title="View the network on a map" class="surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="map" class="w-4 h-4"></i> Map</button>
+                    <button id="routesLibBtn" onclick="openRouteLib()" title="Fill your network from a real airline's routes" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="globe" class="w-4 h-4"></i> Real routes</button>
                     <button id="routesCsvBtn" onclick="openCsv('routes')" title="Export or import the network as CSV" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="table" class="w-4 h-4"></i> CSV</button>
                     <button id="addRouteBtn" onclick="openRouteForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Add</button>
                     <button onclick="closeRoutes()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -1802,6 +1803,103 @@
                     <button id="csvCommitBtn" onclick="commitCsv()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="upload" class="w-4 h-4"></i> Apply</button>
                 </div>
                 <p id="csvNote" class="hidden text-sm mt-2"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ REAL-WORLD ROUTE IMPORT ============
+         Three steps, and the third one is the point.
+
+         1  pick the airline you are modelled on
+         2  look at what it flies and tick what you want
+         3  see exactly what would change, and agree to it
+
+         The data behind this is a 2014 snapshot. It lists routes that have since
+         died, misses everything opened since, and often names an aeroplane the
+         airline no longer flies the leg on. None of that is hidden: the age is
+         printed at the top, the caveat sits above the confirm button, and
+         everything lands as a DRAFT so the public network cannot gain a leg
+         nobody looked at. This screen is a typing shortcut, not a source of
+         truth, and it is built to read like one. -->
+    <div id="libModal" class="hidden fixed inset-0 z-[60]">
+        <div class="absolute inset-0 bg-black/50" onclick="closeRouteLib()"></div>
+        <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[94vw] max-w-3xl max-h-[88vh] flex flex-col surface hair rounded-2xl">
+            <div class="flex items-start justify-between gap-3 px-5 pt-5 pb-3 border-b hair">
+                <div class="min-w-0">
+                    <div class="font-semibold tracking-tight flex items-center gap-2"><i data-lucide="globe" class="w-4 h-4"></i> <span id="libTitle">Fill from a real airline</span></div>
+                    <p class="text-xs muted mt-1" id="libBlurb">Pick the airline you’re modelled on, then tick the routes you want. Nothing is saved until you confirm.</p>
+                </div>
+                <button onclick="closeRouteLib()" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)] shrink-0"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto px-5 py-4">
+                <!-- STEP 1 — the airline, or a single flight number -->
+                <div id="libStep1">
+                    <label class="text-xs font-semibold uppercase tracking-wider faint">The airline</label>
+                    <input id="libSearch" type="text" placeholder="British Airways, BAW, DAL…" autocomplete="off"
+                        class="w-full mt-1.5 surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <div id="libResults" class="mt-2.5 space-y-1.5"></div>
+
+                    <div class="mt-5 pt-4 border-t hair">
+                        <label class="text-xs font-semibold uppercase tracking-wider faint">Or one flight number, as it flies today</label>
+                        <p class="text-xs muted mt-1 mb-2">A live lookup, so it’s current where the airline list above is a 2014 snapshot. It knows where a flight goes, not what flies it — you’ll pick the aircraft yourself.</p>
+                        <div class="flex gap-2">
+                            <input id="libCallsign" type="text" placeholder="BAW117 or BA117" maxlength="8" autocomplete="off"
+                                class="flex-1 min-w-0 surface hair rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:border-[var(--ink)]">
+                            <button onclick="libLookupCallsign()" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="search" class="w-4 h-4"></i> Look up</button>
+                        </div>
+                        <div id="libCallsignOut" class="hidden mt-2.5"></div>
+                    </div>
+                </div>
+
+                <!-- STEP 2 — the network, ticked -->
+                <div id="libStep2" class="hidden">
+                    <div class="flex items-center gap-2 flex-wrap mb-3">
+                        <button onclick="libBack()" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Airlines</button>
+                        <span id="libAirlineName" class="text-sm font-semibold"></span>
+                        <span id="libAge" class="text-[11px] faint"></span>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap mb-2.5">
+                        <input id="libFilter" type="text" placeholder="Filter by airport — EGLL, KJFK…" autocomplete="off"
+                            class="flex-1 min-w-[10rem] surface hair rounded-lg px-3 py-1.5 text-sm uppercase focus:outline-none focus:border-[var(--ink)]">
+                        <label class="text-xs muted inline-flex items-center gap-1.5 cursor-pointer select-none">
+                            <input id="libOnlyFleet" type="checkbox" class="accent-[var(--accent)]"> Only what my fleet can fly
+                        </label>
+                        <label class="text-xs muted inline-flex items-center gap-1.5 cursor-pointer select-none">
+                            <input id="libNoCodeshare" type="checkbox" class="accent-[var(--accent)]"> Own metal only
+                        </label>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap mb-2 text-xs">
+                        <button onclick="libTickAll(true)" class="font-semibold underline muted hover:text-[var(--ink)]">Tick all shown</button>
+                        <button onclick="libTickAll(false)" class="font-semibold underline muted hover:text-[var(--ink)]">Untick all</button>
+                        <span id="libTickCount" class="faint"></span>
+                    </div>
+                    <div id="libRows" class="rounded-xl hair divide-y divide-[color:var(--hair)] max-h-[38vh] overflow-y-auto"></div>
+                </div>
+
+                <!-- STEP 3 — what this would actually do -->
+                <div id="libStep3" class="hidden">
+                    <button onclick="libBackToRoutes()" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1 mb-3"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back to the routes</button>
+                    <div id="libPlan"></div>
+                    <div id="libFleetAdd" class="hidden mt-3"></div>
+                    <!-- THE CAVEAT, WHERE IT CANNOT BE MISSED. Immediately above
+                         the button that writes, not buried at the top of a
+                         dialog somebody scrolled past four clicks ago. -->
+                    <div class="mt-3 rounded-lg p-3" style="background:color-mix(in srgb, #f59e0b 12%, transparent);">
+                        <div class="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1 flex items-center gap-1.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> Check these before you publish them</div>
+                        <p class="text-xs muted">This comes from a public route database that was last updated in <span id="libYear">2014</span>. Some of these routes no longer exist, some current ones are missing, and the aircraft is what the airline flew then. They’ll be added as <b>drafts</b> so your pilots won’t see them until you’ve looked them over in the routes list.</p>
+                    </div>
+                    <label class="mt-3 flex items-start gap-2 text-sm cursor-pointer select-none">
+                        <input id="libAgree" type="checkbox" class="mt-0.5 accent-[var(--accent)]" onchange="libSyncCommit()">
+                        <span>I understand these are suggestions, and I’ll check them before publishing.</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="px-5 py-3.5 border-t hair flex items-center justify-end gap-2">
+                <p id="libNote" class="hidden text-sm flex-1 min-w-0"></p>
+                <button id="libNextBtn" onclick="libReview()" class="hidden accent-bg text-white rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-1.5"><i data-lucide="arrow-right" class="w-4 h-4"></i> Review</button>
+                <button id="libCommitBtn" onclick="libCommit()" class="hidden accent-bg text-white rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-1.5"><i data-lucide="check" class="w-4 h-4"></i> Add as drafts</button>
             </div>
         </div>
     </div>
@@ -5011,11 +5109,16 @@
         function openRoutes(){
             openDrawer('routes');
             renderRoutes();
-            fetchRoutes().then(()=>{
-                renderRoutes();
+            // Both staff tools follow the same capability as Add, and are
+            // toggled twice for the same reason the CSV button always was: once
+            // now so the drawer opens with the right buttons on a cached read,
+            // and again when the fetch settles the caller's permissions.
+            const routeTools=()=>{
                 document.getElementById('routesCsvBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
-            });
-            document.getElementById('routesCsvBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
+                document.getElementById('routesLibBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
+            };
+            fetchRoutes().then(()=>{ renderRoutes(); routeTools(); });
+            routeTools();
             if(window.lucide) lucide.createIcons();
         }
 
@@ -5206,6 +5309,410 @@
             // visit found Apply permanently greyed out.
             finally{ btn.disabled=false; }
         }
+        /* ---------------------------------------------------------------------
+           FILLING A NETWORK FROM THE REAL WORLD
+
+           Why this exists: an empty Routes screen is where virtual airlines
+           stall. Typing a real airline's network in by hand is hours, so it gets
+           twenty legs, and twenty legs is not a network anyone keeps flying.
+
+           Why it is built as three deliberate steps rather than one button: the
+           data is NOT authoritative. The bulk source is a 2014 snapshot — it
+           lists routes that have since died, misses everything opened since, and
+           frequently names an aeroplane the airline no longer flies the leg on.
+           A one-click "import British Airways" would put several hundred
+           confident wrong rows into a live network, and the VA would find out
+           from a pilot.
+
+           So the design is: suggest, show, confirm. Nothing is written until a
+           human has seen a diff and ticked a box, everything lands as a draft,
+           and the aircraft the routes need are agreed to in the same breath
+           rather than appearing in the fleet on their own.
+        --------------------------------------------------------------------- */
+        let LIB_AIRLINE=null;     // the chosen airline, with every leg it flies
+        let LIB_PICKED=new Set(); // indices into LIB_AIRLINE.routes
+        let LIB_PLAN=null;        // the server's dry run
+        let LIB_NEWTYPES=[];      // [{type, take}] — fleet rows this would add
+        let LIB_SEARCH_T=null;
+
+        // The airline search is debounced: it is a keystroke-per-request endpoint
+        // otherwise, and the reply is a cacheable public list rather than
+        // anything the VA is waiting on character by character.
+        let LIB_MOUNTED=false;
+        function mountRouteLib(){
+            // Once. The dialog is opened repeatedly in a visit and its nodes are
+            // never replaced, so re-binding would stack a second debounce and a
+            // second redraw onto every keystroke.
+            if(LIB_MOUNTED) return;
+            LIB_MOUNTED=true;
+            const q=document.getElementById('libSearch');
+            if(q) q.addEventListener('input',()=>{
+                clearTimeout(LIB_SEARCH_T);
+                LIB_SEARCH_T=setTimeout(()=>libSearchAirlines(q.value), 220);
+            });
+            const cs=document.getElementById('libCallsign');
+            if(cs) cs.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ e.preventDefault(); libLookupCallsign(); } });
+            // The filters are local to a network already in memory, so they
+            // redraw immediately and cost nothing.
+            for(const id of ['libFilter','libOnlyFleet','libNoCodeshare']){
+                const el=document.getElementById(id);
+                if(el) el.addEventListener(id==='libFilter'?'input':'change', libRenderRows);
+            }
+        }
+
+        function openRouteLib(){
+            mountRouteLib();
+            LIB_AIRLINE=null; LIB_PICKED=new Set(); LIB_PLAN=null; LIB_NEWTYPES=[];
+            libStep(1);
+            libMsg('');
+            const q=document.getElementById('libSearch'); if(q) q.value='';
+            const cs=document.getElementById('libCallsign'); if(cs) cs.value='';
+            document.getElementById('libCallsignOut').classList.add('hidden');
+            const m=document.getElementById('libModal');
+            m.classList.remove('hidden');
+            if(m.dataset.open!=='1'){ m.dataset.open='1'; if(window.CrewPanels) CrewPanels.lockScroll(); }
+            libSearchAirlines('');
+            if(window.lucide) lucide.createIcons();
+            setTimeout(()=>{ const i=document.getElementById('libSearch'); if(i) i.focus(); },50);
+        }
+        function closeRouteLib(){
+            const m=document.getElementById('libModal');
+            m.classList.add('hidden');
+            if(m.dataset.open==='1'){ delete m.dataset.open; if(window.CrewPanels) CrewPanels.unlockScroll(); }
+        }
+        function libStep(n){
+            for(const i of [1,2,3]) document.getElementById('libStep'+i).classList.toggle('hidden', i!==n);
+            document.getElementById('libNextBtn').classList.toggle('hidden', n!==2);
+            document.getElementById('libCommitBtn').classList.toggle('hidden', n!==3);
+            if(n!==3){ const a=document.getElementById('libAgree'); if(a) a.checked=false; }
+        }
+        function libMsg(msg, kind){
+            const n=document.getElementById('libNote');
+            if(!msg){ n.classList.add('hidden'); n.textContent=''; return; }
+            n.textContent=msg;
+            n.className='text-sm flex-1 min-w-0 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='warn'?'text-amber-600 dark:text-amber-400':'muted');
+            n.classList.remove('hidden');
+        }
+
+        // ---- Step 1: which airline ----
+        async function libSearchAirlines(q){
+            const box=document.getElementById('libResults');
+            box.innerHTML='<div class="text-sm muted py-2">Looking…</div>';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/route-library/airlines?q=${encodeURIComponent(q||'')}`);
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok||!d.ok){ box.innerHTML='<div class="text-sm text-red-500 py-2">'+escapeHtml(d.error||'The route library is unavailable.')+'</div>'; return; }
+                document.getElementById('libYear').textContent=String(d.snapshotYear||2014);
+                if(!(d.airlines||[]).length){
+                    box.innerHTML='<div class="text-sm muted py-2">No airline by that name. Try its ICAO code — BAW, DAL, UAE.</div>';
+                    return;
+                }
+                box.innerHTML=d.airlines.map(a=>`
+                    <button onclick="libPickAirline('${escapeHtml(a.key)}')" class="w-full text-left surface hair rounded-lg px-3 py-2 hover:border-[var(--ink)] transition flex items-center gap-3">
+                        <span class="flex-1 min-w-0">
+                            <span class="text-sm font-semibold block truncate">${escapeHtml(a.name)}${a.active?'':' <span class="text-[10px] faint font-normal">(defunct)</span>'}</span>
+                            <span class="text-xs muted">${escapeHtml([a.icao,a.iata].filter(Boolean).join(' · '))}${a.country?' · '+escapeHtml(a.country):''}</span>
+                        </span>
+                        <span class="text-xs muted shrink-0 text-right">${a.routes} legs<br><span class="faint">${a.types} type${a.types===1?'':'s'}</span></span>
+                    </button>`).join('');
+            }catch{ box.innerHTML='<div class="text-sm text-red-500 py-2">Server unreachable.</div>'; }
+        }
+        async function libPickAirline(key){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ libMsg('Sign in as owner or staff to import routes.','warn'); return; }
+            libMsg('Loading that network…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/route-library/airline/${encodeURIComponent(key)}`,{
+                    headers:{Authorization:'Bearer '+token} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ libMsg(d.error||'Could not load that airline.','error'); return; }
+                LIB_AIRLINE=d;
+                // Pre-tick what the VA can already fly. It is the subset they can
+                // act on today, and it is usually the subset they want — but it
+                // is a starting point, not a decision, so everything is visible
+                // and everything is untickable.
+                LIB_PICKED=new Set();
+                d.routes.forEach((r,i)=>{ if(r.inFleet) LIB_PICKED.add(i); });
+                document.getElementById('libAirlineName').textContent=d.airline.name;
+                document.getElementById('libAge').textContent=`${d.routes.length} legs · ${d.source}, ${d.snapshotYear} snapshot`;
+                document.getElementById('libFilter').value='';
+                document.getElementById('libOnlyFleet').checked=false;
+                document.getElementById('libNoCodeshare').checked=false;
+                libMsg('');
+                libStep(2);
+                libRenderRows();
+            }catch{ libMsg('Server unreachable.','error'); }
+        }
+
+        // ---- Step 1b: one live flight number ----
+        async function libLookupCallsign(){
+            const token=sessionToken(), slug=getSlug();
+            const cs=String(document.getElementById('libCallsign').value||'').trim();
+            const out=document.getElementById('libCallsignOut');
+            if(!cs){ return; }
+            if(!slug||!token){ libMsg('Sign in as owner or staff to import routes.','warn'); return; }
+            out.classList.remove('hidden');
+            out.innerHTML='<div class="text-sm muted">Looking it up…</div>';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/route-library/callsign/${encodeURIComponent(cs)}`,{
+                    headers:{Authorization:'Bearer '+token} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){
+                    out.innerHTML=`<div class="rounded-lg hair p-3"><div class="text-sm">${escapeHtml(d.error||'Not found.')}</div>${d.hint?`<div class="text-xs muted mt-1">${escapeHtml(d.hint)}</div>`:''}</div>`;
+                    return;
+                }
+                const r=d.route;
+                // The aircraft is genuinely unknown here, so it is asked for
+                // rather than guessed — from the VA's own fleet, which is the
+                // only list where the name will match a live flight.
+                const opts=routableFleet().map(a=>`<option value="${escapeHtml(fleetValue(a))}">${escapeHtml(fleetLabel(a))}</option>`).join('');
+                out.innerHTML=`<div class="rounded-lg hair p-3">
+                    <div class="text-sm font-semibold">${escapeHtml(r.origin)} → ${escapeHtml(r.destination)} <span class="text-xs muted font-normal">${r.distanceNm?escapeHtml(String(r.distanceNm))+' nm':''}</span></div>
+                    <div class="text-xs muted mt-0.5">${escapeHtml([r.flightNumber,r.airlineName].filter(Boolean).join(' · '))}</div>
+                    <div class="text-xs faint mt-0.5">${escapeHtml([r.originName,r.destinationName].filter(Boolean).join(' → '))}</div>
+                    <div class="flex items-center gap-2 mt-2.5">
+                        <select id="libCsAircraft" class="flex-1 min-w-0 surface hair rounded-lg px-2.5 py-1.5 text-sm"><option value="">Any aircraft</option>${opts}</select>
+                        <button onclick="libAddCallsign()" class="accent-bg text-white rounded-lg px-3 py-1.5 text-sm font-semibold hover:opacity-90 transition">Add as draft</button>
+                    </div>
+                    <div class="text-[11px] faint mt-1.5">Live from ${escapeHtml(r.source||'adsbdb.com')} — it knows the route, not the aircraft.</div>
+                </div>`;
+            }catch{ out.innerHTML='<div class="text-sm text-red-500">Server unreachable.</div>'; }
+        }
+        // A single live leg skips the tick-list but NOT the confirmation: it goes
+        // through the same review step, because one route written without a
+        // preview is still a route written without a preview.
+        async function libAddCallsign(){
+            const out=document.getElementById('libCallsignOut');
+            const sel=document.getElementById('libCsAircraft');
+            const head=out.querySelector('.text-sm.font-semibold');
+            const m=head?head.textContent.match(/([A-Z0-9]{4})\s*→\s*([A-Z0-9]{4})/):null;
+            if(!m) return;
+            const sub=out.querySelector('.text-xs.muted');
+            const fn=(sub?sub.textContent.split('·')[0]:'').trim();
+            LIB_AIRLINE={ airline:{name:'Live lookup'}, source:'adsbdb.com', snapshotYear:new Date().getFullYear(),
+                routes:[{ origin:m[1], destination:m[2], distanceNm:0, aircraft:sel?sel.value:'',
+                          aircraftOptions:[], kind:'own', partnerName:'', flightNumber:fn.slice(0,12),
+                          notes:'', inFleet:true, newTypes:[] }] };
+            LIB_PICKED=new Set([0]);
+            await libReview();
+        }
+
+        // ---- Step 2: the tick list ----
+        function libVisible(){
+            if(!LIB_AIRLINE) return [];
+            const f=String(document.getElementById('libFilter').value||'').trim().toUpperCase();
+            const onlyFleet=document.getElementById('libOnlyFleet').checked;
+            const noCs=document.getElementById('libNoCodeshare').checked;
+            return LIB_AIRLINE.routes.map((r,i)=>({r,i})).filter(({r})=>{
+                if(onlyFleet && !r.inFleet) return false;
+                if(noCs && r.kind==='codeshare') return false;
+                if(f && !(r.origin.includes(f)||r.destination.includes(f))) return false;
+                return true;
+            });
+        }
+        function libRenderRows(){
+            const box=document.getElementById('libRows');
+            const rows=libVisible();
+            // Capped for the DOM's sake, not the data's — a 2,400-leg network
+            // rendered as 2,400 rows of checkboxes is a locked tab. The filter
+            // above is how you reach the rest, and the count says so.
+            const shown=rows.slice(0,400);
+            box.innerHTML=shown.length ? shown.map(({r,i})=>`
+                <label class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[color:color-mix(in_srgb,var(--ink)_4%,transparent)]">
+                    <input type="checkbox" data-lib-idx="${i}" ${LIB_PICKED.has(i)?'checked':''} class="accent-[var(--accent)] shrink-0">
+                    <span class="font-mono text-sm shrink-0">${escapeHtml(r.origin)} → ${escapeHtml(r.destination)}</span>
+                    <span class="text-xs muted shrink-0">${escapeHtml(String(r.distanceNm))} nm</span>
+                    <span class="flex-1 min-w-0 text-right">
+                        ${r.aircraftOptions.length>1
+                            ? `<select data-lib-ac="${i}" class="surface hair rounded-md px-2 py-1 text-xs max-w-full">${r.aircraftOptions.map(t=>`<option value="${escapeHtml(t)}" ${t===r.aircraft?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>`
+                            : `<span class="text-xs muted truncate">${escapeHtml(r.aircraft||'—')}</span>`}
+                    </span>
+                    ${r.kind==='codeshare'?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded faint hair" title="Marketed by this airline, flown by a partner the source doesn’t name">codeshare</span>':''}
+                    ${r.inFleet?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400" title="You already operate this type">in fleet</span>':''}
+                </label>`).join('')
+                : '<div class="text-sm muted px-3 py-6 text-center">No legs match that filter.</div>';
+            const more=rows.length-shown.length;
+            if(more>0) box.insertAdjacentHTML('beforeend',
+                `<div class="text-xs faint px-3 py-2 text-center">…and ${more} more. Narrow it with the airport filter to reach them.</div>`);
+            box.querySelectorAll('[data-lib-idx]').forEach(el=>{
+                el.addEventListener('change',()=>{
+                    const i=Number(el.getAttribute('data-lib-idx'));
+                    if(el.checked) LIB_PICKED.add(i); else LIB_PICKED.delete(i);
+                    libSyncCount();
+                });
+            });
+            box.querySelectorAll('[data-lib-ac]').forEach(el=>{
+                el.addEventListener('change',()=>{
+                    const i=Number(el.getAttribute('data-lib-ac'));
+                    LIB_AIRLINE.routes[i].aircraft=el.value;
+                    // Re-deciding the aircraft re-decides what it would add to
+                    // the fleet, and the review step reads these.
+                    const r=LIB_AIRLINE.routes[i];
+                    const have=new Set(FLEET.map(f=>acNorm(f.type)));
+                    r.inFleet=have.has(acNorm(el.value));
+                    r.newTypes=r.inFleet?[]:[el.value];
+                });
+                // The select sits inside the row's <label>, so without this a
+                // click meant for the aircraft menu also toggles the tick —
+                // picking an aeroplane would silently deselect the route.
+                for(const ev of ['click','mousedown']) el.addEventListener(ev,(e)=>e.stopPropagation());
+            });
+            libSyncCount();
+        }
+        function libSyncCount(){
+            const n=LIB_PICKED.size;
+            document.getElementById('libTickCount').textContent=`${n} of ${LIB_AIRLINE?LIB_AIRLINE.routes.length:0} ticked`;
+            const b=document.getElementById('libNextBtn');
+            b.disabled=!n; b.style.opacity=n?'1':'.5';
+            b.innerHTML=`<i data-lucide="arrow-right" class="w-4 h-4"></i> Review ${n||''}`.trim();
+            if(window.lucide) lucide.createIcons();
+        }
+        function libTickAll(on){
+            for(const {i} of libVisible()){ if(on) LIB_PICKED.add(i); else LIB_PICKED.delete(i); }
+            libRenderRows();
+        }
+        function libBack(){ libStep(1); libMsg(''); }
+        function libBackToRoutes(){ if(LIB_AIRLINE && LIB_AIRLINE.routes.length>1){ libStep(2); libRenderRows(); } else libStep(1); libMsg(''); }
+
+        const libSelected=()=> LIB_AIRLINE ? [...LIB_PICKED].sort((a,b)=>a-b).map(i=>LIB_AIRLINE.routes[i]).filter(Boolean) : [];
+
+        // ---- Step 3: the diff, and what it would add to the fleet ----
+        async function libReview(){
+            const picked=libSelected();
+            if(!picked.length) return;
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ libMsg('Sign in as owner or staff to import routes.','warn'); return; }
+            libMsg('Working out what this would change…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes/library-import`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ routes:picked.map(libRouteBody), dryRun:true }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ libMsg(d.error||'Could not check that selection.','error'); return; }
+                LIB_PLAN=d;
+                libMsg('');
+                libStep(3);
+                libRenderPlan(d, picked);
+            }catch{ libMsg('Server unreachable.','error'); }
+        }
+        // Only the fields the library actually has an opinion about. minRank and
+        // partnerLogo are deliberately absent so a re-import cannot clear a rank
+        // gate the VA set by hand.
+        const libRouteBody=(r)=>({
+            flightNumber:r.flightNumber||'', origin:r.origin, destination:r.destination,
+            aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, notes:r.notes||'',
+            kind:r.kind||'own', partnerName:r.partnerName||'',
+        });
+
+        function libRenderPlan(d, picked){
+            const box=document.getElementById('libPlan');
+            const n=(v,one,many)=>`${v} ${v===1?one:many}`;
+            const bits=[];
+            if(d.create) bits.push(`<div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><i data-lucide="plus-circle" class="w-4 h-4"></i> ${escapeHtml(n(d.create,'new route','new routes'))}</div>`);
+            if(d.update) bits.push(`<div class="flex items-center gap-2 accent-text"><i data-lucide="pencil" class="w-4 h-4"></i> ${escapeHtml(n(d.update,'route updated','routes updated'))}</div>`);
+            if(d.unchanged) bits.push(`<div class="flex items-center gap-2 muted"><i data-lucide="equal" class="w-4 h-4"></i> ${escapeHtml(n(d.unchanged,'route you already have','routes you already have'))}</div>`);
+            if(!bits.length) bits.push('<div class="muted">Nothing here differs from the network you already have.</div>');
+
+            const errs=(d.errors||[]).length ? `<div class="mt-2.5 rounded-lg p-2.5" style="background:color-mix(in srgb, #ef4444 12%, transparent);">
+                <div class="text-xs font-semibold text-red-500 mb-1">${escapeHtml(n(d.errorCount,'route we couldn’t read','routes we couldn’t read'))} — nothing will be applied until these are out of the selection</div>
+                <ul class="text-xs muted space-y-0.5">${d.errors.slice(0,8).map(e=>`<li>Route ${escapeHtml(String(e.line))}: ${escapeHtml(e.message)}</li>`).join('')}</ul>
+            </div>` : '';
+
+            box.innerHTML=`<div class="rounded-lg surface hair p-3">
+                <div class="text-xs font-semibold uppercase tracking-wider faint mb-2">What this would do</div>
+                <div class="text-sm space-y-1">${bits.join('')}</div>
+                <div class="text-[11px] faint mt-2">Nothing is deleted, and a route you’ve already published stays published — this only adds and fills in.</div>
+                ${errs}
+            </div>`;
+
+            // The fleet half. Every type these routes need that the VA does not
+            // already operate, pre-ticked and individually untickable — agreed to
+            // here rather than appearing in the fleet on its own.
+            const have=new Set(FLEET.map(f=>acNorm(f.type)));
+            const needed=[...new Set(picked.map(r=>String(r.aircraft||'').trim()).filter(Boolean))]
+                .filter(t=>!have.has(acNorm(t))).sort();
+            LIB_NEWTYPES=needed.map(t=>({type:t, take:true}));
+            const fbox=document.getElementById('libFleetAdd');
+            if(!needed.length){ fbox.classList.add('hidden'); fbox.innerHTML=''; }
+            else{
+                fbox.classList.remove('hidden');
+                fbox.innerHTML=`<div class="rounded-lg surface hair p-3">
+                    <div class="text-xs font-semibold uppercase tracking-wider faint mb-1">Add to your fleet</div>
+                    <p class="text-xs muted mb-2">These routes are flown on ${escapeHtml(n(needed.length,'aircraft type','aircraft types'))} you don’t operate yet. Ticked ones are added to your fleet and get a photo from the community library where there is one.</p>
+                    <div class="space-y-1">${needed.map((t,i)=>`
+                        <label class="flex items-center gap-2 text-sm cursor-pointer">
+                            <input type="checkbox" data-lib-type="${i}" checked class="accent-[var(--accent)]">
+                            <span>${escapeHtml(t)}</span>
+                        </label>`).join('')}</div>
+                </div>`;
+                fbox.querySelectorAll('[data-lib-type]').forEach(el=>{
+                    el.addEventListener('change',()=>{ LIB_NEWTYPES[Number(el.getAttribute('data-lib-type'))].take=el.checked; });
+                });
+            }
+            libSyncCommit();
+            if(window.lucide) lucide.createIcons();
+        }
+        function libSyncCommit(){
+            const d=LIB_PLAN||{};
+            const agreed=document.getElementById('libAgree').checked;
+            const can=agreed && !d.errorCount && (d.create||d.update);
+            const b=document.getElementById('libCommitBtn');
+            b.disabled=!can; b.style.opacity=can?'1':'.5';
+            const total=(d.create||0)+(d.update||0);
+            b.innerHTML=total
+                ? `<i data-lucide="check" class="w-4 h-4"></i> Add ${total} route${total===1?'':'s'} as draft${total===1?'':'s'}`
+                : `<i data-lucide="check" class="w-4 h-4"></i> Nothing to add`;
+            if(window.lucide) lucide.createIcons();
+        }
+
+        async function libCommit(){
+            if(!LIB_PLAN) return;
+            const picked=libSelected();
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            const btn=document.getElementById('libCommitBtn');
+            btn.disabled=true; libMsg('Adding…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes/library-import`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ routes:picked.map(libRouteBody), dryRun:false }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ libMsg(d.error||'Could not add those routes.','error'); btn.disabled=false; return; }
+
+                const failed=(d.failures||[]).length;
+                const drift=checkResponseDrift(d);
+                let summary=`${d.created||0} route${(d.created||0)===1?'':'s'} added as drafts${d.updated?`, ${d.updated} updated`:''}.`;
+                if(failed) summary+=` ${failed} failed — try those again.`;
+                if(drift) summary+=' '+drift;
+
+                // The fleet, second and separately. Routes are the thing that was
+                // asked for; if this half fails the VA still has their network,
+                // and the aircraft is three clicks away in the fleet editor.
+                const adding=LIB_NEWTYPES.filter(t=>t.take);
+                if(adding.length){
+                    const before=FLEET.length;
+                    for(const t of adding){
+                        if(FLEET.some(f=>acNorm(f.type)===acNorm(t.type) && !String(f.name||'').trim())) continue;
+                        FLEET.push({type:t.type, name:'', image:'', imageAuto:false, photographer:'', photoLink:''});
+                    }
+                    if(FLEET.length>before){
+                        renderStructure(); renderFleetCount();
+                        await saveStructureInner('fleet');
+                        // Photos afterwards and one at a time, so a fleet that
+                        // grew by twelve does not fire twelve lookups before the
+                        // rows it is filling in have been saved.
+                        for(let i=before;i<FLEET.length;i++) resolveFleetPicture(i,{notify:false});
+                        summary+=` ${FLEET.length-before} aircraft added to your fleet.`;
+                    }
+                }
+
+                say(summary, (failed||drift)?'info':'ok');
+                fetchRoutes().then(()=>{ renderRoutes(); changed('routes'); });
+                closeRouteLib();
+            }catch{ libMsg('Server unreachable.','error'); }
+            finally{ btn.disabled=false; }
+        }
+
         function closeRoutes(){ closeDrawer('routes'); }
         function openRouteForm(route){
             ROUTE_EDITING = route ? String(route.id) : null;
