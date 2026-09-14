@@ -93,6 +93,22 @@
            otherwise render every state at once. One line makes the failure
            mode "unstyled but correct" rather than "all of it, all at once". */
         .hidden{ display:none !important; }
+        /* WIDE AND NARROW, WITHOUT FIGHTING `hidden`.
+           The rule above is !important, so `hidden lg:flex` — the obvious way to
+           write "only on a big screen" — can never come back: the utility that
+           is meant to reveal the element loses to it. That is why the Open
+           button in the bar was invisible at every width until something
+           removed the class by hand. These two do the same job and leave
+           `hidden` free to mean what the JavaScript uses it for. */
+        /* !important on the hiding half, because Tailwind arrives from a CDN and
+           appends its sheet after this one — `.flex` and `.narrow-only` have the
+           same specificity, so without it the later sheet wins and the row meant
+           for phones shows up on a desktop too. */
+        .wide-only{ display:none !important; }
+        @media (min-width:1024px){
+            .wide-only{ display:flex !important; }
+            .narrow-only{ display:none !important; }
+        }
         .pane{ min-height:0; }
         @media (pointer: coarse){
             input,select,textarea{ font-size:16px !important; }
@@ -114,7 +130,7 @@
      publish button live in it — so the second interface leaves it spanning the
      window instead of floating it as page chrome. -->
 <header data-flat-bar class="sticky top-0 z-30 border-b hair" style="background:var(--surface)">
-    <div class="px-3 sm:px-5 h-14 flex items-center gap-3">
+    <div class="px-3 sm:px-5 min-h-14 py-2 flex items-center gap-3">
         <!-- The way out. Labelled on every screen size on purpose: a lone
              back-arrow on a phone is a guess, and the alternative a VA reaches
              for when they cannot find the way back is signing out. -->
@@ -129,17 +145,33 @@
         <button id="themeBtn" class="shrink-0 w-9 h-9 grid place-items-center rounded-lg border hair" title="Light or dark">
             <i data-lucide="moon" class="w-4 h-4" id="themeIcon"></i>
         </button>
-        <button id="previewBtn" class="btn-quiet shrink-0 hidden sm:inline-flex" type="button">
-            <i data-lucide="external-link" class="w-4 h-4"></i> Open
-        </button>
-        <button id="publishBtn" class="btn shrink-0" type="button" disabled>
-            <i data-lucide="upload-cloud" class="w-4 h-4"></i> <span id="publishLabel">Publish</span>
-        </button>
+        <div class="wide-only items-center gap-2 shrink-0">
+            <button class="js-open btn-quiet" type="button">
+                <i data-lucide="external-link" class="w-4 h-4"></i> Open
+            </button>
+            <button class="js-save btn-quiet" type="button"></button>
+            <button class="js-publish btn" type="button" disabled>
+                <i data-lucide="upload-cloud" class="w-4 h-4"></i> <span class="js-publish-label">Publish</span>
+            </button>
+        </div>
     </div>
-    <!-- Phone: two screens rather than three columns. -->
-    <div class="lg:hidden px-3 pb-2 flex gap-2" id="mobileTabs">
-        <button data-pane="build" class="flex-1 btn-quiet text-xs py-1.5">Build</button>
-        <button data-pane="preview" class="flex-1 btn-quiet text-xs py-1.5">Preview</button>
+
+    <!-- THE ACTION ROW.
+         Below 1024px — which includes a phone asking for the desktop site, where
+         the layout is ~980px wide and the far right of a single bar is simply
+         off the screen until you pan to it — Save and Publish move here, at the
+         left-hand edge of their own row, beside the two screens this page
+         becomes. Publishing is the one act this whole editor exists for; it does
+         not get to be the control you have to go looking for. -->
+    <div class="narrow-only px-3 sm:px-5 pb-2 flex items-center gap-2">
+        <div id="mobileTabs" class="flex gap-2 min-w-0 flex-1">
+            <button data-pane="build" class="flex-1 btn-quiet text-xs py-1.5">Build</button>
+            <button data-pane="preview" class="flex-1 btn-quiet text-xs py-1.5">Preview</button>
+        </div>
+        <button class="js-save btn-quiet text-xs py-1.5 shrink-0" type="button"></button>
+        <button class="js-publish btn text-xs py-1.5 shrink-0" type="button" disabled>
+            <i data-lucide="upload-cloud" class="w-3.5 h-3.5"></i> <span class="js-publish-label">Publish</span>
+        </button>
     </div>
 </header>
 
@@ -156,15 +188,17 @@
 </div>
 
 <!-- ===== Pick a design ============================================== -->
+<!-- Two questions, in order: which way in, and then which look. Asking both at
+     once — a wall of designs and no word about what picking one does — is what
+     made the first screen feel like a quiz rather than a choice. -->
 <section id="start" class="hidden flex-1 overflow-y-auto p-4 sm:p-8">
     <div class="max-w-5xl mx-auto">
-        <h1 class="text-2xl font-bold tracking-tight">Give your airline a website.</h1>
-        <p class="text-sm muted mt-1 max-w-2xl">
-            Pick a look to start from. Your fleet, your routes, your ranks and your numbers are
-            filled in from this crew center — you write the words. You can change the look later
-            and keep everything you have written.
-        </p>
-        <div id="startGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6"></div>
+        <button id="startBack" class="hidden items-center gap-1.5 text-xs font-semibold muted hover:accent-text mb-3" type="button">
+            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> The two ways in
+        </button>
+        <h1 class="text-2xl font-bold tracking-tight" id="startTitle">Give your airline a website.</h1>
+        <p class="text-sm muted mt-1 max-w-2xl" id="startNote"></p>
+        <div id="startGrid" class="mt-6"></div>
         <p class="text-xs muted mt-6">
             Nothing is public until you press Publish, and you can take the site down at any time.
         </p>
@@ -190,9 +224,15 @@
                 <button id="addBlockBtn" class="text-xs font-semibold accent-text" type="button">+ Add a section</button>
             </div>
             <div id="blockList" class="space-y-1 overflow-y-auto"></div>
-            <p id="blockEmpty" class="text-xs muted hidden py-6 text-center">
-                This page is empty.<br>Add a section to start.
-            </p>
+            <div id="blockEmpty" class="hidden py-5 text-center">
+                <p class="text-xs muted leading-relaxed">
+                    A page is a stack of sections — a banner, some words, your fleet.<br>
+                    This one has none yet.
+                </p>
+                <button id="emptyAddBtn" class="btn text-xs py-1.5 mt-3" type="button">
+                    <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add the first section
+                </button>
+            </div>
         </div>
 
         <!-- PICTURES.
@@ -429,6 +469,10 @@
     const TOKEN = SESSION && SESSION.token;
 
     const $ = (id) => document.getElementById(id);
+    // Save and Publish exist twice — once in the title row for wide screens and
+    // once in the action row below it for everything narrower. Everything that
+    // paints them paints both.
+    const $$ = (sel) => Array.prototype.slice.call(document.querySelectorAll(sel));
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const icons = () => { if (window.lucide) lucide.createIcons(); };
 
@@ -492,16 +536,42 @@
     let SITE = null;      // the last payload from GET /site
     let CAT = null;       // designs, fonts, modes, and the block catalogue
     let doc = null;       // the document being edited
-    let pageIx = 0;
+    /* THE OPEN PAGE IS AN ADDRESS, NOT A POSITION.
+     *
+     * The server sorts the pages it hands back (index.html first, the rest
+     * alphabetically), so the page at position 2 before a save is not
+     * necessarily the page at position 2 after one. Renaming "page2.html" to
+     * "about.html" used to move the page under the cursor and leave the editor
+     * showing a different one. An address survives the sort. */
+    let pagePath = 'index.html';
     let openBlock = null; // the id of the section whose form is showing
     let openFile = null;  // the path being edited, once ejected
     let preview = { url: '', expires: 0 };
     let saveTimer = null;
     let saving = false;
     let pendingSave = false;
+    /* Bumped by every local edit. save() reads it before the request goes out
+     * and again when it comes back: if it moved, the VA has typed since, and
+     * the server's copy of the document is already out of date. See
+     * adoptServerDoc. */
+    let docRev = 0;
+    let dirty = false;    // there are edits the server has not taken yet
+    let saveError = '';   // the last save that did not land, if any
 
     const blockDef = (type) => (CAT && CAT.builder.blocks.find(b => b.type === type)) || null;
-    const page = () => (doc && doc.pages[pageIx]) || null;
+    const page = () => (doc && (doc.pages.find(p => p.path === pagePath) || doc.pages[0])) || null;
+
+    /* THE OPEN SECTION, LOOKED UP EVERY TIME.
+     *
+     * Never captured in a closure. A save replaces the document with the
+     * server's cleaned copy, and a handler holding the block object it was
+     * drawn with would from that moment be writing into an object nothing
+     * renders and nothing sends. That is the whole of "I type in the box and
+     * nothing happens" and "it saves the picture but will not put it in". */
+    function currentBlock() {
+        const p = page();
+        return (p && p.blocks.find(x => x.id === openBlock)) || null;
+    }
 
     /* =====================================================================
      * BOOT
@@ -537,7 +607,7 @@
         $('gateTitle').textContent = title;
         $('gateBody').textContent = body;
         $('siteState').textContent = '';
-        $('publishBtn').classList.add('hidden');
+        $$('.js-publish, .js-save, .js-open').forEach(b => b.classList.add('hidden'));
         if (back) {
             const a = $('gateLink');
             a.href = CREW_HOME;
@@ -576,14 +646,16 @@
         $('start').classList.toggle('hidden', started);
         $('builder').classList.toggle('hidden', !started || !designed);
         $('files').classList.toggle('hidden', !started || designed);
-        $('publishBtn').classList.toggle('hidden', !started);
+        $$('.js-publish').forEach(b => b.classList.toggle('hidden', !started));
+        $$('.js-save').forEach(b => b.classList.toggle('hidden', !started || !designed));
 
         renderStatus();
+        renderSaveState();
         if (!started) return renderStart();
         if (!designed) return renderFiles();
 
         doc = SITE.builder;
-        if (pageIx >= doc.pages.length) pageIx = 0;
+        if (!doc.pages.some(p => p.path === pagePath)) pagePath = doc.pages[0].path;
         renderPages();
         renderBlocks();
         renderForm();
@@ -618,9 +690,42 @@
         else if (s.hasUnpublishedChanges) { line = 'Changes not published yet'; pub = 'Publish changes'; }
         else { line = 'Published and live at ' + (s.url || '').replace(/^https:\/\//, ''); pub = 'Published'; }
         $('siteState').textContent = line;
-        $('publishLabel').textContent = pub;
-        $('publishBtn').disabled = !!s.blocked || (!s.hasUnpublishedChanges && !!s.published.version);
-        $('previewBtn').classList.toggle('hidden', !s.published.version);
+        $$('.js-publish-label').forEach(el => { el.textContent = pub; });
+        const stuck = !!s.blocked || (!s.hasUnpublishedChanges && !!s.published.version);
+        $$('.js-publish').forEach((b) => { b.disabled = stuck; });
+        $$('.js-open').forEach(b => b.classList.toggle('hidden', !s.published.version));
+    }
+
+    /* ---- Is it saved? ----------------------------------------------------
+     *
+     * Typing still saves on its own, a second after you stop. The button is not
+     * here to make that happen — it is here because "did that save?" is the
+     * question every VA asked of a page that answered it with a word in the
+     * corner that appeared and vanished before they looked up. A control that
+     * names the answer, and that can be pressed when the answer is "not yet",
+     * is a better answer. Pressing it only skips the wait.
+     * -------------------------------------------------------------------- */
+    let savePainted = '';
+    function renderSaveState() {
+        const label = saveError ? 'Save again' : saving ? 'Saving…' : dirty ? 'Save now' : 'Saved';
+        const icon = saveError ? 'alert-triangle' : saving ? 'refresh-cw' : dirty ? 'save' : 'check';
+        // Typing calls this on every keystroke and the answer only changes on
+        // the first one. Redrawing anyway would run the icon sweep over the
+        // whole document per character typed.
+        const key = label + '|' + saveError;
+        if (key === savePainted) return;
+        savePainted = key;
+        const tip = saveError
+            ? 'That did not save: ' + saveError
+            : dirty ? 'Save now instead of waiting the second out'
+            : 'Everything you have written is saved. Publish is what makes it public.';
+        $$('.js-save').forEach((b) => {
+            b.innerHTML = `<i data-lucide="${icon}" class="w-3.5 h-3.5"></i><span>${esc(label)}</span>`;
+            b.disabled = saving || (!dirty && !saveError);
+            b.title = tip;
+            b.style.color = saveError ? '#b91c1c' : '';
+        });
+        icons();
     }
 
     /* ---- Picking a design ---------------------------------------------- */
@@ -641,82 +746,224 @@
         </button>`;
     }
 
+    /* WHICH WAY IN, AND THEN WHICH LOOK.
+     *
+     * There are two kinds of VA on this screen and one of them was not being
+     * served. One wants a website by this evening and does not care to decide
+     * what goes on it — a design with its pages already written, filled in from
+     * this crew center, is the whole product. The other has a site in their head
+     * already and wants an empty page to put it on, and handing them six
+     * finished layouts to delete their way out of is worse than handing them
+     * nothing.
+     *
+     * The old screen only offered the first, without saying so, so the second
+     * kind arrived at a page full of somebody else's words with no idea whether
+     * they were allowed to remove them. Asking first costs one click and makes
+     * both answers obviously correct.
+     */
+    let startMode = null;   // null → the two ways in; 'ready' | 'blank' → designs
+
     function renderStart() {
-        $('startGrid').innerHTML = CAT.templates.map(t => designCard(t, SITE.template)).join('');
-        $('startGrid').querySelectorAll('[data-design]').forEach((el) => {
-            el.addEventListener('click', () => chooseDesign(el.getAttribute('data-design')));
+        const grid = $('startGrid');
+        const back = $('startBack');
+
+        if (!startMode) {
+            back.classList.add('hidden');
+            $('startTitle').textContent = 'Give your airline a website.';
+            $('startNote').textContent = 'Two ways in, and neither is a dead end: whichever you pick, '
+                + 'you can change the design, and add or remove any section, at any time afterwards.';
+            grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6';
+            grid.innerHTML = `
+                <button type="button" data-start="ready" class="row p-5 text-left">
+                    <span class="w-10 h-10 rounded-xl grid place-items-center mb-3" style="background:var(--bg)">
+                        <i data-lucide="wand-2" class="w-5 h-5 accent-text"></i>
+                    </span>
+                    <span class="block text-base font-bold tracking-tight">Help me — use a ready-made site</span>
+                    <span class="block text-sm muted mt-1.5 leading-relaxed">
+                        Pick a design and it arrives already written: a homepage, a fleet page, a join page.
+                        Your aircraft, routes, ranks and numbers are filled in from this crew center. Change
+                        any of the words, or none of them.
+                    </span>
+                    <span class="block text-xs font-semibold accent-text mt-3">Fastest — a site in a few minutes</span>
+                </button>
+                <button type="button" data-start="blank" class="row p-5 text-left">
+                    <span class="w-10 h-10 rounded-xl grid place-items-center mb-3" style="background:var(--bg)">
+                        <i data-lucide="pencil-ruler" class="w-5 h-5 accent-text"></i>
+                    </span>
+                    <span class="block text-base font-bold tracking-tight">Let me build my own</span>
+                    <span class="block text-sm muted mt-1.5 leading-relaxed">
+                        Start with one empty homepage and put on exactly the sections you want, in the order
+                        you want them. You still pick a look first, so what you add already matches.
+                    </span>
+                    <span class="block text-xs font-semibold accent-text mt-3">You decide what goes on every page</span>
+                </button>`;
+            grid.querySelectorAll('[data-start]').forEach(el => el.addEventListener('click', () => {
+                startMode = el.getAttribute('data-start');
+                renderStart();
+                window.scrollTo({ top: 0 });
+            }));
+            icons();
+            return;
+        }
+
+        back.classList.remove('hidden');
+        back.classList.add('flex');
+        const ready = startMode === 'ready';
+        $('startTitle').textContent = ready ? 'Pick the site you want.' : 'Pick the look you want.';
+        $('startNote').textContent = ready
+            ? 'Each one is a finished site, not a blank theme — the pages and the words come with it, '
+              + 'and your fleet, routes, ranks and numbers are filled in from this crew center.'
+            : 'This sets the colours, the type and the shapes your sections will use. You get one empty '
+              + 'homepage and a list of sections to put on it.';
+        grid.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6';
+        grid.innerHTML = CAT.templates.map(t => designCard(t, SITE.template)).join('');
+        grid.querySelectorAll('[data-design]').forEach((el) => {
+            el.addEventListener('click', () => chooseDesign(el.getAttribute('data-design'), { blank: !ready }));
         });
         icons();
     }
 
     /* ---- Pages ---------------------------------------------------------- */
     function renderPages() {
-        $('pageList').innerHTML = doc.pages.map((p, i) => `
-            <div class="row px-2.5 py-2 flex items-center gap-2 ${i === pageIx ? 'row-on' : ''}">
-                <button type="button" data-page="${i}" class="min-w-0 flex-1 text-left">
+        $('pageList').innerHTML = doc.pages.map(p => `
+            <div class="row px-2.5 py-2 flex items-center gap-2 ${p.path === pagePath ? 'row-on' : ''}">
+                <button type="button" data-page="${esc(p.path)}" class="min-w-0 flex-1 text-left">
                     <span class="block text-sm font-semibold truncate">${esc(p.navLabel || p.title || (p.path === 'index.html' ? 'Home' : p.path))}</span>
                     <span class="block text-[11px] faint font-mono truncate">/${p.path === 'index.html' ? '' : esc(p.path)}</span>
                 </button>
-                <button type="button" data-page-edit="${i}" class="shrink-0 muted hover:accent-text" title="Rename"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
-                ${p.path === 'index.html' ? '' : `<button type="button" data-page-del="${i}" class="shrink-0 muted hover:text-rose-600" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`}
+                <button type="button" data-page-edit="${esc(p.path)}" class="shrink-0 muted hover:accent-text" title="Rename"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+                ${p.path === 'index.html' ? '' : `<button type="button" data-page-del="${esc(p.path)}" class="shrink-0 muted hover:text-rose-600" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`}
             </div>`).join('');
         $('pageList').querySelectorAll('[data-page]').forEach(el => el.addEventListener('click', () => {
-            pageIx = +el.getAttribute('data-page'); openBlock = null; renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
+            pagePath = el.getAttribute('data-page'); openBlock = null;
+            renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
         }));
-        $('pageList').querySelectorAll('[data-page-edit]').forEach(el => el.addEventListener('click', () => editPage(+el.getAttribute('data-page-edit'))));
+        $('pageList').querySelectorAll('[data-page-edit]').forEach(el => el.addEventListener('click', () => editPage(el.getAttribute('data-page-edit'))));
         $('pageList').querySelectorAll('[data-page-del]').forEach(el => el.addEventListener('click', async () => {
-            const i = +el.getAttribute('data-page-del');
-            if (!await ask({ title: `Delete ${doc.pages[i].path}?`, danger: true, confirm: 'Delete the page',
+            const path = el.getAttribute('data-page-del');
+            if (!await ask({ title: `Delete ${path}?`, danger: true, confirm: 'Delete the page',
                 body: 'Everything on it goes with it.' })) return;
+            const i = doc.pages.findIndex(p => p.path === path);
+            if (i < 0) return;
             doc.pages.splice(i, 1);
-            if (pageIx >= doc.pages.length) pageIx = doc.pages.length - 1;
+            if (pagePath === path) pagePath = doc.pages[0].path;
             openBlock = null; queueSave(); renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
         }));
     }
 
-    function editPage(i) {
-        const p = doc.pages[i];
-        const isHome = p.path === 'index.html';
+    /** about.html from "About us". Dashes, no accents, nothing that needs
+     *  escaping in a URL — and empty if there is nothing usable, which the
+     *  caller reads as "the VA has not named it yet". */
+    function pathFromLabel(label) {
+        const stem = String(label || '').toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+        return stem ? stem + '.html' : '';
+    }
+
+    /* NAMING A PAGE, ONCE.
+     *
+     * A new page used to be created immediately as "New page" at page2.html and
+     * renamed in a second step. Both steps went through the same document — and
+     * the first one had queued a save. A second later that save came back and
+     * the editor adopted the server's copy of the document, at which point the
+     * rename sheet was still holding the page object from the copy that had just
+     * been thrown away. Pressing Done wrote the new name into an object nothing
+     * renders and nothing sends, so the page stayed "New page" and the VA had to
+     * do it a second time — by which point no save was in flight and it stuck.
+     *
+     * Two changes, either of which would have been enough, and both are worth
+     * having. A page is not created until it has a name, so there is no rename
+     * to lose; and the commit below finds the page by the address it had when
+     * the sheet opened, rather than holding the object or the position it was at.
+     *
+     * Pass a page's path to rename it, or null to add one.
+     */
+    function editPage(target) {
+        const creating = target === null;
+        const p = creating ? null : doc.pages.find(x => x.path === target);
+        if (!creating && !p) return;
+        const isHome = !creating && p.path === 'index.html';
+        const label0 = creating ? '' : (p.navLabel || p.title || (isHome ? 'Home' : ''));
+
         openSheet(`
-            <h2 class="text-lg font-bold tracking-tight mb-1">Page</h2>
-            <p class="text-xs muted mb-4">What it is called in the menu, and its address.</p>
-            <label class="block text-xs font-semibold muted">Menu label
-                <input id="pgLabel" class="field mt-1" value="${esc(p.navLabel || p.title || (isHome ? 'Home' : ''))}">
+            <h2 class="text-lg font-bold tracking-tight mb-1">${creating ? 'Add a page' : 'Page'}</h2>
+            <p class="text-xs muted mb-4">What it is called in the menu, and its address. The address
+                follows the name unless you change it yourself.</p>
+            <label class="block text-xs font-semibold muted">Name
+                <input id="pgLabel" class="field mt-1" value="${esc(label0)}" placeholder="About us" autocomplete="off">
             </label>
             <label class="block text-xs font-semibold muted mt-3">Address
-                <input id="pgPath" class="field mt-1 font-mono" value="${esc(p.path)}" ${isHome ? 'disabled' : ''}>
+                <input id="pgPath" class="field mt-1 font-mono" value="${esc(creating ? '' : p.path)}"
+                    placeholder="about.html" autocomplete="off" ${isHome ? 'disabled' : ''}>
                 <span class="block text-[11px] faint mt-1">${isHome ? 'The homepage always lives at /.' : 'Letters, numbers and dashes, ending in .html'}</span>
             </label>
             <label class="flex items-center gap-2 text-sm mt-3">
-                <input id="pgNav" type="checkbox" class="w-4 h-4 rounded" ${p.nav ? 'checked' : ''}>
+                <input id="pgNav" type="checkbox" class="w-4 h-4 rounded" ${creating || p.nav ? 'checked' : ''}>
                 <span>Show it in the menu</span>
             </label>
             <div class="flex gap-2 mt-5">
-                <button id="pgSave" class="btn flex-1" type="button">Done</button>
+                <button id="pgSave" class="btn flex-1" type="button">${creating ? 'Add the page' : 'Save the name'}</button>
                 <button id="pgCancel" class="btn-quiet" type="button">Cancel</button>
             </div>`);
-        $('pgCancel').addEventListener('click', closeSheet);
-        $('pgSave').addEventListener('click', () => {
-            const path = isHome ? 'index.html' : String($('pgPath').value || '').trim().toLowerCase();
-            if (!isHome && !/^[a-z0-9][a-z0-9-]*\.html$/.test(path)) return toast('An address looks like about.html', 'bad');
-            if (!isHome && doc.pages.some((x, j) => j !== i && x.path === path)) return toast('There is already a page at that address.', 'bad');
-            p.path = path;
-            p.navLabel = String($('pgLabel').value || '').trim();
-            p.title = p.navLabel;
-            p.nav = $('pgNav').checked;
-            closeSheet(); queueSave(); renderPages(); renderPreviewPages(); icons();
+
+        // The address follows the name until the VA touches it, and then it is
+        // theirs. Typing a name and watching the address stay at page2.html was
+        // the other half of why this felt like it had not worked.
+        let pathOwned = !creating;
+        $('pgPath').addEventListener('input', () => { pathOwned = true; });
+        $('pgLabel').addEventListener('input', () => {
+            if (!pathOwned && !isHome) $('pgPath').value = pathFromLabel($('pgLabel').value);
         });
+        setTimeout(() => { const f = $('pgLabel'); if (f) { f.focus(); f.select(); } }, 30);
+
+        const commit = () => {
+            const label = String($('pgLabel').value || '').trim();
+            const path = isHome
+                ? 'index.html'
+                : (String($('pgPath').value || '').trim().toLowerCase() || pathFromLabel(label));
+            if (!isHome && !/^[a-z0-9][a-z0-9-]*\.html$/.test(path)) {
+                return toast(path ? 'An address looks like about.html' : 'Give the page a name first.', 'bad');
+            }
+            // Looked up now, not when the sheet opened: a save may have landed
+            // in between and replaced every object in the document.
+            const live = creating ? null : doc.pages.find(x => x.path === target);
+            if (!creating && !live) { closeSheet(); return toast('That page is no longer there.', 'bad'); }
+            if (doc.pages.some(x => x !== live && x.path === path)) {
+                return toast('There is already a page at that address.', 'bad');
+            }
+            if (creating) {
+                if (doc.pages.length >= (CAT.builder.limits.pages || 12)) {
+                    return toast('That is as many pages as a site can have.', 'bad');
+                }
+                doc.pages.push({ path, title: label, navLabel: label, nav: $('pgNav').checked, blocks: [] });
+                pagePath = path;
+                openBlock = null;
+            } else {
+                if (pagePath === live.path) pagePath = path;
+                live.path = path;
+                live.navLabel = label;
+                live.title = label;
+                live.nav = $('pgNav').checked;
+            }
+            closeSheet(); queueSave();
+            renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
+            if (creating) toast('Page added. It is empty until you put a section on it.');
+        };
+
+        $('pgCancel').addEventListener('click', closeSheet);
+        $('pgSave').addEventListener('click', commit);
+        // On the fields themselves, not on the sheet: the sheet's body outlives
+        // every sheet drawn into it, so a listener left there would still be
+        // waiting to rename this page the next time somebody pressed Enter in
+        // an unrelated one.
+        [$('pgLabel'), $('pgPath')].forEach(el => el.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        }));
     }
 
     function addPage() {
         if (doc.pages.length >= (CAT.builder.limits.pages || 12)) return toast('That is as many pages as a site can have.', 'bad');
-        let n = doc.pages.length, path;
-        do { path = 'page' + (++n) + '.html'; } while (doc.pages.some(p => p.path === path));
-        doc.pages.push({ path, title: 'New page', navLabel: 'New page', nav: true, blocks: [] });
-        pageIx = doc.pages.length - 1;
-        openBlock = null;
-        queueSave(); renderPages(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
-        editPage(pageIx);
+        editPage(null);
     }
 
     /* ---- Sections ------------------------------------------------------- */
@@ -848,18 +1095,27 @@
             openBlock = b.id;
             closeSheet();
             await save();          // the server fills the blanks and hands them back
-            syncOpenBlock();
-            renderBlocks(); renderForm(); icons();
+            renderBlocks(); renderForm(); renderPreviewPages(); icons();
         }));
         icons();
     }
 
-    /* After a save the document is the SERVER's copy — ids survive, but values
-     * have been cleaned and defaults filled in. Re-point the open section at
-     * the row that came back. */
-    function syncOpenBlock() {
+    /* THE SERVER'S COPY, BUT ONLY WHEN NOTHING IS WAITING TO GO THE OTHER WAY.
+     *
+     * Every save hands back the document as the server cleaned it: ids survive,
+     * values are trimmed, defaults are filled in and the pages come back sorted.
+     * Adopting it is how a freshly added section gets its starting words.
+     *
+     * Adopting it WHILE the VA is part-way through something is how those edits
+     * used to disappear. The old document went out of scope and every sheet,
+     * form handler and picker still holding a piece of it carried on writing
+     * into nothing. So the caller only runs this when the revision that went out
+     * is still the revision we hold — otherwise the copy in the browser is the
+     * newer one and it stays. */
+    function adoptServerDoc() {
+        if (!SITE.builder || !Array.isArray(SITE.builder.pages) || !SITE.builder.pages.length) return;
         doc = SITE.builder;
-        if (pageIx >= doc.pages.length) pageIx = 0;
+        if (!doc.pages.some(p => p.path === pagePath)) pagePath = doc.pages[0].path;
     }
 
     /* ---- The form for one section --------------------------------------- */
@@ -885,21 +1141,33 @@
          * are the same on every section — so they are folded into a disclosure
          * at the bottom. Open when a picture is already set, because then they
          * are the fields somebody came here to change. */
-        const own = def.fields.filter(f => f.group !== 'background');
+        const own = def.fields.filter(f => !f.group);
         const bg = def.fields.filter(f => f.group === 'background');
+        const lay = def.fields.filter(f => f.group === 'layout');
+        /* SHAPE AND SURROUNDINGS, folded away like the background controls.
+         *
+         * These are the answers to "does this have to be in a box" and "why is
+         * the nose cut off my aeroplane", and a VA who is not asking either
+         * should not have to read past them to reach the words. Open when they
+         * are already set to something, because then they are what somebody
+         * came here to change. */
+        const laySet = lay.some(f => b.props[f.key] && b.props[f.key] !== 'none'
+            && b.props[f.key] !== 'on' && b.props[f.key] !== 'fill');
+        const fold = (open, title, fields) => `
+                <details class="border-t hair pt-3 mt-3" ${open ? 'open' : ''}>
+                    <summary class="text-xs font-bold uppercase tracking-wide muted cursor-pointer">${title}</summary>
+                    <div class="space-y-3 mt-3">${fields.map(f => fieldHtml(f, b.props[f.key])).join('')}</div>
+                </details>`;
         $('form').innerHTML = own.map(f => fieldHtml(f, b.props[f.key])).join('')
-            + (bg.length ? `
-                <details class="border-t hair pt-3 mt-3" ${b.props.bgImage ? 'open' : ''}>
-                    <summary class="text-xs font-bold uppercase tracking-wide muted cursor-pointer">
-                        Picture behind this section${b.props.bgImage ? ' <span class="accent-text normal-case">· on</span>' : ''}
-                    </summary>
-                    <div class="space-y-3 mt-3">${bg.map(f => fieldHtml(f, b.props[f.key])).join('')}</div>
-                </details>` : '');
+            + (bg.length ? fold(!!b.props.bgImage,
+                `Picture behind this section${b.props.bgImage ? ' <span class="accent-text normal-case">· on</span>' : ''}`, bg) : '')
+            + (lay.length ? fold(laySet,
+                `Containers &amp; cropping${laySet ? ' <span class="accent-text normal-case">· changed</span>' : ''}`, lay) : '');
         if (def.live) {
             $('liveNote').textContent = 'The rows in this section are read from your crew center every time somebody opens the page. You choose the heading and how many; the airline fills in the rest.';
             $('liveNote').classList.remove('hidden');
         }
-        wireForm(b);
+        wireForm();
         icons();
     }
 
@@ -997,12 +1265,18 @@
         return `<label class="block mb-1.5">${label}<input type="text" ${attrs} class="field text-xs py-1.5${f.type === 'url' ? ' font-mono' : ''}" value="${esc(val)}"${f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : ''}></label>`;
     }
 
-    function wireForm(b) {
+    /* Every handler in here starts by finding the open section again rather than
+     * closing over the one the form was drawn from — see currentBlock. Holding
+     * the object is what made a picture chosen after an autosave, or a sentence
+     * typed after one, land in a document that had already been replaced. */
+    function wireForm() {
         const form = $('form');
         form.oninput = (e) => {
             const el = e.target;
             const k = el.getAttribute('data-k');
             if (!k) return;
+            const b = currentBlock();
+            if (!b) return;
             const listKey = el.getAttribute('data-list-k');
             const value = el.type === 'checkbox' ? el.checked : el.value;
             if (listKey) {
@@ -1033,12 +1307,19 @@
                 const listKey = el.getAttribute('data-img-list');
                 const i = +el.getAttribute('data-img-i');
                 const set = (url) => {
+                    // Looked up when the picture comes back, not when the picker
+                    // opened: a save can land while the library is open, and it
+                    // used to take the section this was about to write into with
+                    // it — which is exactly "it saves the image but it never
+                    // goes in".
+                    const blk = currentBlock();
+                    if (!blk) return;
                     if (listKey) {
-                        b.props[listKey] = b.props[listKey] || [];
-                        b.props[listKey][i] = b.props[listKey][i] || {};
-                        b.props[listKey][i][key] = url;
+                        blk.props[listKey] = blk.props[listKey] || [];
+                        blk.props[listKey][i] = blk.props[listKey][i] || {};
+                        blk.props[listKey][i][key] = url;
                     } else {
-                        b.props[key] = url;
+                        blk.props[key] = url;
                     }
                     queueSave(); renderForm(); refreshPreview(true);
                 };
@@ -1046,6 +1327,9 @@
                 else openMedia((url) => set(url));
                 return;
             }
+
+            const b = currentBlock();
+            if (!b) return;
 
             const add = e.target.closest('[data-list-add]');
             if (add) {
@@ -1195,29 +1479,38 @@
         box.classList.remove('hidden');
     }
 
-    async function applyDesign(id, theme) {
+    async function applyDesign(id, theme, blank) {
         const body = { template: id };
         // A theme means "put these exact colours back" — an undo. No theme
         // means "keep what I have chosen", which is what a VA expects when they
         // are trying a different layout with their own colours on it.
         if (theme) body.theme = theme; else body.keepTheme = !!(SITE.builder && SITE.builder.pages);
+        // Only ever true on the very first screen, and the server ignores it
+        // once there is a document — changing design later never empties a site.
+        if (blank) body.blank = true;
         SITE = await api('/design', { method: 'POST', body });
         closeSheet();
         render();
         refreshPreview(true);
     }
 
-    async function chooseDesign(id) {
-        if (id === SITE.template) { closeSheet(); return; }
+    async function chooseDesign(id, opts) {
+        const blank = !!(opts && opts.blank);
+        if (id === SITE.template && !blank && SITE.builder && SITE.builder.pages && SITE.builder.pages.length) {
+            closeSheet(); return;
+        }
         const from = { template: SITE.template, theme: Object.assign({}, SITE.theme) };
+        const first = !(SITE.builder && SITE.builder.pages && SITE.builder.pages.length);
         try {
-            toast('Laying it out…');
-            await applyDesign(id);
+            toast(blank ? 'Setting it up…' : 'Laying it out…');
+            await applyDesign(id, null, blank);
             // Only remembered once the swap has actually landed, so a failed
             // request cannot leave an undo pointing at a change never made.
-            undoTo = from.template ? from : null;
+            undoTo = (!first && from.template) ? from : null;
             renderUndo();
-            toast('Design applied. Nothing is public until you publish.');
+            toast(first
+                ? (blank ? 'Ready. Add your first section on the left.' : 'Your site is laid out. Nothing is public until you publish.')
+                : 'Design applied. Nothing is public until you publish.');
         } catch (err) { toast(err.message, 'bad'); }
     }
 
@@ -1371,6 +1664,9 @@
         const l = (SITE && SITE.limits) || {};
         const full = (u.media || 0) >= (l.media || 0);
         const picking = typeof mediaPicking === 'function';
+        const here = picking ? null : page();
+        const slot = picking ? null : openImageSlot();
+        const slotLabel = slot ? (blockDef(slot.block.type) || {}).label : '';
 
         host.innerHTML = `
             <div class="flex items-start justify-between gap-3 mb-1">
@@ -1394,13 +1690,25 @@
 
             ${picking ? `<button type="button" id="mdNone" class="btn-quiet text-xs py-1.5 mb-3 w-full">Use no picture</button>` : ''}
 
+            ${picking ? '' : `<p class="text-xs muted mb-2">
+                <b>Put one on your site</b> with the button on its tile — it goes onto
+                <b>${esc(here ? (here.navLabel || here.title || here.path) : 'your page')}</b>, the page you have open.</p>`}
+
             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 ${all.map(m => `
                 <div class="row overflow-hidden">
-                    <button type="button" data-pick="${esc(m.id)}" class="block w-full aspect-[4/3] bg-black/5 dark:bg-white/5">
+                    <button type="button" data-pick="${esc(m.id)}" class="block w-full aspect-[4/3] bg-black/5 dark:bg-white/5"
+                        title="${picking ? 'Use this one' : 'Put it on the page'}">
                         <img src="${esc(m.url)}" alt="" loading="lazy" class="w-full h-full object-cover">
                     </button>
                     <div class="p-2">
+                        ${picking ? '' : `
+                        <button type="button" data-md-place="${esc(m.id)}" class="btn text-xs py-1.5 w-full mb-1">
+                            <i data-lucide="image-plus" class="w-3.5 h-3.5"></i> Put on the page
+                        </button>
+                        ${slotLabel ? `<button type="button" data-md-use="${esc(m.id)}" class="btn-quiet text-xs py-1.5 w-full mb-1">
+                            Use in ${esc(slotLabel)}
+                        </button>` : ''}`}
                         <input type="text" data-md-name="${esc(m.id)}" value="${esc(m.name || '')}"
                             class="field text-xs py-1 mb-1" placeholder="Name it">
                         <input type="text" data-md-alt="${esc(m.id)}" value="${esc(m.alt || '')}"
@@ -1418,13 +1726,86 @@
         wireUpload();
     }
 
+    /* ---- Getting a picture out of the library and onto the site -----------
+     *
+     * Uploading used to be the end of the road. The library took the file,
+     * resized it, listed it — and then offered nothing at all to do with it. The
+     * only route onto a page ran the other way round: open a section that
+     * happens to have a picture field, press Choose, pick from the library. A VA
+     * who started at "Pictures", which is what anybody with a photograph does,
+     * got as far as storing it and stopped.
+     *
+     * So every tile now carries the two things somebody wants next. Put it on
+     * the page they are editing, as its own section; or drop it straight into
+     * the picture of the section they already have open.
+     * -------------------------------------------------------------------- */
+
+    /** The open section's own picture field, if it has one. Background pictures
+     *  do not count — every section has one of those, so offering it would put
+     *  the same button on every tile whatever is open, and a photograph behind
+     *  the words is not what "use this picture" means. */
+    function openImageSlot() {
+        const block = currentBlock();
+        const def = block && blockDef(block.type);
+        const field = def && (def.fields || []).find(f => f.type === 'image' && f.group !== 'background');
+        return field ? { block, field } : null;
+    }
+
+    /** A picture onto the open page, as a section of its own. A second picture
+     *  straight after a first extends the grid the first one made rather than
+     *  starting another section — five photographs is one gallery, not five. */
+    function placeOnPage(row) {
+        const p = page();
+        if (!p || !row) return;
+        if (!blockDef('gallery')) return toast('This site has no picture section to put it in.', 'bad');
+        const item = { url: row.url, caption: '', href: '' };
+        const last = p.blocks[p.blocks.length - 1];
+        if (last && last.type === 'gallery') {
+            last.props.items = (last.props.items || []).concat([item]);
+            openBlock = last.id;
+        } else {
+            if (p.blocks.length >= ((CAT.builder.limits && CAT.builder.limits.blocks) || 30)) {
+                return toast('That is as many sections as one page holds.', 'bad');
+            }
+            const b = {
+                id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                type: 'gallery',
+                props: { items: [item] },
+            };
+            p.blocks.push(b);
+            openBlock = b.id;
+        }
+        mediaPicking = null;
+        closeSheet();
+        queueSave(); renderBlocks(); renderForm(); renderPreviewPages(); icons();
+        toast('Added to ' + (p.navLabel || p.title || p.path) + '.');
+    }
+
+    /** A picture into the open section's picture field. */
+    function useInOpenSection(row) {
+        const slot = openImageSlot();
+        if (!slot || !row) return;
+        slot.block.props[slot.field.key] = row.url;
+        mediaPicking = null;
+        closeSheet();
+        queueSave(); renderForm(); refreshPreview(true);
+        toast('Put in ' + ((blockDef(slot.block.type) || {}).label || 'the open section') + '.');
+    }
+
     function wireMediaSheet() {
         const host = $('mediaSheet');
         if (!host) return;
 
         host.addEventListener('click', async (e) => {
-            const t = e.target.closest ? e.target.closest('[data-pick],[data-md-del],#mdClose,#mdPick,#mdNone') : null;
+            const t = e.target.closest
+                ? e.target.closest('[data-pick],[data-md-del],[data-md-place],[data-md-use],#mdClose,#mdPick,#mdNone')
+                : null;
             if (!t) return;
+
+            const placeId = t.getAttribute('data-md-place');
+            if (placeId) return placeOnPage(mediaList().find(m => m.id === placeId));
+            const useId = t.getAttribute('data-md-use');
+            if (useId) return useInOpenSection(mediaList().find(m => m.id === useId));
 
             if (t.id === 'mdClose') { mediaPicking = null; closeSheet(); return; }
             if (t.id === 'mdPick') { const f = $('mdFile'); if (f) f.click(); return; }
@@ -1441,7 +1822,12 @@
                 if (typeof mediaPicking === 'function') {
                     const pick = mediaPicking; mediaPicking = null; closeSheet();
                     pick(row.url, row);
+                    return;
                 }
+                // Not picking for a field: the tile does what the button under
+                // it does. A picture you click in a library is a picture you
+                // want somewhere, and doing nothing was the old answer.
+                placeOnPage(row);
                 return;
             }
 
@@ -1514,25 +1900,40 @@
 
     /* ---- Saving ---------------------------------------------------------- */
     function queueSave() {
+        docRev += 1;
+        dirty = true;
+        saveError = '';
         clearTimeout(saveTimer);
-        $('siteState').textContent = 'Saving…';
+        // The bar's line is about publishing — what is live and what is not. It
+        // is not the place to shout "Saving…" over that every keystroke; the
+        // Save button says that, in one place, and keeps saying it.
+        renderSaveState();
         saveTimer = setTimeout(save, 900);
     }
 
     async function save() {
         clearTimeout(saveTimer);
+        saveTimer = null;
         if (saving) { pendingSave = true; return; }
         saving = true;
+        // The revision this request carries. If it has moved by the time the
+        // reply lands, the VA has typed since and the browser holds the newer
+        // document — so the reply is read for its status and its copy of the
+        // document is left alone. See adoptServerDoc.
+        const rev = docRev;
+        renderSaveState();
         try {
             SITE = await api('/builder', { method: 'PUT', body: { doc } });
-            syncOpenBlock();
+            saveError = '';
+            if (docRev === rev) { dirty = false; adoptServerDoc(); }
             renderStatus();
             schedulePreview();
         } catch (err) {
+            saveError = err.message;
             toast(err.message, 'bad');
-            $('siteState').textContent = 'Not saved — ' + err.message;
         } finally {
             saving = false;
+            renderSaveState();
             if (pendingSave) { pendingSave = false; save(); }
         }
     }
@@ -1578,8 +1979,13 @@
 
     /* ---- Publishing, history, the switch ---------------------------------- */
     async function publish() {
-        $('publishBtn').disabled = true;
+        $$('.js-publish').forEach(b => { b.disabled = true; });
         try {
+            // Anything typed in the last second goes first: pressing Publish
+            // means "put what is on my screen live", and a debounce is not a
+            // reason for it to mean anything else.
+            if (dirty || saveTimer) await save();
+            if (saveError) { renderStatus(); return toast('Your last change did not save, so there is nothing new to publish yet.', 'bad'); }
             SITE = await api('/publish', { method: 'POST' });
             renderStatus(); renderVersions();
             toast('Published. Your site is live at ' + (SITE.url || '').replace(/^https:\/\//, ''));
@@ -1685,10 +2091,15 @@
             try { localStorage.setItem('crew-theme', dark ? 'dark' : 'light'); } catch {}
             paintThemeIcon();
         });
-        $('publishBtn').addEventListener('click', publish);
-        $('previewBtn').addEventListener('click', () => { if (SITE.url) window.open(SITE.url, '_blank', 'noopener'); });
+        $$('.js-publish').forEach(b => b.addEventListener('click', publish));
+        $$('.js-open').forEach(b => b.addEventListener('click', () => { if (SITE.url) window.open(SITE.url, '_blank', 'noopener'); }));
+        // Saving happens on its own; this only skips the wait. It is here
+        // because a VA needs to be able to ask.
+        $$('.js-save').forEach(b => b.addEventListener('click', () => { if (dirty || saveError) save(); }));
+        $('startBack').addEventListener('click', () => { startMode = null; renderStart(); });
         $('addPageBtn').addEventListener('click', addPage);
         $('addBlockBtn').addEventListener('click', addBlock);
+        $('emptyAddBtn').addEventListener('click', addBlock);
         $('designBtn').addEventListener('click', openDesigns);
         $('mediaBtn').addEventListener('click', () => openMedia());
         $('blockDeleteBtn').addEventListener('click', () => {
@@ -1763,7 +2174,10 @@
         });
         // A save in flight when the tab closes is a save that never happened.
         window.addEventListener('beforeunload', (e) => {
-            if (saveTimer) { save(); e.preventDefault(); e.returnValue = ''; }
+            if (!dirty && !saving) return;
+            if (saveTimer) save();
+            e.preventDefault();
+            e.returnValue = '';
         });
     }
 

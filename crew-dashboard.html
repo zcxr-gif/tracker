@@ -34,6 +34,11 @@
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
          only has to say where the backend is and hand it the session. -->
     <script src="/crewEvents.js"></script>
+    <!-- The network, drawn here rather than fetched. The route map proper is
+         MapLibre over OpenFreeMap and is the better thing when it loads; this
+         is what the crew centre shows when it does not. No tiles, no engine, no
+         host to be blocked by an office proxy or an ad-blocker. -->
+    <script src="/crewNetMap.js"></script>
     <!-- The shared panel chrome the four modules below are built from: the
          slide-over shell, the toast, the API helper and the date formatting.
          Must load before them. -->
@@ -432,6 +437,28 @@
         .lyt-opt[aria-checked="true"] .dot{ background:var(--accent); border-color:var(--accent); }
         .settings-tab{ color:var(--muted); }
         .settings-tab.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+        /* THE AIRCRAFT PICKER, POSITIONED HERE RATHER THAN BY THE CDN.
+           Same reasoning as the .hidden rule above, and the same failure it
+           prevents: a results list that depends on Tailwind's `absolute` for
+           its position does not merely look wrong when the CDN is slow or
+           blocked — it lands at the bottom of the page, a thousand pixels from
+           the box that opened it, where nobody will find it. Four rules, so the
+           list is under its field whatever else did or did not arrive. */
+        .ac-find{ position:relative; }
+        .ac-list{
+            position:absolute; z-index:40; left:0; right:0; top:100%; margin-top:.25rem;
+            max-height:18rem; overflow-y:auto;
+            background:var(--surface); border:1px solid var(--line, rgba(0,0,0,.12));
+            border-radius:.5rem; box-shadow:0 10px 25px rgba(0,0,0,.15);
+        }
+        .ac-list button{ display:flex; width:100%; text-align:left; align-items:baseline; gap:.5rem; }
+        /* A cross-link that is worth having on a desk and is one control too
+           many on a phone, where the drawer header is already four deep and the
+           X has to stay reachable. The tile and the topic menu still reach it
+           at every width. Written here rather than as `hidden sm:inline-flex`
+           so it does not depend on the CDN to come back. */
+        .wide-only-btn{ display:none; }
+        @media (min-width:640px){ .wide-only-btn{ display:inline-flex; } }
     </style>
 </head>
 <body class="min-h-screen antialiased">
@@ -818,17 +845,19 @@
                         <p id="roleNote" class="hidden text-sm mt-2"></p>
                     </div>
 
+                    <!-- THE FLEET MOVED OUT.
+                         It is not a setting — it is a thing an airline works on,
+                         alongside its routes and its roster, and burying it at
+                         the bottom of a settings panel made it feel like one.
+                         It has its own place now; this is the signpost. -->
                     <div class="mt-5">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-sm font-semibold">Fleet</span>
-                            <button onclick="addFleet()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
-                        <p class="text-xs muted mb-2">Aircraft your VA operates. Pick the aircraft &amp; livery from Infinite Flight so flights track correctly — we’ll try to find a matching photo automatically (<i data-lucide="image" class="inline w-3 h-3 align-[-1px]"></i>). Upload your own or leave it as a plane.</p>
-                        <div id="fleetPreview" class="flex flex-wrap gap-1.5 mb-2.5 min-h-[1.5rem]"></div>
-                        <datalist id="acTypeList"></datalist>
-                        <div id="fleetRows" class="space-y-2"></div>
-                        <button onclick="saveStructure('fleet',this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-2.5">Save fleet</button>
-                        <p id="fleetNote" class="hidden text-sm mt-2"></p>
+                        <p class="text-xs muted mb-2.5">Your aircraft live in their own place now, beside the route network.</p>
+                        <button type="button" onclick="openFleet()" class="w-full surface hair rounded-lg py-2 text-sm font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5">
+                            <i data-lucide="plane" class="w-4 h-4"></i> Open the fleet
+                        </button>
                     </div>
                 </div>
 
@@ -1592,6 +1621,44 @@
         </div>
     </div>
 
+    <!-- ============ FLEET SLIDE-OVER ============
+         The aircraft an airline operates, out of Settings and beside the route
+         network where the work actually happens: a route needs a fleet, and a
+         fleet with no routes is a list.
+
+         THE SEARCH IS THE WAY IN. The two boxes below it are for correcting a
+         row; nobody adding an aeroplane thinks "Airbus A220-300" first. They
+         think "Air Austral", and this finds the aircraft that wears it. -->
+    <div id="fleet" data-topic="fleet" class="hidden fixed inset-0 z-50">
+        <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closeFleet()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
+            <div class="drawer-head sticky top-0 z-10 flex items-center justify-between gap-2 px-5 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center gap-2"><i data-lucide="plane" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Fleet</span><span id="fleetCount" class="text-xs muted"></span></div>
+                <div class="drawer-actions flex items-center gap-2">
+                    <button onclick="openRoutes()" title="The routes these aircraft fly" class="wide-only-btn surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition items-center gap-1"><i data-lucide="route" class="w-4 h-4"></i> Routes</button>
+                    <button onclick="addFleet()" class="accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Add</button>
+                    <button onclick="closeFleet()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+            </div>
+            <div class="p-5">
+                <label class="block text-sm font-semibold mb-1.5" for="fleetFind">Add an aircraft</label>
+                <div class="ac-find">
+                    <input id="fleetFind" type="text" placeholder="An airline, a livery or an aircraft — “Air Austral”, “BA”, “A320”"
+                        class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <div id="fleetFindList" class="ac-list hidden"></div>
+                </div>
+                <p class="text-xs muted mt-1.5">Type a livery and we find the aeroplane that wears it. Picking one fills in both,
+                    in the spelling Infinite Flight uses, so your flights track — and then looks for a photograph of it.</p>
+
+                <div id="fleetPreview" class="flex flex-wrap gap-1.5 mt-4 mb-2.5 min-h-[1.5rem]"></div>
+                <datalist id="acTypeList"></datalist>
+                <div id="fleetRows" class="space-y-2"></div>
+                <button onclick="saveStructure('fleet',this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save fleet</button>
+                <p id="fleetNote" class="hidden text-sm mt-2"></p>
+            </div>
+        </div>
+    </div>
+
     <!-- ============ ROUTES SLIDE-OVER ============ -->
     <div id="routes" data-topic="routes" class="hidden fixed inset-0 z-50">
         <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closeRoutes()"></div>
@@ -1599,6 +1666,7 @@
             <div class="drawer-head sticky top-0 z-10 flex items-center justify-between gap-2 px-5 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="route" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Route network</span><span id="routeCount" class="text-xs muted"></span></div>
                 <div class="drawer-actions flex items-center gap-2">
+                    <button onclick="openFleet()" title="The aircraft these routes are flown on" class="wide-only-btn surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition items-center gap-1"><i data-lucide="plane" class="w-4 h-4"></i> Fleet</button>
                     <button id="viewMapBtn" onclick="openRouteMap()" title="View the network on a map" class="surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="map" class="w-4 h-4"></i> Map</button>
                     <button id="routesCsvBtn" onclick="openCsv('routes')" title="Export or import the network as CSV" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="table" class="w-4 h-4"></i> CSV</button>
                     <button id="addRouteBtn" onclick="openRouteForm()" class="hidden accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Add</button>
@@ -1611,7 +1679,18 @@
                     <input id="nr_flight" placeholder="Flight no. (ACA123)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)] col-span-2">
                     <input id="nr_from" placeholder="From ICAO (CYYZ)" maxlength="4" class="surface hair rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:border-[var(--ink)]">
                     <input id="nr_to" placeholder="To ICAO (EGLL)" maxlength="4" class="surface hair rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:border-[var(--ink)]">
+                    <!-- OWN METAL PICKS FROM THE FLEET; A CODESHARE DOES NOT.
+                         A codeshare is somebody else's aeroplane, and it was
+                         never in this airline's fleet — so the fleet picker
+                         could only offer the wrong answers, and most codeshares
+                         ended up filed as "Any aircraft". The second field is
+                         the whole catalogue, searched by livery or by type. -->
                     <select id="nr_aircraft" class="surface hair rounded-lg px-2.5 py-2 text-sm"></select>
+                    <div id="nr_acFreeWrap" class="ac-find hidden">
+                        <input id="nr_acFree" type="text" placeholder="Partner’s aircraft — e.g. “Iberia”"
+                            class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <div id="nr_acFreeList" class="ac-list hidden"></div>
+                    </div>
                     <input id="nr_dist" type="number" min="0" placeholder="Distance (nm, optional)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <input id="nr_notes" placeholder="Notes (optional)" class="surface hair rounded-lg px-3 py-2 text-sm col-span-2 focus:outline-none focus:border-[var(--ink)]">
                     <label class="flex items-center gap-2 text-sm muted col-span-2 cursor-pointer"><input id="nr_active" type="checkbox" checked class="accent-[var(--accent)]"> Active (visible to pilots)</label>
@@ -1920,6 +1999,9 @@
                     LIV_MAP=(d.liveries && typeof d.liveries==='object')?d.liveries:{};
                     AC_INDEX=new Map(AC_LIST.map(n=>[acNorm(n), n]));
                     LIV_INDEX=new Map(Object.keys(LIV_MAP).map(k=>[acNorm(k), LIV_MAP[k]]));
+                    // Read the other way round too: livery → the aircraft that
+                    // wears it. See THE WHOLE CATALOGUE below.
+                    buildAircraftIndex();
                     // The liveries are keyed by the aircraft NAME upstream, and the
                     // two lists are built from different fields, so they can drift.
                     // If nothing lines up the editor is about to offer zero liveries
@@ -1955,6 +2037,114 @@
         function canonicalAircraft(type){
             const k=acNorm(type); if(!k) return '';
             return AC_INDEX.get(k) || '';
+        }
+
+        /* ===================================================================
+         * THE WHOLE CATALOGUE, SEARCHABLE BY ANY PART OF IT
+         *
+         * The two-box fleet row asks the wrong question first. Nobody thinks
+         * "Airbus A220-300" and then "Air Austral" — they think "Air Austral",
+         * and they should be able to type that. The aircraft is a fact ABOUT
+         * the livery, and the catalogue already knows it: LIV_MAP is keyed by
+         * aircraft and lists the liveries painted on it, so reading it the
+         * other way round is an index, not a request.
+         *
+         * Flattened once when the catalogue lands. Everything here is local —
+         * no endpoint, no debounce against a server, nothing to fail — which is
+         * why the results can appear on the keystroke.
+         * ================================================================ */
+        let AC_PAIRS=[];                       // {type, livery, hay}
+        function buildAircraftIndex(){
+            AC_PAIRS=[];
+            for(const type of AC_LIST){
+                const livs=liveriesFor(type);
+                // An aircraft with no liveries on file is still an aircraft
+                // somebody can operate, so it is in the index on its own.
+                if(livs.length) for(const livery of livs) AC_PAIRS.push({type,livery,hay:acNorm(type+' '+livery)});
+                else AC_PAIRS.push({type,livery:'',hay:acNorm(type)});
+            }
+        }
+
+        /* Every word has to appear somewhere in the pair, so "a320 british"
+         * finds it whichever order it was typed — the thing a VA reaches for
+         * when the first search returns three hundred BA liveries.
+         *
+         * The ranking is the whole difference between a search box and a list:
+         * an exact livery first, then one that starts with what was typed, then
+         * the aircraft, then anything containing it. */
+        function searchAircraft(q, limit){
+            const s=acNorm(q);
+            if(s.length<2) return [];
+            const terms=s.split(' ').filter(Boolean);
+            const out=[];
+            for(const p of AC_PAIRS){
+                let all=true;
+                for(const t of terms) if(p.hay.indexOf(t)<0){ all=false; break; }
+                if(!all) continue;
+                const liv=acNorm(p.livery), ty=acNorm(p.type);
+                let score=4;
+                if(liv && liv===s) score=0;
+                else if(liv && liv.indexOf(s)===0) score=1;
+                else if(ty===s || ty.indexOf(s)===0) score=2;
+                else if(liv && liv.indexOf(s)>=0) score=3;
+                out.push({type:p.type,livery:p.livery,score});
+            }
+            out.sort((a,b)=>a.score-b.score
+                || a.livery.localeCompare(b.livery)
+                || a.type.localeCompare(b.type));
+            return out.slice(0, limit||24);
+        }
+
+        /* ONE PICKER, WHEREVER AN AEROPLANE HAS TO BE NAMED.
+         *
+         * The fleet editor and the codeshare field are the same question asked
+         * twice, and a <datalist> answers neither: it only suggests against the
+         * box it is attached to, so it can never offer an aircraft for a livery
+         * typed into the livery box. This is a list under the field, keyed by
+         * arrow and Enter, and it hands back BOTH halves of what was chosen.
+         *
+         * `onPick` receives {type, livery}. The caller decides what that means. */
+        function mountAircraftPicker(input, list, onPick){
+            if(!input||!list||input.__acPicker) return;
+            input.__acPicker=true;
+            input.setAttribute('autocomplete','off');
+            let rows=[], at=-1;
+
+            const close=()=>{ rows=[]; at=-1; list.classList.add('hidden'); list.innerHTML=''; };
+            const paint=()=>{
+                if(!rows.length) return close();
+                list.innerHTML=rows.map((r,i)=>`
+                    <button type="button" data-ac="${i}" class="w-full text-left px-3 py-2 text-sm flex items-baseline gap-2 ${i===at?'accent-bg text-white':'hover:bg-black/5 dark:hover:bg-white/5'}">
+                        <span class="font-semibold truncate">${escapeHtml(r.livery||r.type)}</span>
+                        <span class="text-xs ${i===at?'opacity-80':'muted'} truncate ml-auto">${escapeHtml(r.livery?r.type:'no livery on file')}</span>
+                    </button>`).join('');
+                list.classList.remove('hidden');
+            };
+            const take=(i)=>{
+                const r=rows[i]; if(!r) return;
+                close();
+                onPick({type:r.type, livery:r.livery});
+            };
+
+            input.addEventListener('input',()=>{
+                if(FLEET_META_STATE!=='ready' && FLEET_META_STATE!=='error') loadFleetMeta();
+                rows=searchAircraft(input.value, 12); at=rows.length?0:-1; paint();
+            });
+            input.addEventListener('keydown',(e)=>{
+                if(!rows.length) return;
+                if(e.key==='ArrowDown'){ e.preventDefault(); at=(at+1)%rows.length; paint(); }
+                else if(e.key==='ArrowUp'){ e.preventDefault(); at=(at-1+rows.length)%rows.length; paint(); }
+                else if(e.key==='Enter'){ e.preventDefault(); take(at<0?0:at); }
+                else if(e.key==='Escape'){ e.stopPropagation(); close(); }
+            });
+            list.addEventListener('mousedown',(e)=>{
+                // mousedown, not click: blur fires first and would close the
+                // list out from under the pointer.
+                const b=e.target.closest('[data-ac]'); if(!b) return;
+                e.preventDefault(); take(+b.getAttribute('data-ac'));
+            });
+            input.addEventListener('blur',()=>setTimeout(close,120));
+            input.addEventListener('focus',()=>{ if(input.value.trim().length>=2){ rows=searchAircraft(input.value,12); at=rows.length?0:-1; paint(); } });
         }
         // The livery box used to read "Livery (optional)" and offer nothing until
         // the aircraft happened to match a catalogue key exactly. It is not
@@ -2067,7 +2257,8 @@
         // ---- Tiles ----
         const TOOLS=[
             {icon:'users',label:'Roster',desc:'Pilots & ranks',action:'roster'},
-            {icon:'route',label:'Routes',desc:'Network & fleet',action:'routes'},
+            {icon:'route',label:'Routes',desc:'Where the airline flies',action:'routes'},
+            {icon:'plane-takeoff',label:'Fleet',desc:'Aircraft & liveries',action:'fleet'},
             {icon:'calendar-clock',label:'Schedules',desc:'Departures & bookings',action:'schedule'},
             {icon:'calendar-days',label:'Events',desc:'Group flights & gates',action:'events'},
             {icon:'plane',label:'Flights',desc:'PIREPs & logs',action:'pireps'},
@@ -2091,6 +2282,9 @@
         const TILE_CAP={
             roster:'roster.manage',
             routes:'routes.manage',
+            // The fleet is what the routes are flown on, and the same people
+            // keep both.
+            fleet:'routes.manage',
             schedule:'schedules.manage',
             notices:'announcements.manage',
             documents:'documents.manage',
@@ -2209,14 +2403,14 @@
         // rather than a node because most of these do not exist until the
         // topic has been opened once.
         const TOPIC_ROOT={
-            roster:'#roster', routes:'#routes', pireps:'#pireps', settings:'#settings',
+            roster:'#roster', routes:'#routes', fleet:'#fleet', pireps:'#pireps', settings:'#settings',
             schedule:'#csPanel', events:'#cevPanel', notices:'#cnPanel',
             embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
             documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
             ifLive:'#cif-panel',
         };
         const TOPIC_CLOSE={
-            roster:()=>closeRoster(), routes:()=>closeRoutes(), pireps:()=>closePireps(),
+            roster:()=>closeRoster(), routes:()=>closeRoutes(), fleet:()=>closeFleet(), pireps:()=>closePireps(),
             settings:()=>closeSettings(),
             schedule:()=>{ if(window.CrewSchedule) CrewSchedule.close(); },
             events:()=>{ if(window.CrewEvents) CrewEvents.close(); },
@@ -2230,7 +2424,7 @@
             ifLive:()=>{ if(window.CrewIF) CrewIF.close(); },
         };
         const TOPIC_OPEN={
-            roster:()=>openRoster(), routes:()=>openRoutes(), pireps:()=>openPireps(), shop:()=>openShop(),
+            roster:()=>openRoster(), routes:()=>openRoutes(), fleet:()=>openFleet(), pireps:()=>openPireps(), shop:()=>openShop(),
             training:()=>openTraining(), awards:()=>openAwards(), leave:()=>openLeave(),
             settings:()=>openSettings(), schedule:()=>openSchedule(), events:()=>openEvents(),
             notices:()=>openNotices(), embeds:()=>openEmbeds(),
@@ -3446,10 +3640,20 @@
                 : `<label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload aircraft image"><i data-lucide="plane" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
             const livs = liveriesFor(f.type);
             const livList = livs.map(n=>`<option value="${escapeHtml(n)}">`).join('');
+            /* WHO TOOK THE PICTURE.
+               Only shown once there IS a picture, because a credit box on a row
+               with no photograph in it is a question nobody can answer. Filled
+               in for you when the photo came from the community library — that
+               library records a contributor for every picture, and it used to
+               be dropped the moment the photo was used here. */
+            const credit = f.image ? `
+                <input data-f="photographer" value="${escapeHtml(f.photographer||'')}" placeholder="Photo by…"
+                    title="Whoever took this photograph. Shown under the aircraft on your website."
+                    class="w-32 shrink-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">` : '';
             return `<div class="struct-row flex items-center gap-2" data-kind="fleet" data-idx="${i}">${img}
                 <input data-f="type" list="acTypeList" value="${escapeHtml(f.type||'')}" placeholder="Aircraft (e.g. Airbus A320)" class="w-40 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                 <input data-f="name" list="livList-${i}" value="${escapeHtml(f.name||'')}" placeholder="${escapeHtml(liveryPlaceholder(f))}" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                <datalist id="livList-${i}">${livList}</datalist>
+                <datalist id="livList-${i}">${livList}</datalist>${credit}
                 <span data-fleetwarn class="shrink-0 text-amber-500">${fleetWarnHtml(f)}</span>
                 <button data-autopic title="Find a photo for this aircraft &amp; livery" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)] shrink-0"><i data-lucide="image" class="w-4 h-4"></i></button>
                 <button data-del title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`;
@@ -3458,12 +3662,30 @@
         // aircraft library, keyed by the (now canonical) aircraft + livery names.
         // Best-effort: fills the row's image so the VA rarely has to upload one.
         // Won't clobber an existing image unless forced (the explicit button).
+        /* THE PHOTO ARRIVES WHEN THE ROW IS FINISHED, NOT BEFORE.
+         *
+         * This used to fire the moment an aircraft type was typed, with no
+         * livery — so the library returned a photograph of SOMEBODY's A320 and
+         * put it on the row. Then the VA typed their own livery and nothing
+         * happened, because the guard below reads "already has a picture, leave
+         * it alone". The only way out was to notice the X on the thumbnail,
+         * clear the photo by hand, and retype the livery. That is the glitch.
+         *
+         * Two rules fix it. A row is not looked up until it names BOTH an
+         * aircraft and a livery, because a livery is what a photograph is OF.
+         * And a photo this function fetched is marked `imageAuto`, so changing
+         * the row replaces it — while an upload the airline made themselves is
+         * never touched, whatever they retype afterwards.
+         */
         async function resolveFleetPicture(idx, opts){
             opts = opts || {};
             const f = FLEET[idx]; if(!f) return;
             const type=String(f.type||'').trim(), liv=String(f.name||'').trim();
-            if(!type) return;
-            if(f.image && !opts.force) return;
+            // Half a row is not a question the photo library can answer.
+            if(!type || (!liv && !opts.force)) return;
+            // Ours to replace; theirs to leave alone.
+            if(f.image && !opts.force && !f.imageAuto) return;
+            if(f.image && f.imageAuto && !opts.force && f.imageFor===acNorm(type+' '+liv)) return;
             const note = opts.notify ? document.getElementById('fleetNote') : null;
             if(note){ note.textContent='Finding a photo…'; note.className='text-sm muted'; note.classList.remove('hidden'); }
             try{
@@ -3472,10 +3694,43 @@
                 const d=await r.json().catch(()=>null);
                 const url = (d && !d.isPlaceholder) ? (d.imageUrl || (Array.isArray(d.imageUrls) && d.imageUrls[0]) || '') : '';
                 if(url && /^https:\/\//i.test(url)){
-                    f.image=url; renderStructure();
-                    if(note){ note.textContent='Photo added — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
-                } else if(note){
-                    note.textContent='No photo found for that aircraft & livery yet — upload one if you like.'; note.className='text-sm muted';
+                    f.image=url;
+                    // Stamped with the row it answers, so a later change to the
+                    // aircraft or the livery is known to have outrun it.
+                    f.imageAuto=true;
+                    f.imageFor=acNorm(type+' '+liv);
+                    /* AND WHO IT BELONGS TO.
+                       The library records a contributor for every picture, per
+                       image slot, and this used to take the address and leave
+                       the name behind — so a fleet page built entirely out of
+                       other people's photographs credited none of them. The
+                       name is picked from the slot the URL actually came from,
+                       which for a multi-image entry is not always the first.
+                       "System" is the library's own placeholder for a picture
+                       nobody claimed, and is not a person to credit. */
+                    const slot = Array.isArray(d.imageUrls) ? d.imageUrls.indexOf(url) : -1;
+                    const who = (Array.isArray(d.imageContributors) && slot >= 0 && d.imageContributors[slot]
+                        ? d.imageContributors[slot].name : d.contributorName) || '';
+                    f.photographer = (who && who !== 'System') ? String(who).slice(0,80) : '';
+                    renderStructure();
+                    if(note){
+                        note.textContent = f.photographer
+                            ? `Photo added, by ${f.photographer} — remember to Save.`
+                            : 'Photo added — remember to Save.';
+                        note.className='text-sm text-emerald-600 dark:text-emerald-400';
+                    }
+                } else {
+                    /* NOTHING FOUND — so take the last one back down.
+                       A picture we fetched for the aircraft the row used to name
+                       is not a picture of the aeroplane it names now, and
+                       leaving it there is how the wrong livery ends up on a
+                       public fleet page. An upload is untouched: it is theirs
+                       and the library has no opinion about it. */
+                    if(f.imageAuto){ f.image=''; f.imageAuto=false; f.imageFor=''; f.photographer=''; f.photoLink=''; renderStructure(); }
+                    if(note){
+                        note.textContent='No photo on file for that aircraft & livery yet — upload one if you like.';
+                        note.className='text-sm muted';
+                    }
                 }
             }catch{ if(note){ note.textContent='Couldn’t reach the photo library.'; note.className='text-sm text-red-500'; } }
         }
@@ -3506,11 +3761,12 @@
             const w=row.querySelector('[data-fleetwarn]');
             if(w){ w.innerHTML=fleetWarnHtml(f); if(window.lucide) lucide.createIcons(); }
         }
-        function addFleet(){ FLEET.push({type:'',name:'',image:''}); renderStructure(); focusNewRow('fleetRows'); }
+        function addFleet(){ FLEET.push({type:'',name:'',image:'',imageAuto:false,photographer:'',photoLink:''}); renderStructure(); focusNewRow('fleetRows'); }
         function renderBadgePreview(){
             document.getElementById('rankPreview').innerHTML = RANKS.length?RANKS.map(badgeHtml).join(''):'<span class="text-xs faint">No ranks yet.</span>';
             document.getElementById('rolePreview').innerHTML = ROLES.length?ROLES.map(r=>badgeHtml(r)).join(''):'<span class="text-xs faint">No roles yet.</span>';
             const fp=document.getElementById('fleetPreview'); if(fp) fp.innerHTML = FLEET.length?FLEET.map(fleetChip).join(''):'<span class="text-xs faint">No aircraft yet.</span>';
+            renderFleetCount();
             if(window.lucide) lucide.createIcons();
         }
         // A rung, plus the one thing hours cannot decide.
@@ -3631,7 +3887,10 @@
                     const row=(del||clr||pic)&&(del||clr||pic).closest('[data-idx]'); if(!row) return;
                     const arr=arrForKind(row.getAttribute('data-kind')); const idx=+row.getAttribute('data-idx');
                     if(del){ arr.splice(idx,1); renderStructure(); }
-                    else if(clr){ arr[idx].image=''; renderStructure(); }
+                    // The credit belongs to the picture. Removing one and leaving
+                    // the other behind attributes the NEXT photograph to whoever
+                    // took the last one.
+                    else if(clr){ arr[idx].image=''; arr[idx].imageAuto=false; arr[idx].imageFor=''; arr[idx].photographer=''; arr[idx].photoLink=''; renderStructure(); }
                     else if(pic){ resolveFleetPicture(idx, { force:true, notify:true }); }
                 });
                 host.addEventListener('change', async e=>{
@@ -3657,6 +3916,17 @@
                                 if(canon && canon!==f.name){ f.name=canon; e.target.value=canon; }
                             }
                             refreshFleetRow(row); renderBadgePreview();
+                            /* The row has moved on from the picture on it. A
+                               library photo of the aeroplane this row used to
+                               name goes, rather than sitting there looking
+                               answered while the VA types the rest — that wait,
+                               with the wrong aircraft already on screen, is what
+                               made this feel broken. An upload stays: it is
+                               theirs, and they chose it for this row. */
+                            if(f.imageAuto && f.imageFor && f.imageFor!==acNorm(String(f.type||'')+' '+String(f.name||''))){
+                                f.image=''; f.imageAuto=false; f.imageFor=''; f.photographer=''; f.photoLink='';
+                                renderStructure();
+                            }
                         }
                         resolveFleetPicture(fidx);
                         return;
@@ -3673,7 +3943,12 @@
                         const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/badge-image`,{ method:'POST', headers:{Authorization:'Bearer '+token}, body:fd });
                         const d=await res.json().catch(()=>({}));
                         if(!res.ok){ note.textContent=d.error||'Upload failed.'; note.className='text-sm text-red-500'; return; }
-                        arr[idx].image=d.url; renderStructure();
+                        arr[idx].image=d.url;
+                        // An upload is the airline's own picture until they say
+                        // otherwise, so it carries no credit — and certainly not
+                        // the one left over from the library photo it replaced.
+                        if(kind==='fleet'){ arr[idx].imageAuto=false; arr[idx].imageFor=''; arr[idx].photographer=''; arr[idx].photoLink=''; }
+                        renderStructure();
                         note.textContent='Image uploaded — remember to Save.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
                     }catch{ note.textContent='Upload failed. Try again.'; note.className='text-sm text-red-500'; }
                 });
@@ -4677,6 +4952,52 @@
                 {id:'r2',flightNumber:'ACA88',origin:'CYVR',destination:'RJTT',aircraft:'B77W',distanceNm:4180,notes:'',active:true,kind:'own'},
             ];
         }
+        /* ---- The fleet, in its own drawer ---------------------------------
+         * The same editor that used to sit at the bottom of Settings — same
+         * ids, same rows, same save — reached from the dashboard like every
+         * other thing an airline works on. */
+        function openFleet(){
+            openDrawer('fleet');
+            loadFleetMeta();
+            renderStructure();
+            mountFleetFinder();
+            renderFleetCount();
+            if(window.lucide) lucide.createIcons();
+        }
+        function closeFleet(){ closeDrawer('fleet'); }
+        function renderFleetCount(){
+            const el=document.getElementById('fleetCount'); if(!el) return;
+            const n=routableFleet().length, held=FLEET.length-n;
+            el.textContent = FLEET.length
+                ? `${n} aircraft${held?` · ${held} unfinished`:''}`
+                : '';
+        }
+
+        /* THE WAY IN: one box, the whole catalogue, and a row that arrives
+         * complete. Both halves are written at once, so the photo lookup is
+         * asked a question it can answer — which is the whole of the old
+         * "type the aircraft, get somebody else's photo, clear it by hand,
+         * type the livery" dance. */
+        function mountFleetFinder(){
+            const input=document.getElementById('fleetFind');
+            const list=document.getElementById('fleetFindList');
+            if(!input||!list) return;
+            mountAircraftPicker(input, list, ({type, livery}) => {
+                const already=FLEET.findIndex(f=>acNorm(f.type)===acNorm(type) && acNorm(f.name)===acNorm(livery));
+                if(already>=0){
+                    input.value='';
+                    const note=document.getElementById('fleetNote');
+                    if(note){ note.textContent=`${livery||type} is already in your fleet.`; note.className='text-sm muted'; note.classList.remove('hidden'); }
+                    return;
+                }
+                FLEET.push({type, name:livery, image:'', imageAuto:false, photographer:'', photoLink:''});
+                input.value='';
+                renderStructure(); renderFleetCount();
+                // Complete row, so the library has something to match on.
+                resolveFleetPicture(FLEET.length-1, { notify:true });
+            });
+        }
+
         function openRoutes(){
             openDrawer('routes');
             renderRoutes();
@@ -4888,6 +5209,9 @@
             const acSel=document.getElementById('nr_aircraft');
             if(route && route.aircraft && ![...acSel.options].some(o=>o.value===route.aircraft)){ const o=document.createElement('option'); o.value=route.aircraft; o.textContent=route.aircraft; acSel.appendChild(o); }
             acSel.value = route ? (route.aircraft||'') : '';
+            // The same value in the other field, so editing a codeshare opens
+            // on the aeroplane it was saved with rather than on an empty box.
+            document.getElementById('nr_acFree').value = route ? (route.aircraft||'') : '';
             document.getElementById('nr_dist').value = route && route.distanceNm ? route.distanceNm : '';
             document.getElementById('nr_notes').value = route ? (route.notes||'') : '';
             document.getElementById('nr_active').checked = route ? !!route.active : true;
@@ -4926,6 +5250,31 @@
                 b.style.opacity=on?'1':'.7';
             });
             document.getElementById('nr_partnerWrap').classList.toggle('hidden', NR_KIND!=='codeshare');
+            /* Which aircraft field is the live one. A codeshare's aeroplane is
+               the partner's, so the fleet picker cannot name it; own metal
+               should still be picked from the fleet, because that is what makes
+               the flight track. Swapping the FIELD rather than loosening the
+               picker keeps both true. */
+            const shared = NR_KIND==='codeshare';
+            document.getElementById('nr_aircraft').classList.toggle('hidden', shared);
+            document.getElementById('nr_acFreeWrap').classList.toggle('hidden', !shared);
+            if(shared) mountRouteAircraftPicker();
+        }
+        function mountRouteAircraftPicker(){
+            mountAircraftPicker(
+                document.getElementById('nr_acFree'),
+                document.getElementById('nr_acFreeList'),
+                ({type, livery}) => {
+                    // Stored the same way the fleet picker stores it, so the
+                    // network list, the map and the website all read one shape.
+                    document.getElementById('nr_acFree').value = livery ? `${type} · ${livery}` : type;
+                });
+        }
+        /** What the route form is naming as its aircraft, whichever field is up. */
+        function routeAircraftValue(){
+            return NR_KIND==='codeshare'
+                ? document.getElementById('nr_acFree').value.trim()
+                : document.getElementById('nr_aircraft').value;
         }
         function updateRankHint(){
             const sel=document.getElementById('nr_minRank');
@@ -4943,7 +5292,7 @@
         function closeRouteForm(){ ROUTE_EDITING=null; document.getElementById('addRouteForm').classList.add('hidden'); }
         async function submitRoute(){
             const note=document.getElementById('routeNote');
-            const body={ flightNumber:document.getElementById('nr_flight').value.trim(), origin:document.getElementById('nr_from').value.trim().toUpperCase(), destination:document.getElementById('nr_to').value.trim().toUpperCase(), aircraft:document.getElementById('nr_aircraft').value, distanceNm:Number(document.getElementById('nr_dist').value)||0, notes:document.getElementById('nr_notes').value.trim(), active:document.getElementById('nr_active').checked,
+            const body={ flightNumber:document.getElementById('nr_flight').value.trim(), origin:document.getElementById('nr_from').value.trim().toUpperCase(), destination:document.getElementById('nr_to').value.trim().toUpperCase(), aircraft:routeAircraftValue(), distanceNm:Number(document.getElementById('nr_dist').value)||0, notes:document.getElementById('nr_notes').value.trim(), active:document.getElementById('nr_active').checked,
                 kind:NR_KIND, partnerName:document.getElementById('nr_partner').value.trim(), partnerLogo:document.getElementById('nr_partnerLogo').value.trim(), minRank:document.getElementById('nr_minRank').value };
             if(!body.origin||!body.destination){ note.textContent='Enter a from and to airport.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
             if(body.kind==='codeshare' && !body.partnerName){ note.textContent='Name the partner airline for a codeshare.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
@@ -5027,16 +5376,31 @@
         const RM={ map:null, ready:false, data:null, routeFeat:[], aptFeat:[], aptCoords:{}, markers:[], activeOnly:true, canManage:false, styleDark:false, dataHadRoutes:false };
 
         let _rmLibPromise=null;
+        /* THE ENGINE, AND A DEADLINE.
+         *
+         * Two things were wrong with the old loader. A rejection was CACHED, so
+         * one bad minute on the network left the map broken for the rest of the
+         * session — pressing Map again re-used the failed promise and failed
+         * instantly, which reads as "this feature is broken" rather than "try
+         * again". And there was no deadline at all: a script tag that neither
+         * loads nor errors (a proxy that blackholes the request rather than
+         * refusing it, which is what most of them do) left the spinner turning
+         * for ever. */
         function rmLoadMapLibre(){
             if(window.maplibregl) return Promise.resolve();
             if(_rmLibPromise) return _rmLibPromise;
             _rmLibPromise=new Promise((resolve,reject)=>{
+                let settled=false;
+                const done=(err)=>{ if(settled) return; settled=true; clearTimeout(timer); err?reject(err):resolve(); };
                 const css=document.createElement('link'); css.rel='stylesheet';
                 css.href=`https://unpkg.com/maplibre-gl@${RM_MAPLIBRE_VERSION}/dist/maplibre-gl.css`; document.head.appendChild(css);
                 const s=document.createElement('script');
                 s.src=`https://unpkg.com/maplibre-gl@${RM_MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
-                s.onload=()=>resolve(); s.onerror=()=>reject(new Error('map engine failed to load')); document.head.appendChild(s);
-            });
+                s.onload=()=>done(window.maplibregl?null:new Error('map engine loaded but did not start'));
+                s.onerror=()=>done(new Error('map engine failed to load'));
+                document.head.appendChild(s);
+                const timer=setTimeout(()=>done(new Error('map engine timed out')), 9000);
+            }).catch((err)=>{ _rmLibPromise=null; throw err; });
             return _rmLibPromise;
         }
 
@@ -5135,8 +5499,12 @@
             const at=document.getElementById('rmActiveToggle'); if(at) at.style.display=RM.canManage?'':'none';
             document.addEventListener('keydown',rmEsc);
             if(!RM._obs){ RM._obs=new MutationObserver(()=>{ if(document.getElementById('routeMap').classList.contains('hidden'))return; if(isDark()!==RM.styleDark) rmBuildMap(); }); RM._obs.observe(document.documentElement,{attributes:true,attributeFilter:['class']}); }
-            try{ await rmLoadMapLibre(); await rmFetch(); rmBuildMap(); }
-            catch(err){ rmFail(err&&err.message); }
+            RM.fallback=false;
+            // The network first, whatever happens to the engine: the data is
+            // ours and it is what the fallback draws from.
+            try{ await rmFetch(); }catch{}
+            try{ await rmLoadMapLibre(); rmBuildMap(); }
+            catch(err){ rmDrawFallback(err&&err.message); }
             if(window.lucide) lucide.createIcons();
         }
         function rmEsc(e){ if(e.key==='Escape') closeRouteMap(); }
@@ -5146,12 +5514,110 @@
             document.removeEventListener('keydown',rmEsc);
             RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
             if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; } RM.ready=false;
+            clearTimeout(RM._watchdog);
+            // The drawn map is markup in the canvas, not a library instance, so
+            // closing has to clear it or it is still there behind the next one.
+            if(RM.fallback){ document.getElementById('rmCanvas').innerHTML=''; RM.fallback=false; rmHideFallbackNote(); }
         }
         function rmFail(msg){
             document.getElementById('rmLoading').classList.add('hidden');
             const e=document.getElementById('rmEmpty'); e.classList.remove('hidden');
             document.getElementById('rmEmptyTitle').textContent='Map unavailable';
             document.getElementById('rmEmptyMsg').textContent=msg||"The map engine couldn't load. Check your connection and try again.";
+        }
+
+        /* ===================================================================
+         * THE MAP WHEN THE MAP DOES NOT COME
+         *
+         * The slippy map is two third-party hosts away: the engine from a CDN
+         * and the basemap from a tile service. Either one being blocked — an
+         * office proxy, an ad-blocker that eats tile hosts, a school network, a
+         * bad minute — produced a crew centre whose route map simply did not
+         * work, with a spinner or a sentence where the network should be.
+         *
+         * There is no reason for that. The route data is ours and already
+         * loaded, and the VA's own public website draws the same network with
+         * no network access at all. So the crew centre draws it too. It is a
+         * plainer map — coastlines, arcs, the busiest fields named — and it is
+         * the whole network, honestly, every time.
+         * ================================================================ */
+        function rmFallbackRoutes(){
+            // Same filters as the real map, read from the same controls, so the
+            // two views never disagree about what the network is.
+            const acSel=document.getElementById('rmAircraft'); const aircraft=acSel?acSel.value:'';
+            const sEl=document.getElementById('rmSearch'); const search=(sEl?sEl.value:'').trim().toUpperCase();
+            const kindSel=document.getElementById('rmKind'); const kind=kindSel?kindSel.value:'';
+            let rows=((RM.data&&RM.data.routes)||[]).filter(r=>r.mapped&&r.o&&r.d);
+            if(RM.activeOnly) rows=rows.filter(r=>r.active);
+            if(kind==='own') rows=rows.filter(r=>r.kind!=='codeshare');
+            else if(kind==='codeshare') rows=rows.filter(r=>r.kind==='codeshare');
+            if(aircraft) rows=rows.filter(r=>r.aircraft===aircraft);
+            if(search) rows=rows.filter(r=>String(r.origin).includes(search)||String(r.destination).includes(search));
+            return rows.map(r=>({ id:String(r.id), origin:r.origin, destination:r.destination, o:r.o, d:r.d,
+                active:r.active!==false, codeshare:r.kind==='codeshare' }));
+        }
+        function rmDrawFallback(why){
+            RM.fallback=true;
+            if(why) RM._why=why;
+            if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; }
+            RM.ready=false;
+            RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
+            document.getElementById('rmLoading').classList.add('hidden');
+            const canvas=document.getElementById('rmCanvas');
+            if(!window.CrewNetMap){ return rmFail(why); }
+            RM.accent=rmAccent();
+            document.getElementById('routeMap').style.setProperty('--rm-accent',RM.accent);
+            const rows=rmFallbackRoutes();
+            const drawn=CrewNetMap.draw(canvas, {
+                routes: rows, accent: RM.accent, dark: isDark(),
+                onAirport: (icao)=>rmFocusAirport(icao),
+                onRoute: (id)=>rmFocusRoute(id),
+            });
+            // The stats row reads GeoJSON features, because the real map's
+            // filtered set is GeoJSON. Same numbers either way, so the rows are
+            // dressed as features rather than the counting being written twice.
+            const feats=rows.map(r=>({properties:{
+                origin:r.origin, destination:r.destination, codeshare:r.codeshare,
+                distanceNm:(((RM.data&&RM.data.routes)||[]).find(x=>String(x.id)===r.id)||{}).distanceNm||0,
+            }}));
+            rmUpdateStats(feats, [...new Set(rows.flatMap(r=>[r.origin,r.destination]))].map(i=>({properties:{icao:i}})));
+            // An empty network and an unreachable map are different problems and
+            // get different words.
+            const empty=document.getElementById('rmEmpty');
+            if(!drawn){
+                empty.classList.remove('hidden');
+                const any=((RM.data&&RM.data.routes)||[]).some(r=>r.mapped);
+                document.getElementById('rmEmptyTitle').textContent=any?'No routes match':'No routes on the map yet';
+                document.getElementById('rmEmptyMsg').textContent=any
+                    ?'Try clearing the aircraft filter or airport search.'
+                    :"Add routes with valid ICAO airports and they'll appear here as a live network.";
+            } else empty.classList.add('hidden');
+            rmShowFallbackNote(why||RM._why);
+        }
+        /* Said, not hidden. A reader who can see their network drawn but plainer
+         * than usual deserves to know why, and to be able to ask for the other
+         * one back once whatever was in the way has gone. */
+        function rmShowFallbackNote(why){
+            let n=document.getElementById('rmFallbackNote');
+            if(!n){
+                n=document.createElement('div');
+                n.id='rmFallbackNote';
+                n.className='absolute left-1/2 -translate-x-1/2 top-[4.5rem] z-20 surface hair rounded-lg px-3 py-2 text-xs shadow-sm flex items-center gap-2 max-w-[calc(100%-2rem)]';
+                n.innerHTML='<span class="muted"></span><button type="button" onclick="rmRetryEngine()" class="font-semibold accent-text shrink-0">Try again</button>';
+                document.getElementById('routeMap').appendChild(n);
+            }
+            n.querySelector('span').textContent='Showing a simplified map — the interactive one could not load'
+                + (why?` (${why})`:'') + '.';
+            n.classList.remove('hidden');
+        }
+        function rmHideFallbackNote(){
+            const n=document.getElementById('rmFallbackNote'); if(n) n.classList.add('hidden');
+        }
+        async function rmRetryEngine(){
+            rmHideFallbackNote();
+            document.getElementById('rmLoading').classList.remove('hidden');
+            try{ await rmLoadMapLibre(); RM.fallback=false; document.getElementById('rmCanvas').innerHTML=''; rmBuildMap(); }
+            catch(err){ rmDrawFallback(err&&err.message); }
         }
         function rmBuildMap(){
             document.getElementById('rmLoading').classList.remove('hidden');
@@ -5164,9 +5630,25 @@
                 center:[8,28], zoom:1.3, minZoom:0.6, maxZoom:9, attributionControl:false, dragRotate:false });
             RM.map=map;
             map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
-            map.on('load',()=>{ rmAddLayers(); RM.ready=true; rmApplyFilters(); rmFitAll(); map.resize();
+            /* A DEADLINE ON THE BASEMAP TOO.
+             *
+             * `load` fires once the style has arrived. If the tile host is the
+             * thing being blocked — which is the commoner of the two, because
+             * ad-blockers eat tile hosts — it never fires: no error the old code
+             * looked at, no map, and a spinner that turns for ever. The network
+             * is drawn instead, which is the part the reader came for. */
+            clearTimeout(RM._watchdog);
+            RM._watchdog=setTimeout(()=>{
+                if(RM.ready||RM.fallback) return;
+                rmDrawFallback('the basemap did not arrive');
+            }, 10000);
+            map.on('load',()=>{ clearTimeout(RM._watchdog); RM.fallback=false; rmHideFallbackNote();
+                rmAddLayers(); RM.ready=true; rmApplyFilters(); rmFitAll(); map.resize();
                 document.getElementById('rmLoading').classList.add('hidden'); });
-            map.on('error',()=>{}); // swallow tile hiccups; the network overlay still renders
+            // A tile that hiccups once is not a reason to throw the map away —
+            // the network overlay still renders over the gap. A style that never
+            // arrives at all is, and the watchdog above is what catches it.
+            map.on('error',()=>{});
         }
         function rmAddLayers(){
             const map=RM.map, accent=RM.accent;
@@ -5228,6 +5710,8 @@
             t.style.left=Math.max(8,x)+'px'; t.style.top=Math.max(8,y)+'px';
         }
         function rmApplyFilters(){
+            // Same controls, same answer, whichever map is on screen.
+            if(RM.fallback) return rmDrawFallback(RM._why);
             if(!RM.map||!RM.ready) return;
             const acSel=document.getElementById('rmAircraft'); const aircraft=acSel?acSel.value:'';
             const sEl=document.getElementById('rmSearch'); const search=(sEl?sEl.value:'').trim().toUpperCase();
@@ -5292,21 +5776,29 @@
             host.innerHTML=chips.join(''); if(window.lucide) lucide.createIcons();
         }
         function rmToggleActive(){ if(!RM.canManage) return; RM.activeOnly=!RM.activeOnly; rmApplyFilters(); }
+        /* The rail is the point of tapping something, and it is the same rail on
+         * either map. Only the HIGHLIGHT is MapLibre's — the drawn map has no
+         * paint properties to set — so the two lines that talk to the engine are
+         * guarded rather than the whole function being written twice. */
         function rmFocusAirport(icao,keep){
             RM.focusApt=icao; RM.focusRoute=null;
             const match=['any',['==',['get','origin'],icao],['==',['get','destination'],icao]];
-            RM.map.setFilter('rm-routes-hi',match);
-            RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',match,0.9,0.1]);
-            const touching=(RM.filteredRoutes||[]).filter(f=>f.properties.origin===icao||f.properties.destination===icao).map(f=>f.properties);
+            if(RM.map&&RM.ready){
+                RM.map.setFilter('rm-routes-hi',match);
+                RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',match,0.9,0.1]);
+            }
+            const touching=(RM.filteredRoutes||RM.routeFeat||[]).filter(f=>f.properties.origin===icao||f.properties.destination===icao).map(f=>f.properties);
             rmOpenAirportRail(icao,touching);
-            if(!keep) rmFitFeatures(touching);
+            if(!keep&&RM.map&&RM.ready) rmFitFeatures(touching);
         }
         function rmFocusRoute(id,keep){
             id=String(id); RM.focusRoute=id; RM.focusApt=null;
-            RM.map.setFilter('rm-routes-hi',['==',['get','id'],id]);
-            RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',['==',['get','id'],id],0.95,0.1]);
+            if(RM.map&&RM.ready){
+                RM.map.setFilter('rm-routes-hi',['==',['get','id'],id]);
+                RM.map.setPaintProperty('rm-routes-line','line-opacity',['case',['==',['get','id'],id],0.95,0.1]);
+            }
             const r=RM.routeFeat.find(f=>f.properties.id===id);
-            if(r){ rmOpenRouteRail(r.properties); if(!keep) rmFitFeatures([r.properties]); }
+            if(r){ rmOpenRouteRail(r.properties); if(!keep&&RM.map&&RM.ready) rmFitFeatures([r.properties]); }
         }
         function rmClearFocus(){
             RM.focusApt=null; RM.focusRoute=null;
@@ -5445,6 +5937,9 @@
             rmRailShow(head, body);
         }
         function rmFitAll(){
+            // The drawn map fits itself: it is cropped to the network every time
+            // it is drawn, so redrawing IS fitting.
+            if(RM.fallback) return rmDrawFallback();
             if(!RM.map||!RM.ready) return;
             const apts=RM.filteredApts||[];
             if(!apts.length) return;
