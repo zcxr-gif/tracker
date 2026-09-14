@@ -16,6 +16,13 @@
          Sets data-skin on <html> before the first paint; a VA that has never
          chosen gets `essential`, which leaves this page exactly as it was. -->
     <script src="/crewSkin.js"></script>
+    <!-- Keeps the airline's accent readable: the ink that sits on it, and a
+         version of it that stays legible as text on this page. See crewAccent.js.
+         After the skin, so the ground it measures against is the one in force. -->
+    <script src="/crewAccent.js"></script>
+    <!-- The walk around the page a first-time pilot gets. Self-contained:
+         its own styles, no library, and it wears whatever palette is in force. -->
+    <script src="/crewTour.js"></script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board: the calendar, who's attending, and the map a
@@ -104,7 +111,21 @@
         .surface{ background:var(--surface); border:1px solid var(--line); }
         .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
         .muted{ color:var(--muted); } .faint{ color:var(--faint); }
-        .accent-text{ color:var(--accent); } .accent-bg{ background:var(--accent); }
+        /* THE HIGHLIGHTS, READABLE WHATEVER COLOUR THE AIRLINE PICKED.
+
+           --accent is the airline's own hex and is used unchanged as a block of
+           colour. The two properties beside it are derived from it by
+           crewAccent.js: --accent-ink is the ink that is legible ON it (a cream
+           or sky-blue brand needs dark text, not the white this used to hard-code
+           and then hide under), and --accent-on is the accent moved far enough in
+           lightness to be readable AS text on this page — which is what stops a
+           near-black accent from vanishing into the dark interface.
+
+           The compound selector is deliberate: it out-specifies the text-white
+           utility these controls are written with, without an !important. */
+        .accent-text{ color:var(--accent-on, var(--accent)); }
+        .accent-bg{ background:var(--accent-fill, var(--accent)); }
+        .accent-bg, .accent-bg.text-white{ color:var(--accent-ink, #fff); }
         .tile{ transition:border-color .2s, transform .2s; }
         .tile:hover{ border-color:var(--ink); transform:translateY(-2px); }
         .fade-in{ animation:fade .5s cubic-bezier(.2,.8,.2,1) forwards; }
@@ -290,7 +311,7 @@
     <main class="max-w-6xl mx-auto px-5 pb-16">
 
         <!-- ============ MY NUMBERS ============ -->
-        <section class="mt-8">
+        <section id="myNumbers" class="mt-8">
             <div class="surface rounded-lg divide-y sm:divide-y-0 sm:grid sm:grid-cols-4 sm:divide-x hair overflow-hidden">
                 <!-- Every number here is this pilot's own, from
                      GET /api/crew/<slug>/me/flying. They were hardcoded — 214
@@ -1339,6 +1360,75 @@
 
         function closeTerms(){ document.getElementById('termsGate').classList.add('hidden'); }
 
+        /* ---- The walk around, for a pilot's first sign-in -----------------
+         *
+         * Six sentences about the page they are already looking at, in the
+         * order a pilot uses it: what the numbers are, what they can do, where
+         * their flying is recorded, and how they move up.
+         *
+         * IT WAITS FOR THE DOOR TO CLEAR. A first sign-in can open on the
+         * change-your-password form or on the terms prompt, and a spotlight
+         * behind either is a dark page with a dialog on it and no way to tell
+         * why. So the tour is offered only once neither is up — watched rather
+         * than timed, because how long a pilot takes to read the terms is not
+         * something to guess at.
+         */
+        function gatesUp(){
+            return ['pwGate','termsGate'].some(id=>{
+                const el=document.getElementById(id);
+                return el && !el.classList.contains('hidden');
+            });
+        }
+        function pilotTourSteps(){
+            const me=(storedSession()||{}).name||'';
+            return [
+                {
+                    title: me ? `Welcome, ${me.split(' ')[0]}` : 'Welcome aboard',
+                    body:'A minute on what is on this page. You can leave at any point — nothing here changes anything.',
+                },
+                {
+                    el:'#hero',
+                    title:'Your callsign',
+                    body:'This is the callsign to fly under in Infinite Flight. Flights you file under it are matched to you automatically.',
+                },
+                {
+                    el:'#myNumbers',
+                    title:'Your flying, counted',
+                    body:'Hours, flights, the rank you hold and anything still waiting on staff. A dash means we have not read that figure yet — never a zero.',
+                },
+                {
+                    el:'#quickGrid',
+                    title:'What you can do from here',
+                    body:'File a flight report, take a leg off the schedule, book onto an event. These are the buttons you will use every week.',
+                },
+                {
+                    el:'#rankBody',
+                    title:'How you move up',
+                    body:'Your airline\u2019s rank ladder, and how far you are from the next rung. Hours come from the flights your staff approve.',
+                },
+                {
+                    el:'#meAvatar',
+                    title:'That is the tour',
+                    body:'Your account sits here. Everything else on the page fills itself in as your airline publishes it.',
+                },
+            ];
+        }
+        function offerTour(){
+            if(!window.CrewTour) return;
+            const go=()=>CrewTour.offer({ id:'pilot', version:1, slug:getSlug(), steps:pilotTourSteps() });
+            if(!gatesUp()){ go(); return; }
+            if(!window.MutationObserver) return;
+            const watch=new MutationObserver(()=>{
+                if(gatesUp()) return;
+                watch.disconnect();
+                go();
+            });
+            ['pwGate','termsGate'].forEach(id=>{
+                const el=document.getElementById(id);
+                if(el) watch.observe(el,{ attributes:true, attributeFilter:['class'] });
+            });
+        }
+
         async function agreeTerms(){
             const s=storedSession(); const slug=getSlug();
             const btn=document.getElementById('termsAgree');
@@ -1594,6 +1684,7 @@
             if(window.CrewBrand) CrewBrand.onMode(()=>{ applyThemeIcon(); applyEmbeds(); });
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
+            offerTour();
         })();
     </script>
 </body>

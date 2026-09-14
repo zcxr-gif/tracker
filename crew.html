@@ -18,6 +18,10 @@
          Sets data-skin on <html> before the first paint; a VA that has never
          chosen gets `essential`, which leaves this page exactly as it was. -->
     <script src="/crewSkin.js"></script>
+    <!-- Keeps the airline's accent readable: the ink that sits on it, and a
+         version of it that stays legible as text on this page. See crewAccent.js.
+         After the skin, so the ground it measures against is the one in force. -->
+    <script src="/crewAccent.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,600&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -48,7 +52,21 @@
         .serif{ font-family:'Fraunces',Georgia,'Times New Roman',serif; }
         [data-lucide]{ width:1.15em; height:1.15em; }
         svg.lucide{ stroke-width:1.75; }
-        .accent-bg{ background:var(--accent); } .accent-text{ color:var(--accent); }
+        /* THE HIGHLIGHTS, READABLE WHATEVER COLOUR THE AIRLINE PICKED.
+
+           --accent is the airline's own hex and is used unchanged as a block of
+           colour. The two properties beside it are derived from it by
+           crewAccent.js: --accent-ink is the ink that is legible ON it (a cream
+           or sky-blue brand needs dark text, not the white this used to hard-code
+           and then hide under), and --accent-on is the accent moved far enough in
+           lightness to be readable AS text on this page — which is what stops a
+           near-black accent from vanishing into the dark interface.
+
+           The compound selector is deliberate: it out-specifies the text-white
+           utility these controls are written with, without an !important. */
+        .accent-text{ color:var(--accent-on, var(--accent)); }
+        .accent-bg{ background:var(--accent-fill, var(--accent)); }
+        .accent-bg, .accent-bg.text-white{ color:var(--accent-ink, #fff); }
 
         .surface{ background:#fff; border:1px solid rgba(0,0,0,.06); box-shadow:0 1px 2px rgba(0,0,0,.03); }
         .dark .surface{ background:#18181b; border-color:rgba(255,255,255,.07); }

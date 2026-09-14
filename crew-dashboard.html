@@ -18,6 +18,13 @@
          a VA that has never chosen gets `essential`, which matches nothing in
          that sheet and leaves this page exactly as it was. -->
     <script src="/crewSkin.js"></script>
+    <!-- Keeps the airline's accent readable: the ink that sits on it, and a
+         version of it that stays legible as text on this page. See crewAccent.js.
+         After the skin, so the ground it measures against is the one in force. -->
+    <script src="/crewAccent.js"></script>
+    <!-- The walk around the page a first-time reader gets. Self-contained:
+         its own styles, no library, and it wears whatever palette is in force. -->
+    <script src="/crewTour.js"></script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
@@ -104,7 +111,21 @@
         .surface{ background:var(--surface); border:1px solid var(--line); }
         .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
         .muted{ color:var(--muted); } .faint{ color:var(--faint); }
-        .accent-text{ color:var(--accent); } .accent-bg{ background:var(--accent); }
+        /* THE HIGHLIGHTS, READABLE WHATEVER COLOUR THE AIRLINE PICKED.
+
+           --accent is the airline's own hex and is used unchanged as a block of
+           colour. The two properties beside it are derived from it by
+           crewAccent.js: --accent-ink is the ink that is legible ON it (a cream
+           or sky-blue brand needs dark text, not the white this used to hard-code
+           and then hide under), and --accent-on is the accent moved far enough in
+           lightness to be readable AS text on this page — which is what stops a
+           near-black accent from vanishing into the dark interface.
+
+           The compound selector is deliberate: it out-specifies the text-white
+           utility these controls are written with, without an !important. */
+        .accent-text{ color:var(--accent-on, var(--accent)); }
+        .accent-bg{ background:var(--accent-fill, var(--accent)); }
+        .accent-bg, .accent-bg.text-white{ color:var(--accent-ink, #fff); }
         .tile{ transition:border-color .2s, transform .2s; }
         /* Schedule settings: the picked booking mode reads as picked, and the
            label takes the focus ring because the radio inside it is sr-only. */
@@ -635,6 +656,18 @@
             </div>
             <div class="p-5">
               <div data-panel="appearance" class="space-y-6">
+                <!-- THE WALK AROUND, again. It runs itself once per browser;
+                     this is how somebody gets it back — a new staff member on a
+                     shared machine, or an owner who skipped it on the first day
+                     and would now like to know what the tiles are. -->
+                <div class="flex items-center justify-between gap-3 rounded-xl border hair p-3.5">
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold">Show me around</div>
+                        <div class="text-xs muted">A short walk through this page. Nothing is changed by it.</div>
+                    </div>
+                    <button onclick="replayTour()" class="accent-bg text-sm font-semibold px-3.5 py-2 rounded-md hover:opacity-90 transition shrink-0">Start</button>
+                </div>
+
                 <!-- INTERFACE — which of the two looks the crew center wears.
                      Above Layout on purpose: this is the bigger decision of the
                      two, and the layout presets below are arrangements WITHIN
@@ -7935,6 +7968,73 @@
             window.addEventListener('focus', catchUp);
         }
 
+        /* ---- The walk around, for somebody who has just arrived ----------
+         *
+         * An owner signing in for the first time is handed the densest screen
+         * on the platform and told nothing about it. These are seven sentences
+         * about what is already in front of them, in the order the work
+         * actually happens: set the database up, then the people, then the
+         * flying, then how it all looks.
+         *
+         * Every step names something the reader can SEE. A step whose target is
+         * not on this page — the setup banner on a crew centre that is already
+         * connected, a tile a staff member has no permission for — is dropped
+         * by crewTour.js rather than spotlighting an empty rectangle, which is
+         * why several of these are written to be true either way.
+         *
+         * It runs once per browser per crew centre. "Show me around" in the
+         * settings drawer replays it, which is the only reason the steps are
+         * registered even when they are not shown.
+         */
+        function offerTour(){
+            if(!window.CrewTour) return;
+            const steps=[
+                {
+                    title:`Welcome to ${CREW_NAME||'your crew centre'}`,
+                    body:'Ninety seconds on what is on this page and where the work happens. You can leave at any point — nothing here changes anything.',
+                },
+                {
+                    el:'#onboard',
+                    title:'Start here',
+                    body:'Your crew, your flights and your pilots\u2019 logins live in your own database, not ours. One token sets it up, and most of this page stays empty until it is done.',
+                },
+                {
+                    el:'.r-identity',
+                    title:'Your airline, as a recruit sees it',
+                    body:'Your name, logo and tagline come from your Inflight VA profile. Roster and Schedule are the two screens you will open most.',
+                },
+                {
+                    el:'#crewStats',
+                    title:'How the airline is doing',
+                    body:'Pilots, flying in the last thirty days, hours logged and reports waiting on you. Counted in your own database — a dash means we have not learned that figure yet, never zero.',
+                },
+                {
+                    el:'#toolGrid',
+                    title:'Everything you run',
+                    body:'The roster, the route network, the schedule, events, the noticeboard and your website. Press Customize above to choose which of these tiles you keep and in what order.',
+                },
+                {
+                    el:'[data-crew-search]',
+                    title:'Anything, by name',
+                    body:'A pilot, a route, an event, a setting. Type here or press the slash key from anywhere on the page.',
+                },
+                {
+                    el:'#meAvatar',
+                    title:'That is the tour',
+                    body:'Your account sits here. The walk is in Settings \u203a Appearance if you would like it again — and the roster is the usual next stop.',
+                },
+            ];
+            CrewTour.offer({ id:'staff', version:1, slug:getSlug(), steps });
+        }
+        /* Replaying it means closing the drawer it was started from: every step
+         * points at the page underneath, and a spotlight behind a full-screen
+         * settings panel is a dark rectangle over nothing. */
+        function replayTour(){
+            if(!window.CrewTour) return;
+            closeSettings();
+            setTimeout(()=>CrewTour.replay('staff'), 260);
+        }
+
         // ---- Boot ----
         (async function(){
             wireLiveUpdates();
@@ -7986,6 +8086,7 @@
             // who is asking — which is how a panel loads signed out and then
             // has to reload itself.
             if(window.CrewTopics) CrewTopics.start();
+            offerTour();
         })();
     </script>
 </body>

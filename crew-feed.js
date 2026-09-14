@@ -31,7 +31,7 @@
      const pulse = await CrewFeed.activity();     // [] of what the airline did
 
    The full set: routes, network, stats, events, schedule, notices, activity,
-   posts, handle, brand, ranks, fleet, roles, staff, hubs, partners.
+   posts, handle, brand, ranks, fleet, roles, staff, roster, hubs, partners.
 
    `roles` is the airline's DEPARTMENTS and `staff` is the PEOPLE holding them
    — name, rank, Community handle, and the short word the role carries.
@@ -922,6 +922,67 @@
     }
 
     /* ---------------------------------------------------------------------
+     * THE ROSTER — everybody who flies for the airline.
+     *
+     * GET /api/crew/<slug>/roster
+     *
+     * `staff` below is the handful of people who run it; this is the crew. An
+     * applicant reading a VA's website wants to know how many pilots are
+     * actually there and what a rank ladder looks like once people are on it —
+     * "62 pilots" in a statistic is a number, and a list with sixty-two names
+     * and their hours against them is an airline.
+     *
+     * The endpoint is the one the crew centre's own roster screen reads, and it
+     * carries no more than that screen shows a signed-out visitor: a name, a
+     * callsign, the rank the ladder puts them on, and hours. No e-mail, no
+     * login, no Community handle — that last one is the deliberate difference
+     * from `staff`, where a person holding a public role has opted into being
+     * findable and a line pilot has not.
+     *
+     * PILOTS WHO HAVE LEFT ARE NOT ON IT. A roster row marked inactive is
+     * somebody the airline has stopped counting, and a website that lists them
+     * is overstating itself. Leave of absence is not leaving, so it stays —
+     * carried as `status` for a site that wants to say so.
+     *
+     * Ordered by hours, most first, because that is the order the list is
+     * interesting in and the order a rank ladder reads down.
+     * ------------------------------------------------------------------- */
+    function roster(opts) {
+        opts = opts || {};
+        var limit = Number(opts.limit) || 500;
+        return crew('/roster').then(function (d) {
+            if (!d || !Array.isArray(d.roster)) return null;
+            var rows = d.roster
+                .filter(function (m) { return m && text(m.name); })
+                .filter(function (m) { return opts.includeInactive ? true : m.status !== 'inactive'; })
+                .map(function (m) {
+                    var rank = m.rank || {};
+                    var hours = num(m.hours) || 0;
+                    return {
+                        name: text(m.name),
+                        callsign: text(m.callsign),
+                        role: text(m.role),
+                        rank: text(rank.name),
+                        rankColor: /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text(rank.color)) ? text(rank.color) : '',
+                        rankImage: https(rank.image),
+                        hours: hours,
+                        // The figure as a person would write it, so a template
+                        // does not have to know that 1204 means hours or where
+                        // the thousands separator goes in the reader's locale.
+                        hoursText: hours ? hours.toLocaleString() + ' h' : '',
+                        status: text(m.status) || 'active',
+                        // 'On leave' or '' — never 'Active', which is every
+                        // other row and therefore says nothing.
+                        note: m.status === 'loa' ? 'On leave' : '',
+                    };
+                })
+                .sort(function (a, b) { return b.hours - a.hours || a.name.localeCompare(b.name); })
+                .slice(0, limit);
+            return rows.length ? rows : null;
+        });
+    }
+
+    /* ---------------------------------------------------------------------
      * WHO RUNS THE AIRLINE
      *
      * GET /api/crew/<slug>/staff
@@ -1134,7 +1195,7 @@
         routes: routes, events: events, schedule: schedule,
         notices: notices, activity: activity, posts: posts,
         ranks: ranks, fleet: fleet, roles: roles,
-        hubs: hubs, partners: partners, staff: staff,
+        hubs: hubs, partners: partners, staff: staff, roster: roster,
     };
 
     function escapeHtml(s) {
@@ -1247,6 +1308,7 @@
         events: events, schedule: schedule, notices: notices,
         activity: activity, posts: posts, handle: handle,
         brand: brand, ranks: ranks, fleet: fleet, roles: roles, staff: staff,
+        roster: roster,
         hubs: hubs, partners: partners, silhouette: silhouette,
         paintBrand: paintBrand,
         paintStats: paintStats, mount: mount,

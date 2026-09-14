@@ -18,6 +18,10 @@
          Sets data-skin on <html> before the first paint; a VA that has never
          chosen gets `essential`, which leaves this page exactly as it was. -->
     <script src="/crewSkin.js"></script>
+    <!-- Keeps the airline's accent readable: the ink that sits on it, and a
+         version of it that stays legible as text on this page. See crewAccent.js.
+         After the skin, so the ground it measures against is the one in force. -->
+    <script src="/crewAccent.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -44,7 +48,21 @@
         .surface{ background:var(--surface); border:1px solid var(--line); }
         .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
         .muted{ color:var(--muted); } .faint{ color:var(--faint); }
-        .accent-bg{ background:var(--accent); } .accent-text{ color:var(--accent); }
+        /* THE HIGHLIGHTS, READABLE WHATEVER COLOUR THE AIRLINE PICKED.
+
+           --accent is the airline's own hex and is used unchanged as a block of
+           colour. The two properties beside it are derived from it by
+           crewAccent.js: --accent-ink is the ink that is legible ON it (a cream
+           or sky-blue brand needs dark text, not the white this used to hard-code
+           and then hide under), and --accent-on is the accent moved far enough in
+           lightness to be readable AS text on this page — which is what stops a
+           near-black accent from vanishing into the dark interface.
+
+           The compound selector is deliberate: it out-specifies the text-white
+           utility these controls are written with, without an !important. */
+        .accent-text{ color:var(--accent-on, var(--accent)); }
+        .accent-bg{ background:var(--accent-fill, var(--accent)); }
+        .accent-bg, .accent-bg.text-white{ color:var(--accent-ink, #fff); }
         input, select, textarea{ font-family:inherit; } ::placeholder{ color:var(--faint); }
         .step{ animation:slide .35s cubic-bezier(.2,.8,.2,1); }
         @keyframes slide{ from{opacity:0; transform:translateX(10px);} to{opacity:1; transform:translateX(0);} }
