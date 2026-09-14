@@ -23,6 +23,10 @@
     <!-- The walk around the page a first-time pilot gets. Self-contained:
          its own styles, no library, and it wears whatever palette is in force. -->
     <script src="/crewTour.js"></script>
+    <!-- The moment between signing in and being in: a ring while the page
+         loads, a tick when it is ready, then the airline's own mark. Only ever
+         after a sign-in, and it lifts on a ceiling whatever happens. -->
+    <script src="/crewSplash.js"></script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board: the calendar, who's attending, and the map a
@@ -1269,8 +1273,44 @@
             if(!s||!s.name) return;
             document.getElementById('meName').textContent=s.name;
             document.getElementById('meRole').textContent='Pilot';
+            // Initials for now: the stored session has no picture in it. Once
+            // /me lands, paintDiscord swaps in the linked Discord avatar.
             document.getElementById('meAvatar').textContent=initials(s.name,'');
         }
+
+        /* ---- THE PICTURE ON THE AVATAR BUTTON ----------------------------
+         *
+         * A pilot who has linked Discord has a picture of themselves already,
+         * and the crew centre was drawing their initials over it. Initials are
+         * the right fallback and a poor first choice: a roster of six people
+         * whose names all begin with J is six identical circles.
+         *
+         * THE URL IS RE-CHECKED HERE even though the backend built it from a
+         * closed alphabet (see avatarUrl in crewDiscord.js). It goes in an src,
+         * and an src is where a wrong string stops being a broken image.
+         *
+         * AND IT FALLS BACK ON ERROR. The avatar HASH is stored at link time
+         * and Discord changes it the moment somebody changes their picture, so
+         * a URL that worked in March is a 404 in June. The initials go back the
+         * instant the image fails, which is the difference between a stale
+         * avatar and a broken-image glyph in the corner of every page.
+         */
+        function paintAvatar(el, url, name){
+            if(!el) return;
+            const initial = initials(name || '', '');
+            const ok = (u) => { try{ const x=new URL(String(u||'')); return x.protocol==='https:' && x.hostname==='cdn.discordapp.com'; }catch{ return false; } };
+            if(!ok(url)){ el.textContent = initial; return; }
+            const img = document.createElement('img');
+            img.className = 'w-full h-full rounded-full object-cover';
+            img.alt = '';
+            img.decoding = 'async';
+            img.referrerPolicy = 'no-referrer';
+            img.addEventListener('error', () => { el.textContent = initial; });
+            img.src = url;
+            el.textContent = '';
+            el.appendChild(img);
+        }
+
         function logout(){
             try{ localStorage.removeItem('crew:session:'+getSlug()); }catch{}
             const s=getSlug(); location.href = s ? `/crew/${encodeURIComponent(s)}` : '/crew';
@@ -1316,6 +1356,10 @@
                 // anything the page remembers.
                 DISCORD = Object.assign({ available:false, linked:false, name:'', avatar:'' }, d.discord || {});
                 paintDiscord();
+                // The same picture as the card below, on the button at the top
+                // of every page — where a pilot actually looks for themselves.
+                const me=(storedSession()||{});
+                paintAvatar(document.getElementById('meAvatar'), DISCORD.linked && DISCORD.avatar, me.name || '');
                 handleDiscordLinkReturn();
                 // After the password gate is decided, so two modals never
                 // stack: the password is the one that actually blocks, and a
@@ -1656,6 +1700,9 @@
         }
 
         (async function(){
+            // Before anything is drawn — see crewSplash.js. Only an arrival
+            // from the sign-in page shows anything at all.
+            if(window.CrewSplash) CrewSplash.arm({ slug:getSlug() });
             renderActions(); renderFlights(); renderNotices([]); readSession();
             document.addEventListener('visibilitychange', catchUpMyFlying);
             window.addEventListener('focus', catchUpMyFlying);
@@ -1684,7 +1731,11 @@
             if(window.CrewBrand) CrewBrand.onMode(()=>{ applyThemeIcon(); applyEmbeds(); });
             applyThemeIcon();
             if(window.lucide) lucide.createIcons();
-            offerTour();
+            // The airline's own mark, and then the page underneath it.
+            if(window.CrewSplash) CrewSplash.done({ name:(b&&b.name)||'', logo:(b&&b.logo)||'' });
+            // The walk, and the password and terms gates with it, wait for the
+            // cover to lift rather than opening beneath it.
+            if(window.CrewSplash) CrewSplash.whenClear(offerTour); else offerTour();
         })();
     </script>
 </body>

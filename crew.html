@@ -22,6 +22,10 @@
          version of it that stays legible as text on this page. See crewAccent.js.
          After the skin, so the ground it measures against is the one in force. -->
     <script src="/crewAccent.js"></script>
+    <!-- The moment between signing in and being in: a ring while the page
+         loads, a tick when it is ready, then the airline's own mark. Only ever
+         after a sign-in, and it lifts on a ceiling whatever happens. -->
+    <script src="/crewSplash.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,600&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
@@ -603,6 +607,10 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                 // inside the app's overlay. Harmless if that page doesn't read it
                 // yet — it just keeps the flag alive for when it does.
                 const embedQS = document.body.classList.contains('embed') ? '&embed=1' : '';
+                // Tell the page we are about to hand them to that this is an
+                // ARRIVAL rather than a reload, so it can confirm the sign-in
+                // instead of flickering half-drawn interface at them.
+                if(window.CrewSplash) CrewSplash.mark(CREW_SLUG);
                 // LEADING SLASH IS LOAD-BEARING. This document is served at
                 // /crew/<slug> (a 200 rewrite — the path stays), so a bare
                 // "crew-dashboard.html" resolves against the /crew/ directory
@@ -704,6 +712,9 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                 // one shape of this.
                 try{ localStorage.setItem(sessionKey(), JSON.stringify({token:data.token,name:data.name,username:data.username||'',role:data.role,view:data.view,oversight:!!data.oversight,mustChangePassword:!!data.mustChangePassword,canChangePassword:!!data.canChangePassword,at:Date.now()})); }catch{}
                 const embedQS = document.body.classList.contains('embed') ? '&embed=1' : '';
+                // Same arrival flag as the password door above — a Discord
+                // sign-in is not a lesser way in.
+                if(window.CrewSplash) CrewSplash.mark(CREW_SLUG);
                 const page = data.view==='pilot' ? 'crew-pilot.html' : 'crew-dashboard.html';
                 location.href = `/${page}?va=${encodeURIComponent(CREW_SLUG)}${embedQS}`;
                 return true;

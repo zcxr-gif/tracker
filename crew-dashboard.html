@@ -25,6 +25,10 @@
     <!-- The walk around the page a first-time reader gets. Self-contained:
          its own styles, no library, and it wears whatever palette is in force. -->
     <script src="/crewTour.js"></script>
+    <!-- The moment between signing in and being in: a ring while the page
+         loads, a tick when it is ready, then the airline's own mark. Only ever
+         after a sign-in, and it lifts on a ceiling whatever happens. -->
+    <script src="/crewSplash.js"></script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
@@ -7858,8 +7862,46 @@
             }
             el.textContent=name;
             roleEl.textContent=who.oversight?'Inflight · Oversight':(ROLE_LABEL[who.role]||'Member');
-            av.textContent=initials(name,'');
+            // Their Discord picture where they have linked one — /me carries it
+            // — and their initials where they have not. The stored session has
+            // no avatar in it, so a first paint from localStorage draws the
+            // initials and loadMe replaces them a moment later.
+            paintAvatar(av, who.discord && who.discord.avatar, name);
         }
+
+        /* ---- THE PICTURE ON THE AVATAR BUTTON ----------------------------
+         *
+         * A pilot who has linked Discord has a picture of themselves already,
+         * and the crew centre was drawing their initials over it. Initials are
+         * the right fallback and a poor first choice: a roster of six people
+         * whose names all begin with J is six identical circles.
+         *
+         * THE URL IS RE-CHECKED HERE even though the backend built it from a
+         * closed alphabet (see avatarUrl in crewDiscord.js). It goes in an src,
+         * and an src is where a wrong string stops being a broken image.
+         *
+         * AND IT FALLS BACK ON ERROR. The avatar HASH is stored at link time
+         * and Discord changes it the moment somebody changes their picture, so
+         * a URL that worked in March is a 404 in June. The initials go back the
+         * instant the image fails, which is the difference between a stale
+         * avatar and a broken-image glyph in the corner of every page.
+         */
+        function paintAvatar(el, url, name){
+            if(!el) return;
+            const initial = initials(name || '', '');
+            const ok = (u) => { try{ const x=new URL(String(u||'')); return x.protocol==='https:' && x.hostname==='cdn.discordapp.com'; }catch{ return false; } };
+            if(!ok(url)){ el.textContent = initial; return; }
+            const img = document.createElement('img');
+            img.className = 'w-full h-full rounded-full object-cover';
+            img.alt = '';
+            img.decoding = 'async';
+            img.referrerPolicy = 'no-referrer';
+            img.addEventListener('error', () => { el.textContent = initial; });
+            img.src = url;
+            el.textContent = '';
+            el.appendChild(img);
+        }
+
         function readSession(){
             let s=null; try{ s=JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null'); }catch{}
             IS_OWNER = !!(s && (s.role==='owner' || s.oversight));
@@ -8037,6 +8079,10 @@
 
         // ---- Boot ----
         (async function(){
+            // Before anything is drawn: if this is an arrival from the sign-in
+            // page, the cover goes up now and comes down when the page below it
+            // is worth looking at.
+            if(window.CrewSplash) CrewSplash.arm({ slug:getSlug() });
             wireLiveUpdates();
             renderTiles(); readSession();
             const b = await resolveBranding();
@@ -8086,7 +8132,12 @@
             // who is asking — which is how a panel loads signed out and then
             // has to reload itself.
             if(window.CrewTopics) CrewTopics.start();
-            offerTour();
+            // The page is worth looking at now. The cover completes its ring,
+            // draws the tick, shows the airline and lifts.
+            if(window.CrewSplash) CrewSplash.done({ name:CREW_NAME, logo:(b&&b.logo)||'' });
+            // And the walk waits for it: a spotlight opening under a full-page
+            // cover is a dark rectangle over nothing.
+            if(window.CrewSplash) CrewSplash.whenClear(offerTour); else offerTour();
         })();
     </script>
 </body>
