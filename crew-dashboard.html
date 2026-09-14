@@ -1866,7 +1866,7 @@
                             <input id="libOnlyFleet" type="checkbox" class="accent-[var(--accent)]"> Only what my fleet can fly
                         </label>
                         <label class="text-xs muted inline-flex items-center gap-1.5 cursor-pointer select-none">
-                            <input id="libNoCodeshare" type="checkbox" class="accent-[var(--accent)]"> Own metal only
+                            <input id="libNoCodeshare" type="checkbox" class="accent-[var(--accent)]"> Only legs they flew themselves
                         </label>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap mb-2 text-xs">
@@ -1881,6 +1881,12 @@
                 <div id="libStep3" class="hidden">
                     <button onclick="libBackToRoutes()" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1 mb-3"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back to the routes</button>
                     <div id="libPlan"></div>
+                    <!-- WHAT THE REAL AIRLINE SOLD BUT DID NOT FLY.
+                         The source marks these but never records who operated
+                         them, and a codeshare on this platform is a named
+                         partnership with another virtual airline. So the VA
+                         decides, rather than us inventing a partner. -->
+                    <div id="libCodeshare" class="hidden mt-3"></div>
                     <div id="libFleetAdd" class="hidden mt-3"></div>
                     <!-- THE CAVEAT, WHERE IT CANNOT BE MISSED. Immediately above
                          the button that writes, not buried at the top of a
@@ -5333,6 +5339,16 @@
         let LIB_PICKED=new Set(); // indices into LIB_AIRLINE.routes
         let LIB_PLAN=null;        // the server's dry run
         let LIB_NEWTYPES=[];      // [{type, take}] — fleet rows this would add
+        /* What to do with the legs the real airline sold but did not fly.
+           'own'     — take them as our own metal (the default, and the only one
+                       that needs no extra information)
+           'partner' — they are genuinely flown for us by a partner VA, whose
+                       name the VA types; that name is what the partner tile and
+                       the public site show
+           'skip'    — leave them out entirely
+           There is no 'guess the operator': see routeLibrary.js. */
+        let LIB_CS={ mode:'own', partner:'' };
+        let LIB_CS_T=null;
         let LIB_SEARCH_T=null;
 
         // The airline search is debounced: it is a keystroke-per-request endpoint
@@ -5363,6 +5379,7 @@
         function openRouteLib(){
             mountRouteLib();
             LIB_AIRLINE=null; LIB_PICKED=new Set(); LIB_PLAN=null; LIB_NEWTYPES=[];
+            LIB_CS={ mode:'own', partner:'' };
             libStep(1);
             libMsg('');
             const q=document.getElementById('libSearch'); if(q) q.value='';
@@ -5505,7 +5522,7 @@
             const noCs=document.getElementById('libNoCodeshare').checked;
             return LIB_AIRLINE.routes.map((r,i)=>({r,i})).filter(({r})=>{
                 if(onlyFleet && !r.inFleet) return false;
-                if(noCs && r.kind==='codeshare') return false;
+                if(noCs && r.realCodeshare) return false;
                 if(f && !(r.origin.includes(f)||r.destination.includes(f))) return false;
                 return true;
             });
@@ -5527,7 +5544,7 @@
                             ? `<select data-lib-ac="${i}" class="surface hair rounded-md px-2 py-1 text-xs max-w-full">${r.aircraftOptions.map(t=>`<option value="${escapeHtml(t)}" ${t===r.aircraft?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>`
                             : `<span class="text-xs muted truncate">${escapeHtml(r.aircraft||'—')}</span>`}
                     </span>
-                    ${r.kind==='codeshare'?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded faint hair" title="Marketed by this airline, flown by a partner the source doesn’t name">codeshare</span>':''}
+                    ${r.realCodeshare?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded faint hair" title="The real airline sold this leg but did not fly it. The source doesn’t record who did — you decide what it becomes in your network.">sold, not flown</span>':''}
                     ${r.inFleet?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400" title="You already operate this type">in fleet</span>':''}
                 </label>`).join('')
                 : '<div class="text-sm muted px-3 py-6 text-center">No legs match that filter.</div>';
@@ -5578,8 +5595,8 @@
 
         // ---- Step 3: the diff, and what it would add to the fleet ----
         async function libReview(){
-            const picked=libSelected();
-            if(!picked.length) return;
+            const picked=libPayload();
+            if(!picked.length){ libMsg('That leaves nothing to import — the codeshare choice below removed every ticked leg.','warn'); return; }
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ libMsg('Sign in as owner or staff to import routes.','warn'); return; }
             libMsg('Working out what this would change…','muted');
@@ -5592,17 +5609,35 @@
                 LIB_PLAN=d;
                 libMsg('');
                 libStep(3);
+                // Whatever was acknowledged was acknowledged about the PREVIOUS
+                // diff. Changing the codeshare choice or the partner changes what
+                // would be written, so the tick has to be given again against
+                // what is now on screen.
+                const agree=document.getElementById('libAgree');
+                if(agree) agree.checked=false;
                 libRenderPlan(d, picked);
             }catch{ libMsg('Server unreachable.','error'); }
         }
         // Only the fields the library actually has an opinion about. minRank and
         // partnerLogo are deliberately absent so a re-import cannot clear a rank
         // gate the VA set by hand.
-        const libRouteBody=(r)=>({
-            flightNumber:r.flightNumber||'', origin:r.origin, destination:r.destination,
-            aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, notes:r.notes||'',
-            kind:r.kind||'own', partnerName:r.partnerName||'',
-        });
+        //
+        // `kind` is decided HERE rather than carried from the library, which
+        // always says 'own'. A leg the real airline sold but did not fly becomes
+        // a codeshare only if the VA names the partner that flies it for them —
+        // the server refuses the pair otherwise, exactly as the routes screen
+        // does when a leg is typed by hand.
+        const libRouteBody=(r)=>{
+            const asPartner = r.realCodeshare && LIB_CS.mode==='partner' && LIB_CS.partner.trim();
+            return {
+                flightNumber:r.flightNumber||'', origin:r.origin, destination:r.destination,
+                aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, notes:r.notes||'',
+                kind: asPartner ? 'codeshare' : 'own',
+                partnerName: asPartner ? LIB_CS.partner.trim().slice(0,60) : '',
+            };
+        };
+        // Everything ticked, minus what the codeshare decision leaves out.
+        const libPayload=()=> libSelected().filter(r=>!(r.realCodeshare && LIB_CS.mode==='skip'));
 
         function libRenderPlan(d, picked){
             const box=document.getElementById('libPlan');
@@ -5624,6 +5659,8 @@
                 <div class="text-[11px] faint mt-2">Nothing is deleted, and a route you’ve already published stays published — this only adds and fills in.</div>
                 ${errs}
             </div>`;
+
+            libRenderCodeshare();
 
             // The fleet half. Every type these routes need that the VA does not
             // already operate, pre-ticked and individually untickable — agreed to
@@ -5652,10 +5689,65 @@
             libSyncCommit();
             if(window.lucide) lucide.createIcons();
         }
+        /* The legs the real airline sold but did not fly.
+         *
+         * Counted off the TICKED selection rather than the whole network, so the
+         * number is the one this import would actually create. Absent entirely
+         * when there are none, which is most smaller airlines. */
+        function libRenderCodeshare(){
+            const box=document.getElementById('libCodeshare');
+            const n=libSelected().filter(r=>r.realCodeshare).length;
+            if(!n){ box.classList.add('hidden'); box.innerHTML=''; return; }
+            box.classList.remove('hidden');
+            const opt=(mode,label,hint)=>`
+                <label class="flex items-start gap-2 text-sm cursor-pointer py-1">
+                    <input type="radio" name="libcs" value="${mode}" ${LIB_CS.mode===mode?'checked':''} class="mt-1 accent-[var(--accent)]">
+                    <span><b>${escapeHtml(label)}</b><br><span class="text-xs muted">${escapeHtml(hint)}</span></span>
+                </label>`;
+            box.innerHTML=`<div class="rounded-lg surface hair p-3">
+                <div class="text-xs font-semibold uppercase tracking-wider faint mb-1">${escapeHtml(String(n))} of these were sold, not flown</div>
+                <p class="text-xs muted mb-2">${escapeHtml(LIB_AIRLINE&&LIB_AIRLINE.airline?LIB_AIRLINE.airline.name:'This airline')} marketed ${n===1?'this leg':'these legs'} but a partner operated ${n===1?'it':'them'}. <b>The source doesn’t record which partner</b>, and a codeshare here has to name one — so this is yours to decide.</p>
+                ${opt('own','Fly them yourself','They become ordinary routes in your network. Most virtual airlines want this.')}
+                ${opt('partner','A partner VA flies them for us','Marks them as codeshares under the partner you name below. Only right if you actually have that arrangement.')}
+                ${opt('skip','Leave them out','Import only the legs the airline flew on its own metal.')}
+                <div id="libCsPartnerWrap" class="${LIB_CS.mode==='partner'?'':'hidden'} mt-2">
+                    <input id="libCsPartner" type="text" maxlength="60" placeholder="Partner airline — e.g. Iberia Virtual"
+                        value="${escapeHtml(LIB_CS.partner)}"
+                        class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <p class="text-[11px] faint mt-1">One name for all ${escapeHtml(String(n))}. You can split them across partners afterwards in the routes list.</p>
+                </div>
+            </div>`;
+            box.querySelectorAll('input[name="libcs"]').forEach(el=>{
+                el.addEventListener('change',()=>{
+                    LIB_CS.mode=el.value;
+                    document.getElementById('libCsPartnerWrap').classList.toggle('hidden', el.value!=='partner');
+                    // The choice changes what would be written — a skip removes
+                    // legs, a partner changes their kind — so the diff above is
+                    // no longer the diff. Ask again rather than show a stale one.
+                    libReview();
+                });
+            });
+            const pin=document.getElementById('libCsPartner');
+            if(pin) pin.addEventListener('input',()=>{
+                LIB_CS.partner=pin.value;
+                libSyncCommit();
+                // The name is part of what would be written, so the diff above is
+                // about a different import until it has been asked again. Waited
+                // out rather than asked per keystroke.
+                clearTimeout(LIB_CS_T);
+                LIB_CS_T=setTimeout(()=>{ if(LIB_CS.mode==='partner' && LIB_CS.partner.trim()) libReview(); }, 400);
+            });
+        }
+
         function libSyncCommit(){
             const d=LIB_PLAN||{};
             const agreed=document.getElementById('libAgree').checked;
-            const can=agreed && !d.errorCount && (d.create||d.update);
+            // Choosing "a partner flies them" without saying who is the exact
+            // state the routes screen refuses, and the server refuses it too —
+            // so the button goes dead rather than letting them find out after.
+            const needsPartner = LIB_CS.mode==='partner' && !LIB_CS.partner.trim()
+                && libSelected().some(r=>r.realCodeshare);
+            const can=agreed && !needsPartner && !d.errorCount && (d.create||d.update);
             const b=document.getElementById('libCommitBtn');
             b.disabled=!can; b.style.opacity=can?'1':'.5';
             const total=(d.create||0)+(d.update||0);
@@ -5667,7 +5759,7 @@
 
         async function libCommit(){
             if(!LIB_PLAN) return;
-            const picked=libSelected();
+            const picked=libPayload();
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
             const btn=document.getElementById('libCommitBtn');

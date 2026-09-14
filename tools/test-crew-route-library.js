@@ -55,9 +55,10 @@ const LIB_AIRLINE = {
     snapshotYear: 2014, builtAt: '2026-09-14',
     airline: { key: 'BAW', name: 'British Airways', iata: 'BA', icao: 'BAW', country: 'United Kingdom', active: true },
     routes: [
-        { origin: 'EGLL', destination: 'KJFK', distanceNm: 3000, aircraft: 'Boeing 777-200ER', aircraftOptions: ['Boeing 777-200ER'], kind: 'own', partnerName: '', flightNumber: '', notes: '', inFleet: true, newTypes: [] },
-        { origin: 'EGLL', destination: 'OMDB', distanceNm: 2900, aircraft: 'Boeing 787-9 Dreamliner', aircraftOptions: ['Boeing 787-9 Dreamliner', 'Airbus A380-800'], kind: 'own', partnerName: '', flightNumber: '', notes: '', inFleet: false, newTypes: ['Boeing 787-9 Dreamliner'] },
-        { origin: 'EDDF', destination: 'EGLC', distanceNm: 335, aircraft: 'Embraer E175', aircraftOptions: ['Embraer E175'], kind: 'codeshare', partnerName: '', flightNumber: '', notes: '', inFleet: false, newTypes: ['Embraer E175'] },
+        { origin: 'EGLL', destination: 'KJFK', distanceNm: 3000, aircraft: 'Boeing 777-200ER', aircraftOptions: ['Boeing 777-200ER'], kind: 'own', partnerName: '', realCodeshare: false, flightNumber: '', notes: '', inFleet: true, newTypes: [] },
+        { origin: 'EGLL', destination: 'OMDB', distanceNm: 2900, aircraft: 'Boeing 787-9 Dreamliner', aircraftOptions: ['Boeing 787-9 Dreamliner', 'Airbus A380-800'], kind: 'own', partnerName: '', realCodeshare: false, flightNumber: '', notes: '', inFleet: false, newTypes: ['Boeing 787-9 Dreamliner'] },
+        // Sold by the airline, flown by somebody the source does not name.
+        { origin: 'EDDF', destination: 'EGLC', distanceNm: 335, aircraft: 'Embraer E175', aircraftOptions: ['Embraer E175'], kind: 'own', partnerName: '', realCodeshare: true, flightNumber: '', notes: '', inFleet: false, newTypes: ['Embraer E175'] },
     ],
 };
 
@@ -164,8 +165,10 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     ok('a rank gate is never sent back, so it cannot be cleared',
         writes[0].routes.every(r => !('minRank' in r)));
     ok('nor is a partner logo', writes[0].routes.every(r => !('partnerLogo' in r)));
-    ok('the codeshare carries no invented operator',
-        writes[0].routes.filter(r => r.kind === 'codeshare').every(r => !r.partnerName));
+    ok('nothing is sent as a codeshare by default',
+        writes[0].routes.every(r => r.kind === 'own'));
+    ok('…so no unnamed codeshare can reach the database',
+        writes[0].routes.every(r => !(r.kind === 'codeshare' && !r.partnerName)));
 
     const fleetOffer = await page.evaluate(() => [...document.querySelectorAll('#libFleetAdd [data-lib-type]')]
         .map(e => e.parentElement.textContent.trim()));
@@ -174,6 +177,71 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
         fleetOffer.some(t => /A380-800/.test(t)), JSON.stringify(fleetOffer));
     ok('…while the type already in the fleet is not offered',
         !fleetOffer.some(t => /777-200ER/.test(t)));
+
+    console.log('\n what was sold but not flown');
+    ok('the choice is put to the VA',
+        !(await page.evaluate(() => document.getElementById('libCodeshare').classList.contains('hidden'))));
+    ok('…naming how many legs it is about',
+        /1 of these were sold, not flown/i.test(await page.evaluate(() => document.getElementById('libCodeshare').textContent)));
+    ok('…and saying plainly that the operator is unknown',
+        /doesn.t record which partner/i.test(await page.evaluate(() => document.getElementById('libCodeshare').textContent)));
+    ok('the default is to fly them yourself',
+        (await page.evaluate(() => LIB_CS.mode)) === 'own');
+
+    // "A partner flies them" without saying who is the state the routes screen
+    // refuses. The button must go dead, not let them find out after the write.
+    const before = writes.length;
+    await page.evaluate(() => {
+        const r = document.querySelector('#libCodeshare input[value="partner"]');
+        r.checked = true; r.dispatchEvent(new Event('change'));
+    });
+    await page.waitForTimeout(400);
+    await page.evaluate(() => { document.getElementById('libAgree').checked = true; libSyncCommit(); });
+    ok('naming a partner is demanded before it can be committed',
+        await page.evaluate(() => document.getElementById('libCommitBtn').disabled));
+    await page.fill('#libCsPartner', 'Iberia Virtual');
+    await page.waitForTimeout(800);   // the debounced re-review
+    await page.evaluate(() => { document.getElementById('libAgree').checked = true; libSyncCommit(); });
+    ok('…and typing one releases it',
+        !(await page.evaluate(() => document.getElementById('libCommitBtn').disabled)));
+    const reviewed = writes.slice(before).filter(w => w.dryRun);
+    ok('a changed choice re-asks for the acknowledgement',
+        await page.evaluate(() => { const a = document.getElementById('libAgree'); const was = a.checked;
+            const r = document.querySelector('#libCodeshare input[value="own"]'); r.checked = true; r.dispatchEvent(new Event('change'));
+            return was; }) === true);
+    await page.waitForTimeout(400);
+    ok('…so the button is dead again until it is given',
+        await page.evaluate(() => document.getElementById('libCommitBtn').disabled));
+    await page.evaluate(() => {
+        const r = document.querySelector('#libCodeshare input[value="partner"]');
+        r.checked = true; r.dispatchEvent(new Event('change'));
+    });
+    await page.waitForTimeout(800);
+    ok('the diff was re-asked when the choice changed', reviewed.length >= 1);
+    ok('…and the sold-not-flown leg now carries the partner',
+        reviewed.length && reviewed[reviewed.length - 1].routes
+            .some(r => r.kind === 'codeshare' && r.partnerName === 'Iberia Virtual'));
+    ok('…while the legs they flew themselves stay own metal',
+        reviewed.length && reviewed[reviewed.length - 1].routes
+            .filter(r => r.origin === 'EGLL').every(r => r.kind === 'own'));
+
+    // Leaving them out must actually remove them from the payload.
+    await page.evaluate(() => {
+        const r = document.querySelector('#libCodeshare input[value="skip"]');
+        r.checked = true; r.dispatchEvent(new Event('change'));
+    });
+    await page.waitForTimeout(400);
+    const skipped = writes[writes.length - 1];
+    ok('leaving them out drops them from the import',
+        skipped.dryRun && skipped.routes.length === 2 && !skipped.routes.some(r => r.origin === 'EDDF'),
+        JSON.stringify(skipped.routes.map(r => r.origin + '-' + r.destination)));
+
+    // Back to the default for the commit assertions below.
+    await page.evaluate(() => {
+        const r = document.querySelector('#libCodeshare input[value="own"]');
+        r.checked = true; r.dispatchEvent(new Event('change'));
+    });
+    await page.waitForTimeout(400);
 
     console.log('\n the guard that matters');
     ok('the confirm button is dead until the caveat is acknowledged',
