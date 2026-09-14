@@ -1475,6 +1475,17 @@
                 link_taken:['That Discord account is already linked to another pilot here.','bad'],
                 link_denied:['That didn’t work — sign in again and try once more.','bad'],
                 needs_update:['Your crew center’s database needs updating before Discord can be linked. Ask your staff to re-run the setup SQL.','bad'],
+                /* THE CREW CENTER'S DATA STORE, NOT DISCORD. Every one of these
+                   used to arrive as "Discord didn’t answer. Please try again."
+                   — advice that cannot work, because Discord was never the
+                   thing that failed. */
+                store_offline:['Your crew center’s data store didn’t answer. Try again in a minute.','bad'],
+                store_denied:['Your crew center’s data store rejected our credentials. Ask your staff to re-copy the service key.','bad'],
+                store_readonly:['Your crew center’s database is full, so nothing can be saved to it. Ask your staff to make room.','bad'],
+                /* OUR CONFIGURATION, and the one reason here that names us
+                   rather than the pilot or their airline. Trying again cannot
+                   fix it, so it does not ask anybody to. */
+                discord_setup:['Discord turned us away — this is our end, not yours. It has been logged; please tell your staff.','bad'],
                 unavailable:['Signing in with Discord isn’t switched on here.','bad'],
                 cancelled:['',''],
                 failed:['Discord didn’t answer. Please try again.','bad'],
