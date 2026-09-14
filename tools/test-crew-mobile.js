@@ -183,11 +183,19 @@ const PHONES = [
         ok('…and the role dropdown gets the full width of the row', acct.every((a) => a.sel >= 140), JSON.stringify(acct));
 
         // ---------------- Naming a rank, role or aircraft -------------
-        await page.evaluate(() => { window.openSettings('crew'); window.addRank(); window.addRole(); window.addFleet(); });
+        // The fleet lives in its own drawer now rather than at the bottom of
+        // Settings, so it is opened where it actually is. Ranks and roles are
+        // still the settings panel's.
+        await page.evaluate(() => { window.openSettings('crew'); window.addRank(); window.addRole(); });
         await page.waitForTimeout(300);
-        const fields = await page.$$eval('#rankRows [data-f="name"], #roleRows [data-f="name"], #fleetRows [data-f="type"]',
+        const settingsFields = await page.$$eval('#rankRows [data-f="name"], #roleRows [data-f="name"]',
             (els) => els.map((e) => ({ ph: e.placeholder, w: Math.round(e.getBoundingClientRect().width) })));
-        ok('a rank, role and aircraft can each be typed into', fields.length === 3 && fields.every((f) => f.w >= 120),
+        await page.evaluate(() => { window.closeSettings(); window.openFleet(); window.addFleet(); });
+        await page.waitForTimeout(300);
+        const fleetFields = await page.$$eval('#fleetRows [data-f="type"], #fleetFind',
+            (els) => els.map((e) => ({ ph: e.placeholder, w: Math.round(e.getBoundingClientRect().width) })));
+        const fields = settingsFields.concat(fleetFields);
+        ok('a rank, role and aircraft can each be typed into', fields.length === 4 && fields.every((f) => f.w >= 120),
             JSON.stringify(fields));
         ok('nothing in the settings panel hangs off the screen',
             (await offScreen(page, '#settings .panel *')).length === 0,

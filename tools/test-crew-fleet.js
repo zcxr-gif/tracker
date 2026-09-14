@@ -29,8 +29,16 @@ const server = http.createServer((req,res)=>{
 let posts = [];
 let settingsReply = null;              // set to [status, body] to force a failure
 let brandingFleet = [];
-const AC = ['Boeing 787-9','Airbus A320'];
-const LIV = { 'Boeing 787-9':['Aeromexico','Generic'], 'Airbus A320':['Aeromexico'] };
+const AC = ['Boeing 787-9','Airbus A320','Airbus A220-300'];
+const LIV = {
+  'Boeing 787-9':['Aeromexico','Generic'],
+  'Airbus A320':['Aeromexico'],
+  'Airbus A220-300':['Air Austral','Air Baltic'],
+};
+// Every lookup the page makes, so a test can assert not just what came back but
+// WHEN it was asked — the bug being that it was asked far too early.
+let lookups = [];
+let lookupReply = null;                // set to a body to hand back a photo
 function api(route){
   const url=new URL(route.request().url()); const p=url.pathname; const m=route.request().method();
   const json=(b,s=200)=>route.fulfill({status:s,contentType:'application/json',body:JSON.stringify(b)});
@@ -43,7 +51,10 @@ function api(route){
   if(p.includes('/va-ads/by-slug/')) return json({name:'Test VA',code:'TVA',layout:'editorial',allowedLayouts:['editorial'],fleet:brandingFleet});
   if(p.endsWith('/branding')) return json({name:'Test VA',code:'TVA',layout:'editorial',allowedLayouts:['editorial'],fleet:brandingFleet});
   if(p.endsWith('/me')) return json({role:'owner',capabilities:[],name:'Owner'});
-  if(p.includes('/aircraft/lookup')) return json({isPlaceholder:true});
+  if(p.includes('/aircraft/lookup')){
+    lookups.push({ type:url.searchParams.get('type')||'', livery:url.searchParams.get('liveryName')||'' });
+    return json(lookupReply || {isPlaceholder:true});
+  }
   return json({});
 }
 let pass=0, fail=0;
@@ -61,8 +72,8 @@ const ok=(n,c,x)=>{ if(c){console.log('  ✓ '+n);pass++;} else {console.log('  
     await page.addInitScript(()=>localStorage.setItem('crew:session:testva',JSON.stringify({token:'tok',name:'Owner',role:'owner'})));
     await page.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
     await page.waitForTimeout(1100);
-    await page.evaluate(()=>window.openSettings()); await page.waitForTimeout(200);
-    await page.evaluate(()=>window.setCat('crew')); await page.waitForTimeout(250);
+    // The fleet is its own drawer now, not the bottom of a settings panel.
+    await page.evaluate(()=>window.openFleet()); await page.waitForTimeout(300);
     return {ctx,page,errs};
   };
   const noteOf=(page)=>page.evaluate(()=>{const n=document.getElementById('fleetNote');return{t:n.textContent.trim(),c:n.className,hidden:n.classList.contains('hidden')};});
@@ -190,6 +201,151 @@ const ok=(n,c,x)=>{ if(c){console.log('  ✓ '+n);pass++;} else {console.log('  
      posts.length===1 && posts[0].fleet[0].type==='Boeing 787-9' && posts[0].fleet[0].name==='Aeromexico',
      JSON.stringify(posts));
   ok('no page errors', errs.length===0, errs.join('|'));
+
+  /* ====================================================================
+   * THE REPORTED GLITCH
+   *
+   * "Just writing the aircraft type, the aircraft image pops out. You have to
+   * get rid of the plane image by clicking the X then typing the livery to get
+   * it correct."
+   *
+   * Two faults in one: the photo was looked up on the aircraft ALONE, so the
+   * library answered with somebody else's A320; and the guard that stops a
+   * lookup clobbering a picture could not tell that picture apart from an
+   * upload, so typing the right livery afterwards changed nothing.
+   * ================================================================== */
+  console.log('\nThe photo waits for the livery');
+  brandingFleet=[];
+  lookupReply={ imageUrl:'https://cdn.test/wrong.jpg', imageUrls:['https://cdn.test/wrong.jpg'],
+                contributorName:'Someone', imageContributors:[{name:'Someone'}] };
+  ({ctx,page,errs}=await open());
+  await page.evaluate(()=>addFleet()); await page.waitForTimeout(150);
+  lookups=[];
+  await page.fill('#fleetRows [data-idx="0"] [data-f="type"]','Boeing 787-9');
+  await page.dispatchEvent('#fleetRows [data-idx="0"] [data-f="type"]','change');
+  await page.waitForTimeout(300);
+  ok('naming only the aircraft asks the library nothing', lookups.length===0, JSON.stringify(lookups));
+  ok('…so no photograph appears on a half-filled row',
+     (await page.evaluate(()=>FLEET[0].image))==='', await page.evaluate(()=>JSON.stringify(FLEET[0])));
+
+  await page.fill('#fleetRows [data-idx="0"] [data-f="name"]','Aeromexico');
+  await page.dispatchEvent('#fleetRows [data-idx="0"] [data-f="name"]','change');
+  await page.waitForTimeout(400);
+  ok('naming the livery asks it, with both halves',
+     lookups.length===1 && lookups[0].type==='Boeing 787-9' && lookups[0].livery==='Aeromexico',
+     JSON.stringify(lookups));
+  ok('…and the photo lands', (await page.evaluate(()=>FLEET[0].image))==='https://cdn.test/wrong.jpg');
+  ok('…marked as ours to replace, not as the airline\u2019s own',
+     (await page.evaluate(()=>FLEET[0].imageAuto))===true, await page.evaluate(()=>JSON.stringify(FLEET[0])));
+
+  /* CHANGING YOUR MIND. The old editor kept the first photo whatever you typed
+     next, which is why the X was the only way forward. */
+  lookups=[]; lookupReply={ imageUrl:'https://cdn.test/right.jpg', imageUrls:['https://cdn.test/right.jpg'],
+                            contributorName:'Jan Polet', imageContributors:[{name:'Jan Polet'}] };
+  await page.fill('#fleetRows [data-idx="0"] [data-f="name"]','Generic');
+  await page.dispatchEvent('#fleetRows [data-idx="0"] [data-f="name"]','change');
+  await page.waitForTimeout(400);
+  ok('changing the livery fetches the right photo instead of keeping the wrong one',
+     (await page.evaluate(()=>FLEET[0].image))==='https://cdn.test/right.jpg',
+     await page.evaluate(()=>JSON.stringify(FLEET[0])));
+  ok('…and the credit moves with it',
+     (await page.evaluate(()=>FLEET[0].photographer))==='Jan Polet');
+
+  // An upload is the airline's, and nothing typed afterwards may take it away.
+  await page.evaluate(()=>{ FLEET[0].image='https://cdn.test/mine.jpg'; FLEET[0].imageAuto=false; FLEET[0].imageFor=''; renderStructure(); });
+  lookups=[];
+  await page.fill('#fleetRows [data-idx="0"] [data-f="name"]','Aeromexico');
+  await page.dispatchEvent('#fleetRows [data-idx="0"] [data-f="name"]','change');
+  await page.waitForTimeout(400);
+  ok('an upload of their own survives a later change of livery',
+     (await page.evaluate(()=>FLEET[0].image))==='https://cdn.test/mine.jpg',
+     await page.evaluate(()=>JSON.stringify(FLEET[0])));
+  ok('no page errors', errs.length===0, errs.join('|'));
+  await ctx.close();
+
+  /* ====================================================================
+   * FINDING AN AEROPLANE BY THE NAME ON ITS SIDE
+   *
+   * Nobody thinks "Airbus A220-300" and then "Air Austral". The catalogue is
+   * keyed the wrong way round for how people search it, and reading it the
+   * other way is an index rather than a request.
+   * ================================================================== */
+  console.log('\nFinding an aircraft by its livery');
+  brandingFleet=[]; lookupReply=null;
+  ({ctx,page,errs}=await open());
+  await page.fill('#fleetFind','air austral');
+  await page.waitForTimeout(250);
+  const hits=await page.$$eval('#fleetFindList [data-ac]', els=>els.map(e=>e.textContent.replace(/\s+/g,' ').trim()));
+  ok('typing a livery finds the aeroplane that wears it',
+     hits.length>0 && /Air Austral/.test(hits[0]) && /A220-300/.test(hits[0]), JSON.stringify(hits));
+
+  lookups=[];
+  // mousedown, not click(): Tailwind is a CDN this harness cannot reach, so the
+  // drawer is not positioned and Playwright refuses to click into it. The
+  // picker listens for mousedown, which is what a pointer sends first anyway.
+  await page.dispatchEvent('#fleetFindList [data-ac="0"]','mousedown');
+  await page.waitForTimeout(350);
+  const added=await page.evaluate(()=>FLEET[0]);
+  ok('picking one adds a complete row, both halves at once',
+     added && added.type==='Airbus A220-300' && added.name==='Air Austral', JSON.stringify(added));
+  ok('…and only then is the library asked',
+     lookups.length===1 && lookups[0].livery==='Air Austral', JSON.stringify(lookups));
+  ok('the search box empties itself for the next one',
+     (await page.inputValue('#fleetFind'))==='');
+
+  // It also still works the way it always did, from the aircraft end.
+  await page.fill('#fleetFind','787');
+  await page.waitForTimeout(250);
+  ok('and an aircraft type still finds its liveries',
+     (await page.$$eval('#fleetFindList [data-ac]', e=>e.length))>0);
+
+  await page.fill('#fleetFind','air austral');
+  await page.waitForTimeout(200);
+  await page.dispatchEvent('#fleetFindList [data-ac="0"]','mousedown');
+  await page.waitForTimeout(250);
+  ok('the same aircraft is not added twice',
+     (await page.evaluate(()=>FLEET.length))===1, await page.evaluate(()=>JSON.stringify(FLEET)));
+  ok('no page errors', errs.length===0, errs.join('|'));
+  await ctx.close();
+
+  /* ====================================================================
+   * A CODESHARE IS SOMEBODY ELSE'S AEROPLANE
+   *
+   * The route form offered the VA's own fleet and nothing else, so a codeshare
+   * could only be filed as an aircraft the airline does not operate, or as
+   * "Any aircraft".
+   * ================================================================== */
+  console.log('\nA codeshare names the partner\u2019s aircraft');
+  brandingFleet=[{type:'Boeing 787-9',name:'Generic',image:''}];
+  ({ctx,page,errs}=await open());
+  await page.evaluate(()=>{ openRoutes(); openRouteForm(); });
+  await page.waitForTimeout(300);
+  ok('own metal is picked from the fleet',
+     await page.isVisible('#nr_aircraft') && !(await page.isVisible('#nr_acFreeWrap')));
+
+  await page.evaluate(()=>setRouteKind('codeshare'));
+  await page.waitForTimeout(200);
+  ok('a codeshare gets the whole catalogue instead',
+     !(await page.isVisible('#nr_aircraft')) && await page.isVisible('#nr_acFreeWrap'));
+
+  await page.fill('#nr_acFree','air austral');
+  await page.waitForTimeout(250);
+  await page.dispatchEvent('#nr_acFreeList [data-ac="0"]','mousedown');
+  await page.waitForTimeout(200);
+  ok('…searched by livery, like the fleet',
+     /Airbus A220-300/.test(await page.inputValue('#nr_acFree'))
+     && /Air Austral/.test(await page.inputValue('#nr_acFree')),
+     await page.inputValue('#nr_acFree'));
+  ok('and that is what the route would be saved with',
+     /Air Austral/.test(await page.evaluate(()=>routeAircraftValue())),
+     await page.evaluate(()=>routeAircraftValue()));
+
+  await page.evaluate(()=>setRouteKind('own'));
+  await page.waitForTimeout(150);
+  ok('switching back reads the fleet picker again',
+     (await page.evaluate(()=>routeAircraftValue()))===(await page.inputValue('#nr_aircraft')));
+  ok('no page errors', errs.length===0, errs.join('|'));
+  await ctx.close();
 
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close(); server.close(); process.exit(fail?1:0);
