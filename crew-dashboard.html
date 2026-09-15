@@ -1887,6 +1887,7 @@
                          partnership with another virtual airline. So the VA
                          decides, rather than us inventing a partner. -->
                     <div id="libCodeshare" class="hidden mt-3"></div>
+                    <div id="libNoAircraft" class="hidden mt-3"></div>
                     <div id="libFleetAdd" class="hidden mt-3"></div>
                     <!-- THE CAVEAT, WHERE IT CANNOT BE MISSED. Immediately above
                          the button that writes, not buried at the top of a
@@ -5544,10 +5545,14 @@
                     <span class="font-mono text-sm shrink-0">${escapeHtml(r.origin)} → ${escapeHtml(r.destination)}</span>
                     <span class="text-xs muted shrink-0">${escapeHtml(String(r.distanceNm))} nm</span>
                     <span class="flex-1 min-w-0 text-right">
-                        ${r.aircraftOptions.length>1
-                            ? `<select data-lib-ac="${i}" class="surface hair rounded-md px-2 py-1 text-xs max-w-full">${r.aircraftOptions.map(t=>`<option value="${escapeHtml(t)}" ${t===r.aircraft?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>`
+                        ${(r.aircraftOptions.length>1 || r.partnerAircraftOnly)
+                            ? `<select data-lib-ac="${i}" class="surface hair rounded-md px-2 py-1 text-xs max-w-full">
+                                   ${r.partnerAircraftOnly?`<option value="" ${r.aircraft?'':'selected'}>— you choose —</option>`:''}
+                                   ${r.aircraftOptions.map(t=>`<option value="${escapeHtml(t)}" ${t===r.aircraft?'selected':''}>${escapeHtml(t)}${(r.ownAircraftOptions&&r.ownAircraftOptions.indexOf(t)<0)?' (partner’s)':''}</option>`).join('')}
+                               </select>`
                             : `<span class="text-xs muted truncate">${escapeHtml(r.aircraft||'—')}</span>`}
                     </span>
+                    ${r.partnerAircraftOnly?`<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded text-amber-600 dark:text-amber-400" title="Every aeroplane listed for this leg belongs to whoever flew it for ${escapeHtml((LIB_AIRLINE&&LIB_AIRLINE.airline&&LIB_AIRLINE.airline.name)||'them')} — they don’t operate any of them. Pick one of your own, or leave it for later.">not their aircraft</span>`:''}
                     ${r.realCodeshare?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded faint hair" title="The real airline sold this leg but did not fly it. The source doesn’t record who did — you decide what it becomes in your network.">sold, not flown</span>':''}
                     ${r.inFleet?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400" title="You already operate this type">in fleet</span>':''}
                 </label>`).join('')
@@ -5567,11 +5572,12 @@
                     const i=Number(el.getAttribute('data-lib-ac'));
                     LIB_AIRLINE.routes[i].aircraft=el.value;
                     // Re-deciding the aircraft re-decides what it would add to
-                    // the fleet, and the review step reads these.
+                    // the fleet, and the review step reads these. A blank is a
+                    // real choice — "I'll pick later" — and adds nothing.
                     const r=LIB_AIRLINE.routes[i];
                     const have=new Set(FLEET.map(f=>acNorm(f.type)));
-                    r.inFleet=have.has(acNorm(el.value));
-                    r.newTypes=r.inFleet?[]:[el.value];
+                    r.inFleet=!!el.value && have.has(acNorm(el.value));
+                    r.newTypes=(!el.value||r.inFleet)?[]:[el.value];
                 });
                 // The select sits inside the row's <label>, so without this a
                 // click meant for the aircraft menu also toggles the tick —
@@ -5665,6 +5671,7 @@
             </div>`;
 
             libRenderCodeshare();
+            libRenderNoAircraft(picked);
 
             // The fleet half. Every type these routes need that the VA does not
             // already operate, pre-ticked and individually untickable — agreed to
@@ -5727,6 +5734,27 @@
             libSyncCommit();
             if(window.lucide) lucide.createIcons();
         }
+        /* LEGS ARRIVING WITH NO AEROPLANE.
+         *
+         * Every aircraft listed for these belongs to whoever flew the leg for
+         * the airline, not to the airline — AeroMéxico's CRJ-900 legs are the
+         * example: it has never operated one. Rather than hand the VA somebody
+         * else's aeroplane (and then offer to paint it in AeroMéxico's livery),
+         * the aircraft is left empty and said out loud here. The route still
+         * imports; it just reads "Any aircraft" until they choose. */
+        function libRenderNoAircraft(picked){
+            const box=document.getElementById('libNoAircraft');
+            const rows=picked.filter(r=>!String(r.aircraft||'').trim());
+            if(!rows.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
+            const theirs=[...new Set(rows.flatMap(r=>r.aircraftOptions||[]))].sort();
+            const who=(LIB_AIRLINE&&LIB_AIRLINE.airline&&LIB_AIRLINE.airline.name)||'this airline';
+            box.classList.remove('hidden');
+            box.innerHTML=`<div class="rounded-lg surface hair p-3">
+                <div class="text-xs font-semibold uppercase tracking-wider faint mb-1">${escapeHtml(String(rows.length))} ${rows.length===1?'leg has':'legs have'} no aircraft</div>
+                <p class="text-xs muted">${escapeHtml(who)} doesn’t operate ${escapeHtml(theirs.join(', '))} — ${theirs.length===1?'that aeroplane belongs':'those aeroplanes belong'} to whoever flew ${rows.length===1?'this leg':'these legs'} for them, and the source doesn’t record who. ${rows.length===1?'It’s':'They’re'} imported with <b>no aircraft set</b> rather than with somebody else’s, so nothing wrong lands in your fleet. Pick one on the route afterwards, or back on the previous step.</p>
+            </div>`;
+        }
+
         /* The legs the real airline sold but did not fly.
          *
          * Counted off the TICKED selection rather than the whole network, so the

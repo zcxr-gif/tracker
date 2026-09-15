@@ -55,10 +55,13 @@ const LIB_AIRLINE = {
     snapshotYear: 2014, builtAt: '2026-09-14',
     airline: { key: 'BAW', name: 'British Airways', iata: 'BA', icao: 'BAW', country: 'United Kingdom', active: true },
     routes: [
-        { origin: 'EGLL', destination: 'KJFK', distanceNm: 3000, aircraft: 'Boeing 777-200ER', aircraftOptions: ['Boeing 777-200ER'], kind: 'own', partnerName: '', realCodeshare: false, flightNumber: '', notes: '', inFleet: true, newTypes: [] },
-        { origin: 'EGLL', destination: 'OMDB', distanceNm: 2900, aircraft: 'Boeing 787-9 Dreamliner', aircraftOptions: ['Boeing 787-9 Dreamliner', 'Airbus A380-800'], kind: 'own', partnerName: '', realCodeshare: false, flightNumber: '', notes: '', inFleet: false, newTypes: ['Boeing 787-9 Dreamliner'] },
+        { origin: 'EGLL', destination: 'KJFK', distanceNm: 3000, aircraft: 'Boeing 777-200ER', aircraftOptions: ['Boeing 777-200ER'], ownAircraftOptions: ['Boeing 777-200ER'], partnerAircraftOnly: false, kind: 'own', partnerName: '', realCodeshare: false, flightNumber: '', notes: '', inFleet: true, newTypes: [] },
+        { origin: 'EGLL', destination: 'OMDB', distanceNm: 2900, aircraft: 'Boeing 787-9 Dreamliner', aircraftOptions: ['Boeing 787-9 Dreamliner', 'Airbus A380-800'], ownAircraftOptions: ['Boeing 787-9 Dreamliner', 'Airbus A380-800'], partnerAircraftOnly: false, kind: 'own', partnerName: '', realCodeshare: false, flightNumber: '', notes: '', inFleet: false, newTypes: ['Boeing 787-9 Dreamliner'] },
         // Sold by the airline, flown by somebody the source does not name.
-        { origin: 'EDDF', destination: 'EGLC', distanceNm: 335, aircraft: 'Embraer E175', aircraftOptions: ['Embraer E175'], kind: 'own', partnerName: '', realCodeshare: true, flightNumber: '', notes: '', inFleet: false, newTypes: ['Embraer E175'] },
+        { origin: 'EDDF', destination: 'EGLC', distanceNm: 335, aircraft: 'Embraer E175', aircraftOptions: ['Embraer E175'], ownAircraftOptions: ['Embraer E175'], partnerAircraftOnly: false, kind: 'own', partnerName: '', realCodeshare: true, flightNumber: '', notes: '', inFleet: false, newTypes: ['Embraer E175'] },
+        // The AeroMéxico CRJ-900 shape: every aeroplane listed belongs to
+        // whoever flew it for them, so the leg carries none at all.
+        { origin: 'KATL', destination: 'KPIT', distanceNm: 460, aircraft: '', aircraftOptions: ['Bombardier CRJ-900'], ownAircraftOptions: [], partnerAircraftOnly: true, kind: 'own', partnerName: '', realCodeshare: true, flightNumber: '', notes: '', inFleet: false, newTypes: [] },
     ],
 };
 
@@ -149,7 +152,10 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     await page.evaluate(() => libPickAirline('BAW'));
     await page.waitForTimeout(400);
     const rows = await page.evaluate(() => document.querySelectorAll('#libRows [data-lib-idx]').length);
-    ok('every leg is listed', rows === 3, 'got ' + rows);
+    ok('every leg is listed', rows === 4, 'got ' + rows);
+    ok('a leg flown only on a partner’s aeroplane is marked as such',
+        (await page.evaluate(() => [...document.querySelectorAll('#libRows label')]
+            .filter(l => /not their aircraft/i.test(l.textContent)).length)) === 1);
     ok('the snapshot year is shown beside the airline',
         /2014/.test(await page.evaluate(() => document.getElementById('libAge').textContent)));
     // Pre-ticking what they can already fly is a starting point, not a decision.
@@ -203,11 +209,23 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     ok('…while the type already in the fleet is not offered',
         !fleetOffer.some(t => /777-200ER/.test(t)));
 
+    console.log('\n somebody else’s aeroplane');
+    ok('the leg with no aircraft is called out in the review',
+        !(await page.evaluate(() => document.getElementById('libNoAircraft').classList.contains('hidden'))));
+    ok('…naming the aeroplane that is not theirs',
+        /CRJ-900/.test(await page.evaluate(() => document.getElementById('libNoAircraft').textContent)));
+    ok('…and saying it imports with no aircraft rather than the partner’s',
+        /no aircraft set/i.test(await page.evaluate(() => document.getElementById('libNoAircraft').textContent)));
+    ok('it is not offered as a fleet addition',
+        !(await page.evaluate(() => LIB_NEWTYPES.some(x => /CRJ-900/.test(x.type)))));
+    ok('…so no livery is ever suggested for it',
+        !(await page.evaluate(() => document.getElementById('libFleetAdd').textContent)).match(/CRJ-900/));
+
     console.log('\n what was sold but not flown');
     ok('the choice is put to the VA',
         !(await page.evaluate(() => document.getElementById('libCodeshare').classList.contains('hidden'))));
     ok('…naming how many legs it is about',
-        /1 of these were sold, not flown/i.test(await page.evaluate(() => document.getElementById('libCodeshare').textContent)));
+        /2 of these were sold, not flown/i.test(await page.evaluate(() => document.getElementById('libCodeshare').textContent)));
     ok('…and saying plainly that the operator is unknown',
         /doesn.t record which partner/i.test(await page.evaluate(() => document.getElementById('libCodeshare').textContent)));
     ok('the default is to fly them yourself',
@@ -258,7 +276,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     await page.waitForTimeout(400);
     const skipped = writes[writes.length - 1];
     ok('leaving them out drops them from the import',
-        skipped.dryRun && skipped.routes.length === 2 && !skipped.routes.some(r => r.origin === 'EDDF'),
+        skipped.dryRun && skipped.routes.length === 2 && !skipped.routes.some(r => r.origin === 'EDDF' || r.origin === 'KATL'),
         JSON.stringify(skipped.routes.map(r => r.origin + '-' + r.destination)));
 
     // Back to the default for the commit assertions below.
@@ -289,7 +307,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     await page.waitForTimeout(600);
     const commit = writes.find(w => w.what === 'library-import' && w.dryRun === false);
     ok('the routes were written', !!commit);
-    ok('…all three of them', commit && commit.routes.length === 3);
+    ok('…all four of them', commit && commit.routes.length === 4);
     ok('…and never with a published flag of their own',
         commit && commit.routes.every(r => r.active !== true));
 
