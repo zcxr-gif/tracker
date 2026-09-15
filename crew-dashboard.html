@@ -6697,7 +6697,35 @@
             try{ await rmLoadMapLibre(); RM.fallback=false; document.getElementById('rmCanvas').innerHTML=''; rmBuildMap(); }
             catch(err){ rmDrawFallback(err&&err.message); }
         }
+        /* CAN THIS DEVICE GIVE US A MAP AT ALL?
+         *
+         * MapLibre is WebGL, and WebGL is a resource a browser can refuse. iOS
+         * Safari caps how many live contexts a page may hold and quietly drops
+         * or denies them under memory pressure — and this page has 3D aircraft
+         * and traffic viewers that take contexts of their own. Asked for one too
+         * many, some builds hand back a Map object that reports `load`, adds
+         * every layer without complaint, and paints nothing: a black screen with
+         * no error to catch, which is the one failure none of the deadlines
+         * below were watching for.
+         *
+         * So we ask for a throwaway context first. If the answer is no, the
+         * drawn map — which needs no GPU at all — takes over immediately, with a
+         * reason on screen instead of a blank one. */
+        function rmWebglReason(){
+            try{
+                const c=document.createElement('canvas');
+                const gl=c.getContext('webgl2')||c.getContext('webgl')||c.getContext('experimental-webgl');
+                if(!gl) return 'this browser has no WebGL to draw the map with';
+                // Hand it straight back; holding it would be one more context
+                // against the very limit we are testing for.
+                const lose=gl.getExtension('WEBGL_lose_context'); if(lose) lose.loseContext();
+                return '';
+            }catch(err){ return (err&&err.message)||'WebGL could not be started'; }
+        }
+
         function rmBuildMap(){
+            const noGl=rmWebglReason();
+            if(noGl) return rmDrawFallback(noGl);
             document.getElementById('rmLoading').classList.remove('hidden');
             RM.accent=rmAccent(); RM.styleDark=isDark();
             document.getElementById('routeMap').style.setProperty('--rm-accent',RM.accent);
@@ -6740,8 +6768,25 @@
                     RM.ready=false;
                     return rmDrawFallback((err&&err.message)||'the map could not be built');
                 }
-                clearTimeout(RM._watchdog); RM.fallback=false; rmHideFallbackNote();
-                document.getElementById('rmLoading').classList.add('hidden');
+                /* A MAP OF NO SIZE IS STILL A BLACK SCREEN.
+                 *
+                 * `load` fired and every layer went in, so nothing above is
+                 * watching any more — but a GL canvas measuring 0 paints
+                 * nothing, and that is indistinguishable from a working map to
+                 * every check we had. It happens when the container is measured
+                 * mid-layout, and on iOS when the context was refused after the
+                 * Map object was already built.
+                 *
+                 * Checked on the next frame, because `resize()` above has only
+                 * just asked for one. */
+                requestAnimationFrame(()=>{
+                    if(RM.fallback) return;
+                    let w=0,h=0;
+                    try{ const cv=map.getCanvas(); w=cv.width; h=cv.height; }catch{}
+                    if(!w||!h){ RM.ready=false; return rmDrawFallback('the map had nowhere to draw'); }
+                    clearTimeout(RM._watchdog); RM.fallback=false; rmHideFallbackNote();
+                    document.getElementById('rmLoading').classList.add('hidden');
+                });
             });
             /* THE CANVAS THAT GOES AWAY AFTER IT ARRIVED.
              *
@@ -6752,6 +6797,15 @@
              * none of the deadlines above are still watching. The drawn map
              * needs no GPU at all, so that is what a lost context gets. */
             map.on('webglcontextlost',()=>{ RM.ready=false; rmDrawFallback('the map lost its drawing surface'); });
+            /* The refusal that happens BEFORE there is a context to lose. The
+               browser fires this on the canvas itself, not on the map, so
+               MapLibre never reports it and the old code never heard it. */
+            try{
+                map.getCanvas().addEventListener('webglcontextcreationerror',(e)=>{
+                    if(RM.ready||RM.fallback) return;
+                    rmDrawFallback((e&&e.statusMessage)||'this device would not give the map a drawing surface');
+                });
+            }catch{ /* no canvas yet is itself caught by the size check above */ }
             // A tile that hiccups once is not a reason to throw the map away —
             // the network overlay still renders over the gap. A style that never
             // arrives at all is, and the watchdog above is what catches it.
