@@ -608,12 +608,20 @@ video {
   pointer-events: auto;
 }
 
+.\!visible {
+  visibility: visible !important;
+}
+
 .visible {
   visibility: visible;
 }
 
 .invisible {
   visibility: hidden;
+}
+
+.collapse {
+  visibility: collapse;
 }
 
 .static {
@@ -753,6 +761,10 @@ video {
 
 .mb-5 {
   margin-bottom: 1.25rem;
+}
+
+.ml-0\.5 {
+  margin-left: 0.125rem;
 }
 
 .ml-1 {
@@ -923,8 +935,16 @@ video {
   max-height: 14rem;
 }
 
+.max-h-\[38vh\] {
+  max-height: 38vh;
+}
+
 .max-h-\[86vh\] {
   max-height: 86vh;
+}
+
+.max-h-\[88vh\] {
+  max-height: 88vh;
 }
 
 .min-h-\[1\.5rem\] {
@@ -963,6 +983,10 @@ video {
   width: 0.625rem;
 }
 
+.w-20 {
+  width: 5rem;
+}
+
 .w-28 {
   width: 7rem;
 }
@@ -973,6 +997,14 @@ video {
 
 .w-3\.5 {
   width: 0.875rem;
+}
+
+.w-32 {
+  width: 8rem;
+}
+
+.w-36 {
+  width: 9rem;
 }
 
 .w-4 {
@@ -991,6 +1023,10 @@ video {
   width: 1.5rem;
 }
 
+.w-7 {
+  width: 1.75rem;
+}
+
 .w-8 {
   width: 2rem;
 }
@@ -999,12 +1035,20 @@ video {
   width: 2.25rem;
 }
 
+.w-\[168px\] {
+  width: 168px;
+}
+
 .w-\[18px\] {
   width: 18px;
 }
 
 .w-\[92vw\] {
   width: 92vw;
+}
+
+.w-\[94vw\] {
+  width: 94vw;
 }
 
 .w-auto {
@@ -1019,16 +1063,24 @@ video {
   min-width: 0px;
 }
 
+.min-w-\[10rem\] {
+  min-width: 10rem;
+}
+
 .min-w-\[18px\] {
   min-width: 18px;
+}
+
+.max-w-3xl {
+  max-width: 48rem;
 }
 
 .max-w-6xl {
   max-width: 72rem;
 }
 
-.max-w-\[130px\] {
-  max-width: 130px;
+.max-w-\[12rem\] {
+  max-width: 12rem;
 }
 
 .max-w-\[180px\] {
@@ -1039,12 +1091,16 @@ video {
   max-width: 64px;
 }
 
-.max-w-\[74px\] {
-  max-width: 74px;
+.max-w-\[92px\] {
+  max-width: 92px;
 }
 
 .max-w-\[calc\(100\%-2rem\)\] {
   max-width: calc(100% - 2rem);
+}
+
+.max-w-full {
+  max-width: 100%;
 }
 
 .max-w-lg {
@@ -1061,6 +1117,10 @@ video {
 
 .flex-1 {
   flex: 1 1 0%;
+}
+
+.shrink {
+  flex-shrink: 1;
 }
 
 .shrink-0 {
@@ -1168,6 +1228,10 @@ video {
   align-items: center;
 }
 
+.items-baseline {
+  align-items: baseline;
+}
+
 .justify-end {
   justify-content: flex-end;
 }
@@ -1204,12 +1268,17 @@ video {
   gap: 0.75rem;
 }
 
-.gap-4 {
-  gap: 1rem;
-}
-
 .gap-5 {
   gap: 1.25rem;
+}
+
+.gap-x-2 {
+  -moz-column-gap: 0.5rem;
+       column-gap: 0.5rem;
+}
+
+.gap-y-0\.5 {
+  row-gap: 0.125rem;
 }
 
 .space-y-0\.5 > :not([hidden]) ~ :not([hidden]) {
@@ -1270,6 +1339,10 @@ video {
   --tw-divide-y-reverse: 0;
   border-top-width: calc(1px * calc(1 - var(--tw-divide-y-reverse)));
   border-bottom-width: calc(1px * var(--tw-divide-y-reverse));
+}
+
+.divide-\[color\:var\(--hair\)\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--hair);
 }
 
 .overflow-auto {
@@ -1525,6 +1598,16 @@ video {
   padding-bottom: 0.75rem;
 }
 
+.py-3\.5 {
+  padding-top: 0.875rem;
+  padding-bottom: 0.875rem;
+}
+
+.py-4 {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
 .py-6 {
   padding-top: 1.5rem;
   padding-bottom: 1.5rem;
@@ -1536,6 +1619,10 @@ video {
 
 .pb-1\.5 {
   padding-bottom: 0.375rem;
+}
+
+.pb-3 {
+  padding-bottom: 0.75rem;
 }
 
 .pb-4 {
@@ -1552,10 +1639,6 @@ video {
 
 .pl-10 {
   padding-left: 2.5rem;
-}
-
-.pl-2 {
-  padding-left: 0.5rem;
 }
 
 .pl-2\.5 {
@@ -1608,10 +1691,6 @@ video {
 
 .text-right {
   text-align: right;
-}
-
-.align-\[-1px\] {
-  vertical-align: -1px;
 }
 
 .font-mono {
@@ -1679,6 +1758,10 @@ video {
   font-weight: 500;
 }
 
+.font-normal {
+  font-weight: 400;
+}
+
 .font-semibold {
   font-weight: 600;
 }
@@ -1726,6 +1809,10 @@ video {
 
 .tracking-wider {
   letter-spacing: 0.05em;
+}
+
+.tracking-widest {
+  letter-spacing: 0.1em;
 }
 
 .text-\[var\(--ink\)\] {
@@ -1938,6 +2025,14 @@ video {
   border-color: rgb(239 68 68 / var(--tw-border-opacity, 1));
 }
 
+.hover\:bg-\[color\:color-mix\(in_srgb\2c var\(--ink\)_4\%\2c transparent\)\]:hover {
+  background-color: color-mix(in srgb,var(--ink) 4%,transparent);
+}
+
+.hover\:bg-black\/5:hover {
+  background-color: rgb(0 0 0 / 0.05);
+}
+
 .hover\:text-\[var\(--ink\)\]:hover {
   color: var(--ink);
 }
@@ -1988,21 +2083,45 @@ video {
   transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
 }
 
+.disabled\:opacity-50:disabled {
+  opacity: 0.5;
+}
+
 @media (min-width: 640px) {
   .sm\:left-5 {
     left: 1.25rem;
+  }
+
+  .sm\:ml-1 {
+    margin-left: 0.25rem;
   }
 
   .sm\:block {
     display: block;
   }
 
+  .sm\:inline {
+    display: inline;
+  }
+
   .sm\:flex {
     display: flex;
   }
 
+  .sm\:inline-flex {
+    display: inline-flex;
+  }
+
+  .sm\:grid {
+    display: grid;
+  }
+
   .sm\:w-80 {
     width: 20rem;
+  }
+
+  .sm\:max-w-\[130px\] {
+    max-width: 130px;
   }
 
   .sm\:flex-row {
@@ -2017,6 +2136,18 @@ video {
     align-items: center;
   }
 
+  .sm\:gap-1 {
+    gap: 0.25rem;
+  }
+
+  .sm\:gap-2\.5 {
+    gap: 0.625rem;
+  }
+
+  .sm\:gap-4 {
+    gap: 1rem;
+  }
+
   .sm\:p-7 {
     padding: 1.75rem;
   }
@@ -2024,6 +2155,10 @@ video {
   .sm\:px-5 {
     padding-left: 1.25rem;
     padding-right: 1.25rem;
+  }
+
+  .sm\:pl-2 {
+    padding-left: 0.5rem;
   }
 
   .sm\:text-3xl {
@@ -2035,16 +2170,6 @@ video {
 @media (min-width: 768px) {
   .md\:flex {
     display: flex;
-  }
-
-  /* The sign-in page's split look. Without these the two panels stack at full
-     width and a screenshot of it is a picture of a layout nobody ships. */
-  .md\:grid-cols-2 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .md\:hidden {
-    display: none;
   }
 }
 
@@ -2083,21 +2208,8 @@ video {
     --tw-text-opacity: 1;
     color: rgb(248 113 113 / var(--tw-text-opacity, 1));
   }
-}
 
-/* Added for the sign-in page's card: the stub stands in for Tailwind, and a
-   missing radius made screenshots of a rounded card look square-cornered. */
-.rounded-3xl { border-radius: 1.5rem; }
-
-/* The sign-in page's split look: its right-hand panel is opaque, and a stub
-   without these renders it transparent over the backdrop with unreadable text —
-   a picture of a bug that does not exist. */
-.bg-stone-50 { background-color: #fafaf9; }
-.dark .dark\:bg-zinc-900 { background-color: #18181b; }
-
-/* The split look's brand panel is padded; without this the stub renders its
-   contents flush to the window edge. */
-.p-8 { padding: 2rem; }
-@media (min-width: 640px) {
-  .sm\:p-10 { padding: 2.5rem; }
+  .dark\:hover\:bg-white\/5:hover {
+    background-color: rgb(255 255 255 / 0.05);
+  }
 }

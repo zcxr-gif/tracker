@@ -238,9 +238,39 @@
         P.style('crew-shop-ui', `
         .sh-wrap{ display:grid; gap:1rem; }
         .sh-hero{ display:grid; gap:.9rem; justify-items:center; }
-        .sh-hero-facts{ display:flex; flex-wrap:wrap; gap:.35rem .9rem; justify-content:center;
-            font-size:.8rem; color:var(--muted,#736E64); }
-        .sh-hero-facts b{ color:var(--ink,#1C1A16); }
+
+        /* ---- THE SPACE EITHER SIDE OF THE CARD --------------------------
+           The card is a bank card: 1.586:1, and it stops at 26rem because
+           past that it stops looking like one. Everything else was stacked
+           UNDER it — what has been earned, what has been spent, the way into
+           the shop — so in a 46rem panel, and across the full width of a
+           pilot's own page, the card sat between two columns of nothing while
+           the page grew downwards past it.
+
+           Widening the card is not available; it is the shape it is. So the
+           stack goes BESIDE it once there is room for both, and goes back to
+           a stack when there is not. Same markup, one class. */
+        .sh-hero-split{ width:100%; max-width:54rem; margin-inline:auto; }
+        @media (min-width:44rem){
+            .sh-hero-split{ grid-template-columns:minmax(0,24rem) minmax(0,1fr);
+                align-items:center; gap:1.1rem 1.75rem; justify-items:stretch; }
+        }
+        .sh-hero-side{ display:grid; gap:.75rem; align-content:center; width:100%;
+            justify-items:center; text-align:center; }
+        @media (min-width:44rem){ .sh-hero-side{ justify-items:start; text-align:left; } }
+        .sh-hero-side .cp-btn{ width:100%; justify-content:center; }
+        /* Earned and spent, as figures rather than a sentence: the card
+           already carries the balance, and what fills a column beside it is
+           the two numbers that say where the balance came from. */
+        .sh-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(7.5rem,1fr));
+            gap:.5rem; width:100%; }
+        .sh-stat{ border:1px solid var(--line,#e5e5e5); border-radius:.85rem;
+            background:var(--surface,#fff); padding:.55rem .75rem .6rem; }
+        .sh-stat b{ display:block; font-size:1.15rem; font-weight:800; letter-spacing:-.02em;
+            line-height:1.15; font-variant-numeric:tabular-nums; }
+        .sh-stat span{ font-size:.64rem; font-weight:700; letter-spacing:.1em;
+            text-transform:uppercase; color:var(--muted,#736E64); }
+        .sh-hero-note{ font-size:.78rem; color:var(--muted,#736E64); line-height:1.45; margin:0; }
 
         .sh-tabs{ display:flex; gap:.35rem; padding:.25rem; border-radius:999px;
             background:color-mix(in srgb, var(--ink,#1C1A16) 6%, transparent); }
@@ -443,6 +473,29 @@
     }
 
     /**
+     * The card, and what belongs beside it.
+     *
+     * Three places show this — the pilot's home, the shop's own hero, and (as
+     * the card alone) the skeleton. Written once so the two that carry facts
+     * carry the same ones, in the same order, at the same size.
+     */
+    function heroHtml(wallet, opts) {
+        const o = opts || {};
+        const c = currency();
+        const stat = (label, v) => `<div class="sh-stat"><b>${num(v)}</b><span>${esc(c.short)} ${esc(label)}</span></div>`;
+        const side = [];
+        // Deliberately not the balance: that is the biggest thing on the card
+        // itself, and printing it twice a centimetre apart reads as a mistake.
+        if (wallet) side.push(`<div class="sh-stats">${stat('earned', wallet.earned || 0)}${stat('spent', wallet.spent || 0)}</div>`);
+        if (o.cta) side.push(o.cta);
+        if (o.note) side.push(`<p class="sh-hero-note">${o.note}</p>`);
+        const card = cardHtml(wallet, o.card);
+        if (!side.length) return `<div class="sh-hero">${card}</div>`;
+        return `<div class="sh-hero sh-hero-split">${card}
+            <div class="sh-hero-side">${side.join('')}</div></div>`;
+    }
+
+    /**
      * The tilt. A card you can push around with a finger is the difference
      * between a picture of a card and one you own — but it is decoration, so
      * it is bolted on after the markup exists, never depended on, and skipped
@@ -598,16 +651,9 @@
         const w = S.data.wallet || null;
         const items = (S.data.items || []).filter((i) => i.active !== false);
         const c = currency();
-        const facts = [];
-        if (w) {
-            facts.push(`<span><b>${num(w.earned || 0)}</b> ${esc(c.short)} earned</span>`);
-            facts.push(`<span><b>${num(w.spent || 0)}</b> ${esc(c.short)} spent</span>`);
-        }
-        const hero = `<div class="sh-hero">
-            ${cardHtml(w)}
-            ${facts.length ? `<div class="sh-hero-facts">${facts.join('')}</div>` : ''}
-            ${!w ? `<p class="cp-note" style="text-align:center">Sign in as a pilot of this airline to start earning ${esc(c.name)}.</p>` : ''}
-        </div>`;
+        const hero = heroHtml(w, {
+            note: w ? '' : `Sign in as a pilot of this airline to start earning ${esc(c.name)}.`,
+        });
 
         if (!items.length) {
             return hero + `<div class="cp-empty">
@@ -1298,10 +1344,14 @@
         if (!S.data || !S.data.enabled) { host.innerHTML = ''; host.classList.add('cp-hidden'); return; }
         host.classList.remove('cp-hidden');
         const w = S.data.wallet || null;
-        host.innerHTML = `<div class="sh-hero">${cardHtml(w)}
-            <button class="cp-btn cp-btn-primary" data-sh-open style="width:100%;justify-content:center">
+        host.innerHTML = heroHtml(w, {
+            cta: `<button class="cp-btn cp-btn-primary" data-sh-open>
                 <i data-lucide="store"></i> ${w ? 'Spend it' : 'See the shop'}
-            </button></div>`;
+            </button>`,
+            note: w
+                ? `Earned on every flight your staff approve. Spend it on whatever is on the shelf.`
+                : `Sign in as a pilot of this airline to start earning ${esc(currency().name)}.`,
+        });
         if (!host.dataset.shWired) {
             host.dataset.shWired = '1';
             host.addEventListener('click', (ev) => {

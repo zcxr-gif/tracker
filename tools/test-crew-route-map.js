@@ -1,17 +1,22 @@
 /*
  * tools/test-crew-route-map.js — `npm run test:route-map`
  *
- * THE CREW CENTRE'S ROUTE MAP, WHEN THE INTERNET IS NOT PERFECT.
+ * THE CREW CENTRE'S ROUTE MAP.
  *
- * The map proper is MapLibre over OpenFreeMap: an engine from a CDN and a
- * basemap from a tile service, two third-party hosts away. The crew centre used
- * to have no answer at all when either did not arrive — a blocked CDN, an
- * office proxy, an ad-blocker that eats tile hosts, a bad minute — and every one
- * of those produced the same thing, which was a route map that did not work.
+ * This used to be MapLibre over OpenFreeMap — an engine from a CDN and a
+ * basemap from a tile service, two third-party hosts away — with the drawing
+ * below as a floor under it. Every way either host could fail ended as the same
+ * screen: a black rectangle, because the overlay is painted var(--bg). A
+ * blocked CDN, an office proxy, an ad-blocker that eats tile hosts, a phone out
+ * of WebGL contexts, one slow minute on the tile host. Each got its own
+ * deadline and its own sentence, and the worst of them was the one that
+ * reported success — style arrived, layers in, spinner off, no tiles — because
+ * nothing was left watching by then.
  *
- * What is under test is the floor: the network drawn here, from data we already
- * hold, with no host to be blocked by. And that the floor is only the floor —
- * when the engine does load, it is the one that is used.
+ * The floor is now the map. What is under test is that the network draws from
+ * data we already hold, that it asks NO third party for permission to do it,
+ * and that everything the overlay promises — the filters, the tooltip, the
+ * focus, the rail — works on it.
  *
  * No framework and no database: `node tools/test-crew-route-map.js`, exits
  * non-zero on a failure, needs nothing running.
@@ -23,8 +28,12 @@ const { chromium } = require('playwright-core');
 
 const ROOT = path.resolve(__dirname, '..');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+let blockNetMap = false;
 const server = http.createServer((req, res) => {
     const p = decodeURIComponent(req.url.split('?')[0]);
+    // The one remaining way this map can fail to exist: its own script not
+    // arriving, which means the page's scripts did not load at all.
+    if (blockNetMap && p === '/crewNetMap.js') { res.writeHead(404); return res.end(''); }
     const file = path.join(ROOT, p === '/' ? '/crew-dashboard.html' : p);
     if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end(''); }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
@@ -44,7 +53,6 @@ const ROUTES = [
     { id: '4', flightNumber: 'TA4', origin: 'EGLL', destination: 'YSSY', aircraft: 'Boeing 787-9', distanceNm: 9100, active: false, kind: 'own', partnerName: '' },
 ];
 let routes = ROUTES;
-let engineHits = 0;
 
 const mapPayload = () => ({
     routes: routes.map(r => ({ ...r, o: AP[r.origin] || null, d: AP[r.destination] || null, mapped: !!(AP[r.origin] && AP[r.destination]) })),
@@ -70,74 +78,6 @@ const TW = `(function(){var s=document.createElement('style');s.textContent=[
  '.top-\\\\[4\\\\.5rem\\\\]{top:4.5rem}'
 ].join('');document.head.appendChild(s);window.tailwind={config:{}};})();`;
 
-/* A MapLibre that behaves: enough surface for the dashboard's map path to run
-   end to end, so "the engine loaded, so the drawn map is NOT used" is a thing
-   this file can actually assert. */
-const FAKE_MAPLIBRE = `(function(){
-  function Evented(){ this._h={}; }
-  Evented.prototype.on=function(a,b,c){ var t=(typeof b==='function')?a:a+':'+b; var f=(typeof b==='function')?b:c; (this._h[t]=this._h[t]||[]).push(f); return this; };
-  Evented.prototype.fire=function(t,e){ (this._h[t]||[]).forEach(function(f){ f(e||{}); }); };
-  function Map(opts){ Evented.call(this); this._s={}; this.opts=opts;
-    var self=this; setTimeout(function(){ self.fire('load'); }, 10); }
-  Map.prototype=Object.create(Evented.prototype);
-  Map.prototype.addControl=function(){return this;};
-  Map.prototype.addSource=function(id,d){ this._s[id]={_d:d.data,setData:function(x){this._d=x;}}; };
-  Map.prototype.getSource=function(id){ return this._s[id]; };
-  /* addLayer VALIDATES, because the real one does and that is the whole point.
-     MapLibre checks a layer against the style spec and, when it does not pass,
-     fires an error and RETURNS — the layer is simply never added, and a map
-     that swallows its error events shows no sign of it. That is exactly how the
-     route lines went missing: line-dasharray is a cross-faded property that
-     takes the zoom and nothing else, and it was being handed a ['case', ['get',
-     'codeshare'], …] per feature. Only the properties this page actually uses
-     are checked; the rule is the spec's, not this file's opinion. */
-  var FEATURE_BOUND=function(x){ if(!Array.isArray(x)) return false;
-    if(x[0]==='get'||x[0]==='has'||x[0]==='feature-state'||x[0]==='id'||x[0]==='properties') return true;
-    return x.some(FEATURE_BOUND); };
-  var ZOOM_ONLY=['line-dasharray'];
-  Map.prototype.addLayer=function(l){
-    var paint=(l&&l.paint)||{};
-    for(var i=0;i<ZOOM_ONLY.length;i++){
-      var k=ZOOM_ONLY[i];
-      if(k in paint && FEATURE_BOUND(paint[k])){
-        this.fire('error',{error:new Error('layers.'+l.id+'.paint.'+k+': property expressions not supported')});
-        return this;
-      }
-    }
-    this._l=this._l||{}; this._l[l.id]=l; return this;
-  };
-  Map.prototype.getLayer=function(id){ return (this._l||{})[id]; };
-  Map.prototype.setFilter=function(id){ if(!this.getLayer(id)) this.fire('error',{error:new Error("The layer '"+id+"' does not exist in the map's style.")}); };
-  Map.prototype.setPaintProperty=function(id){ if(!this.getLayer(id)) this.fire('error',{error:new Error("The layer '"+id+"' does not exist in the map's style.")}); };
-  Map.prototype.queryRenderedFeatures=function(){ return []; };
-  /* A canvas with real dimensions and an event target, because that is what a
-     real one has — and because the page now checks BOTH. window.__RM_CANVAS
-     lets a scenario hand back a 0-sized one, which is the shape of the black
-     screen this file could not previously describe: load fires, every layer
-     goes in, and nothing is painted. */
-  Map.prototype.getCanvas=function(){
-    if(!this._cv){
-      var d=(window.__RM_CANVAS)||{w:800,h:600};
-      var handlers={};
-      this._cv={ width:d.w, height:d.h, style:{},
-        addEventListener:function(t,f){ (handlers[t]=handlers[t]||[]).push(f); },
-        dispatchEvent:function(e){ (handlers[e.type]||[]).forEach(function(f){ f(e); }); } };
-    }
-    return this._cv;
-  };
-  Map.prototype.fitBounds=function(){};
-  Map.prototype.resize=function(){};
-  Map.prototype.remove=function(){};
-  function LngLatBounds(){ this._n=0; }
-  LngLatBounds.prototype.extend=function(){ this._n++; return this; };
-  LngLatBounds.prototype.isEmpty=function(){ return this._n===0; };
-  function Marker(){ }
-  Marker.prototype.setLngLat=function(){ return this; };
-  Marker.prototype.addTo=function(){ return this; };
-  Marker.prototype.remove=function(){};
-  window.maplibregl={ Map:Map, NavigationControl:function(){}, Marker:Marker, LngLatBounds:LngLatBounds };
-})();`;
-
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { console.log('  ✗ ' + n + (x ? '  (' + x + ')' : '')); fail++; } };
 
@@ -146,23 +86,17 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     const port = server.address().port;
     const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM || '/opt/pw-browsers/chromium' });
 
-    /**
-     * @param engine 'blocked' — the CDN never answers (the reported failure)
-     *               'works'   — the engine loads and MapLibre is used
-     */
-    const open = async (engine, deviceInit) => {
-        const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const open = async (deviceInit, viewport) => {
+        const ctx = await browser.newContext({ viewport: viewport || { width: 1280, height: 900 } });
         const page = await ctx.newPage();
         const errs = []; page.on('pageerror', e => errs.push(e.message));
+        // Every third-party host this page touches, watched. The route map must
+        // not add to this list — that is the whole point of the change.
+        const outside = [];
+        page.on('request', (r) => { const u = r.url(); if (!u.includes('127.0.0.1') && !u.startsWith('data:')) outside.push(u); });
         await page.route('**/cdn.tailwindcss.com**', r => r.fulfill({ contentType: 'application/javascript', body: TW }));
-        await page.route('**/unpkg.com/**', (r) => {
-            const u = r.request().url();
-            if (!/maplibre-gl@[\d.]+\/dist\/maplibre-gl\.js/.test(u)) return r.fulfill({ contentType: 'application/javascript', body: '' });
-            engineHits += 1;
-            if (engine === 'works') return r.fulfill({ contentType: 'application/javascript', body: FAKE_MAPLIBRE });
-            return r.abort();
-        });
-        await page.route('**/tiles.openfreemap.org/**', r => r.abort());
+        await page.route('**/unpkg.com/**', r => r.fulfill({ contentType: 'application/javascript', body: 'window.lucide={createIcons:function(){}};' }));
+        await page.route('**/fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: '' }));
         await page.route('**/api/**', (route) => {
             const p = new URL(route.request().url()).pathname;
             const json = (x) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(x) });
@@ -180,97 +114,144 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
         // The first-visit tour sits over the whole page and would eat every click.
         await page.evaluate(() => { try { if (window.CrewTour && CrewTour.close) CrewTour.close(); } catch {}
             document.querySelectorAll('.ctour-mask, .ctour-pop, .ctour').forEach(e => e.remove()); });
-        return { ctx, page, errs };
+        return { ctx, page, errs, outside };
     };
 
     const read = (page) => page.evaluate(() => ({
-        fallback: (typeof RM !== 'undefined') && !!RM.fallback,
         arcs: document.querySelectorAll('#rmCanvas .cnm-arc').length,
+        hits: document.querySelectorAll('#rmCanvas .cnm-hit').length,
         dashed: document.querySelectorAll('#rmCanvas .cnm-arc.is-share').length,
         draft: document.querySelectorAll('#rmCanvas .cnm-arc.is-draft').length,
         dots: document.querySelectorAll('#rmCanvas [data-airport]').length,
         labels: document.querySelectorAll('#rmCanvas .cnm-label').length,
         zoom: document.querySelectorAll('#rmCanvas [data-cnm-zoom]').length,
-        note: (document.getElementById('rmFallbackNote') || {}).textContent || '',
-        noteShown: !!(document.getElementById('rmFallbackNote') && !document.getElementById('rmFallbackNote').classList.contains('hidden')),
+        focused: !!document.querySelector('#rmCanvas .cnm-svg.is-focus'),
+        lit: document.querySelectorAll('#rmCanvas .cnm-arc.is-on').length,
         spinnerShown: !document.getElementById('rmLoading').classList.contains('hidden'),
         emptyShown: !document.getElementById('rmEmpty').classList.contains('hidden'),
         emptyTitle: document.getElementById('rmEmptyTitle').textContent,
+        emptyMsg: document.getElementById('rmEmptyMsg').textContent,
         stats: document.getElementById('rmStats').textContent.replace(/\s+/g, ' ').trim(),
         railShown: !document.getElementById('rmRail').classList.contains('hidden'),
         railTitle: document.getElementById('rmRailTitle').textContent,
+        tipShown: !document.getElementById('rmTip').classList.contains('hidden'),
+        tip: document.getElementById('rmTip').textContent.replace(/\s+/g, ' ').trim(),
+        zoomVar: document.getElementById('rmCanvas').style.getPropertyValue('--cnm-z') || '',
     }));
 
     /* ==================================================================
-     * 1. THE ENGINE NEVER ARRIVES — the reported failure
+     * 1. THE MAP, DRAWN FROM OUR OWN DATA
      * ================================================================ */
-    console.log('\nWhen the map engine cannot be reached');
+    console.log('\nThe network, drawn here');
     routes = ROUTES;
-    let { ctx, page, errs } = await open('blocked');
+    let { ctx, page, errs, outside } = await open();
     await page.evaluate(() => { openRoutes(); openRouteMap(); });
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(900);
     let s = await read(page);
 
-    ok('the network is drawn anyway', s.fallback && s.arcs > 0, JSON.stringify(s));
+    ok('the network is drawn', s.arcs > 0, JSON.stringify(s));
     // Three of the four are active; the draft one is held back by "Active only".
     ok('…every active sector of it', s.arcs === 3, 'arcs ' + s.arcs);
     ok('…with an airport for each end, named', s.dots === 4 && s.labels > 0, 'dots ' + s.dots + ' labels ' + s.labels);
     ok('…somebody else’s metal drawn as somebody else’s', s.dashed === 1, 'dashed ' + s.dashed);
+    ok('…each sector given something a finger can hit', s.hits === s.arcs, 'hits ' + s.hits + ' arcs ' + s.arcs);
     ok('…and it can be zoomed', s.zoom === 3);
-    ok('the spinner stops rather than turning for ever', !s.spinnerShown);
-    // "Map unavailable" over an empty rectangle was the old answer to this.
+    ok('there is no spinner left turning', !s.spinnerShown);
+    // "Map unavailable" over an empty rectangle was the old answer to a bad minute.
     ok('the empty state is not shown over a drawn map', !s.emptyShown, s.emptyTitle);
-    ok('it says plainly that this is the simplified map', s.noteShown && /simplified map/i.test(s.note), s.note);
-    ok('…and offers to try the other one again', /try again/i.test(s.note), s.note);
-    ok('the statistics still count the network', /3 routes/.test(s.stats) && /4 airports/.test(s.stats), s.stats);
+    ok('the statistics count the network', /3 routes/.test(s.stats) && /4 airports/.test(s.stats), s.stats);
+
+    // THE POINT OF ALL OF THIS.
+    const third = outside.filter(u => /maplibre|openfreemap|tiles\./i.test(u));
+    ok('nothing is asked of a map CDN or a tile host', third.length === 0, third.join(' | '));
     ok('no page errors', errs.length === 0, errs.join('|'));
 
-    /* The filters are the same controls; they must mean the same thing. */
-    console.log('\nThe filters work on the drawn map too');
+    /* The filters are the same controls they always were. */
+    console.log('\nThe filters');
     await page.evaluate(() => { document.getElementById('rmKind').value = 'own'; rmApplyFilters(); });
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(250);
     s = await read(page);
     ok('“our own metal” drops the codeshare', s.arcs === 2 && s.dashed === 0, JSON.stringify({ arcs: s.arcs, dashed: s.dashed }));
 
     await page.evaluate(() => { document.getElementById('rmKind').value = 'codeshare'; rmApplyFilters(); });
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(250);
     s = await read(page);
     ok('…and “codeshares” keeps only it', s.arcs === 1 && s.dashed === 1, JSON.stringify({ arcs: s.arcs, dashed: s.dashed }));
 
     await page.evaluate(() => { document.getElementById('rmKind').value = ''; rmToggleActive(); });
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(250);
     s = await read(page);
     ok('turning off “active only” brings the draft sector in', s.arcs === 4 && s.draft === 1, JSON.stringify({ arcs: s.arcs, draft: s.draft }));
 
     await page.evaluate(() => { document.getElementById('rmSearch').value = 'LFPG'; rmApplyFilters(); });
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(250);
     s = await read(page);
     ok('searching an airport narrows it to that airport’s sectors', s.arcs === 1, 'arcs ' + s.arcs);
 
     await page.evaluate(() => { document.getElementById('rmSearch').value = ''; rmToggleActive(); rmApplyFilters(); });
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(250);
 
-    /* Tapping something is the point of a map. The highlight is MapLibre's, but
-       the rail is not, and it used to throw on a null map. */
-    console.log('\nTapping the drawn map');
-    await page.evaluate(() => { const d = document.querySelector('#rmCanvas [data-airport="EGLL"]'); d.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    await page.waitForTimeout(300);
+    /* A filter is not a reason to throw away where somebody was looking. */
+    console.log('\nZoom survives a filter, and “Fit” gives it back');
+    await page.evaluate(() => { document.querySelector('#rmCanvas [data-cnm-zoom="in"]').click(); });
+    await page.waitForTimeout(150);
+    const zoomed = (await read(page)).zoomVar;
+    ok('zooming in is recorded', parseFloat(zoomed) > 1, 'z ' + zoomed);
+    await page.evaluate(() => { document.getElementById('rmKind').value = 'own'; rmApplyFilters(); });
+    await page.waitForTimeout(250);
     s = await read(page);
-    ok('an airport opens its details', s.railShown && /EGLL/.test(s.railTitle), s.railTitle);
-    ok('…without throwing on the map that is not there', errs.length === 0, errs.join('|'));
+    ok('…and a filter change keeps it', parseFloat(s.zoomVar) > 1, 'z ' + s.zoomVar);
+    await page.evaluate(() => { document.getElementById('rmKind').value = ''; rmFitAll(); });
+    await page.waitForTimeout(250);
+    s = await read(page);
+    ok('…while “Fit” really does fit the whole network again', !s.zoomVar || parseFloat(s.zoomVar) === 1, 'z ' + s.zoomVar);
 
     /* ==================================================================
-     * 2. A NETWORK WITH NOTHING IN IT
+     * 2. TAPPING IT, WHICH IS THE POINT OF A MAP
+     * ================================================================ */
+    console.log('\nTapping and pointing');
+    await page.evaluate(() => { const d = document.querySelector('#rmCanvas [data-airport="EGLL"]'); d.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await page.waitForTimeout(250);
+    s = await read(page);
+    ok('an airport opens its details', s.railShown && /EGLL/.test(s.railTitle), s.railTitle);
+    ok('…and the rest of the network gets out of the way', s.focused && s.lit > 0, JSON.stringify({ focused: s.focused, lit: s.lit }));
+
+    await page.evaluate(() => { const a = document.querySelector('#rmCanvas .cnm-hit[data-route="2"]'); a.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await page.waitForTimeout(250);
+    s = await read(page);
+    ok('a sector opens its own details', s.railShown && /LFPG/.test(s.railTitle), s.railTitle);
+    ok('…and exactly that sector is lit', s.lit === 1, 'lit ' + s.lit);
+
+    await page.evaluate(() => { document.querySelector('#rmCanvas .cnm-land').dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await page.waitForTimeout(250);
+    s = await read(page);
+    ok('tapping the sea puts the whole network back', !s.focused && !s.railShown, JSON.stringify({ focused: s.focused, rail: s.railShown }));
+
+    // The tooltip knows things the map never had to be told — the flight number
+    // and the distance are this page's, not the drawing's.
+    await page.evaluate(() => {
+        const a = document.querySelector('#rmCanvas .cnm-hit[data-route="1"]');
+        const r = a.getBoundingClientRect();
+        a.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerType: 'mouse' }));
+    });
+    await page.waitForTimeout(200);
+    s = await read(page);
+    ok('hovering a sector names it', s.tipShown && /EGLL/.test(s.tip) && /KJFK/.test(s.tip), s.tip);
+    ok('…with what this page knows about it', /TA1/.test(s.tip) && /3,000 nm/.test(s.tip), s.tip);
+    ok('no page errors', errs.length === 0, errs.join('|'));
+    await ctx.close();
+
+    /* ==================================================================
+     * 3. A NETWORK WITH NOTHING IN IT
      *
      * "No routes yet" and "the map would not load" are different problems and
      * must not wear each other's words.
      * ================================================================ */
     console.log('\nAn airline with no routes');
-    await ctx.close();
     routes = [];
-    ({ ctx, page, errs } = await open('blocked'));
+    ({ ctx, page, errs } = await open());
     await page.evaluate(() => { openRoutes(); openRouteMap(); });
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(900);
     s = await read(page);
     ok('says there are no routes, not that the map is broken',
         s.emptyShown && /no routes/i.test(s.emptyTitle), s.emptyTitle);
@@ -278,106 +259,53 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     await ctx.close();
 
     /* ==================================================================
-     * 3. THE ENGINE LOADS — the drawn map stays out of the way
+     * 4. THE DEVICE THAT USED TO GET A BLACK SCREEN
+     *
+     * An iPhone with two 3D viewers already open, refused another WebGL
+     * context. The old map was WebGL; this one is arithmetic and an SVG.
      * ================================================================ */
-    console.log('\nWhen the map engine does load');
+    console.log('\nA device that will not give out WebGL at all');
     routes = ROUTES;
-    ({ ctx, page, errs } = await open('works'));
+    ({ ctx, page, errs } = await open(() => { HTMLCanvasElement.prototype.getContext = function () { return null; }; }));
     await page.evaluate(() => { openRoutes(); openRouteMap(); });
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(900);
     s = await read(page);
-    ok('MapLibre is used', await page.evaluate(() => typeof RM !== 'undefined' && !!RM.map && !!RM.ready));
-    ok('…and the drawn map is not', !s.fallback && s.arcs === 0, JSON.stringify({ fallback: s.fallback, arcs: s.arcs }));
-    ok('nothing tells the reader it is simplified', !s.noteShown, s.note);
-    ok('the spinner stops', !s.spinnerShown);
-    // THE ROUTES ARE ON IT. A layer the engine refused is drawn by nothing and
-    // reported by nothing, and the map comes up as a basemap with some dots on
-    // it — which on the dark basemap reads as a black screen. Both line layers
-    // have to be there, and each has to carry only its own half of the network.
-    const layers = await page.evaluate(() => {
-        const l = RM.map._l || {};
-        const shape = (id) => l[id] ? { filter: JSON.stringify(l[id].filter),
-            dash: JSON.stringify((l[id].paint || {})['line-dasharray'] || null) } : null;
-        return { own: shape('rm-routes-line'), share: shape('rm-routes-share'), ids: Object.keys(l) };
-    });
-    ok('the airline’s own sectors are drawn', !!layers.own, layers.ids.join(','));
-    ok('…solid', layers.own && layers.own.dash === 'null', layers.own && layers.own.dash);
-    ok('somebody else’s are drawn too', !!layers.share, layers.ids.join(','));
-    ok('…dashed, and at a fixed dash the engine will take',
-        layers.share && layers.share.dash === '[2,2]', layers.share && layers.share.dash);
-    ok('…and the two do not draw each other',
-        layers.own && layers.share
-        && /"!"/.test(layers.own.filter) && /codeshare/.test(layers.own.filter)
-        && /codeshare/.test(layers.share.filter) && !/"!"/.test(layers.share.filter),
-        JSON.stringify(layers));
-    // Focusing dims the rest of the network, and it has to reach both layers —
-    // naming one by hand is how the second one gets forgotten.
-    await page.evaluate(() => rmFocusRoute('1'));
-    await page.waitForTimeout(120);
-    ok('focusing a sector talks to every line layer, not one of them',
-        await page.evaluate(() => RM_LINES.every(id => !!RM.map.getLayer(id))));
+    ok('the network is drawn anyway', s.arcs === 3, JSON.stringify({ arcs: s.arcs }));
+    ok('…with no apology on screen', !s.emptyShown && !s.spinnerShown, JSON.stringify(s));
+    ok('no page errors', errs.length === 0, errs.join('|'));
+    await ctx.close();
+
+    /* Dark and light are two drawings, and switching between them with the map
+       open used to be the one thing that could rebuild it into nothing. */
+    console.log('\nSwitching the theme with the map open');
+    ({ ctx, page, errs } = await open());
+    await page.evaluate(() => { openRoutes(); openRouteMap(); });
+    await page.waitForTimeout(900);
+    await page.evaluate(() => toggleTheme());
+    await page.waitForTimeout(400);
+    s = await read(page);
+    ok('the network is still on the screen', s.arcs === 3 && !s.emptyShown, JSON.stringify({ arcs: s.arcs, empty: s.emptyShown }));
     ok('no page errors', errs.length === 0, errs.join('|'));
     await ctx.close();
 
     /* ==================================================================
-     * 4. A FAILURE IS NOT FOREVER
+     * 5. THE LAST WAY THIS CAN FAIL
      *
-     * The loader used to cache its rejection, so one bad minute broke the map
-     * for the rest of the session: pressing Map again re-used the failed
-     * promise and failed instantly, without asking the network anything.
+     * crewNetMap.js itself not arriving. There is nothing to fall back to and
+     * nothing to pretend, so it is said — rather than shown as a black box.
      * ================================================================ */
-    /* ==================================================================
-     * THE MAP THAT SAYS IT WORKED AND PAINTS NOTHING
-     *
-     * Reported from a phone: the controls draw, the spinner stops, and the
-     * canvas is empty — no error, no note, no empty state. `load` had fired and
-     * every layer had gone in, so not one of the deadlines above was still
-     * watching. A GL canvas measuring zero is indistinguishable from a working
-     * map to every check this file used to make.
-     * ================================================================ */
-    console.log('\nWhen the engine reports success and paints nothing');
-    routes = ROUTES;
-    ({ ctx, page, errs } = await open('works', () => { window.__RM_CANVAS = { w: 0, h: 0 }; }));
+    console.log('\nWhen the map’s own script does not arrive');
+    blockNetMap = true;
+    ({ ctx, page, errs } = await open());
     await page.evaluate(() => { openRoutes(); openRouteMap(); });
-    await page.waitForTimeout(1800);
+    await page.waitForTimeout(900);
     s = await read(page);
-    ok('a map with no drawing surface is caught', s.fallback, JSON.stringify(s));
-    ok('…and the network is drawn instead of nothing', s.arcs > 0, JSON.stringify(s));
-    ok('…with the reason on screen rather than a black rectangle',
-        /nowhere to draw/i.test(s.note || ''), s.note);
+    ok('it says so rather than showing a black rectangle',
+        s.emptyShown && /unavailable/i.test(s.emptyTitle), s.emptyTitle + ' / ' + s.emptyMsg);
     ok('…and the spinner does not turn for ever', !s.spinnerShown);
     ok('no page errors', errs.length === 0, errs.join('|'));
     await ctx.close();
-
-    /* WebGL refused outright — an iOS phone out of contexts, which this page
-     * can plausibly reach on its own with two 3D viewers in it. */
-    console.log('\nWhen the device will not give us WebGL at all');
-    ({ ctx, page, errs } = await open('works', () => {
-        HTMLCanvasElement.prototype.getContext = function(){ return null; };
-    }));
-    await page.evaluate(() => { openRoutes(); openRouteMap(); });
-    await page.waitForTimeout(1500);
-    s = await read(page);
-    ok('it is found out before a Map is even built', s.fallback, JSON.stringify(s));
-    ok('…the network still draws', s.arcs > 0, JSON.stringify(s));
-    ok('…and it says WebGL, not something vague',
-        /WebGL/i.test(s.note || ''), s.note);
-    await ctx.close();
-
-    console.log('\nA bad minute is not the rest of the session');
-    ({ ctx, page, errs } = await open('blocked'));
-    await page.evaluate(() => { openRoutes(); openRouteMap(); });
-    await page.waitForTimeout(2500);
-    const before = engineHits;
-    await page.evaluate(() => rmRetryEngine());
-    await page.waitForTimeout(2000);
-    ok('trying again really asks for the engine again', engineHits > before,
-        'hits ' + before + ' → ' + engineHits);
-    s = await read(page);
-    ok('…and when it still will not come, the network is drawn again',
-        s.fallback && s.arcs > 0, JSON.stringify(s));
-    ok('no page errors', errs.length === 0, errs.join('|'));
-    await ctx.close();
+    blockNetMap = false;
 
     console.log(`\n${pass} passed, ${fail} failed`);
     await browser.close(); server.close();

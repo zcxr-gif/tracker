@@ -162,7 +162,12 @@ function api(route) {
         }));
         await page.route('https://unpkg.com/**', (r) => r.fulfill({ contentType: 'text/javascript', body: 'window.lucide={createIcons(){}};' }));
         await page.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ contentType: 'text/css', body: '' }));
-        await page.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' })));
+        await page.addInitScript(() => {
+            localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' }));
+            // The first-visit tour lays a dialog over the whole page and would
+            // eat every click below. Told it has already been taken.
+            localStorage.setItem('crew:tour:staff:testva', '99');
+        });
         await page.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
         await page.waitForTimeout(1600);
         return { page, errors };
