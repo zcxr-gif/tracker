@@ -55,9 +55,13 @@ const LIB_AIRLINE = {
     snapshotYear: 2014, builtAt: '2026-09-14',
     airline: { key: 'BAW', name: 'British Airways', iata: 'BA', icao: 'BAW', country: 'United Kingdom', active: true },
     routes: [
-        { origin: 'EGLL', destination: 'KJFK', distanceNm: 3000, aircraft: 'Boeing 777-200ER', aircraftOptions: ['Boeing 777-200ER'], kind: 'own', partnerName: '', flightNumber: '', notes: '', inFleet: true, newTypes: [] },
-        { origin: 'EGLL', destination: 'OMDB', distanceNm: 2900, aircraft: 'Boeing 787-9 Dreamliner', aircraftOptions: ['Boeing 787-9 Dreamliner', 'Airbus A380-800'], kind: 'own', partnerName: '', flightNumber: '', notes: '', inFleet: false, newTypes: ['Boeing 787-9 Dreamliner'] },
-        { origin: 'EDDF', destination: 'EGLC', distanceNm: 335, aircraft: 'Embraer E175', aircraftOptions: ['Embraer E175'], kind: 'codeshare', partnerName: '', flightNumber: '', notes: '', inFleet: false, newTypes: ['Embraer E175'] },
+        { origin: 'EGLL', destination: 'KJFK', distanceNm: 3000, aircraft: 'Boeing 777-200ER', aircraftOptions: ['Boeing 777-200ER'], ownAircraftOptions: ['Boeing 777-200ER'], partnerAircraftOnly: false, kind: 'own', partnerName: '', realCodeshare: false, flightNumber: '', notes: '', inFleet: true, newTypes: [] },
+        { origin: 'EGLL', destination: 'OMDB', distanceNm: 2900, aircraft: 'Boeing 787-9 Dreamliner', aircraftOptions: ['Boeing 787-9 Dreamliner', 'Airbus A380-800'], ownAircraftOptions: ['Boeing 787-9 Dreamliner', 'Airbus A380-800'], partnerAircraftOnly: false, kind: 'own', partnerName: '', realCodeshare: false, flightNumber: '', notes: '', inFleet: false, newTypes: ['Boeing 787-9 Dreamliner'] },
+        // Sold by the airline, flown by somebody the source does not name.
+        { origin: 'EDDF', destination: 'EGLC', distanceNm: 335, aircraft: 'Embraer E175', aircraftOptions: ['Embraer E175'], ownAircraftOptions: ['Embraer E175'], partnerAircraftOnly: false, kind: 'own', partnerName: '', realCodeshare: true, flightNumber: '', notes: '', inFleet: false, newTypes: ['Embraer E175'] },
+        // The AeroMéxico CRJ-900 shape: every aeroplane listed belongs to
+        // whoever flew it for them, so the leg carries none at all.
+        { origin: 'KATL', destination: 'KPIT', distanceNm: 460, aircraft: '', aircraftOptions: ['Bombardier CRJ-900'], ownAircraftOptions: [], partnerAircraftOnly: true, kind: 'own', partnerName: '', realCodeshare: true, flightNumber: '', notes: '', inFleet: false, newTypes: [] },
     ],
 };
 
@@ -99,10 +103,20 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
         }
         if (p.endsWith('/settings') && req.method() === 'POST') {
             const b = body();
-            writes.push({ what: 'settings', fleet: (b.fleet || []).map(f => f.type) });
+            writes.push({ what: 'settings', fleet: (b.fleet || []).map(f => f.type),
+                liveries: (b.fleet || []).map(f => f.name), rows: b.fleet || [] });
             return json({ ok: true, fleet: b.fleet || [] });
         }
-        if (p.endsWith('/crew/aircraft-metadata')) return json({ ok: true, aircraft: ['Boeing 777-200ER', 'Boeing 787-9 Dreamliner', 'Embraer E175', 'Airbus A380-800'], liveries: {} });
+        if (p.endsWith('/crew/aircraft-metadata')) return json({ ok: true,
+            aircraft: ['Boeing 777-200ER', 'Boeing 787-9 Dreamliner', 'Embraer E175', 'Airbus A380-800'],
+            liveries: {
+                'Boeing 777-200ER': ['British Airways', 'Generic'],
+                'Boeing 787-9 Dreamliner': ['British Airways', 'Generic'],
+                'Airbus A380-800': ['British Airways', 'Emirates', 'Generic'],
+                // Deliberately WITHOUT a British Airways option, to prove a miss
+                // leaves the row blank rather than picking something arbitrary.
+                'Embraer E175': ['Generic'],
+            } });
         if (p.includes('/aircraft/lookup')) return json({ isPlaceholder: true, imageUrl: null, contributorName: 'System' });
         if (p.endsWith('/routes')) return json({ routes: [], ranks: [] });
         if (p.endsWith('/route-map')) return json({ routes: [], airports: [], stats: {} });
@@ -138,7 +152,10 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     await page.evaluate(() => libPickAirline('BAW'));
     await page.waitForTimeout(400);
     const rows = await page.evaluate(() => document.querySelectorAll('#libRows [data-lib-idx]').length);
-    ok('every leg is listed', rows === 3, 'got ' + rows);
+    ok('every leg is listed', rows === 4, 'got ' + rows);
+    ok('a leg flown only on a partner’s aeroplane is marked as such',
+        (await page.evaluate(() => [...document.querySelectorAll('#libRows label')]
+            .filter(l => /not their aircraft/i.test(l.textContent)).length)) === 1);
     ok('the snapshot year is shown beside the airline',
         /2014/.test(await page.evaluate(() => document.getElementById('libAge').textContent)));
     // Pre-ticking what they can already fly is a starting point, not a decision.
@@ -164,16 +181,110 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     ok('a rank gate is never sent back, so it cannot be cleared',
         writes[0].routes.every(r => !('minRank' in r)));
     ok('nor is a partner logo', writes[0].routes.every(r => !('partnerLogo' in r)));
-    ok('the codeshare carries no invented operator',
-        writes[0].routes.filter(r => r.kind === 'codeshare').every(r => !r.partnerName));
+    ok('nothing is sent as a codeshare by default',
+        writes[0].routes.every(r => r.kind === 'own'));
+    ok('…so no unnamed codeshare can reach the database',
+        writes[0].routes.every(r => !(r.kind === 'codeshare' && !r.partnerName)));
 
     const fleetOffer = await page.evaluate(() => [...document.querySelectorAll('#libFleetAdd [data-lib-type]')]
         .map(e => e.parentElement.textContent.trim()));
+    // A fleet row is a type AND a livery. Without one it cannot be picked on a
+    // route (routableFleet) and no photo is ever fetched (resolveFleetPicture).
+    ok('every new aircraft is offered a livery',
+        (await page.evaluate(() => document.querySelectorAll('#libFleetAdd [data-lib-livery]').length)) === 2);
+    ok('…pre-filled with the airline’s own where it exists',
+        (await page.evaluate(() => LIB_NEWTYPES.find(x => /A380/.test(x.type)).livery)) === 'British Airways');
+    ok('…left blank rather than guessed where it does not',
+        (await page.evaluate(() => LIB_NEWTYPES.find(x => /E175/.test(x.type)).livery)) === '');
+    ok('…and the blank one is called out',
+        /no livery yet/i.test(await page.evaluate(() => document.getElementById('libFleetBlanks').textContent)));
+    // Set it, and the warning should clear itself.
+    await page.selectOption('#libFleetAdd [data-lib-livery="1"]', 'Generic');
+    await page.waitForTimeout(150);
+    ok('…which clears once a livery is chosen',
+        !/no livery yet/i.test(await page.evaluate(() => document.getElementById('libFleetBlanks').textContent)));
     ok('the aircraft it would add are named', fleetOffer.length === 2, JSON.stringify(fleetOffer));
     ok('…and the A380 picked a moment ago is among them',
         fleetOffer.some(t => /A380-800/.test(t)), JSON.stringify(fleetOffer));
     ok('…while the type already in the fleet is not offered',
         !fleetOffer.some(t => /777-200ER/.test(t)));
+
+    console.log('\n somebody else’s aeroplane');
+    ok('the leg with no aircraft is called out in the review',
+        !(await page.evaluate(() => document.getElementById('libNoAircraft').classList.contains('hidden'))));
+    ok('…naming the aeroplane that is not theirs',
+        /CRJ-900/.test(await page.evaluate(() => document.getElementById('libNoAircraft').textContent)));
+    ok('…and saying it imports with no aircraft rather than the partner’s',
+        /no aircraft set/i.test(await page.evaluate(() => document.getElementById('libNoAircraft').textContent)));
+    ok('it is not offered as a fleet addition',
+        !(await page.evaluate(() => LIB_NEWTYPES.some(x => /CRJ-900/.test(x.type)))));
+    ok('…so no livery is ever suggested for it',
+        !(await page.evaluate(() => document.getElementById('libFleetAdd').textContent)).match(/CRJ-900/));
+
+    console.log('\n what was sold but not flown');
+    ok('the choice is put to the VA',
+        !(await page.evaluate(() => document.getElementById('libCodeshare').classList.contains('hidden'))));
+    ok('…naming how many legs it is about',
+        /2 of these were sold, not flown/i.test(await page.evaluate(() => document.getElementById('libCodeshare').textContent)));
+    ok('…and saying plainly that the operator is unknown',
+        /doesn.t record which partner/i.test(await page.evaluate(() => document.getElementById('libCodeshare').textContent)));
+    ok('the default is to fly them yourself',
+        (await page.evaluate(() => LIB_CS.mode)) === 'own');
+
+    // "A partner flies them" without saying who is the state the routes screen
+    // refuses. The button must go dead, not let them find out after the write.
+    const before = writes.length;
+    await page.evaluate(() => {
+        const r = document.querySelector('#libCodeshare input[value="partner"]');
+        r.checked = true; r.dispatchEvent(new Event('change'));
+    });
+    await page.waitForTimeout(400);
+    await page.evaluate(() => { document.getElementById('libAgree').checked = true; libSyncCommit(); });
+    ok('naming a partner is demanded before it can be committed',
+        await page.evaluate(() => document.getElementById('libCommitBtn').disabled));
+    await page.fill('#libCsPartner', 'Iberia Virtual');
+    await page.waitForTimeout(800);   // the debounced re-review
+    await page.evaluate(() => { document.getElementById('libAgree').checked = true; libSyncCommit(); });
+    ok('…and typing one releases it',
+        !(await page.evaluate(() => document.getElementById('libCommitBtn').disabled)));
+    const reviewed = writes.slice(before).filter(w => w.dryRun);
+    ok('a changed choice re-asks for the acknowledgement',
+        await page.evaluate(() => { const a = document.getElementById('libAgree'); const was = a.checked;
+            const r = document.querySelector('#libCodeshare input[value="own"]'); r.checked = true; r.dispatchEvent(new Event('change'));
+            return was; }) === true);
+    await page.waitForTimeout(400);
+    ok('…so the button is dead again until it is given',
+        await page.evaluate(() => document.getElementById('libCommitBtn').disabled));
+    await page.evaluate(() => {
+        const r = document.querySelector('#libCodeshare input[value="partner"]');
+        r.checked = true; r.dispatchEvent(new Event('change'));
+    });
+    await page.waitForTimeout(800);
+    ok('the diff was re-asked when the choice changed', reviewed.length >= 1);
+    ok('…and the sold-not-flown leg now carries the partner',
+        reviewed.length && reviewed[reviewed.length - 1].routes
+            .some(r => r.kind === 'codeshare' && r.partnerName === 'Iberia Virtual'));
+    ok('…while the legs they flew themselves stay own metal',
+        reviewed.length && reviewed[reviewed.length - 1].routes
+            .filter(r => r.origin === 'EGLL').every(r => r.kind === 'own'));
+
+    // Leaving them out must actually remove them from the payload.
+    await page.evaluate(() => {
+        const r = document.querySelector('#libCodeshare input[value="skip"]');
+        r.checked = true; r.dispatchEvent(new Event('change'));
+    });
+    await page.waitForTimeout(400);
+    const skipped = writes[writes.length - 1];
+    ok('leaving them out drops them from the import',
+        skipped.dryRun && skipped.routes.length === 2 && !skipped.routes.some(r => r.origin === 'EDDF' || r.origin === 'KATL'),
+        JSON.stringify(skipped.routes.map(r => r.origin + '-' + r.destination)));
+
+    // Back to the default for the commit assertions below.
+    await page.evaluate(() => {
+        const r = document.querySelector('#libCodeshare input[value="own"]');
+        r.checked = true; r.dispatchEvent(new Event('change'));
+    });
+    await page.waitForTimeout(400);
 
     console.log('\n the guard that matters');
     ok('the confirm button is dead until the caveat is acknowledged',
@@ -196,7 +307,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     await page.waitForTimeout(600);
     const commit = writes.find(w => w.what === 'library-import' && w.dryRun === false);
     ok('the routes were written', !!commit);
-    ok('…all three of them', commit && commit.routes.length === 3);
+    ok('…all four of them', commit && commit.routes.length === 4);
     ok('…and never with a published flag of their own',
         commit && commit.routes.every(r => r.active !== true));
 
@@ -204,6 +315,10 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     ok('the fleet was saved too', !!fleetSave);
     ok('…with the type that was left ticked',
         fleetSave && fleetSave.fleet.includes('Airbus A380-800'), JSON.stringify(fleetSave && fleetSave.fleet));
+    ok('…carrying the livery, not just the type',
+        fleetSave && fleetSave.liveries.includes('British Airways'), JSON.stringify(fleetSave && fleetSave.liveries));
+    ok('…so the new rows are pickable on a route',
+        fleetSave && fleetSave.rows.filter(r => /A380/.test(r.type)).every(r => r.name));
     ok('…without the one that was unticked',
         fleetSave && !fleetSave.fleet.includes('Embraer E175'), JSON.stringify(fleetSave && fleetSave.fleet));
     ok('…and the fleet it already had is intact',

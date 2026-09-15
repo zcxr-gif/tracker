@@ -1697,6 +1697,9 @@
                          ended up filed as "Any aircraft". The second field is
                          the whole catalogue, searched by livery or by type. -->
                     <select id="nr_aircraft" class="surface hair rounded-lg px-2.5 py-2 text-sm"></select>
+                    <div id="nr_partnerAcWrap" class="hidden col-span-2">
+                        <select id="nr_partnerAc" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm"></select>
+                    </div>
                     <div id="nr_acFreeWrap" class="ac-find hidden">
                         <input id="nr_acFree" type="text" placeholder="Partner’s aircraft — e.g. “Iberia”"
                             class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
@@ -1719,6 +1722,14 @@
                             </div>
                         </div>
                         <div id="nr_partnerWrap" class="hidden space-y-2.5">
+                            <!-- PICK THE PARTNER, DON'T RETYPE IT.
+                                 A VA with forty Iberia codeshares used to type
+                                 "Iberia" forty times, and one typo on the
+                                 eleventh split the airline in two on their
+                                 public site. The list is the partners they have
+                                 set up; "Someone else…" is still there for a
+                                 one-off they do not want to declare. -->
+                            <select id="nr_partnerPick" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm"></select>
                             <input id="nr_partner" placeholder="Partner airline (e.g. Iberia)" maxlength="60" class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                             <div>
                                 <input id="nr_partnerLogo" type="url" placeholder="Partner logo URL — optional (https://…)" class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
@@ -1753,6 +1764,9 @@
                      of airlines you can tap does. Hidden entirely for a VA with
                      no codeshares, like the tabs above it. -->
                 <div id="routePartners" class="hidden flex gap-2 overflow-x-auto mt-2 pb-1"></div>
+                <div class="flex justify-end mt-1">
+                    <button id="partnersEditBtn" onclick="openPartners()" class="hidden text-[11px] font-semibold muted hover:text-[var(--ink)] underline">Set up partner airlines →</button>
+                </div>
             </div>
             <!-- "Saved, but your database couldn't hold all of it." Shown here
                  rather than in the form because the save DID work — the route is
@@ -1803,6 +1817,41 @@
                     <button id="csvCommitBtn" onclick="commitCsv()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="upload" class="w-4 h-4"></i> Apply</button>
                 </div>
                 <p id="csvNote" class="hidden text-sm mt-2"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ CODESHARE PARTNERS ============
+         The airlines this VA sells seats on.
+
+         A partner used to exist only as a NAME TYPED ON A ROUTE. Forty Iberia
+         codeshares meant typing "Iberia" forty times and pasting the same logo
+         URL forty times, one typo on the eleventh split the partner in two on
+         the public site, and there was nowhere at all to say what Iberia flies —
+         so the codeshare aircraft box had to offer the whole world's catalogue.
+
+         Declared once here, a partner has a logo and a fleet, and a route just
+         points at it. Same editor shape as the VA's own fleet, because a
+         partner's aircraft ARE fleet rows; they are simply somebody else's. -->
+    <div id="partners" data-topic="partners" class="hidden fixed inset-0 z-50">
+        <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closePartners()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
+            <div class="drawer-head sticky top-0 z-10 flex items-center justify-between gap-2 px-5 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center gap-2"><i data-lucide="handshake" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Partner airlines</span><span id="partnerCount" class="text-xs muted"></span></div>
+                <div class="drawer-actions flex items-center gap-2">
+                    <button onclick="openRoutes()" title="The routes these partners fly" class="wide-only-btn surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition items-center gap-1"><i data-lucide="route" class="w-4 h-4"></i> Routes</button>
+                    <button onclick="addPartner()" class="accent-bg text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Add</button>
+                    <button onclick="closePartners()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+            </div>
+            <div class="p-5">
+                <p class="text-sm muted mb-4">The airlines you sell seats on. Add one here with its logo and the aircraft it flies, then pick it on a route instead of typing the name again — and your pilots get a tile they can tap to see everything that partner flies.</p>
+                <div id="partnerRows" class="space-y-3"></div>
+                <div class="flex gap-2 mt-4">
+                    <button onclick="saveStructure('partners', this)" class="accent-bg text-white rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 transition">Save partners</button>
+                    <button onclick="addPartner()" class="surface hair rounded-lg px-4 py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Add another</button>
+                </div>
+                <p id="partnerNote" class="hidden text-sm mt-2"></p>
             </div>
         </div>
     </div>
@@ -1866,7 +1915,7 @@
                             <input id="libOnlyFleet" type="checkbox" class="accent-[var(--accent)]"> Only what my fleet can fly
                         </label>
                         <label class="text-xs muted inline-flex items-center gap-1.5 cursor-pointer select-none">
-                            <input id="libNoCodeshare" type="checkbox" class="accent-[var(--accent)]"> Own metal only
+                            <input id="libNoCodeshare" type="checkbox" class="accent-[var(--accent)]"> Only legs they flew themselves
                         </label>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap mb-2 text-xs">
@@ -1881,6 +1930,13 @@
                 <div id="libStep3" class="hidden">
                     <button onclick="libBackToRoutes()" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1 mb-3"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back to the routes</button>
                     <div id="libPlan"></div>
+                    <!-- WHAT THE REAL AIRLINE SOLD BUT DID NOT FLY.
+                         The source marks these but never records who operated
+                         them, and a codeshare on this platform is a named
+                         partnership with another virtual airline. So the VA
+                         decides, rather than us inventing a partner. -->
+                    <div id="libCodeshare" class="hidden mt-3"></div>
+                    <div id="libNoAircraft" class="hidden mt-3"></div>
                     <div id="libFleetAdd" class="hidden mt-3"></div>
                     <!-- THE CAVEAT, WHERE IT CANNOT BE MISSED. Immediately above
                          the button that writes, not buried at the top of a
@@ -2079,6 +2135,10 @@
 
         let CREW_CODE='', CREW_NAME='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
+        // The airlines this VA sells seats on. Same shape as FLEET rows for the
+        // aeroplanes, because a partner's aircraft ARE fleet rows — somebody
+        // else's. See crewPartners in server.js.
+        let PARTNERS=[];
         // The Instagram wall. `posts` is the raw links staff pasted — kept as
         // typed so the editor shows them back, parsed only where they are drawn.
         let SOCIAL={ handle:'', posts:[] };
@@ -2390,6 +2450,9 @@
         const TILE_CAP={
             roster:'roster.manage',
             routes:'routes.manage',
+            // A partner airline is part of the network, so whoever may edit
+            // routes may set one up.
+            partners:'routes.manage',
             // The fleet is what the routes are flown on, and the same people
             // keep both.
             fleet:'routes.manage',
@@ -2507,14 +2570,14 @@
         // rather than a node because most of these do not exist until the
         // topic has been opened once.
         const TOPIC_ROOT={
-            roster:'#roster', routes:'#routes', fleet:'#fleet', pireps:'#pireps', settings:'#settings',
+            roster:'#roster', routes:'#routes', fleet:'#fleet', partners:'#partners', pireps:'#pireps', settings:'#settings',
             schedule:'#csPanel', events:'#cevPanel', notices:'#cnPanel',
             embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
             documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
             ifLive:'#cif-panel',
         };
         const TOPIC_CLOSE={
-            roster:()=>closeRoster(), routes:()=>closeRoutes(), fleet:()=>closeFleet(), pireps:()=>closePireps(),
+            roster:()=>closeRoster(), routes:()=>closeRoutes(), fleet:()=>closeFleet(), partners:()=>closePartners(), pireps:()=>closePireps(),
             settings:()=>closeSettings(),
             schedule:()=>{ if(window.CrewSchedule) CrewSchedule.close(); },
             events:()=>{ if(window.CrewEvents) CrewEvents.close(); },
@@ -2528,7 +2591,7 @@
             ifLive:()=>{ if(window.CrewIF) CrewIF.close(); },
         };
         const TOPIC_OPEN={
-            roster:()=>openRoster(), routes:()=>openRoutes(), fleet:()=>openFleet(), pireps:()=>openPireps(), shop:()=>openShop(),
+            roster:()=>openRoster(), routes:()=>openRoutes(), fleet:()=>openFleet(), partners:()=>openPartners(), pireps:()=>openPireps(), shop:()=>openShop(),
             training:()=>openTraining(), awards:()=>openAwards(), leave:()=>openLeave(),
             settings:()=>openSettings(), schedule:()=>openSchedule(), events:()=>openEvents(),
             notices:()=>openNotices(), embeds:()=>openEmbeds(),
@@ -3736,8 +3799,8 @@
                 <label class="w-8 h-8 rounded-md border hair grid place-items-center cursor-pointer shrink-0 muted hover:text-[var(--ink)]" title="Upload badge image"><i data-lucide="upload" class="w-4 h-4"></i><input data-f="imagefile" type="file" accept="image/*" class="hidden"></label>`;
         }
         function iconOptions(sel){ return BADGE_ICONS.map(i=>`<option value="${i}" ${i===sel?'selected':''}>${i}</option>`).join(''); }
-        function arrForKind(k){ return k==='ranks'?RANKS : k==='roles'?ROLES : FLEET; }
-        function noteIdFor(k){ return k==='ranks'?'rankNote' : k==='roles'?'roleNote' : 'fleetNote'; }
+        function arrForKind(k){ return k==='ranks'?RANKS : k==='roles'?ROLES : k==='partners'?PARTNERS : FLEET; }
+        function noteIdFor(k){ return k==='ranks'?'rankNote' : k==='roles'?'roleNote' : k==='partners'?'partnerNote' : 'fleetNote'; }
         function fleetChip(f){
             const mark=(f.image && isSafeImageUrl(f.image))?`<img src="${escapeHtml(f.image)}" class="w-4 h-4 rounded object-contain">`:`<i data-lucide="plane" class="w-3.5 h-3.5"></i>`;
             return `<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full surface hair">${mark}${escapeHtml(f.type||f.name||'Aircraft')}</span>`;
@@ -3920,6 +3983,171 @@
                 <input data-f="message" value="${escapeHtml(r.message||'')}" maxlength="400" placeholder="A short word from whoever holds this role — shown on your website (optional)" class="w-full surface hair rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--ink)]">
             </div>`;
         }
+        /* ---------------------------------------------------------------------
+           PARTNER AIRLINES — the airlines this VA sells seats on.
+
+           Shaped like the fleet editor because a partner's aircraft ARE fleet
+           rows; they are simply somebody else's. The difference is one level of
+           nesting — a partner is a heading (name + logo) with rows under it —
+           which is why these rows carry data-pidx/data-aidx and get their own
+           delegation rather than riding the flat arrForKind one.
+        --------------------------------------------------------------------- */
+        function normalizePartners(list){
+            return (Array.isArray(list)?list:[]).map(p=>({
+                name: String(p&&p.name||''),
+                logo: String(p&&p.logo||''),
+                aircraft: (Array.isArray(p&&p.aircraft)?p.aircraft:[]).map(a=>Object.assign({},a)),
+            }));
+        }
+        function renderPartnerCount(){
+            const el=document.getElementById('partnerCount'); if(!el) return;
+            const n=PARTNERS.filter(p=>String(p.name||'').trim()).length;
+            const ac=PARTNERS.reduce((t,p)=>t+(p.aircraft||[]).filter(a=>String(a.type||'').trim()).length,0);
+            el.textContent = n ? `· ${n} airline${n===1?'':'s'}${ac?`, ${ac} aircraft`:''}` : '';
+        }
+        function partnerAircraftRowHtml(a,pi,ai){
+            const img=(a.image && isSafeImageUrl(a.image))
+                ? `<span class="relative w-8 h-8 shrink-0"><img src="${escapeHtml(a.image)}" class="w-8 h-8 rounded-md object-contain border hair"><button data-pclearimg title="Remove image" class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 text-white grid place-items-center text-[10px] leading-none">×</button></span>`
+                : `<span class="w-8 h-8 rounded-md border hair grid place-items-center shrink-0 muted"><i data-lucide="plane" class="w-4 h-4"></i></span>`;
+            const livs=liveriesFor(a.type);
+            return `<div class="flex items-center gap-2" data-pidx="${pi}" data-aidx="${ai}">${img}
+                <input data-pa="type" list="acTypeList" value="${escapeHtml(a.type||'')}" placeholder="Aircraft" class="w-36 surface hair rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <input data-pa="name" list="pLiv-${pi}-${ai}" value="${escapeHtml(a.name||'')}" placeholder="Livery" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <datalist id="pLiv-${pi}-${ai}">${livs.map(n=>`<option value="${escapeHtml(n)}">`).join('')}</datalist>
+                <button data-ppic title="Find a photo for this aircraft &amp; livery" class="w-7 h-7 grid place-items-center rounded-md muted hover:text-[var(--ink)] shrink-0"><i data-lucide="image" class="w-3.5 h-3.5"></i></button>
+                <button data-padel title="Remove aircraft" class="w-7 h-7 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>`;
+        }
+        function partnerRowHtml(p,pi){
+            /* The logo preview is rounded and CLIPPED, matching the tiles the
+               pilots see — a partner's logo is a picture somebody else chose and
+               a good few arrive as a hard-edged rectangle. Showing it here the
+               way it will actually appear means the VA is not surprised by it
+               on their public page. */
+            const logo=(p.logo && isSafeImageUrl(p.logo))
+                ? `<img src="${escapeHtml(p.logo)}" alt="" class="w-full h-full object-contain" style="border-radius:inherit;">`
+                : `<span class="text-xs font-bold muted">${escapeHtml(initials(p.name,'?'))}</span>`;
+            const acs=(p.aircraft||[]);
+            return `<div class="rounded-xl hair p-3" data-pidx="${pi}">
+                <div class="flex items-center gap-2">
+                    <span class="shrink-0 w-10 h-10 rounded-lg overflow-hidden hair grid place-items-center" style="background:var(--surface);">${logo}</span>
+                    <input data-p="name" value="${escapeHtml(p.name||'')}" maxlength="60" placeholder="Partner airline (e.g. Iberia Virtual)"
+                        class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm font-semibold focus:outline-none focus:border-[var(--ink)]">
+                    <button data-pdel title="Remove partner" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+                <input data-p="logo" type="url" value="${escapeHtml(p.logo||'')}" placeholder="Logo URL — optional (https://…)"
+                    class="w-full mt-2 surface hair rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <div class="mt-2.5">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint mb-1.5">What they fly</div>
+                    <div class="space-y-1.5">${acs.map((a,ai)=>partnerAircraftRowHtml(a,pi,ai)).join('')
+                        || '<p class="text-xs faint">No aircraft yet — add the ones you sell seats on.</p>'}</div>
+                    <button data-paadd class="mt-2 text-xs font-semibold muted hover:text-[var(--ink)] underline">+ Add aircraft</button>
+                </div>
+            </div>`;
+        }
+        function addPartner(){
+            PARTNERS.push({name:'', logo:'', aircraft:[]});
+            renderStructure();
+            const rows=document.getElementById('partnerRows');
+            const last=rows && rows.lastElementChild;
+            const input=last && last.querySelector('[data-p="name"]');
+            if(input) input.focus();
+        }
+        function openPartners(){
+            openDrawer('partners');
+            loadFleetMeta();          // the livery suggestions come from the same catalogue
+            renderStructure();
+            if(window.lucide) lucide.createIcons();
+        }
+        function closePartners(){ closeDrawer('partners'); }
+
+        // Same library, same credit, same rules as the fleet's own photo lookup —
+        // just reaching into a partner's row instead of FLEET.
+        async function resolvePartnerPicture(pi, ai, opts){
+            opts=opts||{};
+            const p=PARTNERS[pi]; const a=p&&p.aircraft&&p.aircraft[ai]; if(!a) return;
+            const type=String(a.type||'').trim(), liv=String(a.name||'').trim();
+            if(!type || (!liv && !opts.force)) return;
+            if(a.image && !opts.force && !a.imageAuto) return;
+            try{
+                const qs=new URLSearchParams({ type }); if(liv) qs.set('liveryName', liv);
+                const r=await fetch(`${BACKEND}/api/aircraft/lookup?${qs.toString()}`);
+                const d=await r.json().catch(()=>null);
+                const url=(d && !d.isPlaceholder) ? (d.imageUrl || (Array.isArray(d.imageUrls)&&d.imageUrls[0]) || '') : '';
+                if(url && /^https:\/\//i.test(url)){
+                    a.image=url; a.imageAuto=true; a.imageFor=acNorm(type+' '+liv);
+                    const who=d && (d.contributorName||d.contributor||'');
+                    a.photographer=(who && who!=='System') ? String(who).slice(0,80) : '';
+                    renderStructure();
+                }
+            }catch{ /* a missing photo is never worth an error here */ }
+        }
+
+        function mountPartnerEditor(){
+            const host=document.getElementById('partnerRows');
+            if(!host || host.__pMounted) return;
+            host.__pMounted=true;
+            host.addEventListener('input', e=>{
+                const pf=e.target.getAttribute('data-p');
+                const af=e.target.getAttribute('data-pa');
+                const row=e.target.closest('[data-pidx]'); if(!row) return;
+                const pi=+row.getAttribute('data-pidx');
+                if(pf && PARTNERS[pi]){
+                    PARTNERS[pi][pf]=e.target.value;
+                    // The logo preview and the name are read straight off the
+                    // row, so keep them live without a re-render that would take
+                    // the caret out of whatever is being typed.
+                    if(pf==='logo'){
+                        const box=row.querySelector('span.w-10');
+                        if(box) box.innerHTML=(e.target.value && isSafeImageUrl(e.target.value))
+                            ? `<img src="${escapeHtml(e.target.value)}" alt="" class="w-full h-full object-contain" style="border-radius:inherit;">`
+                            : `<span class="text-xs font-bold muted">${escapeHtml(initials(PARTNERS[pi].name,'?'))}</span>`;
+                    }
+                    renderPartnerCount();
+                    return;
+                }
+                if(af){
+                    const ai=+row.getAttribute('data-aidx');
+                    const p=PARTNERS[pi]; if(!p||!p.aircraft||!p.aircraft[ai]) return;
+                    p.aircraft[ai][af]=e.target.value;
+                    renderPartnerCount();
+                }
+            });
+            host.addEventListener('change', e=>{
+                const af=e.target.getAttribute('data-pa');
+                if(af!=='type' && af!=='name') return;
+                const row=e.target.closest('[data-aidx]'); if(!row) return;
+                resolvePartnerPicture(+row.closest('[data-pidx]').getAttribute('data-pidx'),
+                                      +row.getAttribute('data-aidx'), {});
+            });
+            host.addEventListener('click', e=>{
+                const pdel=e.target.closest('[data-pdel]');
+                const paadd=e.target.closest('[data-paadd]');
+                const padel=e.target.closest('[data-padel]');
+                const ppic=e.target.closest('[data-ppic]');
+                const pclr=e.target.closest('[data-pclearimg]');
+                const hit=pdel||paadd||padel||ppic||pclr; if(!hit) return;
+                const pRow=hit.closest('[data-pidx]'); if(!pRow) return;
+                // An aircraft row carries BOTH attributes, so the partner index
+                // has to come from the outermost card, not the nearest ancestor.
+                const cards=[...document.querySelectorAll('#partnerRows > [data-pidx]')];
+                const card=cards.find(c=>c.contains(hit)); if(!card) return;
+                const pi=+card.getAttribute('data-pidx');
+                const aRow=hit.closest('[data-aidx]');
+                const ai=aRow?+aRow.getAttribute('data-aidx'):-1;
+                if(pdel){ PARTNERS.splice(pi,1); renderStructure(); }
+                else if(paadd){ (PARTNERS[pi].aircraft=PARTNERS[pi].aircraft||[]).push({type:'',name:'',image:'',imageAuto:false,photographer:'',photoLink:''}); renderStructure(); }
+                else if(padel && ai>=0){ PARTNERS[pi].aircraft.splice(ai,1); renderStructure(); }
+                else if(ppic && ai>=0){ resolvePartnerPicture(pi, ai, { force:true }); }
+                else if(pclr && ai>=0){
+                    const a=PARTNERS[pi].aircraft[ai];
+                    // The credit belongs to the picture; clearing one without the
+                    // other attributes the next photograph to the wrong person.
+                    a.image=''; a.imageAuto=false; a.imageFor=''; a.photographer=''; a.photoLink='';
+                    renderStructure();
+                }
+            });
+        }
+
         function renderStructure(){
             // All three lists live in one scrolling drawer, so one keepPlace
             // around the lot is enough. What it buys here is the caret: an
@@ -3930,6 +4158,8 @@
                 document.getElementById('rankRows').innerHTML = RANKS.map(rankRowHtml).join('');
                 document.getElementById('roleRows').innerHTML = ROLES.map(roleRowHtml).join('');
                 const fr=document.getElementById('fleetRows'); if(fr) fr.innerHTML = FLEET.map(fleetRowHtml).join('');
+                const pr=document.getElementById('partnerRows'); if(pr) pr.innerHTML = PARTNERS.map(partnerRowHtml).join('');
+                renderPartnerCount();
                 document.getElementById('rankStarter').classList.toggle('hidden', RANKS.length>0);
                 const roleStarter=document.getElementById('roleStarter');
                 if(roleStarter) roleStarter.classList.toggle('hidden', ROLES.length>0);
@@ -3970,6 +4200,7 @@
                 r.addEventListener('change', syncScheduleOpts);
             });
 
+            mountPartnerEditor();
             ['rankRows','roleRows','fleetRows'].forEach(id=>{
                 const host=document.getElementById(id); if(!host) return;
                 host.addEventListener('input', e=>{
@@ -4213,7 +4444,16 @@
                     note.className='text-sm text-red-500';
                 }
                 else {
-                    if(Array.isArray(d[kind])){ if(kind==='ranks')RANKS=d[kind]; else if(kind==='roles')ROLES=d[kind]; else FLEET=normalizeFleet(d[kind]); renderStructure(); }
+                    if(Array.isArray(d[kind])){
+                        if(kind==='ranks')RANKS=d[kind];
+                        else if(kind==='roles')ROLES=d[kind];
+                        // Partners are NOT the fleet. Without this branch a
+                        // partner save replaced the VA's own aircraft list with
+                        // a list of airlines.
+                        else if(kind==='partners')PARTNERS=normalizePartners(d[kind]);
+                        else FLEET=normalizeFleet(d[kind]);
+                        renderStructure();
+                    }
                     // A save the project could only partly hold is not a clean
                     // save, and the VA should hear that here rather than find a
                     // field missing later.
@@ -4222,7 +4462,7 @@
                     note.textContent='Saved for your crew.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
                     // The note sits beside the Save button, which after a long
                     // ladder is a long way from where the reader is looking.
-                    say(kind==='fleet'?'Fleet saved for your crew.':kind==='ranks'?'Ranks saved for your crew.':'Roles saved for your crew.','ok');
+                    say(kind==='fleet'?'Fleet saved for your crew.':kind==='ranks'?'Ranks saved for your crew.':kind==='partners'?'Partner airlines saved for your crew.':'Roles saved for your crew.','ok');
                     // A rank is drawn on every roster card and gates routes; an
                     // aircraft fills every picker. Everything that shows one is
                     // now out of date.
@@ -4965,25 +5205,62 @@
             const host=document.getElementById('routePartners');
             if(!host) return;
             const partners = ROUTE_PARTNERS.length ? ROUTE_PARTNERS : [];
-            host.classList.toggle('hidden', !cs.length || !partners.length);
-            if(!cs.length || !partners.length) return;
+            const editBtn=document.getElementById('partnersEditBtn');
+            if(editBtn) editBtn.classList.toggle('hidden', !ROUTES_CANMANAGE);
+            host.classList.toggle('hidden', !partners.length);
+            if(!partners.length) return;
             host.innerHTML = partners.map(p=>{
                 const on = ROUTE_PARTNER.toLowerCase()===String(p.name).toLowerCase();
+                /* ROUNDED, AND CLIPPED TO THE ROUNDING.
+                 *
+                 * A partner logo is a picture somebody else chose. Plenty arrive
+                 * as a hard-edged rectangle on a white square, and dropped into a
+                 * row of soft-cornered tiles those read as a mistake in the page
+                 * rather than a property of the file. The corners are taken off
+                 * here so the board looks like one thing whatever turns up —
+                 * overflow-hidden on the frame because border-radius alone does
+                 * not clip a child <img>. */
                 const logo = (p.logo && isSafeImageUrl(p.logo))
-                    ? `<img src="${escapeHtml(p.logo)}" alt="" class="h-6 w-auto max-w-[74px] object-contain">`
-                    : `<span class="text-xs font-bold">${escapeHtml(initials(p.name,''))}</span>`;
+                    ? `<span class="shrink-0 w-9 h-9 rounded-lg overflow-hidden hair grid place-items-center" style="background:var(--surface);">
+                           <img src="${escapeHtml(p.logo)}" alt="" loading="lazy"
+                                class="w-full h-full object-contain" style="border-radius:inherit;">
+                       </span>`
+                    : `<span class="shrink-0 w-9 h-9 rounded-lg hair grid place-items-center text-xs font-bold">${escapeHtml(initials(p.name,''))}</span>`;
+                /* AND THEIR AEROPLANE. The one thing that tells two partners
+                   apart at a glance when neither has uploaded a logo — and the
+                   reason a partner is worth declaring at all. First of their
+                   fleet that has a picture. */
+                const shot = (p.aircraft||[]).find(a=>a.image && isSafeImageUrl(a.image));
+                const plane = shot
+                    ? `<span class="block mt-1.5 h-12 w-full rounded-md overflow-hidden hair">
+                           <img src="${escapeHtml(shot.image)}" alt="" loading="lazy"
+                                title="${escapeHtml([shot.type,shot.name].filter(Boolean).join(' · '))}${shot.photographer?` — photo by ${escapeHtml(shot.photographer)}`:''}"
+                                class="w-full h-full object-cover">
+                       </span>`
+                    : '';
                 // "3 of 8 locked" only means something to a pilot; staff are
                 // never marked locked, so the clause simply does not appear.
                 const sub = `${p.routes} leg${p.routes===1?'':'s'}`
                     + (p.destinations?` · ${p.destinations} port${p.destinations===1?'':'s'}`:'')
+                    + ((p.aircraft||[]).length?` · ${p.aircraft.length} aircraft`:'')
                     + (p.lockedRoutes?` · ${p.lockedRoutes} locked`:'');
+                // A partner somebody set up but has not flown yet. Says so rather
+                // than showing a bare "0 legs", which reads as broken.
+                const empty = !p.routes ? `<span class="block text-[10px] text-amber-600 dark:text-amber-400">no routes yet</span>` : '';
                 return `<button type="button" data-partner="${escapeHtml(p.name)}"
-                    class="shrink-0 surface hair rounded-lg px-3 py-2 text-left hover:border-[var(--ink)] transition ${on?'border-[var(--ink)]':''}"
+                    class="shrink-0 w-[168px] surface hair rounded-xl p-2.5 text-left hover:border-[var(--ink)] transition ${on?'border-[var(--ink)]':''}"
                     style="${on?'box-shadow:inset 0 0 0 1px var(--ink)':''}"
+                    aria-pressed="${on?'true':'false'}"
                     title="${escapeHtml(p.name)} — show only these legs">
-                    <span class="flex items-center gap-2 h-6">${logo}</span>
-                    <span class="block text-[11px] font-semibold truncate max-w-[130px] mt-1">${escapeHtml(p.name)}</span>
-                    <span class="block text-[10px] faint">${escapeHtml(sub)}</span>
+                    <span class="flex items-center gap-2">
+                        ${logo}
+                        <span class="min-w-0 flex-1">
+                            <span class="block text-[11px] font-semibold truncate">${escapeHtml(p.name)}</span>
+                            <span class="block text-[10px] faint truncate">${escapeHtml(sub)}</span>
+                        </span>
+                    </span>
+                    ${plane}
+                    ${empty}
                 </button>`;
             }).join('');
         }
@@ -4997,7 +5274,10 @@
             // The split only earns screen space once there is something to
             // split. A VA flying everything itself never sees this.
             const tabs=document.getElementById('routeKindTabs');
-            tabs.classList.toggle('hidden', !cs.length);
+            // Shown once there is either a codeshare or a partner set up: a VA
+            // who has just added Iberia and its fleet should be able to see that
+            // it took, before the first route naming it exists.
+            tabs.classList.toggle('hidden', !cs.length && !ROUTE_PARTNERS.length);
             if(cs.length){
                 document.getElementById('rkAll').textContent=` ${visible.length}`;
                 document.getElementById('rkOwn').textContent=` ${own.length}`;
@@ -5333,6 +5613,16 @@
         let LIB_PICKED=new Set(); // indices into LIB_AIRLINE.routes
         let LIB_PLAN=null;        // the server's dry run
         let LIB_NEWTYPES=[];      // [{type, take}] — fleet rows this would add
+        /* What to do with the legs the real airline sold but did not fly.
+           'own'     — take them as our own metal (the default, and the only one
+                       that needs no extra information)
+           'partner' — they are genuinely flown for us by a partner VA, whose
+                       name the VA types; that name is what the partner tile and
+                       the public site show
+           'skip'    — leave them out entirely
+           There is no 'guess the operator': see routeLibrary.js. */
+        let LIB_CS={ mode:'own', partner:'' };
+        let LIB_CS_T=null;
         let LIB_SEARCH_T=null;
 
         // The airline search is debounced: it is a keystroke-per-request endpoint
@@ -5362,7 +5652,12 @@
 
         function openRouteLib(){
             mountRouteLib();
+            // The confirm step offers a livery per aircraft, and the canonical
+            // list comes from the same catalogue the fleet editor uses. Asked for
+            // on open so it has arrived by the time anyone reaches step three.
+            loadFleetMeta();
             LIB_AIRLINE=null; LIB_PICKED=new Set(); LIB_PLAN=null; LIB_NEWTYPES=[];
+            LIB_CS={ mode:'own', partner:'' };
             libStep(1);
             libMsg('');
             const q=document.getElementById('libSearch'); if(q) q.value='';
@@ -5505,7 +5800,7 @@
             const noCs=document.getElementById('libNoCodeshare').checked;
             return LIB_AIRLINE.routes.map((r,i)=>({r,i})).filter(({r})=>{
                 if(onlyFleet && !r.inFleet) return false;
-                if(noCs && r.kind==='codeshare') return false;
+                if(noCs && r.realCodeshare) return false;
                 if(f && !(r.origin.includes(f)||r.destination.includes(f))) return false;
                 return true;
             });
@@ -5523,11 +5818,15 @@
                     <span class="font-mono text-sm shrink-0">${escapeHtml(r.origin)} → ${escapeHtml(r.destination)}</span>
                     <span class="text-xs muted shrink-0">${escapeHtml(String(r.distanceNm))} nm</span>
                     <span class="flex-1 min-w-0 text-right">
-                        ${r.aircraftOptions.length>1
-                            ? `<select data-lib-ac="${i}" class="surface hair rounded-md px-2 py-1 text-xs max-w-full">${r.aircraftOptions.map(t=>`<option value="${escapeHtml(t)}" ${t===r.aircraft?'selected':''}>${escapeHtml(t)}</option>`).join('')}</select>`
+                        ${(r.aircraftOptions.length>1 || r.partnerAircraftOnly)
+                            ? `<select data-lib-ac="${i}" class="surface hair rounded-md px-2 py-1 text-xs max-w-full">
+                                   ${r.partnerAircraftOnly?`<option value="" ${r.aircraft?'':'selected'}>— you choose —</option>`:''}
+                                   ${r.aircraftOptions.map(t=>`<option value="${escapeHtml(t)}" ${t===r.aircraft?'selected':''}>${escapeHtml(t)}${(r.ownAircraftOptions&&r.ownAircraftOptions.indexOf(t)<0)?' (partner’s)':''}</option>`).join('')}
+                               </select>`
                             : `<span class="text-xs muted truncate">${escapeHtml(r.aircraft||'—')}</span>`}
                     </span>
-                    ${r.kind==='codeshare'?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded faint hair" title="Marketed by this airline, flown by a partner the source doesn’t name">codeshare</span>':''}
+                    ${r.partnerAircraftOnly?`<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded text-amber-600 dark:text-amber-400" title="Every aeroplane listed for this leg belongs to whoever flew it for ${escapeHtml((LIB_AIRLINE&&LIB_AIRLINE.airline&&LIB_AIRLINE.airline.name)||'them')} — they don’t operate any of them. Pick one of your own, or leave it for later.">not their aircraft</span>`:''}
+                    ${r.realCodeshare?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded faint hair" title="The real airline sold this leg but did not fly it. The source doesn’t record who did — you decide what it becomes in your network.">sold, not flown</span>':''}
                     ${r.inFleet?'<span class="text-[10px] shrink-0 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400" title="You already operate this type">in fleet</span>':''}
                 </label>`).join('')
                 : '<div class="text-sm muted px-3 py-6 text-center">No legs match that filter.</div>';
@@ -5546,11 +5845,12 @@
                     const i=Number(el.getAttribute('data-lib-ac'));
                     LIB_AIRLINE.routes[i].aircraft=el.value;
                     // Re-deciding the aircraft re-decides what it would add to
-                    // the fleet, and the review step reads these.
+                    // the fleet, and the review step reads these. A blank is a
+                    // real choice — "I'll pick later" — and adds nothing.
                     const r=LIB_AIRLINE.routes[i];
                     const have=new Set(FLEET.map(f=>acNorm(f.type)));
-                    r.inFleet=have.has(acNorm(el.value));
-                    r.newTypes=r.inFleet?[]:[el.value];
+                    r.inFleet=!!el.value && have.has(acNorm(el.value));
+                    r.newTypes=(!el.value||r.inFleet)?[]:[el.value];
                 });
                 // The select sits inside the row's <label>, so without this a
                 // click meant for the aircraft menu also toggles the tick —
@@ -5578,8 +5878,8 @@
 
         // ---- Step 3: the diff, and what it would add to the fleet ----
         async function libReview(){
-            const picked=libSelected();
-            if(!picked.length) return;
+            const picked=libPayload();
+            if(!picked.length){ libMsg('That leaves nothing to import — the codeshare choice below removed every ticked leg.','warn'); return; }
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ libMsg('Sign in as owner or staff to import routes.','warn'); return; }
             libMsg('Working out what this would change…','muted');
@@ -5592,17 +5892,35 @@
                 LIB_PLAN=d;
                 libMsg('');
                 libStep(3);
+                // Whatever was acknowledged was acknowledged about the PREVIOUS
+                // diff. Changing the codeshare choice or the partner changes what
+                // would be written, so the tick has to be given again against
+                // what is now on screen.
+                const agree=document.getElementById('libAgree');
+                if(agree) agree.checked=false;
                 libRenderPlan(d, picked);
             }catch{ libMsg('Server unreachable.','error'); }
         }
         // Only the fields the library actually has an opinion about. minRank and
         // partnerLogo are deliberately absent so a re-import cannot clear a rank
         // gate the VA set by hand.
-        const libRouteBody=(r)=>({
-            flightNumber:r.flightNumber||'', origin:r.origin, destination:r.destination,
-            aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, notes:r.notes||'',
-            kind:r.kind||'own', partnerName:r.partnerName||'',
-        });
+        //
+        // `kind` is decided HERE rather than carried from the library, which
+        // always says 'own'. A leg the real airline sold but did not fly becomes
+        // a codeshare only if the VA names the partner that flies it for them —
+        // the server refuses the pair otherwise, exactly as the routes screen
+        // does when a leg is typed by hand.
+        const libRouteBody=(r)=>{
+            const asPartner = r.realCodeshare && LIB_CS.mode==='partner' && LIB_CS.partner.trim();
+            return {
+                flightNumber:r.flightNumber||'', origin:r.origin, destination:r.destination,
+                aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, notes:r.notes||'',
+                kind: asPartner ? 'codeshare' : 'own',
+                partnerName: asPartner ? LIB_CS.partner.trim().slice(0,60) : '',
+            };
+        };
+        // Everything ticked, minus what the codeshare decision leaves out.
+        const libPayload=()=> libSelected().filter(r=>!(r.realCodeshare && LIB_CS.mode==='skip'));
 
         function libRenderPlan(d, picked){
             const box=document.getElementById('libPlan');
@@ -5625,37 +5943,187 @@
                 ${errs}
             </div>`;
 
+            libRenderCodeshare();
+            libRenderNoAircraft(picked);
+
             // The fleet half. Every type these routes need that the VA does not
             // already operate, pre-ticked and individually untickable — agreed to
             // here rather than appearing in the fleet on its own.
+            /* A FLEET ROW IS AN AIRCRAFT *AND* A LIVERY, AND A ROW WITHOUT ONE
+             * IS HALF A ROW.
+             *
+             * This used to add the type alone. That looks fine in the fleet
+             * editor and is nearly useless everywhere else: routableFleet()
+             * offers only rows that have BOTH, so the aeroplane the import just
+             * added could not be picked on a route; fleetHeldBack() then told
+             * the VA their new aircraft "need a livery before they can be
+             * picked"; and resolveFleetPicture returns early without one, so the
+             * promised photo was never even fetched.
+             *
+             * So the livery is asked for here, pre-filled with the airline's own
+             * where the catalogue has it — which is nearly always what somebody
+             * importing British Airways' network wants on their 777. */
             const have=new Set(FLEET.map(f=>acNorm(f.type)));
             const needed=[...new Set(picked.map(r=>String(r.aircraft||'').trim()).filter(Boolean))]
                 .filter(t=>!have.has(acNorm(t))).sort();
-            LIB_NEWTYPES=needed.map(t=>({type:t, take:true}));
+            const airlineName=(LIB_AIRLINE&&LIB_AIRLINE.airline&&LIB_AIRLINE.airline.name)||'';
+            LIB_NEWTYPES=needed.map(t=>({ type:t, take:true, livery:libSuggestLivery(t, airlineName) }));
+
             const fbox=document.getElementById('libFleetAdd');
             if(!needed.length){ fbox.classList.add('hidden'); fbox.innerHTML=''; }
             else{
+                const blanks=LIB_NEWTYPES.filter(x=>!x.livery).length;
                 fbox.classList.remove('hidden');
                 fbox.innerHTML=`<div class="rounded-lg surface hair p-3">
                     <div class="text-xs font-semibold uppercase tracking-wider faint mb-1">Add to your fleet</div>
-                    <p class="text-xs muted mb-2">These routes are flown on ${escapeHtml(n(needed.length,'aircraft type','aircraft types'))} you don’t operate yet. Ticked ones are added to your fleet and get a photo from the community library where there is one.</p>
-                    <div class="space-y-1">${needed.map((t,i)=>`
-                        <label class="flex items-center gap-2 text-sm cursor-pointer">
-                            <input type="checkbox" data-lib-type="${i}" checked class="accent-[var(--accent)]">
-                            <span>${escapeHtml(t)}</span>
-                        </label>`).join('')}</div>
+                    <p class="text-xs muted mb-2">These routes need ${escapeHtml(n(needed.length,'aircraft type','aircraft types'))} you don’t operate yet. Each needs a livery as well as a type — that’s what makes it pickable on a route and what finds it a photo. ${airlineName?escapeHtml(airlineName)+'’s own livery is filled in where Infinite Flight has it.':''}</p>
+                    <div class="space-y-1.5">${LIB_NEWTYPES.map((x,i)=>{
+                        const livs=libLiveriesFor(x.type);
+                        return `<div class="flex items-center gap-2 text-sm">
+                            <input type="checkbox" data-lib-type="${i}" checked class="accent-[var(--accent)] shrink-0">
+                            <span class="flex-1 min-w-0 truncate">${escapeHtml(x.type)}</span>
+                            ${livs.length
+                                ? `<select data-lib-livery="${i}" class="surface hair rounded-md px-2 py-1 text-xs max-w-[12rem]">
+                                       <option value="">— no livery yet —</option>
+                                       ${livs.map(l=>`<option value="${escapeHtml(l)}" ${acNorm(l)===acNorm(x.livery)?'selected':''}>${escapeHtml(l)}</option>`).join('')}
+                                   </select>`
+                                : `<span class="text-[11px] faint shrink-0">no liveries listed</span>`}
+                        </div>`; }).join('')}</div>
+                    <p id="libFleetBlanks" class="text-[11px] mt-2 ${blanks?'text-amber-600 dark:text-amber-400':'faint'}">${
+                        blanks
+                            ? escapeHtml(`${blanks} ${blanks===1?'aircraft has':'aircraft have'} no livery yet. ${blanks===1?'It':'They'} will be added, but can’t be picked on a route until you set one — here or in the fleet editor.`)
+                            : 'Each gets a photo from the community library where there is one, credited to whoever supplied it.'}</p>
                 </div>`;
                 fbox.querySelectorAll('[data-lib-type]').forEach(el=>{
                     el.addEventListener('change',()=>{ LIB_NEWTYPES[Number(el.getAttribute('data-lib-type'))].take=el.checked; });
+                });
+                fbox.querySelectorAll('[data-lib-livery]').forEach(el=>{
+                    el.addEventListener('change',()=>{
+                        LIB_NEWTYPES[Number(el.getAttribute('data-lib-livery'))].livery=el.value;
+                        libSyncFleetBlanks();
+                    });
                 });
             }
             libSyncCommit();
             if(window.lucide) lucide.createIcons();
         }
+        /* LEGS ARRIVING WITH NO AEROPLANE.
+         *
+         * Every aircraft listed for these belongs to whoever flew the leg for
+         * the airline, not to the airline — AeroMéxico's CRJ-900 legs are the
+         * example: it has never operated one. Rather than hand the VA somebody
+         * else's aeroplane (and then offer to paint it in AeroMéxico's livery),
+         * the aircraft is left empty and said out loud here. The route still
+         * imports; it just reads "Any aircraft" until they choose. */
+        function libRenderNoAircraft(picked){
+            const box=document.getElementById('libNoAircraft');
+            const rows=picked.filter(r=>!String(r.aircraft||'').trim());
+            if(!rows.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
+            const theirs=[...new Set(rows.flatMap(r=>r.aircraftOptions||[]))].sort();
+            const who=(LIB_AIRLINE&&LIB_AIRLINE.airline&&LIB_AIRLINE.airline.name)||'this airline';
+            box.classList.remove('hidden');
+            box.innerHTML=`<div class="rounded-lg surface hair p-3">
+                <div class="text-xs font-semibold uppercase tracking-wider faint mb-1">${escapeHtml(String(rows.length))} ${rows.length===1?'leg has':'legs have'} no aircraft</div>
+                <p class="text-xs muted">${escapeHtml(who)} doesn’t operate ${escapeHtml(theirs.join(', '))} — ${theirs.length===1?'that aeroplane belongs':'those aeroplanes belong'} to whoever flew ${rows.length===1?'this leg':'these legs'} for them, and the source doesn’t record who. ${rows.length===1?'It’s':'They’re'} imported with <b>no aircraft set</b> rather than with somebody else’s, so nothing wrong lands in your fleet. Pick one on the route afterwards, or back on the previous step.</p>
+            </div>`;
+        }
+
+        /* The legs the real airline sold but did not fly.
+         *
+         * Counted off the TICKED selection rather than the whole network, so the
+         * number is the one this import would actually create. Absent entirely
+         * when there are none, which is most smaller airlines. */
+        function libRenderCodeshare(){
+            const box=document.getElementById('libCodeshare');
+            const n=libSelected().filter(r=>r.realCodeshare).length;
+            if(!n){ box.classList.add('hidden'); box.innerHTML=''; return; }
+            box.classList.remove('hidden');
+            const opt=(mode,label,hint)=>`
+                <label class="flex items-start gap-2 text-sm cursor-pointer py-1">
+                    <input type="radio" name="libcs" value="${mode}" ${LIB_CS.mode===mode?'checked':''} class="mt-1 accent-[var(--accent)]">
+                    <span><b>${escapeHtml(label)}</b><br><span class="text-xs muted">${escapeHtml(hint)}</span></span>
+                </label>`;
+            box.innerHTML=`<div class="rounded-lg surface hair p-3">
+                <div class="text-xs font-semibold uppercase tracking-wider faint mb-1">${escapeHtml(String(n))} of these were sold, not flown</div>
+                <p class="text-xs muted mb-2">${escapeHtml(LIB_AIRLINE&&LIB_AIRLINE.airline?LIB_AIRLINE.airline.name:'This airline')} marketed ${n===1?'this leg':'these legs'} but a partner operated ${n===1?'it':'them'}. <b>The source doesn’t record which partner</b>, and a codeshare here has to name one — so this is yours to decide.</p>
+                ${opt('own','Fly them yourself','They become ordinary routes in your network. Most virtual airlines want this.')}
+                ${opt('partner','A partner VA flies them for us','Marks them as codeshares under the partner you name below. Only right if you actually have that arrangement.')}
+                ${opt('skip','Leave them out','Import only the legs the airline flew on its own metal.')}
+                <div id="libCsPartnerWrap" class="${LIB_CS.mode==='partner'?'':'hidden'} mt-2">
+                    <input id="libCsPartner" type="text" maxlength="60" placeholder="Partner airline — e.g. Iberia Virtual"
+                        value="${escapeHtml(LIB_CS.partner)}"
+                        class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <p class="text-[11px] faint mt-1">One name for all ${escapeHtml(String(n))}. You can split them across partners afterwards in the routes list.</p>
+                </div>
+            </div>`;
+            box.querySelectorAll('input[name="libcs"]').forEach(el=>{
+                el.addEventListener('change',()=>{
+                    LIB_CS.mode=el.value;
+                    document.getElementById('libCsPartnerWrap').classList.toggle('hidden', el.value!=='partner');
+                    // The choice changes what would be written — a skip removes
+                    // legs, a partner changes their kind — so the diff above is
+                    // no longer the diff. Ask again rather than show a stale one.
+                    libReview();
+                });
+            });
+            const pin=document.getElementById('libCsPartner');
+            if(pin) pin.addEventListener('input',()=>{
+                LIB_CS.partner=pin.value;
+                libSyncCommit();
+                // The name is part of what would be written, so the diff above is
+                // about a different import until it has been asked again. Waited
+                // out rather than asked per keystroke.
+                clearTimeout(LIB_CS_T);
+                LIB_CS_T=setTimeout(()=>{ if(LIB_CS.mode==='partner' && LIB_CS.partner.trim()) libReview(); }, 400);
+            });
+        }
+
+        // The canonical liveries Infinite Flight has for a type, from the same
+        // catalogue the fleet editor offers. Empty when the catalogue has not
+        // arrived, which degrades to a free-standing type rather than a broken
+        // dialog — the VA sets the livery in the fleet editor as they always did.
+        function libLiveriesFor(type){
+            try{ return (LIV_INDEX && LIV_INDEX.get(acNorm(type))) || []; }catch{ return []; }
+        }
+        /* THE AIRLINE'S OWN LIVERY, WHERE IT EXISTS.
+         *
+         * Somebody importing British Airways' network wants British Airways on
+         * the 777, and having to pick it twenty times is the kind of tedium this
+         * whole screen exists to remove. Exact match first, then a containing
+         * match so "Emirates" finds "Emirates - 1999" and a catalogue entry that
+         * carries a suffix still counts.
+         *
+         * Only ever a DEFAULT: every row is a select the VA can change, and a
+         * miss leaves it blank rather than picking something arbitrary. */
+        function libSuggestLivery(type, airline){
+            const livs=libLiveriesFor(type);
+            if(!livs.length || !airline) return '';
+            const want=acNorm(airline).replace(/\b(airlines?|airways|air|virtual|group|co|inc|ltd)\b/g,'').trim();
+            const exact=livs.find(l=>acNorm(l)===acNorm(airline));
+            if(exact) return exact;
+            if(!want) return '';
+            return livs.find(l=>{ const f=acNorm(l); return f.includes(want)||want.includes(f); }) || '';
+        }
+        // Re-counts the "no livery yet" line in place, so changing a select says
+        // so immediately instead of only on the next redraw.
+        function libSyncFleetBlanks(){
+            const el=document.getElementById('libFleetBlanks'); if(!el) return;
+            const blanks=LIB_NEWTYPES.filter(x=>x.take && !x.livery).length;
+            el.className='text-[11px] mt-2 '+(blanks?'text-amber-600 dark:text-amber-400':'faint');
+            el.textContent = blanks
+                ? `${blanks} ${blanks===1?'aircraft has':'aircraft have'} no livery yet. ${blanks===1?'It':'They'} will be added, but can’t be picked on a route until you set one — here or in the fleet editor.`
+                : 'Each gets a photo from the community library where there is one, credited to whoever supplied it.';
+        }
+
         function libSyncCommit(){
             const d=LIB_PLAN||{};
             const agreed=document.getElementById('libAgree').checked;
-            const can=agreed && !d.errorCount && (d.create||d.update);
+            // Choosing "a partner flies them" without saying who is the exact
+            // state the routes screen refuses, and the server refuses it too —
+            // so the button goes dead rather than letting them find out after.
+            const needsPartner = LIB_CS.mode==='partner' && !LIB_CS.partner.trim()
+                && libSelected().some(r=>r.realCodeshare);
+            const can=agreed && !needsPartner && !d.errorCount && (d.create||d.update);
             const b=document.getElementById('libCommitBtn');
             b.disabled=!can; b.style.opacity=can?'1':'.5';
             const total=(d.create||0)+(d.update||0);
@@ -5667,7 +6135,7 @@
 
         async function libCommit(){
             if(!LIB_PLAN) return;
-            const picked=libSelected();
+            const picked=libPayload();
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
             const btn=document.getElementById('libCommitBtn');
@@ -5692,8 +6160,10 @@
                 if(adding.length){
                     const before=FLEET.length;
                     for(const t of adding){
-                        if(FLEET.some(f=>acNorm(f.type)===acNorm(t.type) && !String(f.name||'').trim())) continue;
-                        FLEET.push({type:t.type, name:'', image:'', imageAuto:false, photographer:'', photoLink:''});
+                        // Already there, in this very livery.
+                        if(FLEET.some(f=>acNorm(f.type)===acNorm(t.type)
+                            && acNorm(f.name)===acNorm(t.livery))) continue;
+                        FLEET.push({type:t.type, name:t.livery||'', image:'', imageAuto:false, photographer:'', photoLink:''});
                     }
                     if(FLEET.length>before){
                         renderStructure(); renderFleetCount();
@@ -5733,6 +6203,7 @@
             document.getElementById('nr_notes').value = route ? (route.notes||'') : '';
             document.getElementById('nr_active').checked = route ? !!route.active : true;
             document.getElementById('nr_partner').value = route ? (route.partnerName||'') : '';
+            renderPartnerPicker(route ? (route.partnerName||'') : '');
             document.getElementById('nr_partnerLogo').value = route ? (route.partnerLogo||'') : '';
             setRouteKind(route && route.kind==='codeshare' ? 'codeshare' : 'own');
             // The ladder comes from the routes endpoint, so the picker offers
@@ -5759,6 +6230,71 @@
             if(window.lucide) lucide.createIcons();
         }
         let NR_KIND='own';
+        /* The partner picker, and its escape hatch.
+         *
+         * Declared partners first, because those are the ones with a logo and a
+         * fleet behind them. A name already on this route that is NOT declared
+         * still appears — plenty of codeshares were written before partners
+         * existed, and a picker that silently dropped the name would rewrite
+         * their route on the next save. */
+        function renderPartnerPicker(current){
+            const sel=document.getElementById('nr_partnerPick'); if(!sel) return;
+            const free=document.getElementById('nr_partner');
+            const names=PARTNERS.map(p=>String(p.name||'').trim()).filter(Boolean);
+            const cur=String(current||'').trim();
+            if(cur && !names.some(n=>acNorm(n)===acNorm(cur))) names.push(cur);
+            const known=names.some(n=>acNorm(n)===acNorm(cur));
+            sel.innerHTML='<option value="">Choose a partner…</option>'
+                + names.map(n=>`<option value="${escapeHtml(n)}" ${acNorm(n)===acNorm(cur)?'selected':''}>${escapeHtml(n)}</option>`).join('')
+                + `<option value="__new" ${cur&&!known?'selected':''}>Someone else…</option>`;
+            sel.classList.toggle('hidden', !names.length);
+            // The free-text box is only in the way once there is a list to pick
+            // from and something picked out of it.
+            if(free) free.classList.toggle('hidden', !!names.length && !!cur && known);
+            if(!sel.__pMounted){
+                sel.__pMounted=true;
+                sel.addEventListener('change',()=>{
+                    const v=sel.value;
+                    if(v==='__new'){ free.classList.remove('hidden'); free.value=''; free.focus(); syncPartnerAircraft(''); return; }
+                    free.value=v;
+                    free.classList.toggle('hidden', !!v);
+                    syncPartnerAircraft(v);
+                    // A declared partner brings its logo with it, so nobody has
+                    // to paste the same URL onto every leg again.
+                    const p=PARTNERS.find(x=>acNorm(x.name)===acNorm(v));
+                    const logo=document.getElementById('nr_partnerLogo');
+                    if(p && p.logo && logo && !logo.value.trim()) logo.value=p.logo;
+                });
+            }
+            syncPartnerAircraft(cur);
+        }
+        /* What that partner flies, offered as a list.
+         *
+         * The codeshare aircraft box has always been free text over the whole
+         * community catalogue, because the VA's own fleet could only ever offer
+         * the wrong answers. A declared partner finally makes the right answers
+         * nameable: these are the aeroplanes THEY fly. The free-text search
+         * stays underneath for a partner nobody has filled in yet. */
+        function syncPartnerAircraft(partnerName){
+            const wrap=document.getElementById('nr_partnerAcWrap');
+            const sel=document.getElementById('nr_partnerAc');
+            if(!wrap||!sel) return;
+            const p=PARTNERS.find(x=>acNorm(x.name)===acNorm(partnerName));
+            const acs=(p&&Array.isArray(p.aircraft)?p.aircraft:[]).filter(a=>String(a.type||'').trim());
+            wrap.classList.toggle('hidden', !acs.length || NR_KIND!=='codeshare');
+            if(!acs.length) return;
+            const cur=document.getElementById('nr_acFree').value.trim();
+            sel.innerHTML='<option value="">Their aircraft…</option>'
+                + acs.map(a=>{
+                    const label=a.name?`${a.type} · ${a.name}`:a.type;
+                    return `<option value="${escapeHtml(label)}" ${acNorm(label)===acNorm(cur)?'selected':''}>${escapeHtml(label)}</option>`;
+                }).join('');
+            if(!sel.__pMounted){
+                sel.__pMounted=true;
+                sel.addEventListener('change',()=>{ if(sel.value) document.getElementById('nr_acFree').value=sel.value; });
+            }
+        }
+
         function setRouteKind(kind){
             NR_KIND = kind==='codeshare' ? 'codeshare' : 'own';
             const own=document.getElementById('nr_kind_own'), cs=document.getElementById('nr_kind_cs');
@@ -5776,6 +6312,7 @@
             document.getElementById('nr_aircraft').classList.toggle('hidden', shared);
             document.getElementById('nr_acFreeWrap').classList.toggle('hidden', !shared);
             if(shared) mountRouteAircraftPicker();
+            syncPartnerAircraft(document.getElementById('nr_partner').value.trim());
         }
         function mountRouteAircraftPicker(){
             mountAircraftPicker(
@@ -6160,7 +6697,35 @@
             try{ await rmLoadMapLibre(); RM.fallback=false; document.getElementById('rmCanvas').innerHTML=''; rmBuildMap(); }
             catch(err){ rmDrawFallback(err&&err.message); }
         }
+        /* CAN THIS DEVICE GIVE US A MAP AT ALL?
+         *
+         * MapLibre is WebGL, and WebGL is a resource a browser can refuse. iOS
+         * Safari caps how many live contexts a page may hold and quietly drops
+         * or denies them under memory pressure — and this page has 3D aircraft
+         * and traffic viewers that take contexts of their own. Asked for one too
+         * many, some builds hand back a Map object that reports `load`, adds
+         * every layer without complaint, and paints nothing: a black screen with
+         * no error to catch, which is the one failure none of the deadlines
+         * below were watching for.
+         *
+         * So we ask for a throwaway context first. If the answer is no, the
+         * drawn map — which needs no GPU at all — takes over immediately, with a
+         * reason on screen instead of a blank one. */
+        function rmWebglReason(){
+            try{
+                const c=document.createElement('canvas');
+                const gl=c.getContext('webgl2')||c.getContext('webgl')||c.getContext('experimental-webgl');
+                if(!gl) return 'this browser has no WebGL to draw the map with';
+                // Hand it straight back; holding it would be one more context
+                // against the very limit we are testing for.
+                const lose=gl.getExtension('WEBGL_lose_context'); if(lose) lose.loseContext();
+                return '';
+            }catch(err){ return (err&&err.message)||'WebGL could not be started'; }
+        }
+
         function rmBuildMap(){
+            const noGl=rmWebglReason();
+            if(noGl) return rmDrawFallback(noGl);
             document.getElementById('rmLoading').classList.remove('hidden');
             RM.accent=rmAccent(); RM.styleDark=isDark();
             document.getElementById('routeMap').style.setProperty('--rm-accent',RM.accent);
@@ -6203,8 +6768,25 @@
                     RM.ready=false;
                     return rmDrawFallback((err&&err.message)||'the map could not be built');
                 }
-                clearTimeout(RM._watchdog); RM.fallback=false; rmHideFallbackNote();
-                document.getElementById('rmLoading').classList.add('hidden');
+                /* A MAP OF NO SIZE IS STILL A BLACK SCREEN.
+                 *
+                 * `load` fired and every layer went in, so nothing above is
+                 * watching any more — but a GL canvas measuring 0 paints
+                 * nothing, and that is indistinguishable from a working map to
+                 * every check we had. It happens when the container is measured
+                 * mid-layout, and on iOS when the context was refused after the
+                 * Map object was already built.
+                 *
+                 * Checked on the next frame, because `resize()` above has only
+                 * just asked for one. */
+                requestAnimationFrame(()=>{
+                    if(RM.fallback) return;
+                    let w=0,h=0;
+                    try{ const cv=map.getCanvas(); w=cv.width; h=cv.height; }catch{}
+                    if(!w||!h){ RM.ready=false; return rmDrawFallback('the map had nowhere to draw'); }
+                    clearTimeout(RM._watchdog); RM.fallback=false; rmHideFallbackNote();
+                    document.getElementById('rmLoading').classList.add('hidden');
+                });
             });
             /* THE CANVAS THAT GOES AWAY AFTER IT ARRIVED.
              *
@@ -6215,6 +6797,15 @@
              * none of the deadlines above are still watching. The drawn map
              * needs no GPU at all, so that is what a lost context gets. */
             map.on('webglcontextlost',()=>{ RM.ready=false; rmDrawFallback('the map lost its drawing surface'); });
+            /* The refusal that happens BEFORE there is a context to lose. The
+               browser fires this on the canvas itself, not on the map, so
+               MapLibre never reports it and the old code never heard it. */
+            try{
+                map.getCanvas().addEventListener('webglcontextcreationerror',(e)=>{
+                    if(RM.ready||RM.fallback) return;
+                    rmDrawFallback((e&&e.statusMessage)||'this device would not give the map a drawing surface');
+                });
+            }catch{ /* no canvas yet is itself caught by the size check above */ }
             // A tile that hiccups once is not a reason to throw the map away —
             // the network overlay still renders over the gap. A style that never
             // arrives at all is, and the watchdog above is what catches it.
@@ -8909,6 +9500,7 @@
             if(Array.isArray(b.ranks)) RANKS=b.ranks;
             if(Array.isArray(b.roles)) ROLES=b.roles;
             if(Array.isArray(b.fleet)) FLEET=normalizeFleet(b.fleet);
+            if(Array.isArray(b.partners)) PARTNERS=normalizePartners(b.partners);
             if(b.social) SOCIAL=normalizeSocialConfig(b.social);
             PIREP_AUTO = !!b.pirepAutoApprove;
             if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', discordInvite:b.join.discordInvite||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };

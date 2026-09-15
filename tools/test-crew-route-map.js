@@ -110,7 +110,21 @@ const FAKE_MAPLIBRE = `(function(){
   Map.prototype.setFilter=function(id){ if(!this.getLayer(id)) this.fire('error',{error:new Error("The layer '"+id+"' does not exist in the map's style.")}); };
   Map.prototype.setPaintProperty=function(id){ if(!this.getLayer(id)) this.fire('error',{error:new Error("The layer '"+id+"' does not exist in the map's style.")}); };
   Map.prototype.queryRenderedFeatures=function(){ return []; };
-  Map.prototype.getCanvas=function(){ return { style:{} }; };
+  /* A canvas with real dimensions and an event target, because that is what a
+     real one has — and because the page now checks BOTH. window.__RM_CANVAS
+     lets a scenario hand back a 0-sized one, which is the shape of the black
+     screen this file could not previously describe: load fires, every layer
+     goes in, and nothing is painted. */
+  Map.prototype.getCanvas=function(){
+    if(!this._cv){
+      var d=(window.__RM_CANVAS)||{w:800,h:600};
+      var handlers={};
+      this._cv={ width:d.w, height:d.h, style:{},
+        addEventListener:function(t,f){ (handlers[t]=handlers[t]||[]).push(f); },
+        dispatchEvent:function(e){ (handlers[e.type]||[]).forEach(function(f){ f(e); }); } };
+    }
+    return this._cv;
+  };
   Map.prototype.fitBounds=function(){};
   Map.prototype.resize=function(){};
   Map.prototype.remove=function(){};
@@ -136,7 +150,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
      * @param engine 'blocked' — the CDN never answers (the reported failure)
      *               'works'   — the engine loads and MapLibre is used
      */
-    const open = async (engine) => {
+    const open = async (engine, deviceInit) => {
         const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
         const page = await ctx.newPage();
         const errs = []; page.on('pageerror', e => errs.push(e.message));
@@ -160,6 +174,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
             return json({});
         });
         await page.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' })));
+        if (deviceInit) await page.addInitScript(deviceInit);
         await page.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
         await page.waitForTimeout(1100);
         // The first-visit tour sits over the whole page and would eat every click.
@@ -311,6 +326,44 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
      * for the rest of the session: pressing Map again re-used the failed
      * promise and failed instantly, without asking the network anything.
      * ================================================================ */
+    /* ==================================================================
+     * THE MAP THAT SAYS IT WORKED AND PAINTS NOTHING
+     *
+     * Reported from a phone: the controls draw, the spinner stops, and the
+     * canvas is empty — no error, no note, no empty state. `load` had fired and
+     * every layer had gone in, so not one of the deadlines above was still
+     * watching. A GL canvas measuring zero is indistinguishable from a working
+     * map to every check this file used to make.
+     * ================================================================ */
+    console.log('\nWhen the engine reports success and paints nothing');
+    routes = ROUTES;
+    ({ ctx, page, errs } = await open('works', () => { window.__RM_CANVAS = { w: 0, h: 0 }; }));
+    await page.evaluate(() => { openRoutes(); openRouteMap(); });
+    await page.waitForTimeout(1800);
+    s = await read(page);
+    ok('a map with no drawing surface is caught', s.fallback, JSON.stringify(s));
+    ok('…and the network is drawn instead of nothing', s.arcs > 0, JSON.stringify(s));
+    ok('…with the reason on screen rather than a black rectangle',
+        /nowhere to draw/i.test(s.note || ''), s.note);
+    ok('…and the spinner does not turn for ever', !s.spinnerShown);
+    ok('no page errors', errs.length === 0, errs.join('|'));
+    await ctx.close();
+
+    /* WebGL refused outright — an iOS phone out of contexts, which this page
+     * can plausibly reach on its own with two 3D viewers in it. */
+    console.log('\nWhen the device will not give us WebGL at all');
+    ({ ctx, page, errs } = await open('works', () => {
+        HTMLCanvasElement.prototype.getContext = function(){ return null; };
+    }));
+    await page.evaluate(() => { openRoutes(); openRouteMap(); });
+    await page.waitForTimeout(1500);
+    s = await read(page);
+    ok('it is found out before a Map is even built', s.fallback, JSON.stringify(s));
+    ok('…the network still draws', s.arcs > 0, JSON.stringify(s));
+    ok('…and it says WebGL, not something vague',
+        /WebGL/i.test(s.note || ''), s.note);
+    await ctx.close();
+
     console.log('\nA bad minute is not the rest of the session');
     ({ ctx, page, errs } = await open('blocked'));
     await page.evaluate(() => { openRoutes(); openRouteMap(); });
