@@ -51,15 +51,31 @@ const freshState = () => ({
     canManage: true,
     missing: false,               // the database predates the shop
     balance: 4820,
+    goal: '',                     // the shelf item this pilot is saving for
+    goals: [],                    // every POST /shop/goal, in order
     orders: [],                   // every POST /shop/orders, in order
+    placed: [],                   // the orders those produced, as the server keeps them
     settings: [],                 // every POST /shop/settings, in order
     added: [],                    // every POST /shop/items, in order
 });
 
+const SOON = new Date(Date.now() + 3 * 86400000).toISOString();
+const REWARD = 'Ask in #crew with this: RETRO-2026\nhttps://example.com/roles';
+
 const ITEMS = () => ([
-    { id: 'i1', name: 'A320 Retro livery', desc: 'The 1987 scheme.', price: 1500, stock: -1 },
-    { id: 'i2', name: 'Custom callsign', desc: 'Any three digits.', price: 6200, stock: -1 },
-    { id: 'i3', name: 'Gate 1A at KSEA', desc: 'Your pick of stand.', price: 900, stock: 0 },
+    { id: 'i1', name: 'A320 Retro livery', desc: 'The 1987 scheme.', price: 1500, stock: -1, group: 'Liveries' },
+    { id: 'i2', name: 'Custom callsign', desc: 'Any three digits.', price: 6200, stock: -1, group: 'Identity' },
+    { id: 'i3', name: 'Gate 1A at KSEA', desc: 'Your pick of stand.', price: 900, stock: 0, group: 'Identity' },
+    // Hands itself over. Nobody on the staff has to do anything, and the
+    // pilot has the thing before they have closed the sheet.
+    { id: 'i4', name: 'Discord crew role', desc: 'The blue name.', price: 800, stock: -1,
+        delivery: 'instant', reward: REWARD, group: 'Identity' },
+    // One key off a list the VA pasted in once.
+    { id: 'i5', name: 'Livery pack key', desc: 'A one-time key.', price: 1200, stock: -1,
+        delivery: 'codes', codesLeft: 4, group: 'Liveries' },
+    // On offer, and the tile has to say so — and quote the offer, not the price.
+    { id: 'i6', name: 'Name a route', desc: 'Pick the next city pair.', price: 9000,
+        salePrice: 4000, saleEndsAt: SOON, stock: -1, group: 'The network' },
 ]);
 
 /* What the server offers a VA with an empty shelf, priced from their own rates.
@@ -99,11 +115,12 @@ function api(route) {
             enabled: state.shopOn,
             canManage: state.canManage,
             currency: { name: 'Miles', short: 'mi' },
-            earn: { perHour: 120, perLanding: 15, fleetBonus: 40, violationPenalty: 60 },
+            earn: { perHour: 120, perLanding: 15, fleetBonus: 40, eventBonus: 250, violationPenalty: 60 },
             items: ITEMS(),
             suggested: SUGGESTED(),
             wallet: {
                 pilotId: 'p-8812', balance: state.balance, earned: 9140, spent: 4320,
+                goalItemId: state.goal,
                 name: 'Sam Reyes', callsign: 'TST1174', rank: 'First Officer', since: '2026-03-02',
             },
         });
@@ -115,13 +132,20 @@ function api(route) {
         // Re-priced with the settings, because every suggestion's price is
         // worked out from the rates that were just saved.
         return json({ enabled: state.shopOn, canManage: true, currency: { name: 'Miles', short: 'mi' },
-            earn: { perHour: 120, perLanding: 15, fleetBonus: 40, violationPenalty: 60 }, items: ITEMS(),
+            earn: { perHour: 120, perLanding: 15, fleetBonus: 40, eventBonus: 250, violationPenalty: 60 }, items: ITEMS(),
             suggested: SUGGESTED().map((x) => ({ ...x, price: x.price * 2 })),
             wallet: { pilotId: 'p-8812', balance: state.balance, name: 'Sam Reyes', callsign: 'TST1174' } });
     }
     if (p.endsWith('/shop/items') && method === 'POST') {
         state.added.push(route.request().postDataJSON() || {});
         return json({ item: { id: 'new1', ...(route.request().postDataJSON() || {}) } }, 201);
+    }
+    if (p.endsWith('/shop/goal') && method === 'POST') {
+        const body = route.request().postDataJSON() || {};
+        state.goals.push(body);
+        state.goal = String(body.itemId || '');
+        return json({ wallet: { pilotId: 'p-8812', balance: state.balance, earned: 9140, spent: 4320,
+            goalItemId: state.goal, name: 'Sam Reyes', callsign: 'TST1174' } });
     }
     if (p.endsWith('/shop/orders') && method === 'POST') {
         const body = route.request().postDataJSON() || {};
@@ -130,11 +154,27 @@ function api(route) {
         // Deliberately NOT balance - price: the test wants to prove the page
         // renders what the server says rather than its own arithmetic.
         state.balance = 1234;
-        return json({ order: { id: 'o9', code: 'TST-4XB2', itemName: item.name, price: item.price, status: 'placed' },
+        /* Three shapes of answer, because there are three ways an item is
+           delivered — and which one comes back is the SERVER'S decision. An
+           order fulfilled on the spot carries what was bought; one that needs
+           a staff member carries a code and waits. */
+        const d = item.delivery || 'staff';
+        const order = d === 'staff'
+            ? { id: 'o9', code: 'TST-4XB2', itemName: item.name, price: item.price, status: 'placed' }
+            : { id: 'o9', itemName: item.name, price: item.salePrice || item.price, status: 'fulfilled',
+                reward: d === 'codes' ? 'KEY-77Q1' : item.reward };
+        state.placed.push({ ...order, createdAt: new Date().toISOString(), pilotName: 'Sam Reyes' });
+        return json({ order,
             wallet: { pilotId: 'p-8812', balance: state.balance, name: 'Sam Reyes', callsign: 'TST1174' } });
     }
     if (p.endsWith('/shop/orders') && method === 'GET') {
-        return json({ orders: [{ id: 'o1', itemName: 'A320 Retro livery', price: 1500, status: 'placed', code: 'TST-7Q2K', createdAt: new Date().toISOString(), pilotName: 'Sam Reyes' }] });
+        // Whatever was bought this run, newest first, on top of one that was
+        // already waiting — a queue with nothing in it proves nothing about a
+        // queue, and a pilot reading their orders has to find the one they
+        // just placed at the top of it.
+        return json({ orders: state.placed.slice().reverse().concat([
+            { id: 'o1', itemName: 'A320 Retro livery', price: 1500, status: 'placed', code: 'TST-7Q2K', createdAt: new Date().toISOString(), pilotName: 'Sam Reyes' },
+        ]) });
     }
     if (p.endsWith('/stats')) return json({ ok: true, connected: true, stats: { pilots: 12, hours: 400, flights30d: 3, pireps: 9 } });
     if (p.endsWith('/me/pilot')) return json({ linkable: false, linked: false, pilot: null });
@@ -230,12 +270,147 @@ function api(route) {
         check('the airline is on the front of it',
             (await page.textContent('.sh-card-airline')).trim() === 'Test VA');
         check('something they can afford offers to sell it', await page.isVisible('[data-sh-buy="i1"]'));
+        // Read from the whole shelf rather than one grid: a shelf with
+        // sections in it is several grids, and the first of them is not the
+        // shelf.
+        const shelf = await page.textContent('.sh-wrap');
         check('something they cannot says how short they are',
             !(await page.isVisible('[data-sh-buy="i2"]'))
-            && /1,380 mi short/.test(await page.textContent('.sh-grid')));
+            && /1,380 mi short/.test(shelf));
         check('something that has run out says so, and does not offer',
             !(await page.isVisible('[data-sh-buy="i3"]'))
-            && /Sold out/.test(await page.textContent('.sh-grid')));
+            && /Sold out/.test(shelf));
+        check('no page errors', errors.length === 0, errors[0]);
+        await page.close();
+    }
+
+    // ---- 2b. Claiming it yourself -------------------------------------------
+    //
+    // The shop shipped with one ending: a code, and a staff member who reads
+    // it and does the thing. That is a ticket queue, and a pilot who waits
+    // three days for what they saved twenty hours for does not save again.
+    console.log('\nClaiming it yourself');
+    state = freshState();
+    {
+        const { page, errors } = await openDash();
+        await openShop(page);
+
+        const tile = (id) => page.textContent(`[data-sh-buy="${id}"] >> xpath=ancestor::article`);
+        check('a thing that delivers itself says so before it is bought',
+            /Instant/i.test(await tile('i4')), await tile('i4'));
+        check('…and one a staff member hands over does not',
+            !/Instant/i.test(await tile('i1')), await tile('i1'));
+
+        await page.click('[data-sh-buy="i4"]');
+        await page.waitForSelector('.sh-pay', { timeout: 4000 });
+        check('the sheet says it arrives on the spot',
+            /moment this goes through/i.test(await page.textContent('.sh-pay-card')));
+        // The sheet rises into place over about a third of a second, and a
+        // box measured mid-rise is a box the button has already left. Aim at
+        // where it settles, which is where a finger aims.
+        await page.waitForTimeout(500);
+        await hold(page, 1100);
+        check('holding it pays', state.orders.length === 1, JSON.stringify(state.orders));
+        check('…and hands the thing over there and then',
+            /RETRO-2026/.test(await page.textContent('.sh-reward')),
+            await page.textContent('.sh-pay-card'));
+        check('…with the link in it made tappable',
+            (await page.getAttribute('.sh-reward-body a', 'href')) === 'https://example.com/roles');
+        check('…and no code to go and queue with',
+            !(await page.isVisible('.sh-code')));
+        check('…and a way to copy it that does not need a steady hand',
+            await page.isVisible('[data-sh-copy]'));
+
+        // It has to still be there tomorrow. A reward you can only read once
+        // is a support request waiting to happen.
+        await page.click('[data-sh-paydone]');
+        await page.waitForTimeout(300);
+        await page.click('[data-sh-view="orders"]');
+        await page.waitForTimeout(700);
+        check('the order keeps what it handed over',
+            /RETRO-2026/.test(await page.textContent('.sh-section')),
+            await page.textContent('.sh-section'));
+        check('no page errors', errors.length === 0, errors[0]);
+        await page.close();
+    }
+
+    console.log('\nOne key off the list');
+    state = freshState();
+    {
+        const { page, errors } = await openDash();
+        await openShop(page);
+        await page.click('[data-sh-buy="i5"]');
+        await page.waitForSelector('.sh-pay', { timeout: 4000 });
+        await page.waitForTimeout(500);
+        await hold(page, 1100);
+        check('a code item hands over the next unused key',
+            /KEY-77Q1/.test(await page.textContent('.sh-reward')),
+            await page.textContent('.sh-pay-card'));
+        check('no page errors', errors.length === 0, errors[0]);
+        await page.close();
+    }
+
+    // ---- 2c. On offer, and in sections --------------------------------------
+    console.log('\nOn offer, and in sections');
+    state = freshState();
+    {
+        const { page, errors } = await openDash();
+        await openShop(page);
+        const shelf = await page.textContent('.sh-wrap');
+        check('a shelf with sections gets headings',
+            /Liveries/.test(shelf) && /The network/.test(shelf), shelf.slice(0, 200));
+
+        const sale = await page.textContent('[data-sh-buy="i6"] >> xpath=ancestor::article');
+        check('an item on offer quotes the offer', /4,000/.test(sale), sale);
+        check('…with the old price struck through beside it',
+            (await page.textContent('[data-sh-buy="i6"] >> xpath=ancestor::article >> .sh-was')).trim() === '9,000');
+        check('…and says when it stops', /Ends in 3 days/i.test(sale), sale);
+
+        // THE OFFER IS THE PRICE. Quoting one number on the shelf and
+        // charging another on the sheet is the single worst thing a shop
+        // can do, and it is exactly what two price fields invite.
+        await page.click('[data-sh-buy="i6"]');
+        await page.waitForSelector('.sh-pay', { timeout: 4000 });
+        check('Inflight Pay charges the offer, not the old price',
+            /4,000/.test(await page.textContent('.sh-pay-amount')),
+            await page.textContent('.sh-pay-amount'));
+        check('…and takes it off the balance it shows',
+            /820 mi left/.test(await page.textContent('.sh-pay-after')),
+            await page.textContent('.sh-pay-after'));
+        check('no page errors', errors.length === 0, errors[0]);
+        await page.close();
+    }
+
+    // ---- 2d. Saving for ------------------------------------------------------
+    //
+    // A balance on its own is a score. The pin turns it into a reason to file
+    // another flight, which is the only reason to pay pilots for flying.
+    console.log('\nSaving for something');
+    state = freshState();
+    {
+        const { page, errors } = await openDash();
+        await openShop(page);
+        check('the thing they cannot afford yet can be pinned',
+            await page.isVisible('[data-sh-goal="i2"]'));
+        check('…and the one they can afford is not offered a goal',
+            !(await page.isVisible('[data-sh-goal="i1"]')));
+
+        await page.click('[data-sh-goal="i2"]');
+        await page.waitForTimeout(700);
+        check('pinning it is sent to the server, not kept in this browser',
+            state.goals.length === 1 && state.goals[0].itemId === 'i2', JSON.stringify(state.goals));
+        const goal = await page.textContent('.sh-goal');
+        check('the card gets what the balance is FOR', /Custom callsign/.test(goal), goal);
+        check('…and how much further it is', /1,380 mi/.test(goal), goal);
+        check('…drawn as a bar somebody can read at a glance',
+            (await page.getAttribute('.sh-goal', 'style')).includes('--sh-g:0.77'),
+            await page.getAttribute('.sh-goal', 'style'));
+
+        await page.click('[data-sh-goal="i2"]');
+        await page.waitForTimeout(700);
+        check('pressing it again puts it down',
+            state.goals.length === 2 && state.goals[1].itemId === '', JSON.stringify(state.goals));
+        check('…and the bar goes with it', !(await page.isVisible('.sh-goal')));
         check('no page errors', errors.length === 0, errors[0]);
         await page.close();
     }
@@ -314,10 +489,25 @@ function api(route) {
         check('…explained with a flight somebody has actually flown',
             /2h 15m/.test(before) && /325 mi/.test(before), before);
 
+        /* EVENTS PAY THROUGH THE FLIGHT.
+         *
+         * Every VA wants its group flights to be worth turning up to, and the
+         * obvious way — a button that hands out points for attendance — is a
+         * second supply nobody can audit. So it is a rate like the others, and
+         * it lands the same way they do: when a staff member approves the
+         * report somebody filed for the event. The worked example has to say
+         * both numbers, because a bonus you cannot see the size of is a bonus
+         * a VA sets to 5,000 by accident. */
+        check('an event bonus is one of the rates, not a separate supply',
+            await page.isVisible('[data-sh-rate="eventBonus"]'));
+        check('…and the worked example prices an event flight too',
+            /575 mi/.test(before) && /for an event/i.test(before), before);
+
         await page.fill('[data-sh-rate="perHour"]', '200');
         await page.waitForTimeout(200);
         const after = await page.textContent('.sh-example');
         check('…which keeps up as the rate is typed', /505 mi/.test(after), after);
+        check('…both halves of it', /755 mi/.test(after), after);
 
         await page.click('[data-sh-saverates]');
         await page.waitForTimeout(600);
@@ -325,6 +515,7 @@ function api(route) {
         check('saving sends the rate and what the VA calls it',
             saved.earn && saved.earn.perHour === 200 && saved.currency && saved.currency.short === 'mi',
             JSON.stringify(saved));
+        check('…the event bonus with them', saved.earn.eventBonus === 250, JSON.stringify(saved.earn));
 
         await page.click('[data-sh-additem]');
         await page.waitForTimeout(300);
@@ -345,6 +536,60 @@ function api(route) {
         const typed = state.added[state.added.length - 1] || {};
         check('…and it is saved with the item',
             typed.name === 'Jumpseat ride' && typed.icon === 'plane', JSON.stringify(typed));
+        check('…and it defaults to the delivery that has always existed',
+            typed.delivery === 'staff', JSON.stringify(typed));
+        check('…carrying no empty code list for the server to interpret',
+            typed.codes === undefined, JSON.stringify(typed));
+
+        /* CHOOSING WHO HANDS IT OVER.
+         *
+         * The three choices ask for different things, and a VA reads all
+         * three before picking one — so the boxes belonging to each are shown
+         * and hidden in place rather than by redrawing the form, which would
+         * take everything typed so far with it. */
+        await page.click('[data-sh-additem]');
+        await page.waitForTimeout(300);
+        check('an item says how it reaches a pilot', await page.isVisible('[data-sh-deliv="instant"]'));
+        check('…and starts on the one that needs a staff member',
+            await page.getAttribute('[data-sh-deliv="staff"]', 'aria-pressed') === 'true');
+        check('…with the boxes for the other two out of the way',
+            !(await page.isVisible('[data-sh-f="reward"]')) && !(await page.isVisible('[data-sh-f="codes"]')));
+
+        await page.fill('[data-sh-f="name"]', 'Discord role');
+        await page.click('[data-sh-deliv="instant"]');
+        await page.waitForTimeout(200);
+        check('choosing “straight away” asks what they get',
+            await page.isVisible('[data-sh-f="reward"]') && !(await page.isVisible('[data-sh-f="codes"]')));
+        check('…without throwing away what was already typed',
+            await page.inputValue('[data-sh-f="name"]') === 'Discord role');
+
+        await page.click('[data-sh-deliv="codes"]');
+        await page.waitForTimeout(200);
+        check('choosing “a code from a list” asks for the list instead',
+            await page.isVisible('[data-sh-f="codes"]') && !(await page.isVisible('[data-sh-f="reward"]')));
+
+        await page.fill('[data-sh-f="codes"]', 'KEY-1\nKEY-2\n\n  KEY-3  ');
+        await page.fill('[data-sh-f="price"]', '500');
+        await page.click('[data-sh-saveitem]');
+        await page.waitForTimeout(600);
+        const coded = state.added[state.added.length - 1] || {};
+        check('the codes are sent as a list, tidied',
+            JSON.stringify(coded.codes) === JSON.stringify(['KEY-1', 'KEY-2', 'KEY-3']), JSON.stringify(coded));
+        check('…and nothing belonging to a delivery it does not use',
+            coded.delivery === 'codes' && !coded.reward, JSON.stringify(coded));
+
+        /* An offer has to be cheaper than the price. Two price fields is
+           exactly the shape of mistake that puts a shelf on the house. */
+        await page.click('[data-sh-additem]');
+        await page.waitForTimeout(300);
+        await page.fill('[data-sh-f="name"]', 'Backwards offer');
+        await page.fill('[data-sh-f="price"]', '100');
+        await page.fill('[data-sh-f="salePrice"]', '900');
+        const wasAdded = state.added.length;
+        await page.click('[data-sh-saveitem]');
+        await page.waitForTimeout(500);
+        check('an “offer” dearer than the price is refused, not saved',
+            state.added.length === wasAdded, JSON.stringify(state.added[state.added.length - 1]));
 
         check('no page errors', errors.length === 0, errors[0]);
         await page.close();
@@ -391,8 +636,13 @@ function api(route) {
             && sent.icon === 'users', JSON.stringify(sent));
         check('…carrying the scarcity that was the point of it',
             sent.stock === 1 && sent.limitPerPilot === 1, JSON.stringify(sent));
-        check('…and nothing that says it came from a catalogue',
-            sent.id === undefined && sent.group === undefined, JSON.stringify(sent));
+        check('…and no catalogue id riding along with it',
+            sent.id === undefined, JSON.stringify(sent));
+        // The section is not a trace of the catalogue — it is an ordinary
+        // field a VA renames or clears like any other. Arriving already in
+        // the section it was offered under beats arriving in a heap.
+        check('…landing in the section it was offered under',
+            sent.group === 'Events', JSON.stringify(sent));
 
         /* Every price here is worked out from the rates. The one moment a VA is
            certain to read them is right after changing the rate that decides

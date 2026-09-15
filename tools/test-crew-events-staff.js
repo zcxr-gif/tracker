@@ -40,7 +40,12 @@ async function api(route) {
     const json = (b, s = 200) => route.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(b) });
 
     if (p.endsWith('/events') && method === 'GET') {
-        return json({ events, mine: [], canManage: true, ranks: [{ name: 'Cadet', minHours: 0 }, { name: 'Captain', minHours: 300 }] });
+        // `currency` is sent only while the airline runs a shop. It is what
+        // lets an event say what flying it pays, in the VA's own words for
+        // money — and its absence is what keeps every trace of paying off the
+        // screen of a VA that has no shop at all.
+        return json({ events, mine: [], canManage: true, currency: { name: 'Miles', short: 'mi', eventBonus: 250 },
+            ranks: [{ name: 'Cadet', minHours: 0 }, { name: 'Captain', minHours: 300 }] });
     }
     if (p.endsWith('/events') && method === 'POST') {
         created = route.request().postDataJSON();
@@ -98,7 +103,12 @@ async function api(route) {
     page.on('pageerror', e => errors.push(String(e)));
 
     await page.route('**/api/**', api);
-    await page.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner' })));
+    await page.addInitScript(() => {
+        localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner' }));
+        // The first-visit tour lays a dialog over the whole page and would eat
+        // every click below. Told it has already been taken.
+        localStorage.setItem('crew:tour:staff:testva', '99');
+    });
     await page.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
     await page.waitForTimeout(1800);
 
@@ -176,7 +186,10 @@ async function api(route) {
             }
             return api(route);
         });
-        await p2.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner' })));
+        await p2.addInitScript(() => {
+            localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner' }));
+            localStorage.setItem('crew:tour:staff:testva', '99');
+        });
         await p2.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
         await p2.waitForTimeout(1500);
 
@@ -198,7 +211,10 @@ async function api(route) {
         const errs = [];
         p3.on('pageerror', e => errs.push(String(e)));
         await p3.route('**/api/**', api);
-        await p3.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner' })));
+        await p3.addInitScript(() => {
+            localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner' }));
+            localStorage.setItem('crew:tour:staff:testva', '99');
+        });
         await p3.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
         await p3.waitForTimeout(1600);
 
@@ -228,7 +244,38 @@ async function api(route) {
         check('picking a route fills the leg in', await p3.inputValue('#cevfOrigin') === 'MMMX'
             && await p3.inputValue('#cevfDest') === 'KJFK'
             && await p3.inputValue('#cevfAircraft') === 'B789');
-        await p3.click('#cevEdit .cev-icon-btn[data-cev-edit-close]');
+
+        /* WHAT AN EVENT PAYS.
+         *
+         * A group flight nobody turns up to is the commonest thing a VA gets
+         * wrong, and "it pays extra" is the only lever that moves it. The
+         * figure rides on the flight report, not on the sign-up sheet, so the
+         * field says so — and an empty box means "use the standing rate",
+         * which is a different thing from zero. */
+        check('an event can be worth more than the usual rate',
+            await p3.isVisible('#cevfBonus'));
+        check('…in the airline’s own words for money',
+            /\(mi\)/.test(await p3.textContent('#cevEditBody label:has(#cevfBonus)')));
+        check('…and says the flight report is what triggers it',
+            /flight report/i.test(await p3.textContent('#cevEditBody label:has(#cevfBonus)')));
+        check('…with the standing bonus offered as the default',
+            await p3.getAttribute('#cevfBonus', 'placeholder') === '250');
+
+        await p3.fill('#cevfTitle', 'Paid transcon');
+        await p3.fill('#cevfBonus', '900');
+        await p3.click('#cevSaveBtn');
+        await p3.waitForTimeout(700);
+        check('the figure is sent with the event', created && created.bonus === 900, JSON.stringify(created));
+
+        await p3.click('#cevNewBtn');
+        await p3.waitForSelector('#cevfBonus', { timeout: 5000 });
+        await p3.fill('#cevfTitle', 'Ordinary fly-in');
+        await p3.click('#cevSaveBtn');
+        await p3.waitForTimeout(700);
+        check('…and leaving it empty means the standing rate, not nothing',
+            created && created.bonus === null, JSON.stringify(created));
+
+        await p3.click('#cevEdit .cev-icon-btn[data-cev-edit-close]').catch(() => {});
         // …and the events panel itself, which otherwise covers the tiles below.
         await p3.click('#cevPanel .cev-head .cev-icon-btn[data-cev-close]');
         await p3.waitForTimeout(300);
