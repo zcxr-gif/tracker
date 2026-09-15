@@ -65,7 +65,17 @@
     // at which point the airline's colour is gone and we have solved the
     // problem by deleting the feature.
     var INK_MIN = 4.5;
-    var TEXT_MIN = 3.5;
+    /* 3.6 rather than 3.5, and the extra tenth is not decoration.
+     *
+     * The ground below is the PAGE (--bg). Most accent text does sit on it,
+     * but some of it sits on a panel a shade off it — the sign-in page's split
+     * look puts its eyebrow on a stone-50 panel, a couple of percent darker
+     * than the page behind it. An accent walked to exactly 3.5 against the
+     * page lands at 3.40 there, and a pale brand colour set as small caps at
+     * 3.40:1 is the one place this whole file is supposed to be looking. The
+     * tenth is the headroom for that difference; it costs a pale accent about
+     * one step of lightness and nothing anybody can see. */
+    var TEXT_MIN = 3.6;
     // A block of colour does not have to be READ, only SEEN, so the bar is far
     // lower — this is the line between "a quiet button" and "no button". Only
     // an accent within a whisker of the page's own background is moved at all.

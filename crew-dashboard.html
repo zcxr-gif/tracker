@@ -44,10 +44,9 @@
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
          only has to say where the backend is and hand it the session. -->
     <script src="/crewEvents.js"></script>
-    <!-- The network, drawn here rather than fetched. The route map proper is
-         MapLibre over OpenFreeMap and is the better thing when it loads; this
-         is what the crew centre shows when it does not. No tiles, no engine, no
-         host to be blocked by an office proxy or an ad-blocker. -->
+    <!-- The route map. The network is drawn here from coordinates we already
+         hold — no tiles, no engine, no host to be blocked by an office proxy or
+         an ad-blocker, and no WebGL context for a phone to refuse. -->
     <script src="/crewNetMap.js"></script>
     <!-- The shared panel chrome the four modules below are built from: the
          slide-over shell, the toast, the API helper and the date formatting.
@@ -208,7 +207,24 @@
            ===================================================================== */
         .drawer-head{ min-height:4rem; flex-wrap:wrap; row-gap:.5rem; padding-top:.5rem; padding-bottom:.5rem; }
         .drawer-head > *{ min-width:0; max-width:100%; }
-        .drawer-actions{ flex-shrink:0; margin-left:auto; }
+        /* The actions never shrink and never leave — but on a 360px phone the
+           routes drawer alone carries Fleet, Map, Real routes, CSV, Add and the
+           X, which is more than 320px of buttons whatever you do to them. So
+           they wrap as well, onto a second line of the header that has already
+           been told it may have one, rather than the last two running off the
+           end of the screen. */
+        .drawer-actions{ flex-shrink:0; margin-left:auto; flex-wrap:wrap;
+            justify-content:flex-end; row-gap:.5rem; }
+        /* The route map's detail rail sits over the right-hand fifth of the
+           map. Squeezing the canvas out from under it re-fits the drawing into
+           what is still visible — preserveAspectRatio="meet" does that work for
+           free — instead of leaving a third of the network behind a panel. On a
+           phone the rail is the whole screen, so there is nothing to squeeze
+           into and this does not apply. */
+        @media (min-width:640px){
+            #routeMap.rm-rail-open #rmCanvas{ right:20rem; }
+        }
+
         .hscroll{ overflow-x:auto; max-width:100%; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
         .hscroll::-webkit-scrollbar{ display:none; }
         .hscroll > *{ flex-shrink:0; }
@@ -482,13 +498,25 @@
 
     <!-- ============ TOP BAR ============ -->
     <header class="sticky top-0 z-30 backdrop-blur-xl border-b hair" style="background:color-mix(in srgb, var(--bg) 82%, transparent);">
-        <div class="max-w-6xl mx-auto px-5 h-16 flex items-center gap-4">
+        <!-- THE BAR, ON A PHONE.
+             This row had five icon controls and an account chip in it, none of
+             which could shrink, and an airline logo that could not shrink
+             either. At 360px the VA's own name was squeezed to nothing and the
+             logo ran under the buttons: the one element that says whose crew
+             centre this is, pushed off its own top bar.
+
+             So the controls are pinned (shrink-0 — a 36px target stays 36px),
+             the identity is what gives way, and the two controls that are
+             one-time preferences rather than daily doors — the interface switch
+             and the theme — come off the bar below `sm` and are reached through
+             Settings › Appearance, which is still one tap away in this same row. -->
+        <div class="max-w-6xl mx-auto px-3 sm:px-5 h-16 flex items-center gap-2 sm:gap-4">
             <!-- The VA's identity. Hidden when framed: the host page IS the VA's
                  site and its own header has already said whose crew center this
                  is, so repeating the logo and the name directly underneath it is
                  what reads as two stacked top bars. -->
-            <div class="flex items-center gap-2.5 min-w-0" data-embed-hide>
-                <img id="navLogo" alt="" class="hidden h-7 w-auto max-w-[130px] object-contain">
+            <div class="flex items-center gap-2 sm:gap-2.5 min-w-0" data-embed-hide>
+                <img id="navLogo" alt="" class="hidden h-7 w-auto min-w-0 max-w-[92px] sm:max-w-[130px] object-contain">
                 <div id="navMonogram" class="accent-bg w-8 h-8 rounded-md grid place-items-center text-white text-sm font-bold shrink-0">VA</div>
                 <span id="navName" class="font-semibold tracking-tight truncate">Crew Center</span>
             </div>
@@ -502,16 +530,19 @@
                         class="w-full pl-9 pr-3 py-2 rounded-md surface focus:outline-none focus:border-[var(--ink)] text-sm transition">
                 </div>
             </div>
-            <div class="flex items-center gap-1 ml-auto">
+            <div class="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0">
                 <!-- crewSkin.js puts the interface switch here. Empty until it
-                     does, and empty for good if the script did not arrive. -->
-                <span data-skin-toggle></span>
+                     does, and empty for good if the script did not arrive.
+                     Off the bar on a phone — it is in Settings › Appearance. -->
+                <span data-skin-toggle class="hidden sm:inline-flex"></span>
                 <!-- crewAlerts.js adopts this and paints the count on it. No dot
                      in the markup: one that is always there means nothing. -->
                 <button data-crew-bell class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition relative" title="Notifications"><i data-lucide="bell" class="w-[18px] h-[18px]"></i></button>
                 <button onclick="openSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Settings"><i data-lucide="settings" class="w-[18px] h-[18px]"></i></button>
-                <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme"><span id="themeIcon"></span></button>
-                <div class="flex items-center gap-2.5 pl-2 ml-1 border-l hair">
+                <!-- Also in Settings › Appearance, which is why it can leave
+                     the bar on a phone rather than crush the airline's name. -->
+                <button onclick="toggleTheme()" class="hidden sm:grid w-9 h-9 place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme"><span id="themeIcon"></span></button>
+                <div class="flex items-center gap-2.5 pl-1.5 sm:pl-2 ml-0.5 sm:ml-1 border-l hair">
                     <!-- Empty on purpose. This shipped with a made-up person's
                          name and role in it, which is not a fallback: it was
                          shown to every VA whose session hadn't filled the chip in
@@ -1596,7 +1627,10 @@
                     <div id="rosterViewTabs" class="hscroll inline-flex items-center gap-1 p-1 rounded-lg surface hair text-sm font-semibold">
                         <button data-view="roster" onclick="switchRosterView('roster')" class="px-3 py-1.5 rounded-md transition">Roster<span id="rosterCount" class="text-xs muted"></span></button>
                         <button data-view="apps" onclick="switchRosterView('apps')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Applications<span id="appsBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
-                        <button data-view="invites" onclick="switchRosterView('invites')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Invitations<span id="invitesBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
+                        <!-- "Logins", not "Invitations": it holds both halves of the same job —
+                             a login minted for a new pilot and waiting to be handed over,
+                             and one an existing pilot has asked to have replaced. -->
+                        <button data-view="invites" onclick="switchRosterView('invites')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Logins<span id="invitesBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
                     </div>
                     <div class="drawer-actions flex items-center gap-2">
                         <button id="rosterCsvBtn" onclick="openCsv('roster')" title="Export or import the roster as CSV" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="table" class="w-4 h-4"></i> CSV</button>
@@ -1625,8 +1659,9 @@
             </div>
             <div id="rosterList" class="p-5 space-y-2.5"></div>
             <div id="appsList" class="hidden p-5 space-y-3"></div>
-            <!-- Invitations issued but not yet used. Stays put until the pilot
-                 signs in or a staff member throws it away. -->
+            <!-- Logins waiting to be handed over: invitations issued and not
+                 yet used, and pilots who have asked for a new password. Both
+                 stay put until they are used or thrown away. -->
             <div id="invitesList" class="hidden p-5 space-y-3"></div>
         </div>
     </div>
@@ -5004,7 +5039,7 @@
             fetchApps().then(()=>{ refreshAppsBadge(); if(ROSTER_VIEW==='apps') renderApps(); });
             // Same for invitations still waiting to be handed over — that badge
             // is the reminder that somebody is sitting on an unused login.
-            if(can('applications.review')) fetchInvites().then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); else setInvitesBadge(INVITES.filter(x=>x.invite&&x.invite.state==='live').length); });
+            if(can('applications.review')) Promise.all([fetchInvites(),fetchResets()]).then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); else setInvitesBadge(waitingCount()); });
             if(window.lucide) lucide.createIcons();
         }
         function closeRoster(){ closeDrawer('roster'); }
@@ -6415,82 +6450,51 @@
         });
 
         /* =====================================================================
-           ROUTE NETWORK MAP — a live great-circle map of the VA's routes.
-           MapLibre GL + OpenFreeMap (free, key-less; the same engine the embed
-           uses). Data comes from GET /api/crew/:slug/route-map (routes already
-           joined to airport coordinates); if that's unreachable we fall back to a
+           ROUTE NETWORK MAP — the VA's network, drawn here.
+
+           WHY THERE IS NO SLIPPY MAP IN THIS OVERLAY ANY MORE
+           ---------------------------------------------------
+           This was MapLibre GL over OpenFreeMap: the engine from a CDN, the
+           basemap from a tile service, two third-party hosts away. It was the
+           better map on the days both of them answered. On every other day it
+           was the same screen — a black rectangle, because the overlay is
+           painted var(--bg) and in dark mode that is black.
+
+           There were a lot of other days. A blocked CDN. An office proxy that
+           blackholes a request rather than refusing it. An ad-blocker that eats
+           tile hosts. A phone that would not give up another WebGL context with
+           two 3D viewers already on the page. One slow minute on the tile host.
+           Each of them got its own deadline, its own watchdog and its own
+           sentence, and the list kept growing — because the failure that
+           mattered most is the one that reports success: the style arrives,
+           every layer goes in, the spinner stops, and not one tile follows.
+           Nothing is left watching by then, and there is nothing to catch.
+
+           None of that is a bug to be found. It is the cost of asking two
+           strangers for permission to draw our own data.
+
+           So we stopped asking. The network is ours and already loaded, and
+           drawing a great circle on a projection is arithmetic — crewNetMap.js
+           shipped as the floor under all of the above and has been drawing this
+           exact network, with no network access at all, ever since. It is the
+           map now: one file, no CDN, no tile host, no GPU, no deadline to miss.
+           It paints in a frame, and it paints on everything.
+
+           What it costs is basemap detail — no roads, no cities, no place names
+           but the busiest fields. What it buys is a map that is there.
+
+           Data comes from GET /api/crew/:slug/route-map (routes already joined
+           to airport coordinates); if that is unreachable we fall back to a
            small built-in coord table so the demo/offline view still draws.
            ===================================================================== */
-        const RM_MAPLIBRE_VERSION='4.7.1';
-        const RM_STYLE={ dark:'https://tiles.openfreemap.org/styles/dark', light:'https://tiles.openfreemap.org/styles/positron' };
         // Fallback coords (lat,lon) for common majors — only used when the backend
         // /route-map endpoint can't be reached (offline dev / demo routes).
         const RM_FALLBACK_COORDS={ CYYZ:[43.68,-79.63],CYVR:[49.19,-123.18],CYUL:[45.47,-73.74],EGLL:[51.47,-0.46],EGKK:[51.15,-0.19],LFPG:[49.01,2.55],EHAM:[52.31,4.76],EDDF:[50.03,8.56],LEMD:[40.47,-3.56],LIRF:[41.80,12.25],LTFM:[41.26,28.74],OMDB:[25.25,55.36],OTHH:[25.27,51.61],VHHH:[22.31,113.91],RJTT:[35.55,139.78],RJAA:[35.76,140.39],RKSI:[37.46,126.44],WSSS:[1.36,103.99],YSSY:[-33.95,151.18],KJFK:[40.64,-73.78],KLAX:[33.94,-118.41],KSFO:[37.62,-122.38],KORD:[41.98,-87.90],KATL:[33.64,-84.43],KDFW:[32.90,-97.04],KMIA:[25.79,-80.29],KSEA:[47.45,-122.31],KBOS:[42.36,-71.01],SBGR:[-23.43,-46.47],FAOR:[-26.13,28.24] };
 
-        const RM={ map:null, ready:false, data:null, routeFeat:[], aptFeat:[], aptCoords:{}, markers:[], activeOnly:true, canManage:false, styleDark:false, dataHadRoutes:false };
-        // The network is drawn in two line layers — own metal solid, codeshares
-        // dashed — because dashes cannot be chosen per feature (see rmAddLayers).
-        // Anything that talks to "the route lines" talks to both, through here.
-        const RM_LINES=['rm-routes-line','rm-routes-share'];
-        // Dim everything but the focused sector, and put it back. `expr` null
-        // means at rest, where each layer has its own resting opacity: a
-        // codeshare is drawn quieter than the airline's own aeroplane.
-        const RM_LINE_REST={ 'rm-routes-line':['case',['!',['get','active']],0.3,0.82],
-                             'rm-routes-share':['case',['!',['get','active']],0.3,0.55] };
-        function rmLineOpacity(expr){
-            if(!RM.map||!RM.ready) return;
-            RM_LINES.forEach(id=>{
-                if(!RM.map.getLayer(id)) return;
-                RM.map.setPaintProperty(id,'line-opacity',expr||RM_LINE_REST[id]);
-            });
-        }
+        const RM={ data:null, routeFeat:[], filteredRoutes:[],
+                   activeOnly:true, canManage:false, accent:'#3b82f6', drawnDark:false,
+                   focusApt:null, focusRoute:null };
 
-        let _rmLibPromise=null;
-        /* THE ENGINE, AND A DEADLINE.
-         *
-         * Two things were wrong with the old loader. A rejection was CACHED, so
-         * one bad minute on the network left the map broken for the rest of the
-         * session — pressing Map again re-used the failed promise and failed
-         * instantly, which reads as "this feature is broken" rather than "try
-         * again". And there was no deadline at all: a script tag that neither
-         * loads nor errors (a proxy that blackholes the request rather than
-         * refusing it, which is what most of them do) left the spinner turning
-         * for ever. */
-        function rmLoadMapLibre(){
-            if(window.maplibregl) return Promise.resolve();
-            if(_rmLibPromise) return _rmLibPromise;
-            _rmLibPromise=new Promise((resolve,reject)=>{
-                let settled=false;
-                const done=(err)=>{ if(settled) return; settled=true; clearTimeout(timer); err?reject(err):resolve(); };
-                const css=document.createElement('link'); css.rel='stylesheet';
-                css.href=`https://unpkg.com/maplibre-gl@${RM_MAPLIBRE_VERSION}/dist/maplibre-gl.css`; document.head.appendChild(css);
-                const s=document.createElement('script');
-                s.src=`https://unpkg.com/maplibre-gl@${RM_MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
-                s.onload=()=>done(window.maplibregl?null:new Error('map engine loaded but did not start'));
-                s.onerror=()=>done(new Error('map engine failed to load'));
-                document.head.appendChild(s);
-                const timer=setTimeout(()=>done(new Error('map engine timed out')), 9000);
-            }).catch((err)=>{ _rmLibPromise=null; throw err; });
-            return _rmLibPromise;
-        }
-
-        // Great-circle points [lon,lat] between two [lat,lon], unwrapped across the
-        // antimeridian so a Tokyo→LA arc draws as one continuous line.
-        function rmArc(a,b,n){
-            n=n||64; const R=Math.PI/180, D=180/Math.PI;
-            const φ1=a[0]*R,λ1=a[1]*R,φ2=b[0]*R,λ2=b[1]*R;
-            const x1=Math.cos(φ1)*Math.cos(λ1),y1=Math.cos(φ1)*Math.sin(λ1),z1=Math.sin(φ1);
-            const x2=Math.cos(φ2)*Math.cos(λ2),y2=Math.cos(φ2)*Math.sin(λ2),z2=Math.sin(φ2);
-            let dot=Math.max(-1,Math.min(1,x1*x2+y1*y2+z1*z2)); const d=Math.acos(dot);
-            if(d<1e-9) return [[a[1],a[0]],[b[1],b[0]]];
-            const out=[]; let prev=null;
-            for(let i=0;i<=n;i++){ const f=i/n,A=Math.sin((1-f)*d)/Math.sin(d),B=Math.sin(f*d)/Math.sin(d);
-                const x=A*x1+B*x2,y=A*y1+B*y2,z=A*z1+B*z2;
-                const lat=Math.atan2(z,Math.hypot(x,y))*D; let lon=Math.atan2(y,x)*D;
-                if(prev!=null){ while(lon-prev>180)lon-=360; while(lon-prev<-180)lon+=360; }
-                prev=lon; out.push([lon,lat]); }
-            return out;
-        }
         function rmHexToRgb(h){ h=String(h||'').trim(); let m=h.match(/^#?([0-9a-f]{6})$/i); if(m){const n=parseInt(m[1],16);return[(n>>16)&255,(n>>8)&255,n&255];} m=h.match(/^#?([0-9a-f]{3})$/i); if(m)return m[1].split('').map(c=>parseInt(c+c,16)); m=h.match(/rgba?\(([^)]+)\)/i); if(m){const p=m[1].split(',').map(parseFloat);return[p[0]||0,p[1]||0,p[2]||0];} return null; }
         // The VA's brand accent, but guaranteed visible against the map base: a
         // near-black brand on a dark map (or near-white on a light map) falls back
@@ -6510,12 +6514,10 @@
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/route-map`,{headers:{Accept:'application/json'}});
                 if(!res.ok) throw new Error('bad status');
                 RM.data=await res.json();
-            }catch{ RM.data=rmFallbackFromRoutes(); }
-            RM.aptCoords={}; (RM.data.airports||[]).forEach(a=>{ if(a.lat!=null) RM.aptCoords[a.icao]=[a.lat,a.lon]; });
-            RM.dataHadRoutes=(RM.data.routes||[]).some(r=>r.mapped);
+            }catch{ RM.data=rmCoordsFromRoutes(); }
             rmComputeFeatures(); rmPopulateAircraft(); rmSyncKindFilter();
         }
-        function rmFallbackFromRoutes(){
+        function rmCoordsFromRoutes(){
             const C=RM_FALLBACK_COORDS;
             const routes=(ROUTES||[]).map(r=>{ const o=C[r.origin]||null,d=C[r.destination]||null; return {...r,o,d,mapped:!!(o&&d),distanceNm:r.distanceNm||0}; });
             const apt={};
@@ -6524,16 +6526,18 @@
             const airports=Object.values(apt).map(a=>({...a,routes:a.dep+a.arr}));
             return { routes, airports, stats:{ unmapped:routes.filter(r=>!r.mapped).length } };
         }
+        /* One row per drawable sector, carrying its two ends and everything the
+           tooltip, the rail and the statistics need. Kept in the `properties`
+           shape the rails were already written against. */
         function rmComputeFeatures(){
             RM.routeFeat=(RM.data.routes||[]).filter(r=>r.mapped&&r.o&&r.d).map(r=>({
-                type:'Feature',
+                o:r.o, d:r.d,
                 properties:{ id:String(r.id), origin:r.origin, destination:r.destination, flightNumber:r.flightNumber||'', aircraft:r.aircraft||'', distanceNm:r.distanceNm||0, active:!!r.active,
                     // Codeshares are drawn dashed and in a muted colour. A
                     // network map that renders someone else's metal identically
                     // to your own overstates the airline — which is the one
                     // thing a network map is for.
-                    codeshare: r.kind==='codeshare', partnerName: r.partnerName||'' },
-                geometry:{ type:'LineString', coordinates:rmArc(r.o,r.d) }
+                    codeshare: r.kind==='codeshare', partnerName: r.partnerName||'' }
             }));
         }
         // Show the own/codeshare filter only once there is a codeshare to
@@ -6568,21 +6572,19 @@
             if(!RM.canManage) RM.activeOnly=true;
             const at=document.getElementById('rmActiveToggle'); if(at) at.style.display=RM.canManage?'':'none';
             document.addEventListener('keydown',rmEsc);
-            // Switching the theme rebuilds the map on the other basemap. A throw
-            // here — no WebGL left to give, most often — used to escape into
-            // nothing and leave the overlay empty; it hands over to the drawn
-            // map like every other way the engine can fail.
-            if(!RM._obs){ RM._obs=new MutationObserver(()=>{ if(document.getElementById('routeMap').classList.contains('hidden'))return;
-                if(isDark()===RM.styleDark) return;
-                if(RM.fallback) return rmDrawFallback(RM._why);
-                try{ rmBuildMap(); }catch(err){ rmDrawFallback((err&&err.message)||'the map could not be rebuilt'); } });
+            // Light and dark are two different drawings — the land, the halo, the
+            // label ink and the accent floor all change — so a theme switch while
+            // the map is open redraws it. Redrawing is one frame of arithmetic,
+            // which is why this can be as blunt as it is.
+            if(!RM._obs){ RM._obs=new MutationObserver(()=>{
+                    if(document.getElementById('routeMap').classList.contains('hidden')) return;
+                    if(isDark()===RM.drawnDark) return;
+                    rmDraw(true);
+                });
                 RM._obs.observe(document.documentElement,{attributes:true,attributeFilter:['class']}); }
-            RM.fallback=false;
-            // The network first, whatever happens to the engine: the data is
-            // ours and it is what the fallback draws from.
+            // The network first: the data is ours and it is what gets drawn.
             try{ await rmFetch(); }catch{}
-            try{ await rmLoadMapLibre(); rmBuildMap(); }
-            catch(err){ rmDrawFallback(err&&err.message); }
+            rmDraw(false);
             if(window.lucide) lucide.createIcons();
         }
         function rmEsc(e){ if(e.key==='Escape') closeRouteMap(); }
@@ -6590,372 +6592,112 @@
             const ov=document.getElementById('routeMap'); ov.classList.add('hidden');
             if(ov.dataset.open==='1'){ delete ov.dataset.open; if(window.CrewPanels) CrewPanels.unlockScroll(); }
             document.removeEventListener('keydown',rmEsc);
-            RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
-            if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; } RM.ready=false;
-            clearTimeout(RM._watchdog);
-            // The drawn map is markup in the canvas, not a library instance, so
-            // closing has to clear it or it is still there behind the next one.
-            if(RM.fallback){ document.getElementById('rmCanvas').innerHTML=''; RM.fallback=false; rmHideFallbackNote(); }
+            rmClearFocus(); rmHideTip();
+            // The map is markup in the canvas, not a library instance, so closing
+            // has to clear it or it is still there behind the next one.
+            document.getElementById('rmCanvas').innerHTML='';
         }
-        function rmFail(msg){
+        /* The one thing left that can stop this map existing: crewNetMap.js not
+           arriving at all, which means the page's own scripts did not load and
+           the reader has larger problems. Said plainly rather than shown as a
+           black rectangle. */
+        function rmNoMap(msg){
             document.getElementById('rmLoading').classList.add('hidden');
             const e=document.getElementById('rmEmpty'); e.classList.remove('hidden');
             document.getElementById('rmEmptyTitle').textContent='Map unavailable';
-            document.getElementById('rmEmptyMsg').textContent=msg||"The map engine couldn't load. Check your connection and try again.";
+            document.getElementById('rmEmptyMsg').textContent=msg||'The map could not be drawn. Reload the page to try again.';
         }
 
-        /* ===================================================================
-         * THE MAP WHEN THE MAP DOES NOT COME
-         *
-         * The slippy map is two third-party hosts away: the engine from a CDN
-         * and the basemap from a tile service. Either one being blocked — an
-         * office proxy, an ad-blocker that eats tile hosts, a school network, a
-         * bad minute — produced a crew centre whose route map simply did not
-         * work, with a spinner or a sentence where the network should be.
-         *
-         * There is no reason for that. The route data is ours and already
-         * loaded, and the VA's own public website draws the same network with
-         * no network access at all. So the crew centre draws it too. It is a
-         * plainer map — coastlines, arcs, the busiest fields named — and it is
-         * the whole network, honestly, every time.
-         * ================================================================ */
-        function rmFallbackRoutes(){
-            // Same filters as the real map, read from the same controls, so the
-            // two views never disagree about what the network is.
+        /* THE FILTERED NETWORK, WORKED OUT ONCE.
+           The drawing, the statistics and the rail all read this, so the three
+           can never disagree about what the network currently is. */
+        function rmVisibleFeats(){
             const acSel=document.getElementById('rmAircraft'); const aircraft=acSel?acSel.value:'';
             const sEl=document.getElementById('rmSearch'); const search=(sEl?sEl.value:'').trim().toUpperCase();
             const kindSel=document.getElementById('rmKind'); const kind=kindSel?kindSel.value:'';
-            let rows=((RM.data&&RM.data.routes)||[]).filter(r=>r.mapped&&r.o&&r.d);
-            if(RM.activeOnly) rows=rows.filter(r=>r.active);
-            if(kind==='own') rows=rows.filter(r=>r.kind!=='codeshare');
-            else if(kind==='codeshare') rows=rows.filter(r=>r.kind==='codeshare');
-            if(aircraft) rows=rows.filter(r=>r.aircraft===aircraft);
-            if(search) rows=rows.filter(r=>String(r.origin).includes(search)||String(r.destination).includes(search));
-            return rows.map(r=>({ id:String(r.id), origin:r.origin, destination:r.destination, o:r.o, d:r.d,
-                active:r.active!==false, codeshare:r.kind==='codeshare' }));
+            let f=RM.routeFeat.slice();
+            if(RM.activeOnly) f=f.filter(x=>x.properties.active);
+            if(kind==='own') f=f.filter(x=>!x.properties.codeshare);
+            else if(kind==='codeshare') f=f.filter(x=>x.properties.codeshare);
+            if(aircraft) f=f.filter(x=>x.properties.aircraft===aircraft);
+            if(search) f=f.filter(x=>x.properties.origin.includes(search)||x.properties.destination.includes(search));
+            return f;
         }
-        function rmDrawFallback(why){
-            RM.fallback=true;
-            if(why) RM._why=why;
-            if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; }
-            RM.ready=false;
-            RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
+
+        /**
+         * Draw it.
+         *
+         * `keepView` carries the reader's zoom and scroll across — true for a
+         * filter change or a theme switch, false for "Fit", which is what
+         * starting from the whole network again means here.
+         */
+        function rmDraw(keepView){
+            const canvas=document.getElementById('rmCanvas'); if(!canvas) return;
             document.getElementById('rmLoading').classList.add('hidden');
-            const canvas=document.getElementById('rmCanvas');
-            if(!window.CrewNetMap){ return rmFail(why); }
-            RM.accent=rmAccent();
+            if(!window.CrewNetMap){ canvas.innerHTML=''; return rmNoMap(); }
+            RM.accent=rmAccent(); RM.drawnDark=isDark();
             document.getElementById('routeMap').style.setProperty('--rm-accent',RM.accent);
-            const rows=rmFallbackRoutes();
-            const drawn=CrewNetMap.draw(canvas, {
-                routes: rows, accent: RM.accent, dark: isDark(),
+            const feats=rmVisibleFeats();
+            RM.filteredRoutes=feats;
+            const drawn=CrewNetMap.draw(canvas,{
+                routes: feats.map(f=>({ id:f.properties.id, origin:f.properties.origin, destination:f.properties.destination,
+                    o:f.o, d:f.d, active:f.properties.active, codeshare:f.properties.codeshare })),
+                accent: RM.accent, dark: RM.drawnDark, keepView: !!keepView,
                 onAirport: (icao)=>rmFocusAirport(icao),
                 onRoute: (id)=>rmFocusRoute(id),
+                onBackground: ()=>rmClearFocus(),
+                onHover: (what,ev)=>rmShowTip(what,ev),
             });
-            // The stats row reads GeoJSON features, because the real map's
-            // filtered set is GeoJSON. Same numbers either way, so the rows are
-            // dressed as features rather than the counting being written twice.
-            const feats=rows.map(r=>({properties:{
-                origin:r.origin, destination:r.destination, codeshare:r.codeshare,
-                distanceNm:(((RM.data&&RM.data.routes)||[]).find(x=>String(x.id)===r.id)||{}).distanceNm||0,
-            }}));
-            rmUpdateStats(feats, [...new Set(rows.flatMap(r=>[r.origin,r.destination]))].map(i=>({properties:{icao:i}})));
-            // An empty network and an unreachable map are different problems and
-            // get different words.
+            const deg={}; feats.forEach(f=>{ deg[f.properties.origin]=(deg[f.properties.origin]||0)+1; deg[f.properties.destination]=(deg[f.properties.destination]||0)+1; });
+            rmUpdateStats(feats, Object.keys(deg).map(icao=>({properties:{icao,routes:deg[icao]}})));
+            // An empty network and a filter that matches nothing are different
+            // problems and get different words.
             const empty=document.getElementById('rmEmpty');
             if(!drawn){
                 empty.classList.remove('hidden');
-                const any=((RM.data&&RM.data.routes)||[]).some(r=>r.mapped);
+                const any=RM.routeFeat.length>0;
                 document.getElementById('rmEmptyTitle').textContent=any?'No routes match':'No routes on the map yet';
                 document.getElementById('rmEmptyMsg').textContent=any
                     ?'Try clearing the aircraft filter or airport search.'
                     :"Add routes with valid ICAO airports and they'll appear here as a live network.";
             } else empty.classList.add('hidden');
-            rmShowFallbackNote(why||RM._why);
+            // A redraw is new markup, and the focus lived on the old markup.
+            if(RM.focusApt) CrewNetMap.focus(canvas,{airport:RM.focusApt});
+            else if(RM.focusRoute) CrewNetMap.focus(canvas,{route:RM.focusRoute});
         }
-        /* Said, not hidden. A reader who can see their network drawn but plainer
-         * than usual deserves to know why, and to be able to ask for the other
-         * one back once whatever was in the way has gone. */
-        function rmShowFallbackNote(why){
-            let n=document.getElementById('rmFallbackNote');
-            if(!n){
-                n=document.createElement('div');
-                n.id='rmFallbackNote';
-                n.className='absolute left-1/2 -translate-x-1/2 top-[4.5rem] z-20 surface hair rounded-lg px-3 py-2 text-xs shadow-sm flex items-center gap-2 max-w-[calc(100%-2rem)]';
-                n.innerHTML='<span class="muted"></span><button type="button" onclick="rmRetryEngine()" class="font-semibold accent-text shrink-0">Try again</button>';
-                document.getElementById('routeMap').appendChild(n);
-            }
-            n.querySelector('span').textContent='Showing a simplified map — the interactive one could not load'
-                + (why?` (${why})`:'') + '.';
-            n.classList.remove('hidden');
-        }
-        function rmHideFallbackNote(){
-            const n=document.getElementById('rmFallbackNote'); if(n) n.classList.add('hidden');
-        }
-        async function rmRetryEngine(){
-            rmHideFallbackNote();
-            document.getElementById('rmLoading').classList.remove('hidden');
-            try{ await rmLoadMapLibre(); RM.fallback=false; document.getElementById('rmCanvas').innerHTML=''; rmBuildMap(); }
-            catch(err){ rmDrawFallback(err&&err.message); }
-        }
-        /* CAN THIS DEVICE GIVE US A MAP AT ALL?
-         *
-         * MapLibre is WebGL, and WebGL is a resource a browser can refuse. iOS
-         * Safari caps how many live contexts a page may hold and quietly drops
-         * or denies them under memory pressure — and this page has 3D aircraft
-         * and traffic viewers that take contexts of their own. Asked for one too
-         * many, some builds hand back a Map object that reports `load`, adds
-         * every layer without complaint, and paints nothing: a black screen with
-         * no error to catch, which is the one failure none of the deadlines
-         * below were watching for.
-         *
-         * So we ask for a throwaway context first. If the answer is no, the
-         * drawn map — which needs no GPU at all — takes over immediately, with a
-         * reason on screen instead of a blank one. */
-        function rmWebglReason(){
-            try{
-                const c=document.createElement('canvas');
-                const gl=c.getContext('webgl2')||c.getContext('webgl')||c.getContext('experimental-webgl');
-                if(!gl) return 'this browser has no WebGL to draw the map with';
-                // Hand it straight back; holding it would be one more context
-                // against the very limit we are testing for.
-                const lose=gl.getExtension('WEBGL_lose_context'); if(lose) lose.loseContext();
-                return '';
-            }catch(err){ return (err&&err.message)||'WebGL could not be started'; }
-        }
-
-        function rmBuildMap(){
-            const noGl=rmWebglReason();
-            if(noGl) return rmDrawFallback(noGl);
-            document.getElementById('rmLoading').classList.remove('hidden');
-            RM.accent=rmAccent(); RM.styleDark=isDark();
-            document.getElementById('routeMap').style.setProperty('--rm-accent',RM.accent);
-            RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
-            if(RM.map){ try{RM.map.remove();}catch{} RM.map=null; }
-            RM.ready=false;
-            const map=new maplibregl.Map({ container:'rmCanvas', style:RM.styleDark?RM_STYLE.dark:RM_STYLE.light,
-                center:[8,28], zoom:1.3, minZoom:0.6, maxZoom:9, attributionControl:false, dragRotate:false });
-            RM.map=map;
-            map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
-            /* A DEADLINE ON THE BASEMAP TOO.
-             *
-             * `load` fires once the style has arrived. If the tile host is the
-             * thing being blocked — which is the commoner of the two, because
-             * ad-blockers eat tile hosts — it never fires: no error the old code
-             * looked at, no map, and a spinner that turns for ever. The network
-             * is drawn instead, which is the part the reader came for. */
-            clearTimeout(RM._watchdog);
-            RM._watchdog=setTimeout(()=>{
-                if(RM.ready||RM.fallback) return;
-                rmDrawFallback('the basemap did not arrive');
-            }, 10000);
-            /* `load` is not the end of the deadline, it is the middle of it.
-             *
-             * Everything below used to run unguarded inside this handler, and
-             * the watchdog was cancelled on the first line of it. So anything
-             * that went wrong AFTER the style arrived — a layer MapLibre would
-             * not take, a source that answered late, a filter naming a layer
-             * that was therefore never added — left the spinner turning over an
-             * empty canvas with nothing left to catch it. The overlay is
-             * painted var(--bg), so in dark mode that is a black screen.
-             *
-             * The watchdog is now cancelled only once the map is actually up,
-             * and a throw in here hands over to the drawn map like any other
-             * failure rather than stopping the page mid-build. */
-            map.on('load',()=>{
-                try{
-                    rmAddLayers(); RM.ready=true; rmApplyFilters(); rmFitAll(); map.resize();
-                }catch(err){
-                    RM.ready=false;
-                    return rmDrawFallback((err&&err.message)||'the map could not be built');
-                }
-                /* A MAP OF NO SIZE IS STILL A BLACK SCREEN.
-                 *
-                 * `load` fired and every layer went in, so nothing above is
-                 * watching any more — but a GL canvas measuring 0 paints
-                 * nothing, and that is indistinguishable from a working map to
-                 * every check we had. It happens when the container is measured
-                 * mid-layout, and on iOS when the context was refused after the
-                 * Map object was already built.
-                 *
-                 * Checked on the next frame, because `resize()` above has only
-                 * just asked for one. */
-                requestAnimationFrame(()=>{
-                    if(RM.fallback) return;
-                    let w=0,h=0;
-                    try{ const cv=map.getCanvas(); w=cv.width; h=cv.height; }catch{}
-                    if(!w||!h){ RM.ready=false; return rmDrawFallback('the map had nowhere to draw'); }
-                    clearTimeout(RM._watchdog); RM.fallback=false; rmHideFallbackNote();
-                    document.getElementById('rmLoading').classList.add('hidden');
-                });
-            });
-            /* THE CANVAS THAT GOES AWAY AFTER IT ARRIVED.
-             *
-             * A WebGL context can be lost at any time — a phone under memory
-             * pressure, a tab in the background for a while, a driver reset —
-             * and MapLibre cannot draw again until it is restored. The canvas
-             * goes black and stays black, and `load` has long since fired, so
-             * none of the deadlines above are still watching. The drawn map
-             * needs no GPU at all, so that is what a lost context gets. */
-            map.on('webglcontextlost',()=>{ RM.ready=false; rmDrawFallback('the map lost its drawing surface'); });
-            /* The refusal that happens BEFORE there is a context to lose. The
-               browser fires this on the canvas itself, not on the map, so
-               MapLibre never reports it and the old code never heard it. */
-            try{
-                map.getCanvas().addEventListener('webglcontextcreationerror',(e)=>{
-                    if(RM.ready||RM.fallback) return;
-                    rmDrawFallback((e&&e.statusMessage)||'this device would not give the map a drawing surface');
-                });
-            }catch{ /* no canvas yet is itself caught by the size check above */ }
-            // A tile that hiccups once is not a reason to throw the map away —
-            // the network overlay still renders over the gap. A style that never
-            // arrives at all is, and the watchdog above is what catches it.
-            //
-            // What it must not keep doing is swallow the lot in silence. This
-            // was the only place the engine had to report that it had refused
-            // the route-line layer (see rmAddLayers), and an empty function is
-            // where that went. Now: an error before the map is up SHORTENS the
-            // deadline rather than ending it — a missing sprite is cosmetic and
-            // `load` still arrives behind it, but a style that answered 404
-            // never will, and ten seconds of black screen is the wrong way to
-            // find that out. Anything after the map is up is said out loud,
-            // where a console will show it.
-            map.on('error',(e)=>{
-                const why=(e&&e.error&&e.error.message)||'';
-                if(!RM.ready&&!RM.fallback){
-                    clearTimeout(RM._watchdog);
-                    RM._watchdog=setTimeout(()=>{
-                        if(RM.ready||RM.fallback) return;
-                        rmDrawFallback(why||'the basemap could not be read');
-                    }, 2500);
-                }
-                console.warn('[route map]',why||e);
-            });
-        }
-        function rmAddLayers(){
-            const map=RM.map, accent=RM.accent;
-            const gray=RM.styleDark?'#6E685D':'#9a9488';
-            const halo=RM.styleDark?'#14120F':'#FFFFFF';
-            const empty={type:'FeatureCollection',features:[]};
-            map.addSource('rm-routes',{type:'geojson',data:empty});
-            map.addSource('rm-airports',{type:'geojson',data:empty});
-            // The glow is the airline's own metal only — a codeshare should not
-            // light up the map like a route the VA actually operates.
-            map.addLayer({ id:'rm-routes-glow', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
-                filter:['!',['get','codeshare']],
-                paint:{'line-color':accent,'line-width':['interpolate',['linear'],['zoom'],1,2.5,6,7],'line-blur':3,
-                    'line-opacity':['case',['get','active'],0.22,0.08]} });
-            /* THE NETWORK ITSELF, IN TWO LAYERS RATHER THAN ONE.
-             *
-             * This was one layer that chose its dashes per feature:
-             *
-             *     'line-dasharray':['case',['get','codeshare'],[2,2],[1,0]]
-             *
-             * which cannot work. `line-dasharray` is a CROSS-FADED property in
-             * the MapLibre style spec — it takes the zoom and nothing else, and
-             * a `['get', …]` inside it makes the whole paint block fail
-             * validation. MapLibre does not throw on that: addLayer fires an
-             * error and RETURNS, so the layer was never added at all. With
-             * `map.on('error')` swallowing everything (it no longer does, see
-             * rmBuildMap), the map came up showing a basemap, the airport dots
-             * and the blurred glow underneath — and not one route line. Which
-             * on the dark basemap is a black screen with some dots on it.
-             *
-             * Dashes are a property of WHICH layer a sector is drawn in, so
-             * that is where they go: own metal solid, somebody else's dashed,
-             * each filtered to its own half of the source. RM_LINES keeps the
-             * two together everywhere else — hover, click, hit-testing and the
-             * focus dimming all read from that list rather than naming a layer. */
-            map.addLayer({ id:'rm-routes-line', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
-                filter:['!',['get','codeshare']],
-                paint:{'line-color':['case',['!',['get','active']], gray, accent],
-                    'line-width':['interpolate',['linear'],['zoom'],1,0.8,6,2.4],
-                    'line-opacity':['case',['!',['get','active']], 0.3, 0.82]} });
-            // Somebody else's metal, dashed — so the two read apart at a glance
-            // and in print, rather than relying on a colour difference alone.
-            map.addLayer({ id:'rm-routes-share', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
-                filter:['get','codeshare'],
-                paint:{'line-color':gray,
-                    'line-width':['interpolate',['linear'],['zoom'],1,0.8,6,2.4],
-                    'line-dasharray':[2,2],
-                    'line-opacity':['case',['!',['get','active']], 0.3, 0.55]} });
-            map.addLayer({ id:'rm-routes-hi', type:'line', source:'rm-routes', layout:{'line-cap':'round','line-join':'round'},
-                filter:['==',['get','id'],'__none__'],
-                paint:{'line-color':accent,'line-width':['interpolate',['linear'],['zoom'],1,2,6,4.5],'line-opacity':0.95} });
-            map.addLayer({ id:'rm-airports', type:'circle', source:'rm-airports',
-                paint:{'circle-radius':['interpolate',['linear'],['get','routes'],1,3.2,3,5,8,9,16,13],
-                    'circle-color':accent,'circle-stroke-color':halo,'circle-stroke-width':1.4,'circle-opacity':0.95} });
-            // Interactions
-            const tip=()=>document.getElementById('rmTip');
-            RM_LINES.forEach(id=>{
-                map.on('mouseenter',id,()=>map.getCanvas().style.cursor='pointer');
-                map.on('mouseleave',id,()=>{ map.getCanvas().style.cursor=''; tip().classList.add('hidden'); });
-                map.on('mousemove',id,(e)=>{ const f=e.features&&e.features[0]; if(f) rmShowTip(e,f.properties); });
-                map.on('click',id,(e)=>{ const f=e.features&&e.features[0]; if(f){ e.originalEvent.stopPropagation(); rmFocusRoute(f.properties.id); } });
-            });
-            map.on('mouseenter','rm-airports',()=>map.getCanvas().style.cursor='pointer');
-            map.on('mouseleave','rm-airports',()=>map.getCanvas().style.cursor='');
-            map.on('click','rm-airports',(e)=>{ const f=e.features&&e.features[0]; if(f){ e.originalEvent.stopPropagation(); rmFocusAirport(f.properties.icao); } });
-            map.on('click',(e)=>{ const hit=map.queryRenderedFeatures(e.point,{layers:['rm-airports'].concat(RM_LINES)}); if(!hit.length) rmClearFocus(); });
-        }
-        function rmShowTip(e,p){
-            const t=document.getElementById('rmTip');
-            const dist=p.distanceNm?`${Number(p.distanceNm).toLocaleString()} nm`:'';
-            const ac=p.aircraft?` · ${escapeHtml(p.aircraft)}`:'';
-            const draft=(p.active===false||p.active==='false')?' · draft':'';
-            // MapLibre flattens feature properties to strings, so the boolean
-            // has to be read as either.
-            const isCs=(p.codeshare===true||p.codeshare==='true');
-            const cs=isCs?` · codeshare${p.partnerName?` (${escapeHtml(p.partnerName)})`:''}`:'';
-            const fn=p.flightNumber?`<span class="faint">${escapeHtml(p.flightNumber)}</span> `:'';
-            t.innerHTML=`${fn}<span class="font-semibold">${escapeHtml(p.origin)} → ${escapeHtml(p.destination)}</span><div class="muted mt-0.5">${dist}${ac}${cs}${draft}</div>`;
-            t.classList.remove('hidden');
+        /* The tooltip. The map reports what is under the pointer; this page
+           knows what that thing is, because the flight number, the aeroplane
+           and the distance are ours and never went to the map. */
+        function rmShowTip(what,ev){
+            const t=document.getElementById('rmTip'); if(!t) return;
+            let html='';
+            if(what&&what.airport){
+                const icao=what.airport;
+                const n=(RM.filteredRoutes||[]).filter(f=>f.properties.origin===icao||f.properties.destination===icao).length;
+                html=`<span class="font-semibold">${escapeHtml(icao)}</span><div class="muted mt-0.5">${n} sector${n===1?'':'s'}</div>`;
+            } else if(what&&what.route){
+                const f=(RM.routeFeat||[]).find(x=>x.properties.id===String(what.route));
+                if(!f) return t.classList.add('hidden');
+                const p=f.properties;
+                const dist=p.distanceNm?`${Number(p.distanceNm).toLocaleString()} nm`:'';
+                const ac=p.aircraft?` · ${escapeHtml(p.aircraft)}`:'';
+                const draft=p.active?'':' · draft';
+                const cs=p.codeshare?` · codeshare${p.partnerName?` (${escapeHtml(p.partnerName)})`:''}`:'';
+                const fn=p.flightNumber?`<span class="faint">${escapeHtml(p.flightNumber)}</span> `:'';
+                html=`${fn}<span class="font-semibold">${escapeHtml(p.origin)} → ${escapeHtml(p.destination)}</span><div class="muted mt-0.5">${dist}${ac}${cs}${draft}</div>`;
+            } else return t.classList.add('hidden');
+            t.innerHTML=html; t.classList.remove('hidden');
             const r=document.getElementById('routeMap').getBoundingClientRect();
-            let x=e.point.x+14,y=e.point.y+14; if(x+210>r.width)x=e.point.x-196; if(y+64>r.height)y=e.point.y-64;
+            let x=ev.clientX-r.left+14, y=ev.clientY-r.top+14;
+            if(x+210>r.width) x=ev.clientX-r.left-196;
+            if(y+64>r.height) y=ev.clientY-r.top-64;
             t.style.left=Math.max(8,x)+'px'; t.style.top=Math.max(8,y)+'px';
         }
+        function rmHideTip(){ const t=document.getElementById('rmTip'); if(t) t.classList.add('hidden'); }
         function rmApplyFilters(){
-            // Same controls, same answer, whichever map is on screen.
-            if(RM.fallback) return rmDrawFallback(RM._why);
-            if(!RM.map||!RM.ready) return;
-            const acSel=document.getElementById('rmAircraft'); const aircraft=acSel?acSel.value:'';
-            const sEl=document.getElementById('rmSearch'); const search=(sEl?sEl.value:'').trim().toUpperCase();
             const dot=document.getElementById('rmActiveDot'); if(dot) dot.style.opacity=RM.activeOnly?'1':'0.25';
-            const kindSel=document.getElementById('rmKind'); const kind=kindSel?kindSel.value:'';
-            let routes=RM.routeFeat.slice();
-            if(RM.activeOnly) routes=routes.filter(f=>f.properties.active);
-            if(kind==='own') routes=routes.filter(f=>!f.properties.codeshare);
-            else if(kind==='codeshare') routes=routes.filter(f=>f.properties.codeshare);
-            if(aircraft) routes=routes.filter(f=>f.properties.aircraft===aircraft);
-            if(search) routes=routes.filter(f=>f.properties.origin.includes(search)||f.properties.destination.includes(search));
-            const deg={}; routes.forEach(f=>{ deg[f.properties.origin]=(deg[f.properties.origin]||0)+1; deg[f.properties.destination]=(deg[f.properties.destination]||0)+1; });
-            const apts=Object.keys(deg).map(icao=>{ const c=RM.aptCoords[icao]; return c?{type:'Feature',properties:{icao,routes:deg[icao]},geometry:{type:'Point',coordinates:[c[1],c[0]]}}:null; }).filter(Boolean);
-            RM.filteredRoutes=routes; RM.filteredApts=apts;
-            RM.map.getSource('rm-routes').setData({type:'FeatureCollection',features:routes});
-            RM.map.getSource('rm-airports').setData({type:'FeatureCollection',features:apts});
-            rmRenderLabels(apts); rmUpdateStats(routes,apts);
-            // Empty states
-            const emptyEl=document.getElementById('rmEmpty');
-            if(!routes.length){
-                emptyEl.classList.remove('hidden');
-                const filtered=RM.routeFeat.length>0;
-                document.getElementById('rmEmptyTitle').textContent=filtered?'No routes match':'No routes on the map yet';
-                document.getElementById('rmEmptyMsg').textContent=filtered
-                    ?'Try clearing the aircraft filter or airport search.'
-                    :"Add routes with valid ICAO airports and they'll appear here as a live network.";
-            } else emptyEl.classList.add('hidden');
-            // keep focus highlight consistent after a data refresh
-            if(RM.focusApt) rmFocusAirport(RM.focusApt,true); else if(RM.focusRoute) rmFocusRoute(RM.focusRoute,true);
-        }
-        function rmRenderLabels(apts){
-            RM.markers.forEach(m=>{try{m.remove();}catch{}}); RM.markers=[];
-            const hubs=apts.filter(a=>a.properties.routes>=2).sort((a,b)=>b.properties.routes-a.properties.routes).slice(0,14);
-            hubs.forEach(a=>{
-                const el=document.createElement('div');
-                el.textContent=a.properties.icao;
-                el.style.cssText='font:600 10px/1 Inter,sans-serif;padding:2px 5px;border-radius:5px;background:var(--surface);color:var(--ink);border:1px solid var(--line);white-space:nowrap;pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,.18);opacity:.95';
-                const m=new maplibregl.Marker({element:el,anchor:'bottom',offset:[0,-8]}).setLngLat(a.geometry.coordinates).addTo(RM.map);
-                RM.markers.push(m);
-            });
+            rmHideTip();
+            rmDraw(true);
         }
         function rmUpdateStats(routes,apts){
             const host=document.getElementById('rmStats'); if(!host) return;
@@ -6980,40 +6722,32 @@
             host.innerHTML=chips.join(''); if(window.lucide) lucide.createIcons();
         }
         function rmToggleActive(){ if(!RM.canManage) return; RM.activeOnly=!RM.activeOnly; rmApplyFilters(); }
-        /* The rail is the point of tapping something, and it is the same rail on
-         * either map. Only the HIGHLIGHT is MapLibre's — the drawn map has no
-         * paint properties to set — so the two lines that talk to the engine are
-         * guarded rather than the whole function being written twice. */
-        function rmFocusAirport(icao,keep){
+        /* Tapping something is the point of a map, and the answer is the rail
+           plus everything else getting out of the way. The dimming is the map's
+           own (CrewNetMap.focus); the rail is this page's. */
+        function rmFocusAirport(icao){
             RM.focusApt=icao; RM.focusRoute=null;
-            const match=['any',['==',['get','origin'],icao],['==',['get','destination'],icao]];
-            if(RM.map&&RM.ready){
-                RM.map.setFilter('rm-routes-hi',match);
-                rmLineOpacity(['case',match,0.9,0.1]);
-            }
+            if(window.CrewNetMap) CrewNetMap.focus(document.getElementById('rmCanvas'),{airport:icao});
             const touching=(RM.filteredRoutes||RM.routeFeat||[]).filter(f=>f.properties.origin===icao||f.properties.destination===icao).map(f=>f.properties);
             rmOpenAirportRail(icao,touching);
-            if(!keep&&RM.map&&RM.ready) rmFitFeatures(touching);
         }
-        function rmFocusRoute(id,keep){
+        function rmFocusRoute(id){
             id=String(id); RM.focusRoute=id; RM.focusApt=null;
-            if(RM.map&&RM.ready){
-                RM.map.setFilter('rm-routes-hi',['==',['get','id'],id]);
-                rmLineOpacity(['case',['==',['get','id'],id],0.95,0.1]);
-            }
+            if(window.CrewNetMap) CrewNetMap.focus(document.getElementById('rmCanvas'),{route:id});
             const r=RM.routeFeat.find(f=>f.properties.id===id);
-            if(r){ rmOpenRouteRail(r.properties); if(!keep&&RM.map&&RM.ready) rmFitFeatures([r.properties]); }
+            if(r) rmOpenRouteRail(r.properties);
         }
         function rmClearFocus(){
             RM.focusApt=null; RM.focusRoute=null;
-            if(RM.map&&RM.ready){ RM.map.setFilter('rm-routes-hi',['==',['get','id'],'__none__']);
-                rmLineOpacity(null); }
-            const rail=document.getElementById('rmRail'); rail.classList.add('hidden'); RM.railOpen=false;
+            if(window.CrewNetMap) CrewNetMap.focus(document.getElementById('rmCanvas'),null);
+            const rail=document.getElementById('rmRail'); if(rail) rail.classList.add('hidden');
+            document.getElementById('routeMap').classList.remove('rm-rail-open');
         }
         function rmRailShow(title,html){
             document.getElementById('rmRailTitle').innerHTML=title;
             document.getElementById('rmRailBody').innerHTML=html;
-            document.getElementById('rmRail').classList.remove('hidden'); RM.railOpen=true;
+            document.getElementById('rmRail').classList.remove('hidden');
+            document.getElementById('routeMap').classList.add('rm-rail-open');
             if(window.lucide) lucide.createIcons();
         }
         function rmRouteRow(p){
@@ -7141,21 +6875,9 @@
             rmRailShow(head, body);
         }
         function rmFitAll(){
-            // The drawn map fits itself: it is cropped to the network every time
-            // it is drawn, so redrawing IS fitting.
-            if(RM.fallback) return rmDrawFallback();
-            if(!RM.map||!RM.ready) return;
-            const apts=RM.filteredApts||[];
-            if(!apts.length) return;
-            const b=new maplibregl.LngLatBounds();
-            apts.forEach(a=>b.extend(a.geometry.coordinates));
-            try{ RM.map.fitBounds(b,{padding:{top:96,bottom:56,left:56,right:RM.railOpen?336:56},maxZoom:6,duration:600}); }catch{}
-        }
-        function rmFitFeatures(props){
-            if(!RM.map||!props||!props.length) return;
-            const b=new maplibregl.LngLatBounds(); let any=false;
-            props.forEach(p=>{ const o=RM.aptCoords[p.origin],d=RM.aptCoords[p.destination]; if(o){b.extend([o[1],o[0]]);any=true;} if(d){b.extend([d[1],d[0]]);any=true;} });
-            if(any){ try{ RM.map.fitBounds(b,{padding:{top:100,bottom:80,left:56,right:336},maxZoom:6,duration:600}); }catch{} }
+            // The map is cropped to the network every time it is drawn, so
+            // redrawing IS fitting — and it drops the zoom back to 1 with it.
+            rmDraw(false);
         }
         function rmApplyFiltersDebounced(){ clearTimeout(RM._t); RM._t=setTimeout(rmApplyFilters,120); }
 
@@ -7464,7 +7186,7 @@
             document.getElementById('addPilotBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             if(v==='apps'){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
-            if(v==='invites'){ closePilotForm(); renderInvites(); fetchInvites().then(renderInvites); }
+            if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets()]).then(renderInvites); }
             showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
         function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
@@ -7519,6 +7241,13 @@
             const b=document.getElementById('invitesBadge');
             if(!b) return; b.textContent=n; b.classList.toggle('hidden', !n);
         }
+        /* What is actually waiting on somebody here: invitations nobody has
+           used, plus pilots who have asked for a password and not been given
+           one. A pilot sitting at a sign-in page they cannot get through is
+           the more urgent of the two, which is why they are drawn first. */
+        const waitingCount=()=>
+            INVITES.filter(x=>x.invite&&x.invite.state==='live').length
+            + RESETS.filter(r=>!r.password).length;
         async function fetchInvites(){
             const slug=getSlug(), token=sessionToken();
             if(!slug||!token){ INVITES=[]; return; }
@@ -7584,20 +7313,159 @@
             </div>`;
         }
         function renderInvites(){
-            const live=INVITES.filter(a=>a.invite&&a.invite.state==='live').length;
-            setInvitesBadge(live);
+            setInvitesBadge(waitingCount());
             const list=document.getElementById('invitesList');
             if(!list) return;
             if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to see invitations.</p>'; return; }
             // Waiting first — those are the ones with something still to do.
             const order={live:0,expired:1,revoked:2,claimed:3};
             const sorted=[...INVITES].sort((x,y)=>(order[x.invite.state]??9)-(order[y.invite.state]??9));
+            // Somebody standing at a sign-in page they cannot get through beats
+            // an invitation that has been sitting unused for a fortnight.
+            const resets=[...RESETS].sort((x,y)=>(x.password?1:0)-(y.password?1:0));
             keepPlace(list,()=>{
-                list.innerHTML = sorted.length ? sorted.map(inviteCardHtml).join('')
-                    : '<p class="text-sm faint text-center py-10">No invitations yet. Accepting an application with a login creates one, and it waits here until the pilot signs in.</p>';
+                const html = resets.map(resetCardHtml).join('') + sorted.map(inviteCardHtml).join('');
+                list.innerHTML = html
+                    || '<p class="text-sm faint text-center py-10">Nothing waiting. Accepting an application with a login puts it here, and so does a pilot who asks for a new password from the sign-in page.</p>';
                 if(window.lucide) lucide.createIcons();
             });
         }
+        /* =====================================================================
+           PILOTS WHO HAVE FORGOTTEN THEIR PASSWORD
+
+           The commonest piece of admin a VA does, and until now it arrived as
+           a Discord message and left as five minutes of digging: find them,
+           issue a temporary password, copy the message, send it, remember you
+           did. Most of that is now the pilot's own doing — they ask from the
+           sign-in page, and where the VA runs an email provider and the pilot
+           has an address the whole thing happens without anybody here.
+
+           What lands HERE is only the remainder: the pilots that could not
+           reach. One press issues the password and sends it where it can, and
+           the same Copy message that invitations already use is the fallback
+           it has always been.
+           =================================================================== */
+
+        let RESETS=[];
+        async function fetchResets(){
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token){ RESETS=[]; return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/password-requests`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                // A 404 is a crew centre whose database predates resets. That
+                // is not an error to draw — it is a tab that simply has one
+                // fewer thing in it.
+                if(!res.ok) { RESETS=[]; return; }
+                const d=await res.json();
+                RESETS=Array.isArray(d.requests)?d.requests:[];
+            }catch{ RESETS=[]; }
+        }
+        function resetCardHtml(r){
+            const id=r.id;
+            const asked=r.askedAt?relTime(r.askedAt):'';
+            const issued=r.password||'';
+            return `<div class="surface rounded-xl p-4" data-reset="${escapeHtml(String(id))}">
+                <div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-full grid place-items-center shrink-0 text-white" style="background:#D97706"><i data-lucide="key-round" class="w-5 h-5"></i></div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-semibold truncate">${escapeHtml(r.name||r.username||'A pilot')}</span>
+                            <span class="text-[10px] font-bold uppercase tracking-wide text-white bg-amber-500 rounded-full px-1.5 py-0.5">Forgot password</span>
+                        </div>
+                        <div class="text-xs muted mt-1">${escapeHtml(
+                            issued ? 'A new password is below — send it to them.'
+                            : `Asked${asked?` ${asked}`:''}. ${r.email ? 'We could not email them, so it is yours to pass on.' : 'They have no email on file, so it is yours to pass on.'}`)}</div>
+                        ${r.username?`<div class="text-xs muted mt-1 font-mono">${escapeHtml(r.username)}</div>`:''}
+                    </div>
+                    <button data-reset-dismiss title="Dismiss — their password is not touched" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="x" class="w-4 h-4"></i></button>
+                </div>
+                ${issued?`<div class="mt-3 rounded-lg border hair p-3">
+                    <div class="text-[11px] uppercase tracking-wide faint">Their new password</div>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span class="font-mono text-sm select-all" data-pw data-shown="0">${'•'.repeat(Math.max(8,issued.length))}</span>
+                        <button data-reset-reveal class="text-xs accent-text font-semibold hover:underline">Show</button>
+                    </div>
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <button data-reset-copy class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy message</button>
+                    </div>
+                    <div class="text-[11px] faint mt-2">${escapeHtml(r.emailed
+                        ? 'Emailed to them as well. This disappears once they sign in.'
+                        : 'Send it however you reach them. They will be asked to replace it on their first sign-in.')}</div>
+                </div>`:`<div class="mt-3">
+                    <button data-reset-issue class="accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Issue a new password</button>
+                </div>`}
+                <p data-reset-note class="hidden text-sm mt-2"></p>
+            </div>`;
+        }
+        /* "4 minutes ago". The dashboard has `when()` for dates and nothing for
+           the first hour, which is the only part of this that matters — a reset
+           asked for four minutes ago is somebody still sitting at the login. */
+        function relTime(iso){
+            const t=Date.parse(iso); if(!Number.isFinite(t)) return '';
+            const m=Math.round((Date.now()-t)/60000);
+            if(m<1) return 'just now';
+            if(m<60) return `${m} min ago`;
+            const h=Math.round(m/60);
+            if(h<24) return `${h}h ago`;
+            const d=Math.round(h/24);
+            return d===1?'yesterday':`${d} days ago`;
+        }
+        function resetNote(card,msg,kind){
+            const n=card.querySelector('[data-reset-note]'); if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':'muted');
+            n.classList.remove('hidden');
+        }
+        document.addEventListener('click', async e=>{
+            const card=e.target.closest('[data-reset]');
+            if(!card) return;
+            const id=card.getAttribute('data-reset');
+            const r=RESETS.find(x=>String(x.id)===String(id));
+            if(e.target.closest('[data-reset-reveal]')){
+                const pw=card.querySelector('[data-pw]'), btn=e.target.closest('[data-reset-reveal]');
+                const shown=pw.getAttribute('data-shown')==='1';
+                const real=(r&&r.password)||'';
+                pw.textContent = shown ? '•'.repeat(Math.max(8,real.length)) : real;
+                pw.setAttribute('data-shown', shown?'0':'1');
+                btn.textContent = shown ? 'Show' : 'Hide';
+                return;
+            }
+            if(e.target.closest('[data-reset-copy]')){
+                const msg=(r&&r.message)||'';
+                if(!msg) return;
+                copyText(msg).then(ok=>resetNote(card, ok?'Copied — paste it to them.':'Couldn’t copy. Select the text instead.', ok?'ok':'error'));
+                return;
+            }
+            const issue=e.target.closest('[data-reset-issue]');
+            const dismiss=e.target.closest('[data-reset-dismiss]');
+            if(!issue && !dismiss) return;
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token) return;
+            card.querySelectorAll('button').forEach(b=>b.disabled=true);
+            if(dismiss && !(await ask({ title:'Dismiss this request?', confirm:'Dismiss it', danger:true,
+                body:'Their password is not touched — they keep the one they have, and they can ask again from the sign-in page.' }))){
+                card.querySelectorAll('button').forEach(b=>b.disabled=false); return;
+            }
+            resetNote(card, issue?'Issuing…':'Dismissing…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/password-requests/${encodeURIComponent(id)}`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                    body:JSON.stringify({ action: issue?'issue':'dismiss' }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ resetNote(card, d.error||'That didn’t work.','error'); card.querySelectorAll('button').forEach(b=>b.disabled=false); return; }
+                if(dismiss) RESETS=RESETS.filter(x=>String(x.id)!==String(id));
+                else {
+                    const i=RESETS.findIndex(x=>String(x.id)===String(id));
+                    if(i>=0) RESETS[i]={...RESETS[i], ...(d.request||d)};
+                }
+                renderInvites();
+                changed('invites');
+            }catch{
+                resetNote(card,'Server unreachable.','error');
+                card.querySelectorAll('button').forEach(b=>b.disabled=false);
+            }
+        });
+
         function inviteNote(card,msg,kind){
             const n=card.querySelector('[data-invite-note]'); if(!n) return;
             n.textContent=msg;
@@ -7817,7 +7685,7 @@
                     fetchRoster().then(()=>{ changed('roster'); });
                     // …and mints an invitation, so the tab that holds it until
                     // the pilot signs in should say so straight away.
-                    fetchInvites().then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); changed('invites'); });
+                    Promise.all([fetchInvites(),fetchResets()]).then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); changed('invites'); });
                     changed('applications');
                 }else{
                     card.style.transition='opacity .25s'; card.style.opacity='0';
@@ -9532,6 +9400,10 @@
             if(b.logo && isSafeImageUrl(b.logo)){
                 CREW_LOGO=b.logo;           // the mark on the pilot's card, too
                 document.getElementById('navLogo').src=b.logo; document.getElementById('navLogo').classList.remove('hidden'); document.getElementById('navMonogram').classList.add('hidden');
+                // A wordmark and the same words beside it is one identity twice.
+                // On a phone the bar has no room for the second copy, so the
+                // logo carries it and the name comes back at `sm`.
+                document.getElementById('navName').classList.add('hidden','sm:inline');
                 document.getElementById('idLogo').src=b.logo; document.getElementById('idLogo').classList.remove('hidden'); document.getElementById('idMonogram').classList.add('hidden');
             }
             if(b.banner && isSafeImageUrl(b.banner)){
@@ -9701,7 +9573,7 @@
                 fetchApps().then(()=>{ showingApps ? renderApps() : refreshAppsBadge(); }).catch(()=>{});
                 if(rosterOpen){
                     if(ROSTER_VIEW==='roster') fetchRoster().then(renderRoster).catch(()=>{});
-                    else if(ROSTER_VIEW==='invites') fetchInvites().then(renderInvites).catch(()=>{});
+                    else if(ROSTER_VIEW==='invites') Promise.all([fetchInvites(),fetchResets()]).then(renderInvites).catch(()=>{});
                 }
                 if(document.getElementById('routes')?.dataset.open==='1') fetchRoutes().then(renderRoutes).catch(()=>{});
                 if(document.getElementById('pireps')?.dataset.open==='1') fetchPireps().then(renderPireps).catch(()=>{});

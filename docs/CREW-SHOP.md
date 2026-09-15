@@ -9,7 +9,7 @@ redeems something. It works for about a month.
 So the crew center offers it properly. It is **off** until an owner turns it on,
 and a VA that never does sees no trace of it: no tile, no card, no settings tab.
 
-## The three parts
+## The parts
 
 ### 1. Earning — PIREPs, and nothing else
 
@@ -37,6 +37,39 @@ rates are typed. It is the only thing that makes `perHour: 120` mean anything.
 
 Each VA names its own currency (Miles, Credits, SkyCoins); nothing in the UI
 says "points" in a string a pilot reads.
+
+#### Events pay, and they pay through the flight
+
+Every VA wants its group flights to be worth turning up to, and the obvious way
+to arrange that — a button that hands out points for attendance — is exactly the
+second supply the rule above exists to prevent. Somebody would have to decide
+who attended, nothing would audit it, and the first argument about it would be
+the last day anybody trusted the balance.
+
+So an event pays like everything else pays: **`eventBonus`, added when the
+flight report filed for that event is approved.** Signing up and not flying pays
+nothing, which is also the honest answer. It is a fifth rate beside the four
+above, and the worked example prices both flights:
+
+> A 2h 15m flight in one of your own aircraft pays **325 mi** when you approve
+> it, or **575 mi** if it was flown for an event.
+
+An individual event can name its own figure, because a transcontinental
+group flight is worth more than a routine fly-in and an airline that cannot say
+so pays the same for both. The field appears in the event editor **only when the
+VA runs a shop**, defaults to the standing bonus, and an empty box means "use
+it" rather than "pay nothing".
+
+Pilots see it in two places and in two lengths. On the calendar card, a chip:
+`+900 mi` — because somebody scrolling on a Friday night is choosing between
+this and nothing. In the brief, the whole sentence, because that is where there
+is room for the condition:
+
+> Flying this pays **900 mi** on top of the usual rate — added when your flight
+> report for it is approved.
+
+A VA with no shop sees none of it: no chip, no note, no field, no empty `+0`.
+The server's silence — no `currency` on `GET /events` — is what decides that.
 
 ### 2. The card
 
@@ -70,8 +103,90 @@ press which fills a ring tells you what is about to happen while you can still
 change your mind. Let go early and it empties. `tools/test-crew-shop.js` asserts
 that a click, a slip and a half-press all spend nothing.
 
-Then: a tick, the amount, the new balance, and the code the pilot shows their
-staff to collect it.
+Then: a tick, the amount, the new balance, and — depending on how the item is
+delivered — either what they just bought, or the code they show their staff.
+
+### 4. Claiming it yourself
+
+The shop shipped with one ending: a code, and a staff member who reads it and
+does the thing. That is right for "name a route" and wrong for everything a VA
+could simply hand over on the spot — a Discord invite, a livery link, a form, a
+key from a list they bought once. Waiting on a human for those turns a shop into
+a ticket queue, and it is the queue that quietly kills the economy: a pilot who
+waits three days for the thing they saved twenty hours for does not save for a
+second one.
+
+So an item says how it is delivered, and two of the three need nobody:
+
+| `delivery` | What happens when somebody buys it |
+|---|---|
+| `staff` | The original. The order joins the queue with a code; staff mark it delivered. |
+| `instant` | The item carries `reward` — written once, handed to every buyer. |
+| `codes` | The VA pastes a list; the server pops the next unused one per purchase. |
+
+The tile says **Instant** before a pilot spends anything, and the Inflight Pay
+sheet says *"Yours the moment this goes through"* rather than *"Your staff get
+the order"*. What comes back is selectable, has a copy button, has any link in
+it made tappable through the same `safeUrl` rule as everything else in the crew
+center — and **stays on the order for ever**. A reward you can only read once is
+a support request waiting to happen, and "I closed the box" must not cost
+somebody twenty hours of flying.
+
+The client never decides any of this. It renders whatever the order comes back
+carrying: the server pops the code and fulfils the order **inside the same
+statement that debits the balance**, or none of it happens. Two pilots pressing
+Buy on the last key is the case that has to be impossible, not unlikely.
+
+Codes are **added, never replaced**. The box in the back office holds what is
+being pasted in now; the list already in the database has had half of it handed
+out, and a save that sent the whole list would either re-issue those or throw
+the rest away. The item row shows how many are unused and carries an
+**Out of codes** chip at zero — the one failure that turns a shop into a shop
+that takes points and gives nothing back.
+
+### 5. Saving for one thing
+
+A balance on its own is a score. A balance with a bar under it and the name of
+the thing beside it is a reason to file another flight, which is the only reason
+to pay pilots for flying in the first place.
+
+A pilot pins one shelf item — from the tile, where the wanting happens, not from
+a screen they would have to go and find — and the card grows a line beside it:
+the name, a bar, and *"5,520 mi to go · 69%"*. It is kept on the wallet rather
+than in the browser, because pilots file flights on a phone and read their card
+on a laptop, and a goal that only exists on one of them is a goal that keeps
+disappearing.
+
+The pin is only offered on something they cannot afford yet. Saving for a thing
+already in your pocket is not a goal, it is a note to go and press Buy. A goal
+pointing at an item that has since come off the shelf quietly stops existing
+rather than reporting an error.
+
+### 6. Sections, and things that are only true this week
+
+Two small shelf features that a VA with twenty items needs and a VA with four
+does not, so both are opt-in and invisible until used.
+
+**Sections.** An item can carry a `group`. Give two or more items one and the
+shelf splits into headed rows; leave them all empty and it is the same single
+grid it always was. Whatever is left ungrouped collects under a heading at the
+*end* — a VA who has sorted half their shelf has not thereby said the other half
+comes first. Anything added from the suggested catalogue arrives in the section
+it was offered under rather than in a heap.
+
+**Offers.** An item can carry a `salePrice` and a `saleEndsAt`, and separately
+an `availableUntil` after which it leaves the shelf. The tile shows the offer
+with the old price struck through beside it and counts down — *Ends in 3 days* —
+and both dates run to the end of the day the VA picks, because a deal that
+expires at midnight on the morning of the day it names is a bug report.
+
+One function decides which of the two prices is in force, so the tile, the
+shortfall label, the Inflight Pay sheet and the saving-for bar cannot quote
+different numbers at each other. And it is a **courtesy, not a gate**: the
+server re-prices every order, so a device whose clock is a day fast cannot buy
+last week's sale. An "offer" that is not cheaper than the price is a typo and
+is refused in the form, because two price fields is exactly the shape of mistake
+that puts a whole shelf on the house.
 
 ## What a virtual airline actually sells
 
@@ -148,8 +263,10 @@ The "1,380 mi short" label on a shelf is a courtesy, not a gate.
 | | |
 |---|---|
 | `crewShop.js` | All of it: the shelf, the card, Inflight Pay, the orders queue and the back office. |
+| `crewEvents.js` | The event half of earning: what an event pays, on the card and in the brief. |
 | `docs/CREW-SHOP.md` | This. |
-| `tools/test-crew-shop.js` | 30 checks against the real dashboard. |
+| `tools/test-crew-shop.js` | The shop, against the real dashboard. |
+| `tools/test-crew-events-*.js` | What an event says it pays, and says nothing of without a shop. |
 
 Wired into `crew-dashboard.html` (the Shop tile, and the `shop` flag off the VA
 record) and `crew-pilot.html` (the card on the page, and the tile). It is built
@@ -172,7 +289,24 @@ DELETE /api/crew/<slug>/shop/items/<id> staff
 GET    /api/crew/<slug>/shop/orders     staff: everyone's. Pilot: their own.
 POST   /api/crew/<slug>/shop/orders     { itemId } → { order, wallet }
 PATCH  /api/crew/<slug>/shop/orders/<id> staff: { action: 'fulfil' | 'cancel' }
+POST   /api/crew/<slug>/shop/goal       { itemId } → { wallet }   '' clears it
 ```
+
+The item gains, all optional and all defaulting to the shop as it shipped:
+
+| Field | |
+|---|---|
+| `delivery` | `'staff'` (default), `'instant'` or `'codes'` |
+| `reward` | what an `instant` item hands over. Never sent to anyone but a buyer. |
+| `codes` | write-only, on POST/PATCH: codes to **append** to the pool |
+| `codesLeft` | staff-only, read-only: how many are unused |
+| `group` | the section it sits under on the shelf |
+| `salePrice`, `saleEndsAt` | an offer, and when it stops |
+| `availableUntil` | when the item leaves the shelf |
+
+The wallet gains `goalItemId`. `GET /events` gains `currency` —
+`{ name, short, eventBonus }`, and **only while the shop is on** — and an event
+gains `bonus` (null meaning "use the standing rate").
 
 `GET /api/va-ads/by-slug/<slug>` carries `shop: { enabled }` so the dashboard
 knows whether to draw the tile without asking for the whole shop on every page
@@ -191,9 +325,26 @@ Server-side rules the client depends on:
 
 * `POST /shop/orders` is the only thing that moves a balance. It must re-check
   the price, the stock and `limitPerPilot`, and debit in the same statement.
+* **It must re-price from the offer**, not from what the buyer's device thinks
+  the price is, and an expired `saleEndsAt` or `availableUntil` refuses the
+  order. The client's countdown is decoration.
+* **A self-claimed order is fulfilled in the same statement as the debit**, and
+  a `codes` item pops exactly one unused code inside it. Two pilots pressing Buy
+  on the last key must not both get it — and a debit that succeeds while the
+  hand-over fails is the one outcome there is no apology for.
+* `reward` goes back **only to the pilot who bought it**. Staff reading the
+  queue see that an order went out, not what the key was.
+* `codes` on a write is appended to the pool, never assigned over it.
 * Approving a PIREP credits it once. Re-approving an already-approved flight
   must not pay twice, and changing the rate must not re-price history.
+* **An event bonus is part of that same credit**, applied when the approved
+  PIREP belongs to an event: the event's own `bonus` when it has one, the
+  airline's `earn.eventBonus` otherwise. There is no path that pays for
+  attendance, and there must not be one.
 * Cancelling an order refunds it; deleting an item leaves existing orders alone.
+* `POST /shop/goal` stores a preference and nothing else. It cannot move a
+  balance, and an id that is not on the shelf is stored or rejected — either is
+  fine, because the client renders nothing for one it cannot find.
 
 ## Tests
 
@@ -201,7 +352,27 @@ Server-side rules the client depends on:
 node tools/test-crew-shop.js
 ```
 
-Covers: the catalogue — that a VA with an empty shelf is offered things to put
+Covers, on top of everything below: that a thing which delivers itself says so
+before it is bought and hands the thing over on the spot, with the link in it
+made tappable and no code to queue with, and that the order still carries it
+afterwards; that a `codes` item hands over the next unused key; that an item on
+offer quotes the offer on the tile, with the old price struck through, and that
+**Inflight Pay charges the offer rather than the old price**; that a shelf with
+sections gets headings; that a goal can be pinned and unpinned, is sent to the
+server rather than kept in the browser, and is not offered on something already
+affordable; that the delivery picker shows and hides the fields belonging to
+each choice without losing what is already typed; that codes are sent as a
+tidied list and nothing belonging to an unused delivery rides along; that an
+"offer" dearer than the price is refused rather than saved; and that the event
+bonus is one of the rates, with the worked example pricing both flights.
+
+`tools/test-crew-events-pilot.js` and `tools/test-crew-events-staff.js` cover
+the other half: that an event says what it pays on the card and states the
+condition in the brief, that the figure is sent with the event and an empty box
+means the standing rate, and that **a VA with no shop sees no trace of any of
+it**.
+
+Also: the catalogue — that a VA with an empty shelf is offered things to put
 on it, grouped and priced in their own currency; that one already on the shelf
 stays visible but unpressable rather than vanishing under the finger aiming at
 it; that tapping one sends the whole item, scarcity included, and nothing that

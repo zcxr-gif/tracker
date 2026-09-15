@@ -107,6 +107,71 @@
     const num = (v) => Math.round(Number(v) || 0).toLocaleString();
     const money = (v) => `${num(v)} ${currency().short}`;
 
+    /* =====================================================================
+     * WHAT A THING COSTS TODAY
+     *
+     * An item can go on offer: a second, lower price that stands until a
+     * date. `priceOf` is the only place that decides which of the two is in
+     * force, so the tile, the shortfall label, the Inflight Pay sheet and the
+     * saving-for bar cannot end up quoting three different numbers at each
+     * other.
+     *
+     * It is a COURTESY, not a gate. The server re-prices every order and is
+     * the only thing that can spend a balance — a device whose clock is a day
+     * fast must not be able to buy last week's sale.
+     * =================================================================== */
+
+    const at = (v) => { const t = v ? Date.parse(v) : NaN; return Number.isFinite(t) ? t : null; };
+    const gone = (v) => { const t = at(v); return t != null && t <= Date.now(); };
+
+    function onOffer(item) {
+        if (!item || item.salePrice == null || item.salePrice === '') return false;
+        const sale = Number(item.salePrice);
+        if (!Number.isFinite(sale) || sale < 0) return false;
+        // A "sale" at or above the price is a typo, not an offer, and drawing
+        // a struck-through smaller number beside a larger one reads as a lie.
+        if (!(sale < Number(item.price))) return false;
+        return !gone(item.saleEndsAt);
+    }
+    const priceOf = (item) => (onOffer(item)
+        ? Math.round(Number(item.salePrice))
+        : Math.max(0, Math.round(Number(item && item.price) || 0)));
+
+    /* =====================================================================
+     * WHO HANDS IT OVER
+     *
+     * The shop shipped with one answer: a code, and a staff member who reads
+     * it and does the thing. That is right for "name a route" and wrong for
+     * everything a VA could simply give a pilot on the spot — a Discord
+     * invite, a livery link, a form to fill in, a key from a list they bought
+     * once. Waiting on a human for those is the difference between a shop and
+     * a ticket queue, and it is the queue that quietly kills the economy: a
+     * pilot who waits three days for the thing they saved twenty hours for
+     * does not save for a second one.
+     *
+     * So an item says how it is delivered, and two of the three need nobody:
+     *
+     *   staff    the original. An order to work through, with a code.
+     *   instant  the item carries what the pilot gets. Handed over on the spot.
+     *   codes    the VA pastes a list; the server pops one per purchase.
+     *
+     * The CLIENT never decides this. It renders whatever the order comes back
+     * carrying — the server pops the code and fulfils the order inside the
+     * same statement that debits the balance, or none of it happens.
+     * =================================================================== */
+
+    const DELIVERY = {
+        staff: { label: 'Staff hand it over', icon: 'user-round-check',
+            note: 'It joins the orders queue with a code. Somebody on your team marks it delivered.' },
+        instant: { label: 'They get it straight away', icon: 'zap',
+            note: 'Write once what the pilot gets — a link, an invite, instructions. Every buyer sees exactly that.' },
+        codes: { label: 'One code from a list', icon: 'ticket',
+            note: 'Paste your codes, one per line. Each buyer gets the next unused one, and the shelf sells out when they run out.' },
+    };
+    const deliveryOf = (item) => (DELIVERY[item && item.delivery] ? item.delivery : 'staff');
+    /** True when buying it needs nobody on the staff to do anything. */
+    const selfClaim = (item) => deliveryOf(item) !== 'staff';
+
     /**
      * The card's number.
      *
@@ -238,9 +303,39 @@
         P.style('crew-shop-ui', `
         .sh-wrap{ display:grid; gap:1rem; }
         .sh-hero{ display:grid; gap:.9rem; justify-items:center; }
-        .sh-hero-facts{ display:flex; flex-wrap:wrap; gap:.35rem .9rem; justify-content:center;
-            font-size:.8rem; color:var(--muted,#736E64); }
-        .sh-hero-facts b{ color:var(--ink,#1C1A16); }
+
+        /* ---- THE SPACE EITHER SIDE OF THE CARD --------------------------
+           The card is a bank card: 1.586:1, and it stops at 26rem because
+           past that it stops looking like one. Everything else was stacked
+           UNDER it — what has been earned, what has been spent, the way into
+           the shop — so in a 46rem panel, and across the full width of a
+           pilot's own page, the card sat between two columns of nothing while
+           the page grew downwards past it.
+
+           Widening the card is not available; it is the shape it is. So the
+           stack goes BESIDE it once there is room for both, and goes back to
+           a stack when there is not. Same markup, one class. */
+        .sh-hero-split{ width:100%; max-width:54rem; margin-inline:auto; }
+        @media (min-width:44rem){
+            .sh-hero-split{ grid-template-columns:minmax(0,24rem) minmax(0,1fr);
+                align-items:center; gap:1.1rem 1.75rem; justify-items:stretch; }
+        }
+        .sh-hero-side{ display:grid; gap:.75rem; align-content:center; width:100%;
+            justify-items:center; text-align:center; }
+        @media (min-width:44rem){ .sh-hero-side{ justify-items:start; text-align:left; } }
+        .sh-hero-side .cp-btn{ width:100%; justify-content:center; }
+        /* Earned and spent, as figures rather than a sentence: the card
+           already carries the balance, and what fills a column beside it is
+           the two numbers that say where the balance came from. */
+        .sh-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(7.5rem,1fr));
+            gap:.5rem; width:100%; }
+        .sh-stat{ border:1px solid var(--line,#e5e5e5); border-radius:.85rem;
+            background:var(--surface,#fff); padding:.55rem .75rem .6rem; }
+        .sh-stat b{ display:block; font-size:1.15rem; font-weight:800; letter-spacing:-.02em;
+            line-height:1.15; font-variant-numeric:tabular-nums; }
+        .sh-stat span{ font-size:.64rem; font-weight:700; letter-spacing:.1em;
+            text-transform:uppercase; color:var(--muted,#736E64); }
+        .sh-hero-note{ font-size:.78rem; color:var(--muted,#736E64); line-height:1.45; margin:0; }
 
         .sh-tabs{ display:flex; gap:.35rem; padding:.25rem; border-radius:999px;
             background:color-mix(in srgb, var(--ink,#1C1A16) 6%, transparent); }
@@ -270,9 +365,15 @@
                        color-mix(in srgb, var(--accent) 6%, transparent)); }
         .sh-item-band i{ width:1.15rem; height:1.15rem; color:color-mix(in srgb, var(--accent) 85%, var(--ink,#1C1A16)); }
         .sh-item-body{ padding:.8rem .85rem .85rem; display:flex; flex-direction:column; gap:.3rem; flex:1; }
-        .sh-item-name{ font-size:.9rem; font-weight:700; letter-spacing:-.01em; }
+        .sh-item-name{ font-size:.9rem; font-weight:700; letter-spacing:-.01em;
+            display:flex; align-items:flex-start; gap:.4rem; }
+        .sh-item-name > span{ min-width:0; }
         .sh-item-desc{ font-size:.78rem; color:var(--muted,#736E64); line-height:1.4; }
-        .sh-item-foot{ display:flex; align-items:center; gap:.5rem; margin-top:auto; padding-top:.55rem; }
+        /* Price, an old price, how short they are, and a Buy button, on a
+           13rem tile. It wraps rather than squeezing the shortfall into two
+           cramped lines over the price it belongs to. */
+        .sh-item-foot{ display:flex; align-items:center; flex-wrap:wrap; gap:.35rem .5rem;
+            margin-top:auto; padding-top:.55rem; }
         .sh-price{ font-size:.95rem; font-weight:800; letter-spacing:-.01em; font-variant-numeric:tabular-nums;
             display:inline-flex; align-items:baseline; gap:.25rem; }
         .sh-price small{ font-size:.66rem; font-weight:700; color:var(--muted,#736E64); letter-spacing:.04em; }
@@ -282,6 +383,66 @@
         .sh-stock-out{ color:#DC2626; }
         .sh-short{ font-size:.66rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
             color:var(--muted,#736E64); margin-left:auto; }
+
+        /* ---- The marks on a tile ---------------------------------------
+           A pilot decides whether to spend twenty hours of flying on the
+           strength of one tile, so anything that changes the answer belongs
+           ON it: that it arrives instantly, that the price is only this good
+           until Sunday, that this is the one they are saving for. */
+        .sh-flags{ display:flex; flex-wrap:wrap; gap:.3rem; margin-bottom:.1rem; }
+        .sh-flag{ display:inline-flex; align-items:center; gap:.25rem; font-size:.6rem; font-weight:800;
+            letter-spacing:.08em; text-transform:uppercase; padding:.15rem .4rem; border-radius:.35rem;
+            background:color-mix(in srgb, var(--ink,#1C1A16) 7%, transparent); color:var(--muted,#736E64); }
+        .sh-flag i{ width:.85em; height:.85em; }
+        .sh-flag-now{ background:color-mix(in srgb, var(--accent) 16%, transparent);
+            color:color-mix(in srgb, var(--accent) 80%, var(--ink,#1C1A16)); }
+        .sh-flag-sale{ background:#DC2626; color:#fff; }
+        .sh-flag-goal{ background:color-mix(in srgb, var(--accent) 88%, #000 12%); color:#fff; }
+        .sh-was{ font-size:.7rem; font-weight:700; color:var(--muted,#736E64); text-decoration:line-through;
+            text-decoration-thickness:1px; }
+
+        /* The pin. One shelf item at a time is "the one I'm flying towards",
+           and it is a toggle on the tile rather than a screen of its own —
+           a goal you have to go somewhere to set is a goal nobody sets. */
+        .sh-pin{ border:0; background:none; cursor:pointer; padding:.2rem; margin:-.2rem -.2rem -.2rem auto;
+            color:var(--faint,#A8A296); border-radius:.4rem; line-height:0;
+            transition:color .18s ease, background .18s ease; }
+        .sh-pin i{ width:1rem; height:1rem; }
+        .sh-pin:hover{ color:var(--ink,#1C1A16); background:color-mix(in srgb, var(--ink,#1C1A16) 7%, transparent); }
+        .sh-pin[aria-pressed="true"]{ color:var(--accent); }
+
+        /* ---- Saving for -------------------------------------------------
+           Beside the card: the one thing this balance is FOR. A number with
+           nothing to be measured against is a number nobody watches. */
+        .sh-goal{ width:100%; display:grid; gap:.4rem; padding:.65rem .75rem .7rem;
+            border:1px solid var(--line,#e5e5e5); border-radius:.85rem; background:var(--surface,#fff); text-align:left; }
+        .sh-goal-head{ display:flex; align-items:baseline; gap:.5rem; }
+        .sh-goal-for{ font-size:.62rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
+            color:var(--muted,#736E64); }
+        .sh-goal-name{ font-size:.88rem; font-weight:700; letter-spacing:-.01em; margin-left:auto;
+            text-align:right; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .sh-goal-bar{ height:.45rem; border-radius:999px; overflow:hidden;
+            background:color-mix(in srgb, var(--ink,#1C1A16) 9%, transparent); }
+        .sh-goal-fill{ height:100%; border-radius:999px; background:var(--accent);
+            width:calc(var(--sh-g,0) * 100%); transition:width .5s cubic-bezier(.22,1.12,.36,1); }
+        .sh-goal-note{ font-size:.72rem; color:var(--muted,#736E64); font-variant-numeric:tabular-nums; }
+        .sh-goal-note b{ color:var(--ink,#1C1A16); }
+        @media (prefers-reduced-motion:reduce){ .sh-goal-fill{ transition:none; } }
+
+        /* ---- What a self-claimed purchase hands back --------------------
+           A link, an invite, a key. It is the whole value of the purchase, so
+           it is selectable, copyable, and kept on the order for ever — a
+           reward you can only read once is a support ticket waiting to
+           happen. */
+        .sh-reward{ width:100%; display:grid; gap:.5rem; text-align:left;
+            border:1px solid var(--line,#e5e5e5); border-radius:.85rem;
+            background:color-mix(in srgb, var(--accent) 6%, var(--surface,#fff)); padding:.7rem .8rem .75rem; }
+        .sh-reward-h{ font-size:.62rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
+            color:var(--muted,#736E64); }
+        .sh-reward-body{ font-size:.84rem; line-height:1.5; white-space:pre-wrap; word-break:break-word;
+            -webkit-user-select:text; user-select:text; }
+        .sh-reward-body a{ color:var(--accent); text-decoration:underline; text-underline-offset:2px; }
+        .sh-copy{ justify-self:start; }
 
         /* ---- INFLIGHT PAY ------------------------------------------------
            Its own layer above the panel: a pilot presses Buy inside the shop
@@ -347,6 +508,33 @@
         .sh-row-name{ font-size:.88rem; font-weight:700; letter-spacing:-.01em; }
         .sh-row-sub{ font-size:.74rem; color:var(--muted,#736E64); margin-top:.1rem; }
         .sh-row-actions{ display:flex; align-items:center; gap:.35rem; flex-shrink:0; }
+        /* An order that was claimed on the spot keeps what it handed over,
+           under the row it belongs to, for as long as the order exists. */
+        .sh-order{ display:grid; gap:.5rem; }
+        .sh-order .sh-reward{ margin-left:.1rem; }
+
+        /* ---- How a thing reaches a pilot -------------------------------
+           Three named choices rather than a dropdown, because each of them
+           changes what the rest of the form asks for and a VA has to be able
+           to read what they are choosing between before they choose. */
+        .sh-deliv{ display:grid; gap:.4rem; }
+        .sh-deliv-opt{ display:flex; align-items:flex-start; gap:.6rem; width:100%; text-align:left;
+            padding:.6rem .7rem; border:1px solid var(--line,#e5e5e5); border-radius:.75rem;
+            background:var(--surface,#fff); cursor:pointer; font:inherit; color:inherit;
+            transition:border-color .18s ease, background .18s ease; }
+        .sh-deliv-opt:hover{ border-color:color-mix(in srgb, var(--accent) 45%, var(--line,#e5e5e5)); }
+        .sh-deliv-opt[aria-pressed="true"]{ border-color:var(--accent);
+            background:color-mix(in srgb, var(--accent) 7%, var(--surface,#fff)); }
+        .sh-deliv-opt i{ width:1.05rem; height:1.05rem; flex:none; margin-top:.1rem;
+            color:color-mix(in srgb, var(--accent) 80%, var(--ink,#1C1A16)); }
+        .sh-deliv-opt b{ display:block; font-size:.85rem; font-weight:700; letter-spacing:-.01em; }
+        .sh-deliv-opt small{ display:block; font-size:.74rem; color:var(--muted,#736E64); line-height:1.4; margin-top:.1rem; }
+        /* A hidden field is hidden. .cp-label sets its own display, which
+           beats the browser's own rule for [hidden] — so it is said again,
+           louder, rather than by inventing a second way to hide something. */
+        .sh-section [hidden]{ display:none !important; }
+        .sh-codes-left{ font-variant-numeric:tabular-nums; }
+        .sh-codes-none{ color:#DC2626; font-weight:700; }
         .sh-section{ display:grid; gap:.55rem; }
         .sh-h{ font-size:.72rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase;
             color:var(--faint,#A8A296); }
@@ -440,6 +628,33 @@
                 <div class="sh-card-mark"><i data-lucide="plane"></i> Inflight Pay</div>
             </div>
         </div></div>`;
+    }
+
+    /**
+     * The card, and what belongs beside it.
+     *
+     * Three places show this — the pilot's home, the shop's own hero, and (as
+     * the card alone) the skeleton. Written once so the two that carry facts
+     * carry the same ones, in the same order, at the same size.
+     */
+    function heroHtml(wallet, opts) {
+        const o = opts || {};
+        const c = currency();
+        const stat = (label, v) => `<div class="sh-stat"><b>${num(v)}</b><span>${esc(c.short)} ${esc(label)}</span></div>`;
+        const side = [];
+        // The goal first: it is the only thing here that says what the balance
+        // is FOR, and it is the reason somebody opens this at all.
+        if (wallet) side.push(goalHtml(wallet));
+        // Deliberately not the balance: that is the biggest thing on the card
+        // itself, and printing it twice a centimetre apart reads as a mistake.
+        if (wallet) side.push(`<div class="sh-stats">${stat('earned', wallet.earned || 0)}${stat('spent', wallet.spent || 0)}</div>`);
+        if (o.cta) side.push(o.cta);
+        if (o.note) side.push(`<p class="sh-hero-note">${o.note}</p>`);
+        const card = cardHtml(wallet, o.card);
+        const rows = side.filter(Boolean);
+        if (!rows.length) return `<div class="sh-hero">${card}</div>`;
+        return `<div class="sh-hero sh-hero-split">${card}
+            <div class="sh-hero-side">${rows.join('')}</div></div>`;
     }
 
     /**
@@ -598,16 +813,9 @@
         const w = S.data.wallet || null;
         const items = (S.data.items || []).filter((i) => i.active !== false);
         const c = currency();
-        const facts = [];
-        if (w) {
-            facts.push(`<span><b>${num(w.earned || 0)}</b> ${esc(c.short)} earned</span>`);
-            facts.push(`<span><b>${num(w.spent || 0)}</b> ${esc(c.short)} spent</span>`);
-        }
-        const hero = `<div class="sh-hero">
-            ${cardHtml(w)}
-            ${facts.length ? `<div class="sh-hero-facts">${facts.join('')}</div>` : ''}
-            ${!w ? `<p class="cp-note" style="text-align:center">Sign in as a pilot of this airline to start earning ${esc(c.name)}.</p>` : ''}
-        </div>`;
+        const hero = heroHtml(w, {
+            note: w ? '' : `Sign in as a pilot of this airline to start earning ${esc(c.name)}.`,
+        });
 
         if (!items.length) {
             return hero + `<div class="cp-empty">
@@ -618,33 +826,121 @@
             </div>`;
         }
 
-        return hero + `<div class="sh-grid">${items.map((i) => itemHtml(i, w)).join('')}</div>`;
+        return hero + shelfHtml(items, w);
     }
+
+    /* THE SHELF, IN SECTIONS WHEN THERE ARE SECTIONS TO MAKE.
+     *
+     * A flat grid is right for six things and a wall for twenty-six. Grouping
+     * is opt-in and per item, so a VA that never sets one sees exactly the
+     * shelf they always had — and one heading over the whole shelf is noise,
+     * so it takes two before any appear. Whatever is left ungrouped collects
+     * under a heading at the END: a VA who has sorted half their shelf has not
+     * thereby said the other half comes first.
+     */
+    function shelfHtml(items, wallet) {
+        const groups = [];
+        items.forEach((i) => {
+            const name = String(i.group || '').trim();
+            const at = groups.find((g) => g.name.toLowerCase() === name.toLowerCase());
+            if (at) at.items.push(i); else groups.push({ name, items: [i] });
+        });
+        const grid = (rows) => `<div class="sh-grid">${rows.map((i) => itemHtml(i, wallet)).join('')}</div>`;
+        if (groups.length < 2 || !groups.some((g) => g.name)) return grid(items);
+        groups.sort((a, b) => (a.name ? 0 : 1) - (b.name ? 0 : 1));
+        return groups.map((g) => `<div class="sh-h" style="margin-top:.4rem">${esc(g.name || 'Everything else')}</div>
+            ${grid(g.items)}`).join('');
+    }
+
+    /** The shelf item this pilot is flying towards, if they have named one. */
+    const goalId = () => String((S.data && S.data.wallet && S.data.wallet.goalItemId) || '');
 
     function itemHtml(item, wallet) {
         const art = item.image && P.safeUrl(item.image)
             ? `<div class="sh-item-art"><img src="${esc(item.image)}" alt="" loading="lazy"></div>`
             : `<div class="sh-item-band"><i data-lucide="${esc(item.icon || 'gift')}"></i></div>`;
+        const price = priceOf(item);
+        const over = gone(item.availableUntil);
         const out = Number(item.stock) === 0;
-        const short = wallet && Number(wallet.balance) < Number(item.price);
+        const short = wallet && Number(wallet.balance) < price;
+        const sale = onOffer(item);
+        const pinned = !!goalId() && goalId() === String(item.id);
+
+        /* The three things that change the answer to "should I spend twenty
+           hours of flying on this", said on the tile where the decision is
+           actually made rather than one tap further in. */
+        const flags = [];
+        if (selfClaim(item)) flags.push(`<span class="sh-flag sh-flag-now"><i data-lucide="zap"></i>Instant</span>`);
+        if (sale) flags.push(`<span class="sh-flag sh-flag-sale"><i data-lucide="tag"></i>${
+            item.saleEndsAt ? `Ends ${esc(relativeText(item.saleEndsAt))}` : 'On offer'}</span>`);
+        else if (item.availableUntil && !over) flags.push(`<span class="sh-flag"><i data-lucide="clock"></i>Until ${esc(relativeText(item.availableUntil))}</span>`);
+        if (pinned) flags.push(`<span class="sh-flag sh-flag-goal"><i data-lucide="target"></i>Saving for</span>`);
+
         let right;
-        if (out) right = `<span class="sh-stock sh-stock-out">Sold out</span>`;
+        if (over) right = `<span class="sh-stock sh-stock-out">Offer over</span>`;
+        else if (out) right = `<span class="sh-stock sh-stock-out">Sold out</span>`;
         else if (!wallet) right = `<span class="sh-short">Sign in</span>`;
-        else if (short) right = `<span class="sh-short">${num(Number(item.price) - Number(wallet.balance))} ${esc(currency().short)} short</span>`;
+        else if (short) right = `<span class="sh-short">${num(price - Number(wallet.balance))} ${esc(currency().short)} short</span>`;
         else right = `<button class="cp-btn cp-btn-primary cp-btn-sm sh-buy" data-sh-buy="${esc(item.id)}">Buy</button>`;
-        const stock = !out && Number(item.stock) > 0
+
+        const stock = !out && !over && Number(item.stock) > 0
             ? `<span class="sh-stock">${num(item.stock)} left</span>` : '';
+
+        /* The pin is offered to a pilot who cannot afford this yet, and to one
+           who has already pinned it so they can unpin. Never on something they
+           could buy right now: "saving for" a thing already in your pocket is
+           not a goal, it is a note to go and press Buy. */
+        const pin = wallet && !out && !over && (short || pinned)
+            ? `<button type="button" class="sh-pin" data-sh-goal="${esc(item.id)}" aria-pressed="${pinned}"
+                title="${pinned ? 'Stop saving for this' : 'Save for this'}"
+                aria-label="${pinned ? 'Stop saving for this' : 'Save for this'}"><i data-lucide="${pinned ? 'bookmark-check' : 'bookmark'}"></i></button>`
+            : '';
+
         return `<article class="sh-item">
             ${art}
             <div class="sh-item-body">
-                <div class="sh-item-name">${esc(item.name || 'Item')}</div>
+                ${flags.length ? `<div class="sh-flags">${flags.join('')}</div>` : ''}
+                <div class="sh-item-name"><span>${esc(item.name || 'Item')}</span>${pin}</div>
                 ${item.desc ? `<div class="sh-item-desc">${esc(item.desc)}</div>` : ''}
                 <div class="sh-item-foot">
-                    <span class="sh-price">${num(item.price)}<small>${esc(currency().short)}</small></span>
+                    <span class="sh-price">${num(price)}<small>${esc(currency().short)}</small></span>
+                    ${sale ? `<span class="sh-was">${num(item.price)}</span>` : ''}
                     ${stock}${right}
                 </div>
             </div>
         </article>`;
+    }
+
+    /**
+     * SAVING FOR.
+     *
+     * A balance on its own is a score. A balance with a bar under it and the
+     * name of the thing beside it is a reason to file another flight, which is
+     * the only reason to pay pilots for flying in the first place. Pinned from
+     * the shelf, kept on the wallet so it follows a pilot from their phone to
+     * their desk, and drawn wherever the card is drawn.
+     */
+    function goalHtml(wallet) {
+        if (!wallet || !wallet.goalItemId) return '';
+        const item = (S.data.items || []).find((x) => String(x.id) === String(wallet.goalItemId));
+        // A goal pointing at something taken off the shelf is not an error to
+        // report, it is a goal that quietly stops existing.
+        if (!item || item.active === false || gone(item.availableUntil)) return '';
+        const price = priceOf(item);
+        if (price <= 0) return '';
+        const have = Math.max(0, Number(wallet.balance) || 0);
+        const left = Math.max(0, price - have);
+        const p = Math.max(0, Math.min(1, have / price));
+        return `<div class="sh-goal" style="--sh-g:${p.toFixed(3)}">
+            <div class="sh-goal-head">
+                <span class="sh-goal-for">Saving for</span>
+                <span class="sh-goal-name">${esc(item.name || 'Item')}</span>
+            </div>
+            <div class="sh-goal-bar"><div class="sh-goal-fill"></div></div>
+            <div class="sh-goal-note">${left
+                ? `<b>${num(left)} ${esc(currency().short)}</b> to go · ${Math.round(p * 100)}%`
+                : '<b>You can buy this now.</b>'}</div>
+        </div>`;
     }
 
     /* =====================================================================
@@ -716,16 +1012,24 @@
     }
 
     function offerHtml(item, w) {
-        const after = Number(w.balance) - Number(item.price);
+        const price = priceOf(item);
+        const after = Number(w.balance) - price;
+        // What happens next, before it happens. A pilot who knows the thing
+        // arrives on the spot presses differently from one who knows they are
+        // joining a queue, and both of those are fine as long as they know.
+        const how = selfClaim(item)
+            ? 'Yours the moment this goes through.'
+            : 'Your staff get the order and hand it over.';
         return `<div class="sh-pay-scrim"></div>
             <div class="sh-pay-card">
                 <div class="sh-pay-mark"><i data-lucide="plane"></i> Inflight Pay</div>
                 ${cardHtml(w)}
                 <div class="sh-pay-what">
                     <div class="sh-pay-item">${esc(item.name || 'Item')}</div>
-                    <div class="sh-pay-amount">${num(item.price)} <span style="font-size:.42em;font-weight:700">${esc(currency().short)}</span></div>
+                    <div class="sh-pay-amount">${num(price)} <span style="font-size:.42em;font-weight:700">${esc(currency().short)}</span></div>
                     <div class="sh-pay-after">${num(after)} ${esc(currency().short)} left afterwards</div>
                 </div>
+                <p class="sh-pay-note">${esc(how)}</p>
                 <button class="sh-hold" data-sh-hold>
                     <span class="sh-hold-fill"></span>
                     <span class="sh-hold-label"><i data-lucide="fingerprint"></i> Hold to pay</span>
@@ -829,16 +1133,55 @@
         if (it && Number(it.stock) > 0) it.stock = Number(it.stock) - 1;
     }
 
+    /* Text a VA typed, with any link in it made tappable. Escaped FIRST and
+       matched afterwards, so nothing pasted into the box can become markup —
+       and only through CrewPanels.safeUrl, which is the same rule every other
+       link in the crew centre goes through. */
+    function linkify(text) {
+        return esc(String(text || '')).replace(/https?:\/\/[^\s<]+/g, (u) => {
+            // Punctuation at the end of a sentence is not part of the address.
+            const clean = u.replace(/[.,;:!?)\]]+$/, '');
+            const tail = u.slice(clean.length);
+            if (!P.safeUrl(clean)) return u;
+            return `<a href="${clean}" target="_blank" rel="noopener noreferrer">${clean}</a>${tail}`;
+        });
+    }
+
+    /**
+     * What a self-claimed purchase hands back.
+     *
+     * The link, the invite, the key — the whole value of what was just bought.
+     * It is selectable, it has a copy button, and it is kept on the order for
+     * ever: a reward you can only read once is a support request waiting to
+     * happen, and "I closed the box" is not a thing a pilot should be able to
+     * lose twenty hours of flying to.
+     */
+    function rewardHtml(reward, heading) {
+        if (!reward) return '';
+        return `<div class="sh-reward">
+            <div class="sh-reward-h">${esc(heading || 'Yours')}</div>
+            <div class="sh-reward-body">${linkify(reward)}</div>
+            <button type="button" class="cp-btn cp-btn-sm sh-copy" data-sh-copy="${esc(reward)}">
+                <i data-lucide="copy"></i> Copy</button>
+        </div>`;
+    }
+
     function receiptHtml(item, order) {
         const w = (S.data && S.data.wallet) || {};
+        // Three endings, and which one a pilot gets is the server's answer,
+        // not this file's guess at it: an order that came back carrying what
+        // was bought was fulfilled in the same statement that debited them.
+        let tail;
+        if (order.reward) tail = rewardHtml(order.reward, 'Yours — keep this');
+        else if (order.code) tail = `<div class="sh-code">${esc(order.code)}</div>
+            <div class="cp-note">Show this to your staff to collect it.</div>`;
+        else tail = '<div class="cp-note">Your staff can see this order now.</div>';
         return `<div class="sh-pay-mark"><i data-lucide="plane"></i> Inflight Pay</div>
             <div class="sh-done">
                 <div class="sh-tick"><i data-lucide="check"></i></div>
-                <div class="sh-done-title">Paid · ${esc(money(item.price))}</div>
+                <div class="sh-done-title">Paid · ${esc(money(order.price != null ? order.price : priceOf(item)))}</div>
                 <div class="cp-note">${esc(item.name || 'Item')} — ${esc(num(w.balance))} ${esc(currency().short)} left</div>
-                ${order.code ? `<div class="sh-code">${esc(order.code)}</div>
-                    <div class="cp-note">Show this to your staff to collect it.</div>`
-                    : `<div class="cp-note">Your staff can see this order now.</div>`}
+                ${tail}
             </div>
             <button class="cp-btn cp-btn-primary" data-sh-paydone style="width:100%;justify-content:center">Done</button>`;
     }
@@ -881,13 +1224,18 @@
             ? `<button class="cp-btn cp-btn-sm cp-btn-primary" data-sh-fulfil="${esc(o.id)}">Delivered</button>
                <button class="cp-btn cp-btn-sm cp-btn-bad" data-sh-refund="${esc(o.id)}">Refund</button>`
             : '';
-        return `<div class="sh-row" data-sh-order="${esc(o.id)}">
-            <div class="sh-row-main">
-                <div class="sh-row-name">${esc(o.itemName || 'Item')}
-                    <span class="cp-chip ${chip}" style="margin-left:.35rem">${label}</span></div>
-                <div class="sh-row-sub">${who}${esc(money(o.price))}${when ? ` · ${esc(when)}` : ''}${o.code ? ` · <span style="font-family:ui-monospace,monospace">${esc(o.code)}</span>` : ''}</div>
+        // `reward` only ever comes back on the buyer's own orders; staff
+        // reading the queue see that one went out, not what the key was.
+        return `<div class="sh-order" data-sh-order="${esc(o.id)}">
+            <div class="sh-row">
+                <div class="sh-row-main">
+                    <div class="sh-row-name">${esc(o.itemName || 'Item')}
+                        <span class="cp-chip ${chip}" style="margin-left:.35rem">${label}</span></div>
+                    <div class="sh-row-sub">${who}${esc(money(o.price))}${when ? ` · ${esc(when)}` : ''}${o.code ? ` · <span style="font-family:ui-monospace,monospace">${esc(o.code)}</span>` : ''}</div>
+                </div>
+                <div class="sh-row-actions">${actions}</div>
             </div>
-            <div class="sh-row-actions">${actions}</div>
+            ${o.reward ? rewardHtml(o.reward, 'Yours') : ''}
         </div>`;
     }
 
@@ -919,6 +1267,20 @@
         ['perHour', 'Per flight hour', 'The main one. A 2-hour flight pays twice this.'],
         ['perLanding', 'Per landing', 'For airlines that fly short legs.'],
         ['fleetBonus', 'Fleet bonus', 'Added when the aircraft is one of yours.'],
+        /* EVENTS PAY, AND THEY PAY THROUGH THE FLIGHT.
+         *
+         * Every VA wants its group flights to be worth turning up to, and the
+         * obvious way to do that — a button that hands out points for
+         * attendance — is the one thing this economy does not have and must
+         * not get. A second supply nobody can audit is how every hand-rolled
+         * VA economy has ended up in an argument.
+         *
+         * So an event pays the same way everything else does: the pilot flies
+         * it, files it, a staff member approves it, and the approval carries
+         * this on top of the usual rate. Signing up and not flying pays
+         * nothing, which is also the honest answer. An individual event can
+         * name its own figure and override this one. */
+        ['eventBonus', 'Event bonus', 'Added when the approved flight was for one of your events.'],
         ['violationPenalty', 'Violation penalty', 'Taken off per violation on the flight.'],
     ];
 
@@ -928,12 +1290,15 @@
     function exampleHtml() {
         const e = earn();
         const hours = 2.25, landings = 1;
-        const total = Math.max(0, Math.round(
+        const base = Math.max(0, Math.round(
             (Number(e.perHour) || 0) * hours
             + (Number(e.perLanding) || 0) * landings
             + (Number(e.fleetBonus) || 0)));
+        const ev = Math.max(0, Math.round(Number(e.eventBonus) || 0));
         return `<div class="sh-example">A 2h 15m flight in one of your own aircraft pays
-            <b>${num(total)} ${esc(currency().short)}</b> when you approve it.</div>`;
+            <b>${num(base)} ${esc(currency().short)}</b> when you approve it${ev
+                ? `, or <b>${num(base + ev)} ${esc(currency().short)}</b> if it was flown for an event`
+                : ''}.</div>`;
     }
 
     function manageHtml() {
@@ -1018,14 +1383,22 @@
     }
 
     function manageItemHtml(i) {
-        const bits = [money(i.price)];
+        const bits = [onOffer(i) ? `${money(i.salePrice)} (was ${money(i.price)})` : money(i.price)];
         if (Number(i.stock) > 0) bits.push(`${num(i.stock)} left`);
         else if (Number(i.stock) === 0) bits.push('sold out');
         else bits.push('unlimited');
         if (i.limitPerPilot) bits.push(`${num(i.limitPerPilot)} per pilot`);
+        if (i.group) bits.push(String(i.group));
+        // The two facts a VA needs at a glance and would otherwise have to
+        // open the item to learn: that it delivers itself, and — the one that
+        // actually breaks a shop — that it has run out of codes to deliver.
+        const d = deliveryOf(i);
+        if (d !== 'staff') bits.push(DELIVERY[d].label.toLowerCase());
+        const dry = d === 'codes' && Number(i.codesLeft) === 0;
         return `<div class="sh-row">
             <div class="sh-row-main">
-                <div class="sh-row-name">${esc(i.name || 'Item')}${i.active === false ? ' <span class="cp-chip cp-chip-mute">Hidden</span>' : ''}</div>
+                <div class="sh-row-name">${esc(i.name || 'Item')}${i.active === false ? ' <span class="cp-chip cp-chip-mute">Hidden</span>' : ''}${
+                    dry ? ' <span class="cp-chip cp-chip-bad">Out of codes</span>' : ''}</div>
                 <div class="sh-row-sub">${esc(bits.join(' · '))}</div>
             </div>
             <div class="sh-row-actions">
@@ -1040,9 +1413,41 @@
        is the action a VA takes twenty times in a row on the day they set the
        shop up, and a dialog that has to be opened and dismissed each time is
        what makes that feel like work. */
+    /* A date input speaks local days; the server is told an instant. "Until
+       Sunday" means the end of Sunday where the VA lives, because a deal that
+       expires at midnight on the morning of the day it names is a bug report. */
+    const dayEndIso = (v) => {
+        if (!v) return '';
+        const d = new Date(`${v}T23:59:59`);
+        return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+    };
+    const dayValue = (iso) => {
+        const t = at(iso);
+        if (t == null) return '';
+        const d = new Date(t), pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+
+    /** The sections a VA has already used, so the next item can join one. */
+    function knownGroups() {
+        const seen = [];
+        (S.data.items || []).forEach((i) => {
+            const g = String(i.group || '').trim();
+            if (g && !seen.some((x) => x.toLowerCase() === g.toLowerCase())) seen.push(g);
+        });
+        (S.data.suggested || []).forEach((sg) => {
+            const g = String(sg.group || '').trim();
+            if (g && !seen.some((x) => x.toLowerCase() === g.toLowerCase())) seen.push(g);
+        });
+        return seen;
+    }
+
     function itemFormHtml() {
         const it = S.editing || {};
         const isNew = !it.id;
+        const deliv = deliveryOf(it);
+        const left = Number(it.codesLeft);
+        const groups = knownGroups();
         return `<div class="sh-section">
             <div class="sh-h">${isNew ? 'New item' : 'Editing'}</div>
             <label class="cp-label">Name
@@ -1050,6 +1455,29 @@
             <label class="cp-label">What it is
                 <textarea class="cp-textarea" data-sh-f="desc" maxlength="240"
                     placeholder="Two sentences. What the pilot gets, and anything they need to know.">${esc(it.desc || '')}</textarea></label>
+
+            <div class="cp-label">How it reaches them
+                <div class="sh-deliv">${Object.keys(DELIVERY).map((k) => `<button type="button"
+                    class="sh-deliv-opt" data-sh-deliv="${k}" aria-pressed="${deliv === k ? 'true' : 'false'}">
+                    <i data-lucide="${esc(DELIVERY[k].icon)}"></i>
+                    <span><b>${esc(DELIVERY[k].label)}</b><small>${esc(DELIVERY[k].note)}</small></span>
+                </button>`).join('')}</div>
+            </div>
+
+            <label class="cp-label" data-sh-when="instant" ${deliv === 'instant' ? '' : 'hidden'}>What they get
+                <textarea class="cp-textarea" data-sh-f="reward" maxlength="2000" rows="4"
+                    placeholder="A link, an invite, a set of instructions. Every buyer sees exactly this.">${esc(it.reward || '')}</textarea></label>
+            <p class="cp-note" data-sh-when="instant" ${deliv === 'instant' ? '' : 'hidden'}>Links are made tappable.
+                Pilots keep this on the order, so they can come back to it.</p>
+
+            <label class="cp-label" data-sh-when="codes" ${deliv === 'codes' ? '' : 'hidden'}>${isNew ? 'Your codes, one per line' : 'Add more codes, one per line'}
+                <textarea class="cp-textarea" data-sh-f="codes" rows="4" placeholder="ABC-123&#10;DEF-456&#10;GHI-789"></textarea></label>
+            <p class="cp-note" data-sh-when="codes" ${deliv === 'codes' ? '' : 'hidden'}>
+                ${isNew ? 'Each buyer gets the next unused one, and it sells out when they run out.'
+                    : `<span class="sh-codes-left ${left === 0 ? 'sh-codes-none' : ''}">${
+                        Number.isFinite(left) ? `${num(left)} unused` : 'Codes already saved'}</span> —
+                        anything typed here is <b>added</b> to them, never a replacement.`}</p>
+
             <div class="cp-grid2">
                 <label class="cp-label">Price (${esc(currency().short)})
                     <input class="cp-input" type="number" min="0" step="1" inputmode="numeric" data-sh-f="price" value="${Math.max(0, Math.round(Number(it.price) || 0))}"></label>
@@ -1066,6 +1494,28 @@
                     <input class="cp-input" data-sh-f="image" value="${esc(it.image || '')}" placeholder="https://…"></label>
             </div>
             <p class="cp-note">A limit of 0 means no limit. Leave the picture empty and it gets a plain tile.</p>
+
+            <label class="cp-label">Section <span class="cp-note" style="font-weight:400">optional</span>
+                <input class="cp-input" data-sh-f="group" list="shGroups" maxlength="40"
+                    value="${esc(it.group || '')}" placeholder="Liveries">
+                <datalist id="shGroups">${groups.map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist></label>
+            <p class="cp-note">Give two or more things a section and the shelf splits into headed rows.
+                Leave them all empty and it stays one grid.</p>
+
+            <div class="sh-h" style="margin-top:.4rem">For a while only</div>
+            <div class="cp-grid2">
+                <label class="cp-label">Offer price (${esc(currency().short)})
+                    <input class="cp-input" type="number" min="0" step="1" inputmode="numeric" data-sh-f="salePrice"
+                        value="${it.salePrice == null || it.salePrice === '' ? '' : Math.max(0, Math.round(Number(it.salePrice)))}" placeholder="none"></label>
+                <label class="cp-label">Offer ends
+                    <input class="cp-input" type="date" data-sh-f="saleEndsAt" value="${esc(dayValue(it.saleEndsAt))}"></label>
+            </div>
+            <label class="cp-label">On the shelf until
+                <input class="cp-input" type="date" data-sh-f="availableUntil" value="${esc(dayValue(it.availableUntil))}"></label>
+            <p class="cp-note">An offer price shows the old one struck through and counts down on the tile.
+                Both dates run to the end of the day you pick, and both are enforced by the server — not by the
+                clock on a pilot's phone.</p>
+
             <div class="cp-label">Icon
                 <div class="sh-icons">${ICONS.map((ic) => `<button type="button" class="sh-icon"
                     data-sh-icon="${esc(ic)}" aria-label="${esc(ic)}"
@@ -1095,11 +1545,34 @@
         const out = {};
         scope.querySelectorAll('[data-sh-f]').forEach((el) => {
             const k = el.getAttribute('data-sh-f');
-            out[k] = (el.type === 'number') ? Number(el.value) : el.value.trim();
+            if (el.type === 'number') out[k] = Number(el.value);
+            else if (el.type === 'date') out[k] = dayEndIso(el.value);
+            else out[k] = el.value.trim();
         });
-        // Buttons rather than an input, so it is not in the sweep above. Held
-        // on S.editing, which is where the form's own starting values live.
+        // Buttons rather than inputs, so neither is in the sweep above. Both
+        // are held on S.editing, which is where the form's starting values
+        // live anyway.
         out.icon = (S.editing && S.editing.icon) || 'gift';
+        out.delivery = deliveryOf(S.editing);
+
+        // An empty offer price is "no offer", which is not the same number as
+        // free — and a zero here would put the whole shelf on the house.
+        if (!(Number(out.salePrice) > 0)) { out.salePrice = null; out.saleEndsAt = out.saleEndsAt || ''; }
+
+        /* CODES ARE ADDED, NEVER REPLACED. The box holds what the VA is
+           pasting in now; the ones already in the database have had half of
+           them handed out, and a save that sent the whole list would either
+           re-issue those or throw the rest away. The server appends. */
+        out.codes = String(out.codes || '').split('\n').map((x) => x.trim()).filter(Boolean);
+
+        // Only the fields that belong to the chosen delivery are sent, so
+        // flipping between them while writing cannot leave a stale reward on
+        // an item that no longer hands one over.
+        if (out.delivery !== 'instant') out.reward = '';
+        // An empty list is not "append nothing", it is a sentence the server
+        // should never have to parse. Not sending it says the same thing and
+        // cannot be read as "replace them with none".
+        if (out.delivery !== 'codes' || !out.codes.length) delete out.codes;
         return out;
     }
 
@@ -1125,7 +1598,16 @@
         const f = readForm(scope);
         if (!f.name) { P.toast('Give it a name.', 'bad'); return; }
         if (!(f.price >= 0)) { P.toast('A price of 0 or more, please.', 'bad'); return; }
+        if (f.salePrice != null && !(Number(f.salePrice) < Number(f.price))) {
+            P.toast('An offer has to be cheaper than the price.', 'bad'); return;
+        }
+        if (f.delivery === 'instant' && !f.reward) {
+            P.toast('Write what the pilot gets, or let staff hand it over.', 'bad'); return;
+        }
         const id = S.editing && S.editing.id;
+        if (f.delivery === 'codes' && !(f.codes || []).length && (!id || !Number(S.editing.codesLeft))) {
+            P.toast('Paste at least one code.', 'bad'); return;
+        }
         const done = P.busy(btn, 'Saving…');
         try {
             await S.api(id ? `/shop/items/${encodeURIComponent(id)}` : '/shop/items',
@@ -1156,6 +1638,10 @@
                 body: {
                     name: sug.name, desc: sug.desc, icon: sug.icon, image: '',
                     price: sug.price, stock: sug.stock,
+                    // The catalogue is already sorted into the five shelves a
+                    // VA reads it on, so an item added from it arrives in the
+                    // section it was offered under rather than in a heap.
+                    group: sug.group || '',
                     limitPerPilot: sug.limitPerPilot, active: true,
                 },
             });
@@ -1164,6 +1650,48 @@
         } catch (err) {
             P.toast((err && err.message) || 'That didn’t save.', 'bad');
         } finally { done(); }
+    }
+
+    /**
+     * Pin, or unpin, the thing this pilot is flying towards.
+     *
+     * Kept on the wallet rather than in this browser, because a pilot files
+     * their flights on a phone and reads their card on a laptop, and a goal
+     * that only exists on one of them is a goal that keeps disappearing. The
+     * wallet that comes back is the server's, like every other balance here.
+     */
+    async function setGoal(id, btn) {
+        const w = S.data && S.data.wallet;
+        if (!w) return;
+        const next = String(w.goalItemId || '') === String(id) ? '' : String(id);
+        const done = P.busy(btn, false);
+        try {
+            const d = await S.api('/shop/goal', { method: 'POST', body: { itemId: next } });
+            S.data.wallet = (d && d.wallet) || { ...w, goalItemId: next };
+            tap('selection');
+            draw(); repaintCards();
+        } catch (err) {
+            P.toast((err && err.message) || 'That didn’t save.', 'bad');
+        } finally { done(); }
+    }
+
+    /* Copy, with the answer on the button itself. A toast for this would be a
+       notification about a clipboard, which nobody has ever needed. */
+    async function copyReward(btn) {
+        const text = btn.getAttribute('data-sh-copy') || '';
+        const label = btn.innerHTML;
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+            else throw new Error('no clipboard');
+            btn.innerHTML = '<i data-lucide="check"></i> Copied';
+            tap('success');
+        } catch (_) {
+            // A browser that will not copy is not a failure worth a dialog:
+            // the text is right there, selectable, and saying so is enough.
+            btn.innerHTML = '<i data-lucide="text-cursor"></i> Select it above';
+        }
+        try { icons(); } catch (_) {}
+        setTimeout(() => { btn.innerHTML = label; try { icons(); } catch (_) {} }, 2200);
     }
 
     async function removeItem(id, btn) {
@@ -1243,6 +1771,29 @@
                 return;
             }
 
+            /* The delivery picker, the same way and for the same reason — and
+               it shows and hides the two boxes that belong to it rather than
+               redrawing, so a VA can read all three descriptions, change their
+               mind twice, and still have what they typed. */
+            const dpick = t.closest('[data-sh-deliv]');
+            if (dpick) {
+                const kind = dpick.getAttribute('data-sh-deliv');
+                S.editing = { ...(S.editing || {}), delivery: kind };
+                panel.body.querySelectorAll('[data-sh-deliv]').forEach((el) => {
+                    el.setAttribute('aria-pressed', el.getAttribute('data-sh-deliv') === kind ? 'true' : 'false');
+                });
+                panel.body.querySelectorAll('[data-sh-when]').forEach((el) => {
+                    el.hidden = el.getAttribute('data-sh-when') !== kind;
+                });
+                return;
+            }
+
+            const goal = t.closest('[data-sh-goal]');
+            if (goal) { setGoal(goal.getAttribute('data-sh-goal'), goal); return; }
+
+            const copy = t.closest('[data-sh-copy]');
+            if (copy) { copyReward(copy); return; }
+
             const sug = t.closest('[data-sh-suggest]');
             if (sug) { addSuggested(sug.getAttribute('data-sh-suggest'), sug); return; }
         });
@@ -1298,10 +1849,14 @@
         if (!S.data || !S.data.enabled) { host.innerHTML = ''; host.classList.add('cp-hidden'); return; }
         host.classList.remove('cp-hidden');
         const w = S.data.wallet || null;
-        host.innerHTML = `<div class="sh-hero">${cardHtml(w)}
-            <button class="cp-btn cp-btn-primary" data-sh-open style="width:100%;justify-content:center">
+        host.innerHTML = heroHtml(w, {
+            cta: `<button class="cp-btn cp-btn-primary" data-sh-open>
                 <i data-lucide="store"></i> ${w ? 'Spend it' : 'See the shop'}
-            </button></div>`;
+            </button>`,
+            note: w
+                ? `Earned on every flight your staff approve. Spend it on whatever is on the shelf.`
+                : `Sign in as a pilot of this airline to start earning ${esc(currency().name)}.`,
+        });
         if (!host.dataset.shWired) {
             host.dataset.shWired = '1';
             host.addEventListener('click', (ev) => {

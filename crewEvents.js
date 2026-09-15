@@ -71,6 +71,11 @@
         canManage: false,
         routes: [],        // the VA's network, for the editor's route picker
         routesLoaded: false,
+        // The shop's currency, when this airline runs one. Events can pay a
+        // bonus on top of the usual rate, and a figure with no unit beside it
+        // is not a figure anybody can act on. Null when there is no shop, and
+        // then nothing here mentions paying at all.
+        currency: null,
         loaded: false,
         error: null,       // why the calendar could not be read, when it could not
         openEventId: '',
@@ -220,6 +225,9 @@
             S.mine = Array.isArray(d.mine) ? d.mine : [];
             S.ranks = Array.isArray(d.ranks) ? d.ranks : [];
             S.canManage = !!d.canManage;
+            // Sent only while the shop is on, so a VA without one never sees
+            // a bonus field for a currency they do not have.
+            S.currency = (d.currency && d.currency.short) ? d.currency : null;
             S.error = null;
             S.loaded = true;
             return null;
@@ -237,6 +245,44 @@
     const mySignup = (eventId) => S.mine.find((m) => String(m.eventId) === String(eventId)) || null;
 
     /**
+     * What flying this event pays on top of the usual rate.
+     *
+     * The figure is the event's own when it names one, and the airline's
+     * standing event bonus otherwise. It is paid the same way every other
+     * point in this product is paid — when a staff member approves the flight
+     * report filed for it — so this is a promise about an approval, not a
+     * prize for signing up, and the wording says so wherever there is room.
+     *
+     * Returns '' when there is no shop, no bonus, or nothing to promise.
+     */
+    function eventPay(e) {
+        if (!S.currency || !e) return '';
+        const own = Number(e.bonus);
+        const n = Number.isFinite(own) && own > 0
+            ? own
+            : Math.max(0, Math.round(Number(S.currency.eventBonus) || 0));
+        if (!(n > 0)) return '';
+        return `${Math.round(n).toLocaleString()} ${S.currency.short}`;
+    }
+
+    /**
+     * The same promise, in full, where there is room for the condition.
+     *
+     * The chip on the card says "+250 SM" because a chip has room for four
+     * words. Here it says what has to happen first, because a pilot who reads
+     * "this event pays 250" and then signs up, does not fly, and is paid
+     * nothing has been misled by us rather than by the rules.
+     */
+    function payNoteHtml(e) {
+        const pay = eventPay(e);
+        if (!pay) return '';
+        return `<p class="cev-pay">
+            <i data-lucide="coins"></i>
+            <span>Flying this pays <b>${esc(pay)}</b> on top of the usual rate —
+            added when your flight report for it is approved.</span></p>`;
+    }
+
+    /**
      * The card for one event.
      *
      * Note what is conditional: "34 going" only appears when the server counted
@@ -252,6 +298,12 @@
 
         const chips = [];
         if (e.status === 'draft') chips.push('<span class="cev-chip cev-chip-draft">Draft</span>');
+        // WHAT IT PAYS, WHERE PEOPLE DECIDE WHETHER TO COME.
+        // On the card rather than inside the brief: a pilot scrolling the
+        // calendar on a Friday night is choosing between this and nothing,
+        // and the answer is worth more than a line they have to tap to find.
+        const pay = eventPay(e);
+        if (pay) chips.push(`<span class="cev-chip cev-chip-pay">+${esc(pay)}</span>`);
         if (e.status === 'cancelled') chips.push('<span class="cev-chip cev-chip-off">Cancelled</span>');
         if (e.locked) chips.push(`<span class="cev-chip cev-chip-lock">Opens at ${esc(e.minRank)}</span>`);
         if (mine) {
@@ -461,6 +513,7 @@
                 ${e.flightNumber ? `<span class="cev-fact"><i data-lucide="hash"></i> ${esc(e.flightNumber)}</span>` : ''}
                 ${e.routeId ? '<span class="cev-fact"><i data-lucide="route"></i> On the network</span>' : ''}
             </div>
+            ${payNoteHtml(e)}
             ${e.description ? `<p class="cev-desc">${esc(e.description)}</p>` : ''}
             ${actions}
             ${staffBar}
@@ -1067,6 +1120,20 @@
                 </label>
             </div>
 
+            ${S.currency ? `<div class="cev-fieldset">
+                <div class="cev-fieldset-head">What it pays</div>
+                <label class="cev-label">Bonus (${esc(S.currency.short)})
+                    <input id="cevfBonus" type="number" min="0" max="1000000" step="1" inputmode="numeric"
+                        class="cev-input" value="${Number(v.bonus) > 0 ? Math.round(Number(v.bonus)) : ''}"
+                        placeholder="${Math.max(0, Math.round(Number(S.currency.eventBonus) || 0)) || '0'}">
+                    <span class="cev-hint">On top of the usual rate, added when you approve the flight report
+                        somebody files for this event. Leave it empty to use your standing event bonus${
+                        Number(S.currency.eventBonus) > 0
+                            ? ` of ${Math.round(Number(S.currency.eventBonus)).toLocaleString()} ${esc(S.currency.short)}`
+                            : ''}.</span>
+                </label>
+            </div>` : ''}
+
             <label class="cev-label">Banner image URL <span class="cev-hint">optional · https only</span>
                 <input id="cevfBanner" class="cev-input" maxlength="600" placeholder="https://…" value="${esc(v.bannerUrl || '')}">
             </label>
@@ -1101,6 +1168,12 @@
                 minRank: val('cevfRank'),
                 bannerUrl: val('cevfBanner'),
             };
+            // Only sent by an airline that runs a shop — and an empty box is
+            // "use the standing rate", which is a different thing from zero.
+            if (document.getElementById('cevfBonus')) {
+                const raw = val('cevfBonus');
+                body.bonus = raw === '' ? null : Math.max(0, Math.round(Number(raw) || 0));
+            }
             if (status) body.status = status;
             else if (!isNew) body.status = v.status;
             return body;
@@ -1438,6 +1511,15 @@
         .cev-chip-wait{ background:#D97706; color:#fff; border-color:transparent; }
         .cev-chip-off{ background:#DC2626; color:#fff; border-color:transparent; }
         .cev-chip-draft{ background:var(--line,#e5e5e5); color:var(--muted,#736E64); }
+        .cev-chip-pay{ background:color-mix(in srgb, var(--accent) 88%, #000 12%); color:#fff;
+            border-color:transparent; font-variant-numeric:tabular-nums; }
+        .cev-pay{ display:flex; align-items:flex-start; gap:.5rem; margin:.1rem 0 .6rem;
+            padding:.55rem .7rem; border-radius:.7rem; font-size:.82rem; line-height:1.45;
+            color:var(--ink,#1C1A16);
+            background:color-mix(in srgb, var(--accent) 9%, transparent);
+            border:1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+        .cev-pay i{ width:1rem; height:1rem; flex:none; margin-top:.15rem;
+            color:color-mix(in srgb, var(--accent) 85%, var(--ink,#1C1A16)); }
         .cev-card-title{ font-size:1rem; font-weight:700; letter-spacing:-.01em; margin:0 0 .4rem;
             color:var(--ink,#1C1A16); }
         .cev-facts,.cev-detail-facts,.cev-sum-facts{ display:flex; flex-wrap:wrap; gap:.35rem .9rem; }

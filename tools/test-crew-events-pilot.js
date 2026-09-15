@@ -35,7 +35,7 @@ const EVENT = {
     id: 'ev1', title: 'Águila Transatlántica', description: 'Push at 1900Z together.',
     origin: 'MMMX', destination: 'LEMD', aircraft: 'Boeing 787-9', server: 'Expert',
     startsAt: new Date(Date.now() + 3 * 86400e3).toISOString(), slots: 40,
-    gatesOpen: true, gatesLocked: false, gateIcao: 'MMMX', minRank: '', status: 'published',
+    gatesOpen: true, gatesLocked: false, gateIcao: 'MMMX', minRank: '', status: 'published', bonus: 900,
     locked: false, hoursUntilUnlock: 0, going: 2, waitlisted: 0, seatsLeft: 38, full: false,
     canManage: false, bannerUrl: '',
 };
@@ -59,6 +59,8 @@ const board = () => {
 };
 
 let claimed = null;
+// An airline that does not run a shop. Nothing about paying may appear.
+let shopOn = true;
 
 async function api(route) {
     const url = new URL(route.request().url());
@@ -67,7 +69,10 @@ async function api(route) {
     const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
     if (p.endsWith('/events') && method === 'GET') {
-        return json({ events: [EVENT], mine: mine ? [{ eventId: 'ev1', ...mine }] : [], ranks: [], canManage: false });
+        // Sent only while this airline runs a shop. `eventBonus` is the
+        // standing rate; this event names its own, which wins.
+        return json({ events: [EVENT], mine: mine ? [{ eventId: 'ev1', ...mine }] : [], ranks: [], canManage: false,
+            currency: shopOn ? { name: 'Miles', short: 'mi', eventBonus: 250 } : undefined });
     }
     if (p.endsWith('/events/ev1') && method === 'GET') {
         return json({ event: EVENT, attending, mine, canManage: false });
@@ -124,6 +129,9 @@ async function api(route) {
     // A signed-in pilot.
     await page.addInitScript(() => {
         localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'You' }));
+        // The first-visit tour lays a dialog over the whole page and would eat
+        // every click below. Told it has already been taken.
+        localStorage.setItem('crew:tour:pilot:testva', '99');
     });
 
     await page.goto(`http://127.0.0.1:${port}/crew-pilot.html?va=testva`);
@@ -140,9 +148,28 @@ async function api(route) {
     check('and nothing else — the invented placeholders are gone',
         cards.length === 1 && !cards.some(t => /Transcon|Maple Milk|Pacific Overnighter/.test(t)), cards.join(','));
 
+    /* 1b. WHAT IT PAYS, WHERE THE DECISION IS MADE.
+     *
+     * A pilot scrolling the calendar on a Friday night is choosing between
+     * this and nothing, so the figure goes on the card rather than one tap
+     * inside it. It is the event's own where it names one — a transcon is
+     * worth more than a routine fly-in, and an airline that cannot say so
+     * pays the same for both. */
+    const payChip = await page.textContent('#events .cev-chip-pay').catch(() => null);
+    check('the card says what flying it pays', payChip === '+900 mi', `got ${payChip}`);
+
     // 2. Opening the card opens the brief with the attendee list.
     await page.click('#events .cev-card');
     await page.waitForSelector('#cevDetailBody .cev-atts', { timeout: 5000 });
+
+    /* The chip has room for four words; the brief has room for the condition,
+     * and the condition is the whole honesty of it. A pilot who reads "this
+     * pays 900", signs up, does not fly, and is paid nothing was misled by us
+     * rather than by the rules. */
+    const payNote = await page.textContent('#cevDetailBody .cev-pay').catch(() => null);
+    check('the brief says it pays on top of the usual rate', /on top of the usual rate/i.test(payNote || ''), payNote);
+    check('…and that the flight report is what triggers it',
+        /flight report for it is approved/i.test(payNote || ''), payNote);
     const names = await page.$$eval('#cevDetailBody .cev-att-name', els => els.map(e => e.textContent));
     check('who’s attending is listed', names.join(',') === 'Sam Park,Rae Ortiz', names.join(','));
     const gateBadge = await page.textContent('#cevDetailBody .cev-att-gate').catch(() => null);
@@ -180,6 +207,31 @@ async function api(route) {
     await page.waitForTimeout(800);
     const toasts = await page.$$eval('#cev-toasts .cev-toast', els => els.map(e => e.textContent));
     check('a taken stand is refused, by name', toasts.some(t => /B24 is taken — Sam Park/.test(t)), toasts.join(' | '));
+
+    /* 6. AN AIRLINE WITH NO SHOP.
+     *
+     * Most VAs will never run one, and the events they publish must carry no
+     * trace of a currency they do not have — not a chip, not a note, not an
+     * empty "+0". The server's silence is what decides it: no `currency`, no
+     * mention of paying anywhere.
+     */
+    shopOn = false;
+    const bare = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await bare.route('**/api/crew/**', api);
+    await bare.route('**/api/va-ads/**', api);
+    await bare.route('**/tile.openstreetmap.org/**', r => r.abort());
+    await bare.addInitScript(() => {
+        localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'You' }));
+        localStorage.setItem('crew:tour:pilot:testva', '99');
+    });
+    await bare.goto(`http://127.0.0.1:${port}/crew-pilot.html?va=testva`);
+    await bare.waitForTimeout(1500);
+    check('a VA with no shop shows no pay chip', (await bare.$$('#events .cev-chip-pay')).length === 0);
+    await bare.click('#events .cev-card');
+    await bare.waitForSelector('#cevDetailBody .cev-atts', { timeout: 5000 });
+    check('…and no pay line in the brief', (await bare.$$('#cevDetailBody .cev-pay')).length === 0);
+    await bare.close();
+    shopOn = true;
 
     // Only OUR errors. The page pulls Tailwind and Lucide off CDNs this sandbox
     // cannot reach, and those failures say nothing about the code under test.
