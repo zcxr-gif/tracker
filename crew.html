@@ -353,6 +353,18 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                         <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Password</label>
                         <input name="password" type="password" autocomplete="current-password" required placeholder="••••••••"
                             class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
+                        <!-- Under the password, where somebody who has just
+                             mistyped it is already looking. -->
+                        <!-- Deliberately NOT the accent. The accent on this card
+                             belongs to Sign in; a second thing in the same
+                             colour an inch above it competes with the button
+                             somebody actually came for. It also keeps the first
+                             page a pilot sees clear of a pale brand colour set
+                             as small text, which is the one place a very light
+                             accent stops being readable at all. -->
+                        <div class="mt-2 text-right">
+                            <button type="button" class="forgotLink text-xs font-semibold text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:underline transition">Forgotten your password?</button>
+                        </div>
                     </div>
                     <p class="authNote hidden text-sm font-medium"></p>
                     <button type="submit" class="authBtn accent-bg w-full text-white py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.98]">
@@ -383,6 +395,61 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                         </p>
                     </div>
                 </form>
+
+                <!-- ============ FORGOTTEN PASSWORD ============
+                     Same card, same branding, no second page: a reset that
+                     drops somebody onto a plain white screen has taken them
+                     out of their airline at the one moment they are least
+                     sure anything is working. -->
+                <form class="forgotForm hidden space-y-4 px-6 sm:px-7 pt-5">
+                    <div>
+                        <h2 class="text-base font-bold tracking-tight">Forgotten your password?</h2>
+                        <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Tell us who you are and we will start it. You do not need your old password for any of this.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Username or email</label>
+                        <input name="who" type="text" autocomplete="username" required placeholder="username or you@yourva.com"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
+                    </div>
+                    <p class="forgotNote hidden text-sm font-medium"></p>
+                    <button type="submit" class="forgotBtn accent-bg w-full text-white py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.98]">
+                        <span class="forgotBtnLabel">Get me back in</span><i data-lucide="arrow-right" class="w-4 h-4"></i>
+                    </button>
+                    <!-- Shown only where the VA offers Discord at all, and said
+                         to everybody rather than only to accounts that have
+                         linked it — which would be this page telling a stranger
+                         which accounts exist. -->
+                    <p class="forgotDiscord hidden text-xs text-center leading-relaxed text-zinc-400 dark:text-zinc-500">
+                        Linked your Discord to this crew centre? You do not need any of this —
+                        go back and press <b>Continue with Discord</b>.
+                    </p>
+                    <div class="text-center">
+                        <button type="button" class="backLink text-xs font-semibold text-zinc-500 dark:text-zinc-400 hover:underline">Back to signing in</button>
+                    </div>
+                </form>
+
+                <!-- ============ CHOOSING A NEW ONE ============ -->
+                <form class="resetForm hidden space-y-4 px-6 sm:px-7 pt-5">
+                    <div>
+                        <h2 class="text-base font-bold tracking-tight">Choose a new password</h2>
+                        <p class="resetWho text-sm text-zinc-500 dark:text-zinc-400 mt-1">This link is good once. Pick something you will remember.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">New password</label>
+                        <input name="newPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5 uppercase tracking-wide">Again</label>
+                        <input name="confirm" type="password" autocomplete="new-password" required minlength="8" placeholder="The same one"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/70 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 focus:bg-white dark:focus:bg-zinc-800 focus:outline-none focus:ring-4 focus:ring-zinc-900/5 dark:focus:ring-white/5 transition">
+                    </div>
+                    <p class="resetNote hidden text-sm font-medium"></p>
+                    <button type="submit" class="resetBtn accent-bg w-full text-white py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.98]">
+                        <span class="resetBtnLabel">Set my password</span><i data-lucide="check" class="w-4 h-4"></i>
+                    </button>
+                </form>
+
                 <div class="mt-6 pt-5 pb-6 mx-6 sm:mx-7 border-t border-zinc-200/70 dark:border-zinc-800/70 flex items-center justify-center gap-2 opacity-80">
                     <span class="text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">Powered by</span>
                     <img src="/Images/inflight.png" alt="Inflight" class="h-[18px] w-auto dark:hidden">
@@ -446,6 +513,12 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                         class="w-full px-4 py-3 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 focus:border-[var(--accent)] focus:outline-none focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_18%,transparent)] transition">
                     <input name="password" type="password" autocomplete="current-password" required placeholder="Password"
                         class="w-full px-4 py-3 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 focus:border-[var(--accent)] focus:outline-none focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_18%,transparent)] transition">
+                    <!-- Under the password, where somebody who has just
+                         mistyped it is already looking. -->
+                    <!-- Not the accent, for the reasons given in the centre look. -->
+                    <div class="text-right">
+                        <button type="button" class="forgotLink text-xs font-semibold text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:underline transition">Forgotten your password?</button>
+                    </div>
                     <p class="authNote hidden text-sm font-medium"></p>
                     <button type="submit" class="authBtn accent-bg w-full text-white py-3.5 rounded-full font-semibold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.99] shadow-lg" style="box-shadow:0 10px 30px -10px color-mix(in srgb, var(--accent) 60%, transparent);">
                         <span class="authBtnLabel">Sign in</span><i data-lucide="arrow-right" class="w-4 h-4"></i>
@@ -469,6 +542,48 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                         </p>
                     </div>
                     <p class="authState hidden text-sm text-zinc-500 dark:text-zinc-400"></p>
+                </form>
+
+                <!-- ============ FORGOTTEN PASSWORD ============
+                     The same two panes as the centre look, in this look's own
+                     clothes. Duplicated markup rather than one set moved about
+                     by script, which is how every other control on this page
+                     spans the two looks — they share class names and nothing
+                     else, because they do not share a single style. -->
+                <form class="forgotForm hidden mt-8 space-y-4">
+                    <div>
+                        <h2 class="serif text-2xl leading-tight tracking-tight">Forgotten your password?</h2>
+                        <p class="text-zinc-500 dark:text-zinc-400 mt-2 text-[15px] leading-relaxed">Tell us who you are and we will start it. You do not need your old password for any of this.</p>
+                    </div>
+                    <input name="who" type="text" autocomplete="username" required placeholder="Username or email"
+                        class="w-full px-4 py-3 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 focus:border-[var(--accent)] focus:outline-none focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_18%,transparent)] transition">
+                    <p class="forgotNote hidden text-sm font-medium"></p>
+                    <button type="submit" class="forgotBtn accent-bg w-full text-white py-3.5 rounded-full font-semibold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.99] shadow-lg" style="box-shadow:0 10px 30px -10px color-mix(in srgb, var(--accent) 60%, transparent);">
+                        <span class="forgotBtnLabel">Get me back in</span><i data-lucide="arrow-right" class="w-4 h-4"></i>
+                    </button>
+                    <p class="forgotDiscord hidden text-xs text-center leading-relaxed text-zinc-400 dark:text-zinc-500">
+                        Linked your Discord to this crew centre? You do not need any of this —
+                        go back and press <b>Continue with Discord</b>.
+                    </p>
+                    <div class="text-center">
+                        <button type="button" class="backLink text-xs font-semibold text-zinc-500 dark:text-zinc-400 hover:underline">Back to signing in</button>
+                    </div>
+                </form>
+
+                <!-- ============ CHOOSING A NEW ONE ============ -->
+                <form class="resetForm hidden mt-8 space-y-4">
+                    <div>
+                        <h2 class="serif text-2xl leading-tight tracking-tight">Choose a new password</h2>
+                        <p class="resetWho text-zinc-500 dark:text-zinc-400 mt-2 text-[15px] leading-relaxed">This link is good once. Pick something you will remember.</p>
+                    </div>
+                    <input name="newPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="New password — at least 8 characters"
+                        class="w-full px-4 py-3 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 focus:border-[var(--accent)] focus:outline-none focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_18%,transparent)] transition">
+                    <input name="confirm" type="password" autocomplete="new-password" required minlength="8" placeholder="The same one again"
+                        class="w-full px-4 py-3 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 focus:border-[var(--accent)] focus:outline-none focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_18%,transparent)] transition">
+                    <p class="resetNote hidden text-sm font-medium"></p>
+                    <button type="submit" class="resetBtn accent-bg w-full text-white py-3.5 rounded-full font-semibold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[.99] shadow-lg" style="box-shadow:0 10px 30px -10px color-mix(in srgb, var(--accent) 60%, transparent);">
+                        <span class="resetBtnLabel">Set my password</span><i data-lucide="check" class="w-4 h-4"></i>
+                    </button>
                 </form>
 
                 <div class="mt-10 text-[11px] uppercase tracking-[.14em] text-zinc-400 dark:text-zinc-500 space-y-3">
@@ -634,6 +749,174 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
             }catch{ note.textContent='Could not reach the server. Please try again.'; note.className='authNote text-sm font-medium text-red-500'; note.classList.remove('hidden'); btn.disabled=false; label.textContent=prev; }
         }
 
+        /* =====================================================================
+         * FORGOTTEN PASSWORDS
+         *
+         * WHAT THIS REPLACES
+         *
+         * A pilot who forgot their password had one route back: message the
+         * airline. A staff member then opened the dashboard, found them under
+         * Invitations, issued a new temporary password, copied the message and
+         * sent it — often the next day, often a different staff member from
+         * the one who was asked. For the pilot it is a day of waiting; for the
+         * airline it is the single most common piece of admin there is.
+         *
+         * WHY IT IS NOT JUST AN EMAIL
+         *
+         * Because for most VAs an email reset would do nothing. Email is a
+         * bring-your-own-provider setting that is off by default, and a pilot
+         * only has an address on file if they gave one. A "reset link sent to
+         * your email" that silently reaches nobody is worse than the message
+         * they were going to send anyway.
+         *
+         * So there are three ways back, and the server picks whichever this
+         * airline and this account can actually support:
+         *
+         *   discord  they linked it — there was never anything to reset, and
+         *            the panel says so to everybody, before they type.
+         *   email    the VA runs a provider and the account has an address:
+         *            a one-time link, and no staff member is ever involved.
+         *   staff    otherwise — the request lands in the crew centre as a
+         *            login waiting to be handed over, and the press that
+         *            issues and sends it is one press.
+         *
+         * WHAT THIS PAGE IS TOLD: nothing. The three outcomes are answered
+         * identically, because a page that says "check your email" for one
+         * username and "we have told your staff" for another is a page that
+         * will tell a stranger which usernames exist and which have an address
+         * on file. One sentence covers all three and gives up neither.
+         * =================================================================== */
+
+        /** Which of the three panes the card is showing. */
+        function showPane(which){
+            const map = { signin:'.authForm', forgot:'.forgotForm', reset:'.resetForm' };
+            Object.keys(map).forEach(k=>setAll(map[k], f=>f.classList.toggle('hidden', k!==which)));
+            // Discord lives inside the sign-in form, so it follows it — but the
+            // state panel is the page saying it could not load this crew centre
+            // at all, and that outranks every pane.
+            setAll('.authState', el=>{ if(!el.classList.contains('hidden')) setAll('.authForm', f=>f.classList.add('hidden')); });
+            const focus = document.querySelector(`${map[which]}:not(.hidden) input:not([type=hidden])`);
+            if(focus) focus.focus();
+            if(window.lucide) lucide.createIcons();
+        }
+
+        function noteOn(scope, sel, msg, tone){
+            const n = scope.querySelector(sel);
+            if(!n) return;
+            n.textContent = msg;
+            n.className = `${sel.slice(1)} text-sm font-medium ` + (
+                tone==='bad' ? 'text-red-500'
+                : tone==='ok' ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-zinc-500 dark:text-zinc-400');
+            n.classList.remove('hidden');
+        }
+
+        /* THE ONE ANSWER. Written here rather than sent by the server, because
+           the server must be able to give the same reply to an account that
+           exists and one that does not — and the only way to be sure of that
+           is for the reply to carry nothing about either. */
+        const FORGOT_SAID = 'If that is an account here, a way back in is on its way. '
+            + 'Gave your airline an email address? It is in your inbox — check the spam folder too. '
+            + 'If not, your staff have been asked to issue you a new password.';
+
+        async function handleForgot(e){
+            e.preventDefault();
+            const form=e.currentTarget;
+            const who=form.elements.who.value.trim();
+            if(!CREW_SLUG){ noteOn(form,'.forgotNote','Open your crew centre link (e.g. /crew/your-va) first.','bad'); return; }
+            if(!who){ noteOn(form,'.forgotNote','Type your username or your email address.','bad'); return; }
+            const btn=form.querySelector('.forgotBtn'), label=form.querySelector('.forgotBtnLabel'), prev=label.textContent;
+            btn.disabled=true; label.textContent='Sending…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/forgot-password`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
+                    body:JSON.stringify({ who }) });
+                /* A 404 is this crew centre's server predating the feature, and
+                   is the one case worth saying out loud: it is the difference
+                   between "wait for an email" and "there is nothing coming, go
+                   and message them". Everything else — found, not found, rate
+                   limited, no email provider — gets the same sentence. */
+                if(res.status===404){
+                    noteOn(form,'.forgotNote','This crew centre cannot do resets yet — its database needs updating. Message your staff and they can issue you a new password.','bad');
+                    return;
+                }
+                noteOn(form,'.forgotNote',FORGOT_SAID,'ok');
+                form.elements.who.value='';
+            }catch{
+                noteOn(form,'.forgotNote','Could not reach the server. Please try again in a moment.','bad');
+            }finally{ btn.disabled=false; label.textContent=prev; }
+        }
+
+        /* ---- The other end of the link ----------------------------------
+           ?reset=<token> lands here rather than on a page of its own, so the
+           airline's own look, backdrop, banner and colour are already around
+           the one box somebody is least sure about. */
+        async function openReset(token){
+            showPane('reset');
+            const forms=document.querySelectorAll('.resetForm');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/password-reset/${encodeURIComponent(token)}`,{ headers:{Accept:'application/json'} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){
+                    // A spent or stale link is not an error to be ashamed of —
+                    // it is the commonest thing that happens to reset links,
+                    // and the answer is always the same: ask for another.
+                    showPane('signin');
+                    setAll('.authNote', n=>{
+                        n.textContent = d.error || 'That link has been used already, or it has expired. Ask for another one.';
+                        n.className='authNote text-sm font-medium text-amber-600 dark:text-amber-400';
+                        n.classList.remove('hidden');
+                    });
+                    return;
+                }
+                if(d.name) forms.forEach(f=>{
+                    const who=f.querySelector('.resetWho');
+                    if(who) who.textContent = `Signing in as ${d.name}. This link is good once — pick something you will remember.`;
+                });
+            }catch{
+                setAll('.resetNote', n=>{ n.textContent='Could not reach the server. Try the link again in a moment.';
+                    n.className='resetNote text-sm font-medium text-red-500'; n.classList.remove('hidden'); });
+            }
+        }
+
+        async function handleReset(e){
+            e.preventDefault();
+            const form=e.currentTarget;
+            const token=new URLSearchParams(location.search).get('reset')||'';
+            const next=form.elements.newPassword.value;
+            if(next!==form.elements.confirm.value){ noteOn(form,'.resetNote','Those two do not match.','bad'); return; }
+            if(next.length<8){ noteOn(form,'.resetNote','Eight characters or more, please.','bad'); return; }
+            const btn=form.querySelector('.resetBtn'), label=form.querySelector('.resetBtnLabel'), prev=label.textContent;
+            btn.disabled=true; label.textContent='Saving…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(CREW_SLUG)}/password-reset/${encodeURIComponent(token)}`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
+                    body:JSON.stringify({ newPassword: next }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ noteOn(form,'.resetNote', d.error || 'That did not work. The link may have been used already.','bad'); return; }
+                /* Deliberately NOT signed in from here. The reset proves
+                   somebody had the link, and the password proves they know the
+                   password — typing it once on the way in is the cheapest
+                   possible confirmation that what they just chose is what they
+                   think they chose. */
+                showPane('signin');
+                if(d.username) setAll('.authForm', f=>{ if(f.elements.username) f.elements.username.value=d.username; });
+                setAll('.authNote', n=>{
+                    n.textContent='That is your password now. Sign in with it.';
+                    n.className='authNote text-sm font-medium text-emerald-600 dark:text-emerald-400';
+                    n.classList.remove('hidden');
+                });
+                // The token is spent; leaving it in the address bar means a
+                // refresh lands on "that link has been used" for no reason.
+                try{
+                    const u=new URL(location.href); u.searchParams.delete('reset');
+                    history.replaceState(null,'',u.toString());
+                }catch{}
+            }catch{
+                noteOn(form,'.resetNote','Could not reach the server. Please try again in a moment.','bad');
+            }finally{ btn.disabled=false; label.textContent=prev; }
+        }
+
         /* ---- Signing in with Discord -------------------------------------
          *
          * The page's whole part in this is three small jobs. Everything that
@@ -746,6 +1029,10 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
             }
             setAll('.authForm', f=>f.addEventListener('submit', handleLogin));
             setAll('.discordBtn', b=>b.addEventListener('click', goDiscord));
+            setAll('.forgotForm', f=>f.addEventListener('submit', handleForgot));
+            setAll('.resetForm', f=>f.addEventListener('submit', handleReset));
+            setAll('.forgotLink', b=>b.addEventListener('click', ()=>showPane('forgot')));
+            setAll('.backLink', b=>b.addEventListener('click', ()=>showPane('signin')));
             const r = await resolveBranding();
             if(r.ok) applyBranding(r.b);
             document.body.setAttribute('data-look', resolveLook(r.ok?r.b:null));
@@ -756,10 +1043,21 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
             // that leaves for Discord and comes back saying we were never set
             // up is worse than no button — the pilot has been sent somewhere
             // else and has blamed themselves for it.
-            if(r.ok && r.b && r.b.discordLogin) setAll('.discordWrap', el=>el.classList.remove('hidden'));
+            if(r.ok && r.b && r.b.discordLogin){
+                setAll('.discordWrap', el=>el.classList.remove('hidden'));
+                // Said to everybody on the forgotten-password panel, never only
+                // to accounts that have linked it: which accounts have is not
+                // this page's to give away.
+                setAll('.forgotDiscord', el=>el.classList.remove('hidden'));
+            }
             // After the branding, so a message lands on a page that already
             // looks like the airline rather than on a blank one.
             await handleDiscordReturn();
+            // The far end of a reset link. After Discord, because a page can
+            // only be one of those things at a time and a token in the address
+            // bar is the more specific request.
+            const resetToken = (new URLSearchParams(location.search).get('reset')||'').trim();
+            if(r.ok && resetToken) await openReset(resetToken);
             document.getElementById('bootLoader').classList.add('hidden');
             document.body.classList.add('ready');
             applyThemeIcon();

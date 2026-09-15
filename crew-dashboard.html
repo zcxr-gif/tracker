@@ -1627,7 +1627,10 @@
                     <div id="rosterViewTabs" class="hscroll inline-flex items-center gap-1 p-1 rounded-lg surface hair text-sm font-semibold">
                         <button data-view="roster" onclick="switchRosterView('roster')" class="px-3 py-1.5 rounded-md transition">Roster<span id="rosterCount" class="text-xs muted"></span></button>
                         <button data-view="apps" onclick="switchRosterView('apps')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Applications<span id="appsBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
-                        <button data-view="invites" onclick="switchRosterView('invites')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Invitations<span id="invitesBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
+                        <!-- "Logins", not "Invitations": it holds both halves of the same job —
+                             a login minted for a new pilot and waiting to be handed over,
+                             and one an existing pilot has asked to have replaced. -->
+                        <button data-view="invites" onclick="switchRosterView('invites')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Logins<span id="invitesBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
                     </div>
                     <div class="drawer-actions flex items-center gap-2">
                         <button id="rosterCsvBtn" onclick="openCsv('roster')" title="Export or import the roster as CSV" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="table" class="w-4 h-4"></i> CSV</button>
@@ -1656,8 +1659,9 @@
             </div>
             <div id="rosterList" class="p-5 space-y-2.5"></div>
             <div id="appsList" class="hidden p-5 space-y-3"></div>
-            <!-- Invitations issued but not yet used. Stays put until the pilot
-                 signs in or a staff member throws it away. -->
+            <!-- Logins waiting to be handed over: invitations issued and not
+                 yet used, and pilots who have asked for a new password. Both
+                 stay put until they are used or thrown away. -->
             <div id="invitesList" class="hidden p-5 space-y-3"></div>
         </div>
     </div>
@@ -5035,7 +5039,7 @@
             fetchApps().then(()=>{ refreshAppsBadge(); if(ROSTER_VIEW==='apps') renderApps(); });
             // Same for invitations still waiting to be handed over — that badge
             // is the reminder that somebody is sitting on an unused login.
-            if(can('applications.review')) fetchInvites().then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); else setInvitesBadge(INVITES.filter(x=>x.invite&&x.invite.state==='live').length); });
+            if(can('applications.review')) Promise.all([fetchInvites(),fetchResets()]).then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); else setInvitesBadge(waitingCount()); });
             if(window.lucide) lucide.createIcons();
         }
         function closeRoster(){ closeDrawer('roster'); }
@@ -7182,7 +7186,7 @@
             document.getElementById('addPilotBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             if(v==='apps'){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
-            if(v==='invites'){ closePilotForm(); renderInvites(); fetchInvites().then(renderInvites); }
+            if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets()]).then(renderInvites); }
             showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
         function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
@@ -7237,6 +7241,13 @@
             const b=document.getElementById('invitesBadge');
             if(!b) return; b.textContent=n; b.classList.toggle('hidden', !n);
         }
+        /* What is actually waiting on somebody here: invitations nobody has
+           used, plus pilots who have asked for a password and not been given
+           one. A pilot sitting at a sign-in page they cannot get through is
+           the more urgent of the two, which is why they are drawn first. */
+        const waitingCount=()=>
+            INVITES.filter(x=>x.invite&&x.invite.state==='live').length
+            + RESETS.filter(r=>!r.password).length;
         async function fetchInvites(){
             const slug=getSlug(), token=sessionToken();
             if(!slug||!token){ INVITES=[]; return; }
@@ -7302,20 +7313,159 @@
             </div>`;
         }
         function renderInvites(){
-            const live=INVITES.filter(a=>a.invite&&a.invite.state==='live').length;
-            setInvitesBadge(live);
+            setInvitesBadge(waitingCount());
             const list=document.getElementById('invitesList');
             if(!list) return;
             if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to see invitations.</p>'; return; }
             // Waiting first — those are the ones with something still to do.
             const order={live:0,expired:1,revoked:2,claimed:3};
             const sorted=[...INVITES].sort((x,y)=>(order[x.invite.state]??9)-(order[y.invite.state]??9));
+            // Somebody standing at a sign-in page they cannot get through beats
+            // an invitation that has been sitting unused for a fortnight.
+            const resets=[...RESETS].sort((x,y)=>(x.password?1:0)-(y.password?1:0));
             keepPlace(list,()=>{
-                list.innerHTML = sorted.length ? sorted.map(inviteCardHtml).join('')
-                    : '<p class="text-sm faint text-center py-10">No invitations yet. Accepting an application with a login creates one, and it waits here until the pilot signs in.</p>';
+                const html = resets.map(resetCardHtml).join('') + sorted.map(inviteCardHtml).join('');
+                list.innerHTML = html
+                    || '<p class="text-sm faint text-center py-10">Nothing waiting. Accepting an application with a login puts it here, and so does a pilot who asks for a new password from the sign-in page.</p>';
                 if(window.lucide) lucide.createIcons();
             });
         }
+        /* =====================================================================
+           PILOTS WHO HAVE FORGOTTEN THEIR PASSWORD
+
+           The commonest piece of admin a VA does, and until now it arrived as
+           a Discord message and left as five minutes of digging: find them,
+           issue a temporary password, copy the message, send it, remember you
+           did. Most of that is now the pilot's own doing — they ask from the
+           sign-in page, and where the VA runs an email provider and the pilot
+           has an address the whole thing happens without anybody here.
+
+           What lands HERE is only the remainder: the pilots that could not
+           reach. One press issues the password and sends it where it can, and
+           the same Copy message that invitations already use is the fallback
+           it has always been.
+           =================================================================== */
+
+        let RESETS=[];
+        async function fetchResets(){
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token){ RESETS=[]; return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/password-requests`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                // A 404 is a crew centre whose database predates resets. That
+                // is not an error to draw — it is a tab that simply has one
+                // fewer thing in it.
+                if(!res.ok) { RESETS=[]; return; }
+                const d=await res.json();
+                RESETS=Array.isArray(d.requests)?d.requests:[];
+            }catch{ RESETS=[]; }
+        }
+        function resetCardHtml(r){
+            const id=r.id;
+            const asked=r.askedAt?relTime(r.askedAt):'';
+            const issued=r.password||'';
+            return `<div class="surface rounded-xl p-4" data-reset="${escapeHtml(String(id))}">
+                <div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-full grid place-items-center shrink-0 text-white" style="background:#D97706"><i data-lucide="key-round" class="w-5 h-5"></i></div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-semibold truncate">${escapeHtml(r.name||r.username||'A pilot')}</span>
+                            <span class="text-[10px] font-bold uppercase tracking-wide text-white bg-amber-500 rounded-full px-1.5 py-0.5">Forgot password</span>
+                        </div>
+                        <div class="text-xs muted mt-1">${escapeHtml(
+                            issued ? 'A new password is below — send it to them.'
+                            : `Asked${asked?` ${asked}`:''}. ${r.email ? 'We could not email them, so it is yours to pass on.' : 'They have no email on file, so it is yours to pass on.'}`)}</div>
+                        ${r.username?`<div class="text-xs muted mt-1 font-mono">${escapeHtml(r.username)}</div>`:''}
+                    </div>
+                    <button data-reset-dismiss title="Dismiss — their password is not touched" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="x" class="w-4 h-4"></i></button>
+                </div>
+                ${issued?`<div class="mt-3 rounded-lg border hair p-3">
+                    <div class="text-[11px] uppercase tracking-wide faint">Their new password</div>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span class="font-mono text-sm select-all" data-pw data-shown="0">${'•'.repeat(Math.max(8,issued.length))}</span>
+                        <button data-reset-reveal class="text-xs accent-text font-semibold hover:underline">Show</button>
+                    </div>
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <button data-reset-copy class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy message</button>
+                    </div>
+                    <div class="text-[11px] faint mt-2">${escapeHtml(r.emailed
+                        ? 'Emailed to them as well. This disappears once they sign in.'
+                        : 'Send it however you reach them. They will be asked to replace it on their first sign-in.')}</div>
+                </div>`:`<div class="mt-3">
+                    <button data-reset-issue class="accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Issue a new password</button>
+                </div>`}
+                <p data-reset-note class="hidden text-sm mt-2"></p>
+            </div>`;
+        }
+        /* "4 minutes ago". The dashboard has `when()` for dates and nothing for
+           the first hour, which is the only part of this that matters — a reset
+           asked for four minutes ago is somebody still sitting at the login. */
+        function relTime(iso){
+            const t=Date.parse(iso); if(!Number.isFinite(t)) return '';
+            const m=Math.round((Date.now()-t)/60000);
+            if(m<1) return 'just now';
+            if(m<60) return `${m} min ago`;
+            const h=Math.round(m/60);
+            if(h<24) return `${h}h ago`;
+            const d=Math.round(h/24);
+            return d===1?'yesterday':`${d} days ago`;
+        }
+        function resetNote(card,msg,kind){
+            const n=card.querySelector('[data-reset-note]'); if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':'muted');
+            n.classList.remove('hidden');
+        }
+        document.addEventListener('click', async e=>{
+            const card=e.target.closest('[data-reset]');
+            if(!card) return;
+            const id=card.getAttribute('data-reset');
+            const r=RESETS.find(x=>String(x.id)===String(id));
+            if(e.target.closest('[data-reset-reveal]')){
+                const pw=card.querySelector('[data-pw]'), btn=e.target.closest('[data-reset-reveal]');
+                const shown=pw.getAttribute('data-shown')==='1';
+                const real=(r&&r.password)||'';
+                pw.textContent = shown ? '•'.repeat(Math.max(8,real.length)) : real;
+                pw.setAttribute('data-shown', shown?'0':'1');
+                btn.textContent = shown ? 'Show' : 'Hide';
+                return;
+            }
+            if(e.target.closest('[data-reset-copy]')){
+                const msg=(r&&r.message)||'';
+                if(!msg) return;
+                copyText(msg).then(ok=>resetNote(card, ok?'Copied — paste it to them.':'Couldn’t copy. Select the text instead.', ok?'ok':'error'));
+                return;
+            }
+            const issue=e.target.closest('[data-reset-issue]');
+            const dismiss=e.target.closest('[data-reset-dismiss]');
+            if(!issue && !dismiss) return;
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token) return;
+            card.querySelectorAll('button').forEach(b=>b.disabled=true);
+            if(dismiss && !(await ask({ title:'Dismiss this request?', confirm:'Dismiss it', danger:true,
+                body:'Their password is not touched — they keep the one they have, and they can ask again from the sign-in page.' }))){
+                card.querySelectorAll('button').forEach(b=>b.disabled=false); return;
+            }
+            resetNote(card, issue?'Issuing…':'Dismissing…','muted');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/password-requests/${encodeURIComponent(id)}`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                    body:JSON.stringify({ action: issue?'issue':'dismiss' }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ resetNote(card, d.error||'That didn’t work.','error'); card.querySelectorAll('button').forEach(b=>b.disabled=false); return; }
+                if(dismiss) RESETS=RESETS.filter(x=>String(x.id)!==String(id));
+                else {
+                    const i=RESETS.findIndex(x=>String(x.id)===String(id));
+                    if(i>=0) RESETS[i]={...RESETS[i], ...(d.request||d)};
+                }
+                renderInvites();
+                changed('invites');
+            }catch{
+                resetNote(card,'Server unreachable.','error');
+                card.querySelectorAll('button').forEach(b=>b.disabled=false);
+            }
+        });
+
         function inviteNote(card,msg,kind){
             const n=card.querySelector('[data-invite-note]'); if(!n) return;
             n.textContent=msg;
@@ -7535,7 +7685,7 @@
                     fetchRoster().then(()=>{ changed('roster'); });
                     // …and mints an invitation, so the tab that holds it until
                     // the pilot signs in should say so straight away.
-                    fetchInvites().then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); changed('invites'); });
+                    Promise.all([fetchInvites(),fetchResets()]).then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); changed('invites'); });
                     changed('applications');
                 }else{
                     card.style.transition='opacity .25s'; card.style.opacity='0';
@@ -9423,7 +9573,7 @@
                 fetchApps().then(()=>{ showingApps ? renderApps() : refreshAppsBadge(); }).catch(()=>{});
                 if(rosterOpen){
                     if(ROSTER_VIEW==='roster') fetchRoster().then(renderRoster).catch(()=>{});
-                    else if(ROSTER_VIEW==='invites') fetchInvites().then(renderInvites).catch(()=>{});
+                    else if(ROSTER_VIEW==='invites') Promise.all([fetchInvites(),fetchResets()]).then(renderInvites).catch(()=>{});
                 }
                 if(document.getElementById('routes')?.dataset.open==='1') fetchRoutes().then(renderRoutes).catch(()=>{});
                 if(document.getElementById('pireps')?.dataset.open==='1') fetchPireps().then(renderPireps).catch(()=>{});
