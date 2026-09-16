@@ -3,19 +3,23 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * The crew centre's route map is MapLibre over OpenFreeMap tiles: a real slippy
- * map, and the right thing when it loads. It loads from two third-party hosts —
- * the engine from a CDN, the basemap from a tile service — and the crew centre
- * had no answer at all when either did not arrive. A blocked CDN, a corporate
- * proxy, an ad-blocker that eats tile hosts, a school network, a flaky minute:
- * all of them produced the same thing, which was "the map doesn't work".
+ * The crew centre's route map used to be MapLibre over OpenFreeMap tiles: a
+ * real slippy map, and a good one on the days it arrived. It came from two
+ * third-party hosts — the engine from a CDN, the basemap from a tile service —
+ * and every way either of them could fail produced the same screen. A blocked
+ * CDN, a corporate proxy, an ad-blocker that eats tile hosts, a school network,
+ * a phone that would not give up a WebGL context, one bad minute on the tile
+ * host: all of them ended as a black rectangle with a spinner that had already
+ * stopped. The worst of them was the one that reported success — the style
+ * arrived, every layer went in, and not a tile followed — because nothing was
+ * left watching by then.
  *
- * So this is the floor. One file, no network, nothing to block:
+ * This file is now the map, not the understudy. One file, no network, nothing
+ * to block, no GPU to be refused:
  *
  *   THE COASTLINES are Natural Earth's public-domain 1:110m land, projected
  *   with Robinson and simplified to about a thousandth of the map's width, as
- *   a single path. The same drawing the VA's own public website uses, so the
- *   two halves of the product show an airline the same map.
+ *   a single path — about 20KB of coastline, and the only "basemap" here.
  *
  *   THE ARCS are real great circles, interpolated over the sphere and projected
  *   point by point, cut where they cross the antimeridian — so a sector to
@@ -24,10 +28,10 @@
  *   THE AIRPORTS are the points the caller hands over. One dot per field, never
  *   one per sector, sized by how much of the operation touches it.
  *
- * It is not a replacement for the slippy map and does not pretend to be: there
- * is no basemap detail, no labels but the busiest fields, and no geocoding.
- * What it does is answer the question the map exists to answer — where does
- * this airline fly — without asking anybody's permission.
+ * What it gives up is basemap detail: no roads, no cities, no place names but
+ * the busiest fields, and no geocoding. What it gives back is the question the
+ * map exists to answer — where does this airline fly — drawn on every device,
+ * every time, in one frame, without asking anybody's permission.
  * ========================================================================== */
 (function () {
     'use strict';
@@ -111,8 +115,23 @@
         var legs = (opts.routes || []).filter(function (r) {
             return r && Array.isArray(r.o) && Array.isArray(r.d);
         });
+        /* WHERE THE READER WAS LOOKING.
+           Every filter change redraws from scratch, and a redraw that snaps
+           back to the whole world is a map that undoes your zoom every time you
+           tick a box. `keepView` carries the zoom and the scroll across. */
+        var view = null;
+        if (opts.keepView) {
+            var oldWrap = host.querySelector('.cnm-wrap');
+            if (oldWrap && oldWrap.scrollWidth > 0) {
+                view = {
+                    z: parseFloat(host.style.getPropertyValue('--cnm-z')) || 1,
+                    fx: (oldWrap.scrollLeft + oldWrap.clientWidth / 2) / oldWrap.scrollWidth,
+                    fy: (oldWrap.scrollTop + oldWrap.clientHeight / 2) / oldWrap.scrollHeight,
+                };
+            }
+        }
         host.innerHTML = '';
-        if (!legs.length) return 0;
+        if (!legs.length) { host.style.removeProperty('--cnm-z'); return 0; }
 
         var accent = opts.accent || '#3b82f6';
         var dark = !!opts.dark;
@@ -166,14 +185,28 @@
         var FONT = (small ? 12 : 13) * perPx;
         var R_HUB = 6 * perPx, R_DOT = 3.6 * perPx;
 
-        var arcs = legs.map(function (r) {
+        /* THE SECTORS, TWICE.
+           A 2px line is a fine thing to look at and a miserable thing to hit
+           with a finger. Every arc is therefore drawn twice: once visibly, and
+           once as a fat transparent stroke in a layer above it that catches the
+           pointer. Both carry the same identity, so a hover, a tap and the
+           focus dimming all read the same attributes whichever one they land
+           on, and the dots are drawn after both so a field always wins over a
+           line passing through it. */
+        var ends = function (r) {
+            return ' data-route="' + esc(r.id) + '"'
+                + ' data-o="' + esc(r.origin) + '" data-d="' + esc(r.destination) + '"';
+        };
+        var arcs = '', hitArcs = '';
+        legs.forEach(function (r) {
             var cls = 'cnm-arc'
                 + (r.codeshare ? ' is-share' : '')
                 + (r.active === false ? ' is-draft' : '');
-            return arcPaths(greatCircle(r.o, r.d, 64)).map(function (d) {
-                return '<path class="' + cls + '" d="' + d + '" data-route="' + esc(r.id) + '"></path>';
-            }).join('');
-        }).join('');
+            arcPaths(greatCircle(r.o, r.d, 64)).forEach(function (d) {
+                arcs += '<path class="' + cls + '" d="' + d + '"' + ends(r) + '></path>';
+                hitArcs += '<path class="cnm-hit" d="' + d + '"' + ends(r) + '></path>';
+            });
+        });
 
         var places = Object.keys(touch);
         var busiest = places.slice().sort(function (a, b) { return touch[b] - touch[a]; });
@@ -242,10 +275,45 @@
             box = [bx0, by0, bx1 - bx0, by1 - by0];
         }
 
+        /* FILL THE BOX WE WERE GIVEN.
+           `meet` fits the crop inside the host and leaves whatever is left over
+           empty. For a world-spanning network on a portrait phone that is a
+           110px band of map floating in 800px of background, which reads as a
+           map that failed rather than one that fitted. Growing the crop to the
+           host's own shape puts more of the world in that space instead of
+           nothing — the network is still entirely inside it, there is simply
+           more map around it. Kept inside the world where it will fit, so the
+           growth never becomes a margin of its own. */
+        var need = [box[0], box[1], box[0] + box[2], box[1] + box[3]];
+        var hostAR = hostW / hostH, boxAR = box[2] / box[3];
+        if (boxAR < hostAR) { var wantW = Math.min(W, box[3] * hostAR); box[0] -= (wantW - box[2]) / 2; box[2] = Math.max(box[2], wantW); }
+        else if (boxAR > hostAR) { var wantH = Math.min(H, box[2] / hostAR); box[1] -= (wantH - box[3]) / 2; box[3] = Math.max(box[3], wantH); }
+        // Slide it back over the world rather than off the side of it…
+        box[0] = box[2] <= W ? Math.max(0, Math.min(W - box[2], box[0])) : (W - box[2]) / 2;
+        box[1] = box[3] <= H ? Math.max(0, Math.min(H - box[3], box[1])) : (H - box[3]) / 2;
+        // …but never at the cost of the network, which was why there was a crop
+        // in the first place. A base pushed outside by that slide is a base the
+        // airline cannot see.
+        box[0] = Math.min(box[0], need[0]); box[1] = Math.min(box[1], need[1]);
+        box[2] = Math.max(box[0] + box[2], need[2]) - box[0];
+        box[3] = Math.max(box[1] + box[3], need[3]) - box[1];
+
         host.innerHTML =
             '<style>'
             + '.cnm-wrap{position:absolute;inset:0;overflow:auto;cursor:grab;touch-action:pan-x pan-y;}'
             + '.cnm-wrap.is-drag{cursor:grabbing;user-select:none;}'
+            /* The pointer-catching copy of every sector. Transparent, fat, and
+               above the drawing — `pointer-events:stroke` means it catches the
+               line and not the empty box around it. */
+            + '.cnm-hit{fill:none;stroke:transparent;stroke-width:' + (14 * perPx).toFixed(1) + ';'
+            + 'stroke-linecap:round;pointer-events:stroke;cursor:pointer;}'
+            /* FOCUS. Tapping a sector or a field is the point of a map, and the
+               answer is everything else getting out of the way — dimmed, not
+               removed, because a network with one line on it is not a network. */
+            + '.cnm-svg.is-focus .cnm-arc{stroke-opacity:.1;}'
+            + '.cnm-svg.is-focus .cnm-arc.is-on{stroke-opacity:.95;stroke-width:3;}'
+            + '.cnm-svg.is-focus .cnm-pt{opacity:.28;}'
+            + '.cnm-svg.is-focus .cnm-pt.is-on{opacity:1;}'
             /* THE WHOLE NETWORK AT REST. The stage grows in both directions
                with the zoom and the box scrolls; at rest it is exactly the box,
                so "Fit" is true rather than nearly true. Filling the HEIGHT
@@ -278,6 +346,7 @@
             + ' aria-label="Route map: ' + legs.length + (legs.length === 1 ? ' sector' : ' sectors') + '">'
             + '<path class="cnm-land" d="' + LAND + '"></path>'
             + '<g class="cnm-arcs">' + arcs + '</g>'
+            + '<g class="cnm-hits">' + hitArcs + '</g>'
             + '<g class="cnm-pts">' + dots + '</g>'
             + '</svg></div></div>'
             + '<div class="cnm-zoom">'
@@ -286,18 +355,51 @@
             + '<button type="button" data-cnm-zoom="reset" aria-label="Fit the whole network">Fit</button>'
             + '</div>';
 
-        wire(host, opts);
+        var api = wire(host, opts);
+        if (view && api) api.restore(view);
+        else host.style.removeProperty('--cnm-z');
         return legs.length;
     }
 
-    /* Pan by dragging, zoom by the buttons. Deliberately the same gestures the
-       public site's map uses, so the two do not disagree about how a map works.
-       Everything is done to the rendered size of one SVG; the drawing is never
-       recomputed, which is what keeps it instant on a phone. */
+    /* ---------------------------------------------------------------------
+     * FOCUS
+     *
+     * One sector, or one field and everything that touches it, with the rest
+     * of the network dimmed behind it. Done in CSS off two classes rather than
+     * by redrawing: the drawing is the expensive half and none of it changes.
+     * `spec` falsy clears it.
+     * ------------------------------------------------------------------- */
+    function focus(host, spec) {
+        var svg = host && host.querySelector('.cnm-svg');
+        if (!svg) return;
+        svg.querySelectorAll('.is-on').forEach(function (el) { el.classList.remove('is-on'); });
+        var route = spec && spec.route != null ? String(spec.route) : '';
+        var apt = spec && spec.airport ? String(spec.airport) : '';
+        if (!route && !apt) { svg.classList.remove('is-focus'); return; }
+        svg.classList.add('is-focus');
+        var lit = {};
+        svg.querySelectorAll('[data-route]').forEach(function (el) {
+            var on = route
+                ? el.getAttribute('data-route') === route
+                : (el.getAttribute('data-o') === apt || el.getAttribute('data-d') === apt);
+            if (!on) return;
+            el.classList.add('is-on');
+            lit[el.getAttribute('data-o')] = 1; lit[el.getAttribute('data-d')] = 1;
+        });
+        if (apt) lit[apt] = 1;
+        svg.querySelectorAll('[data-airport]').forEach(function (el) {
+            if (lit[el.getAttribute('data-airport')]) el.classList.add('is-on');
+        });
+    }
+
+    /* Pan by dragging, zoom by the buttons, the wheel with a modifier held, or
+       a double tap. Everything is done to the RENDERED size of one SVG — the
+       drawing itself is never recomputed — which is what keeps it instant on a
+       phone, and why a zoom costs nothing but a scroll position. */
     function wire(host, opts) {
         var wrap = host.querySelector('.cnm-wrap');
         var bar = host.querySelector('.cnm-zoom');
-        if (!wrap) return;
+        if (!wrap) return null;
         var z = 1, Z_MIN = 1, Z_MAX = 8;
 
         function paint() {
@@ -345,11 +447,32 @@
             sx = e.clientX; sy = e.clientY; sl = wrap.scrollLeft; st = wrap.scrollTop;
             wrap.classList.add('is-drag');
         });
+        var hovered = null;
         wrap.addEventListener('pointermove', function (e) {
-            if (!down) return;
-            if (Math.abs(e.clientX - sx) > 3 || Math.abs(e.clientY - sy) > 3) moved = true;
-            wrap.scrollLeft = sl - (e.clientX - sx);
-            wrap.scrollTop = st - (e.clientY - sy);
+            if (down) {
+                if (Math.abs(e.clientX - sx) > 3 || Math.abs(e.clientY - sy) > 3) moved = true;
+                wrap.scrollLeft = sl - (e.clientX - sx);
+                wrap.scrollTop = st - (e.clientY - sy);
+                return;
+            }
+            /* WHAT IS UNDER THE POINTER. Reported rather than drawn here: the
+               caller owns the tooltip, because it is the caller that knows the
+               flight number, the aeroplane and the distance — this file only
+               knows where the line goes. Touch is skipped; a finger has no
+               hover and a tooltip under it would cover the thing it describes. */
+            if (e.pointerType === 'touch' || typeof opts.onHover !== 'function') return;
+            var el = e.target.closest ? e.target.closest('[data-route],[data-airport]') : null;
+            var id = el ? (el.getAttribute('data-airport') || 'r:' + el.getAttribute('data-route')) : '';
+            if (!id && !hovered) return;             // still over open water
+            hovered = id;
+            opts.onHover(el
+                ? { airport: el.getAttribute('data-airport') || '', route: el.getAttribute('data-route') || '' }
+                : null, e);
+        });
+        wrap.addEventListener('pointerleave', function (e) {
+            if (!hovered) return;
+            hovered = '';
+            if (typeof opts.onHover === 'function') opts.onHover(null, e);
         });
         ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (t) {
             wrap.addEventListener(t, function () { down = false; wrap.classList.remove('is-drag'); });
@@ -363,8 +486,27 @@
             if (pt && typeof opts.onAirport === 'function') return opts.onAirport(pt.getAttribute('data-airport'));
             var arc = e.target.closest ? e.target.closest('[data-route]') : null;
             if (arc && typeof opts.onRoute === 'function') return opts.onRoute(arc.getAttribute('data-route'));
+            if (typeof opts.onBackground === 'function') opts.onBackground();
         });
+        // Double-click or double-tap to zoom in, which is what every other map
+        // does and therefore what a finger tries first.
+        wrap.addEventListener('dblclick', function (e) {
+            e.preventDefault();
+            setZoom(z * 2, e.clientX, e.clientY);
+        });
+
+        return {
+            zoom: setZoom,
+            restore: function (v) {
+                if (!v || v.z <= 1) { host.style.removeProperty('--cnm-z'); return; }
+                z = Math.min(Z_MAX, Math.max(Z_MIN, v.z));
+                host.style.setProperty('--cnm-z', String(z));
+                wrap.scrollLeft = v.fx * wrap.scrollWidth - wrap.clientWidth / 2;
+                wrap.scrollTop = v.fy * wrap.scrollHeight - wrap.clientHeight / 2;
+                paint();
+            },
+        };
     }
 
-    window.CrewNetMap = { draw: draw, project: project, greatCircle: greatCircle };
+    window.CrewNetMap = { draw: draw, focus: focus, project: project, greatCircle: greatCircle };
 })();

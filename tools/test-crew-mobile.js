@@ -19,7 +19,7 @@
 // same Tailwind output is served in its place:
 //
 //   npm i --no-save tailwindcss@3.4.17
-//   echo "module.exports={content:['./crew-dashboard.html','./crew*.js']}" > /tmp/tw.config.js
+//   echo "module.exports={content:['./crew-dashboard.html','./crew.html','./crew-pilot.html','./crew*.js']}" > /tmp/tw.config.js
 //   printf '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n' > /tmp/tw.css
 //   npx tailwindcss -c /tmp/tw.config.js -i /tmp/tw.css -o tools/crew-tailwind.css
 //

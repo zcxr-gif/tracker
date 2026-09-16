@@ -245,13 +245,22 @@
 
     <!-- ============ TOP BAR ============ -->
     <header class="sticky top-0 z-40 backdrop-blur-xl border-b hair" style="background:color-mix(in srgb, var(--bg) 82%, transparent);">
-        <div class="max-w-6xl mx-auto px-5 h-16 flex items-center gap-4">
+        <!-- THE BAR, ON A PHONE.
+             None of the controls on the right could shrink, and neither could
+             an airline logo, so at 360px the VA's own name was squeezed to
+             nothing and the mark ran under the buttons. The controls are pinned
+             now (shrink-0 — a 36px target stays 36px) and the identity is what
+             gives way: it truncates, and when there is a logo the name steps
+             aside for it until there is room for both. Unlike the staff
+             dashboard nothing else comes off this bar — a pilot has no Settings
+             to reach the interface switch or the theme through. -->
+        <div class="max-w-6xl mx-auto px-3 sm:px-5 h-16 flex items-center gap-2 sm:gap-4">
             <!-- The VA's identity. Hidden when framed: the host page IS the VA's
                  site and its own header has already said whose crew center this
                  is, so repeating the logo and the name directly underneath it is
                  what reads as two stacked top bars. -->
-            <div class="flex items-center gap-2.5 min-w-0" data-embed-hide>
-                <img id="navLogo" alt="" class="hidden h-7 w-auto max-w-[130px] object-contain">
+            <div class="flex items-center gap-2 sm:gap-2.5 min-w-0" data-embed-hide>
+                <img id="navLogo" alt="" class="hidden h-7 w-auto min-w-0 max-w-[92px] sm:max-w-[130px] object-contain">
                 <div id="navMonogram" class="accent-bg w-8 h-8 rounded-md grid place-items-center text-white text-sm font-bold shrink-0">VA</div>
                 <span id="navName" class="font-semibold tracking-tight truncate">Crew Center</span>
             </div>
@@ -267,7 +276,7 @@
                 </div>
             </div>
 
-            <div class="flex items-center gap-1 ml-auto">
+            <div class="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0">
                 <!-- The interface switch. Settings is a staff room and a pilot
                      never sees it, so this button is how the choice reaches
                      the people who actually read this page every day.
@@ -282,7 +291,7 @@
                 <button onclick="toggleTheme()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition" title="Toggle theme">
                     <span id="themeIcon"></span>
                 </button>
-                <div class="flex items-center gap-2.5 pl-2 ml-1 border-l hair">
+                <div class="flex items-center gap-2.5 pl-1.5 sm:pl-2 ml-0.5 sm:ml-1 border-l hair">
                     <div class="text-right hidden sm:block leading-tight">
                         <div id="meName" class="text-sm font-medium">Jordan Lee</div>
                         <div class="text-[11px] muted flex items-center gap-1 justify-end"><i data-lucide="badge-check" class="w-3 h-3"></i> <span id="meRole">First Officer</span></div>
@@ -1269,6 +1278,10 @@
                 CREW_LOGO=b.logo;           // the mark on the front of the card
                 const el=document.getElementById('navLogo');el.src=b.logo;el.alt=name||'VA';
                 el.classList.remove('hidden');document.getElementById('navMonogram').classList.add('hidden');
+                // A wordmark and the same words beside it is one identity twice.
+                // On a phone the bar has no room for the second copy, so the
+                // logo carries it and the name comes back at `sm`.
+                document.getElementById('navName').classList.add('hidden','sm:inline');
             }
             if(b.banner && isSafeImageUrl(b.banner)){
                 document.getElementById('heroImg').src=b.banner;

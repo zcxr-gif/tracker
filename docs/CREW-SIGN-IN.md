@@ -115,6 +115,14 @@ a session.
 `?look=` and `?bg=` override for previewing; the dashboard's **Preview login**
 link carries both plus the accent, so a VA sees what they are about to save.
 
+## Getting in without a password
+
+Two things share this page and are documented elsewhere, because neither is
+about how it looks: **Discord sign-in**, and the **forgotten-password** panes —
+see `docs/CREW-FORGOT-PASSWORD.md`. Both are panes of this same card rather
+than pages of their own, so they inherit the look, the backdrop, the banner and
+the colour that the rest of this document is about.
+
 ## Files
 
 | | |

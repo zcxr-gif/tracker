@@ -10,6 +10,7 @@
     "test:interface": "node tools/test-crew-interface.js",
     "test:shop": "node tools/test-crew-shop.js",
     "test:command": "node tools/test-crew-command.js",
+    "test:forgot": "node tools/test-crew-forgot-password.js",
     "test:route-map": "node tools/test-crew-route-map.js",
     "test:route-library": "node tools/test-crew-route-library.js",
     "test:partners": "node tools/test-crew-partners.js",
