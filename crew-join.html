@@ -33,6 +33,14 @@
          After the skin, so the ground it measures against is the one in force. -->
     <script src="/crewAccent.js"></script>
     <style>
+        /* A VA's mark is very often a square PNG, and a square corner against
+           this page's rounded chrome reads as a sticker somebody left on it.
+           Written here rather than as a Tailwind class on purpose: Tailwind is
+           a CDN script, and when it is slow or blocked every logo on the page
+           goes back to being a block — the same reason `.hidden` is restated
+           above. A logo with its own transparent margin loses nothing to this;
+           the radius clips a corner that was never drawn on. */
+        #logo{ border-radius:.5rem; }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
         html,body{ max-width:100%; overflow-x:hidden; }

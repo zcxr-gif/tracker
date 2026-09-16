@@ -71,6 +71,11 @@
          Inflight Pay sheet they spend it through. Draws nothing at all for a
          VA that does not run a shop. -->
     <script src="/crewShop.js"></script>
+    <!-- What to fly tonight: the Route of the Day, the Route of the Week, and
+         a short list scored against what this pilot actually flies. Reads live
+         ATC off the tracker where this page is running inside it, and works
+         without it where it is not. -->
+    <script src="/crewSuggestions.js"></script>
     <!-- Paying should be felt. Silent on a desktop and in any browser without
          the Vibration API; the crew center's only use of it. -->
     <script src="/haptics.js"></script>
@@ -84,6 +89,10 @@
     <script src="/crewTraining.js"></script>
     <!-- What they have to show for it. -->
     <script src="/crewAwards.js"></script>
+    <!-- …and all of it at the top of the page: rank, club, awards and anything
+         they have claimed, in one row across the hero. One fetch, because it is
+         one row and a hero does not get to flicker. -->
+    <script src="/crewBadges.js"></script>
     <!-- Telling the airline they are away, so the roster sweep leaves them be. -->
     <script src="/crewLeave.js"></script>
     <style>
@@ -93,6 +102,14 @@
            class stops being hidden, including the password gate. See the same
            rule and reasoning in crew-dashboard.html. */
         .hidden{ display:none; }
+        /* A VA's mark is very often a square PNG, and a square corner against
+           this page's rounded chrome reads as a sticker somebody left on it.
+           Written here rather than as a Tailwind class on purpose: Tailwind is
+           a CDN script, and when it is slow or blocked every logo on the page
+           goes back to being a block — the same reason `.hidden` is restated
+           above. A logo with its own transparent margin loses nothing to this;
+           the radius clips a corner that was never drawn on. */
+        #navLogo{ border-radius:.4rem; }
         /* Never let a field or a stray wide child scroll the whole page sideways. */
         html,body{ max-width:100%; overflow-x:hidden; }
         input,select,textarea{ max-width:100%; }
@@ -322,7 +339,18 @@
             <!-- Was "You're 36 hours from Captain" for everybody, including
                  pilots who were already Captains and pilots with no hours. -->
             <p id="heroLine" class="text-white/85 text-sm sm:text-base mt-2.5 max-w-lg"></p>
-            <div class="flex flex-wrap items-center gap-2.5 mt-6">
+            <!-- ============ WHAT THIS PILOT WEARS ============
+                 Their rank, their club, every award they have earned and
+                 everything they have claimed from the shop, painted by
+                 crewBadges.js. Between the line and the buttons because it is
+                 about the person the line is addressed to.
+
+                 Hidden outright until the fetch lands and there is a badge to
+                 draw: a pilot on their first day at a VA with no rank ladder
+                 has nothing here, and a gap under their name is worse than no
+                 row at all. -->
+            <div id="heroBadges" class="mt-4 cp-hidden"></div>
+            <div class="flex flex-wrap items-center gap-2.5 mt-5">
                 <button onclick="openFilePirep()" class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2">
                     <i data-lucide="clipboard-pen" class="w-4 h-4"></i> File a PIREP
                 </button>
@@ -366,6 +394,13 @@
                 </div>
             </div>
         </section>
+
+        <!-- ============ WHAT TO FLY ============
+             The Route of the Day and the Route of the Week, drawn by
+             crewSuggestions.js. Hidden outright until the fetch lands and
+             there is a leg to name: a VA that has published no routes must not
+             carry an empty frame here. -->
+        <section id="suggestStrip" class="mt-6 cp-hidden"></section>
 
         <!-- ============ THE CARD ============
              This pilot's own card and balance, painted by crewShop.js. Starts
@@ -597,6 +632,10 @@
             {icon:'award',label:'Awards',desc:'What you’ve earned',action:'awards'},
             {icon:'palmtree',label:'Going away?',desc:'Pause the roster sweep',action:'leave'},
             {icon:'route',label:'Route network',desc:'Where this airline flies',action:'network'},
+            // The question this page could never answer. Last in the grid
+            // because the two featured legs are already up the page in their
+            // own strip — this tile is for the pilot who wants the rest.
+            {icon:'compass',label:'What to fly',desc:'Picked for how you fly',action:'suggest'},
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
@@ -626,6 +665,7 @@
                 if(act==='awards') el.addEventListener('click', openAwards);
                 if(act==='leave') el.addEventListener('click', openLeave);
                 if(act==='network') el.addEventListener('click', openNetwork);
+                if(act==='suggest') el.addEventListener('click', openSuggestions);
             });
             // Both hosts only exist once the tiles have been drawn, so they are
             // handed over here rather than at mount. Each module keeps painting
@@ -1105,6 +1145,21 @@
             if(host && window.CrewShop) CrewShop.mountCard(host, shopArgs());
         }
 
+        // ---- What to fly ----
+        //
+        // A route tile leads to the network panel, which is where a leg's own
+        // detail lives. Passing the handler rather than letting the module
+        // guess keeps the flown-set below — the ticks on legs this pilot has
+        // already done — the same in both places.
+        function suggestArgs(){
+            return { api: crewApi(), onOpenRoute: ()=>openNetwork() };
+        }
+        function openSuggestions(){ if(window.CrewSuggestions) CrewSuggestions.open(suggestArgs()); }
+        function mountSuggestStrip(){
+            const host=document.getElementById('suggestStrip');
+            if(host && window.CrewSuggestions) CrewSuggestions.mountStrip(host, suggestArgs());
+        }
+
         // ---- The ladder, the awards, and being away ----
         function crewApi(){ return CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }); }
         function openTraining(){ if(window.CrewTraining) CrewTraining.open({ api: crewApi(), view:'me' }); }
@@ -1156,6 +1211,28 @@
                 },
             });
         }
+        // ---- The row across the hero ----
+        //
+        // Every badge leads to the screen it came from — this page is the only
+        // thing that knows which panels it has mounted, so it owns the mapping
+        // rather than the module guessing at it.
+        function mountHeroBadges(){
+            const host=document.getElementById('heroBadges');
+            if(!host || !window.CrewBadges) return;
+            CrewBadges.mountRail(host, {
+                api: crewApi(),
+                onOpen: (where)=>{
+                    if(where==='training') openTraining();
+                    else if(where==='awards') openAwards();
+                    // A club and a claimed item both live in the shop; the club
+                    // ladder is a tab of it, so the two differ only in which
+                    // one opens.
+                    else if(where==='clubs') { if(window.CrewShop) CrewShop.open({ ...shopArgs(), view:'clubs' }); }
+                    else if(where==='shop') openShop();
+                },
+            });
+        }
+
         function mountAwardStrip(){
             const host=document.getElementById('awardStrip');
             if(host && window.CrewAwards) CrewAwards.mountStrip(host, { api: crewApi() });
@@ -1746,6 +1823,11 @@
             // After applyBranding, not before: the card has the airline's name
             // and mark on the front of it, and both arrive with the record.
             mountShopCard();
+            mountSuggestStrip();
+            // After applyBranding for the same reason the card is: this sits on
+            // the airline's own hero image, and until that has resolved there
+            // is nothing to sit on.
+            mountHeroBadges();
             mountAwardStrip();
             mountCommand(); mountAlerts();
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)

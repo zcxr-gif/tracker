@@ -79,6 +79,9 @@
         view: 'shop',       // shop | orders | manage
         data: null,         // the last GET /shop
         orders: null,
+        crew: null,         // the last GET /shop/crew — the roster's cards
+        crewError: null,
+        crewOpen: '',       // the pilot whose shelf is expanded, by id
         loading: false,
         error: null,
         editing: null,      // the item being added or changed, in the back office
@@ -217,16 +220,38 @@
            face then scales off the width the wrapper was given, whether that
            is a phone's screen, the shop's hero or the pay sheet. */
         .sh-card-fit{ container-type:inline-size; width:100%; max-width:26rem; }
+        /* THE FACE IS --sh-face, NOT --accent.
+           ------------------------------------------------------------------
+           The card used to be painted straight out of the page's accent, which
+           meant every pilot at an airline held an identical object for as long
+           as they flew there. It is now painted out of a colour the SERVER
+           sends with the wallet: the colour of the CLUB their flying has
+           earned them (see crewClubs.js on the backend). The default below is
+           the old behaviour exactly, so a card drawn before the fetch lands,
+           or for a signed-out visitor, or by an older server that knows
+           nothing about clubs, is the card this always was.
+
+           The three numbers under it are the finish: how hard the light comes
+           off the face, how much texture it carries, and what the rim is made
+           of. Those are what actually make a Platinum card look like a
+           different object from a Standard one — a colour swap alone reads as
+           a theme, where deeper light and a brighter edge read as better
+           material, which is the thing being rewarded. */
         .sh-card{ position:relative; width:100%; aspect-ratio:1.586;
+            --sh-face:var(--accent);
+            --sh-gloss:.26;
+            --sh-grain:.16;
+            --sh-rim:rgb(255 255 255 / .22);
             border-radius:1.15rem; overflow:hidden; color:#fff; isolation:isolate;
             background:
-                radial-gradient(120% 140% at 12% 4%, color-mix(in srgb, var(--accent) 88%, #fff 12%), transparent 58%),
-                radial-gradient(100% 120% at 96% 96%, color-mix(in srgb, var(--accent) 70%, #000 30%), transparent 62%),
-                linear-gradient(135deg, color-mix(in srgb, var(--accent) 92%, #000 8%), color-mix(in srgb, var(--accent) 58%, #000 42%));
-            box-shadow:0 1px 0 0 rgb(255 255 255 / .22) inset,
-                       0 18px 44px -18px color-mix(in srgb, var(--accent) 55%, transparent),
+                radial-gradient(120% 140% at 12% 4%, color-mix(in srgb, var(--sh-face) 88%, #fff 12%), transparent 58%),
+                radial-gradient(100% 120% at 96% 96%, color-mix(in srgb, var(--sh-face) 70%, #000 30%), transparent 62%),
+                linear-gradient(135deg, color-mix(in srgb, var(--sh-face) 92%, #000 8%), color-mix(in srgb, var(--sh-face) 58%, #000 42%));
+            box-shadow:0 1px 0 0 var(--sh-rim) inset,
+                       0 18px 44px -18px color-mix(in srgb, var(--sh-face) 55%, transparent),
                        0 30px 60px -40px rgb(0 0 0 / .9);
-            transition:transform .4s cubic-bezier(.22,1.12,.36,1), box-shadow .4s ease;
+            transition:transform .4s cubic-bezier(.22,1.12,.36,1), box-shadow .4s ease,
+                       background .6s ease;
             transform-style:preserve-3d; will-change:transform;
             padding:4.4cqi 4.8cqi; display:flex; flex-direction:column;
             font-variant-numeric:tabular-nums;
@@ -237,19 +262,32 @@
                swamps the name, the number wraps. In cqi it is one card, drawn
                larger or smaller, exactly like the object it is imitating. */
         }
+        /* The finishes, richest last. Which club maps to which is the server's
+           decision — only the VA's ladder knows where its own top is — and
+           these are just the materials. */
+        .sh-card-t1{ --sh-gloss:.30; --sh-grain:.19; --sh-rim:rgb(255 226 196 / .34); }
+        .sh-card-t2{ --sh-gloss:.36; --sh-grain:.22; --sh-rim:rgb(236 242 248 / .42); }
+        .sh-card-t3{ --sh-gloss:.44; --sh-grain:.27; --sh-rim:rgb(255 236 178 / .52); }
+        /* Four materials and not one per club, because a VA may run eight and
+           nobody can tell a seventh finish from an eighth. A ladder longer than
+           this tops out here — which is right: the top club should look like
+           the top, and the colour is already doing the work of saying which. */
+        .sh-card-t4{ --sh-gloss:.54; --sh-grain:.32; --sh-rim:rgb(226 232 244 / .68); }
         /* The sheen. One pass of light across the face, following the pointer
            where there is one and sitting still where there is not. */
         .sh-card::before{
             content:''; position:absolute; inset:-40%; z-index:0; pointer-events:none;
-            background:linear-gradient(115deg, transparent 38%, rgb(255 255 255 / .26) 48%,
+            background:linear-gradient(115deg, transparent 38%,
+                       rgb(255 255 255 / var(--sh-gloss)) 48%,
                        rgb(255 255 255 / .06) 56%, transparent 64%);
             transform:translateX(var(--sh-sheen, -12%)) rotate(4deg);
             transition:transform .5s cubic-bezier(.22,1.12,.36,1);
         }
         /* A fine guilloché — the texture that stops a flat gradient reading as
-           a placeholder. Two hairline grids at an angle, at 6% opacity. */
+           a placeholder. Two hairline grids at an angle. */
         .sh-card::after{
-            content:''; position:absolute; inset:0; z-index:0; pointer-events:none; opacity:.16;
+            content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
+            opacity:var(--sh-grain);
             background-image:
                 repeating-linear-gradient(68deg, rgb(255 255 255 / .5) 0 1px, transparent 1px 9px),
                 repeating-linear-gradient(-68deg, rgb(255 255 255 / .35) 0 1px, transparent 1px 13px);
@@ -260,8 +298,24 @@
         .sh-card-airline{ font-size:2.9cqi; font-weight:800; letter-spacing:.16em; text-transform:uppercase;
             opacity:.86; line-height:1.3; max-width:60cqi; }
         .sh-card-tier{ font-size:2.4cqi; font-weight:800; letter-spacing:.14em; text-transform:uppercase;
-            opacity:.72; margin-top:.4cqi; }
-        .sh-card-logo{ max-height:8cqi; max-width:24cqi; object-fit:contain; filter:drop-shadow(0 1px 2px rgb(0 0 0 / .35)); }
+            opacity:.72; margin-top:.4cqi; display:flex; align-items:center; gap:1.4cqi; flex-wrap:wrap; }
+        /* The finish, named. A pilot who can see their card change but cannot
+           say what it changed TO has been given a mood, not a reward — and
+           "Gold" is a word an airline's pilots already know the meaning of. */
+        .sh-card-finish{ display:inline-flex; align-items:center; gap:.9cqi; opacity:1;
+            padding:.5cqi 1.5cqi; border-radius:999px; letter-spacing:.16em;
+            border:1px solid var(--sh-rim); background:rgb(255 255 255 / .1); }
+        /* How far up the ladder that finish is. The pips are the half a pilot
+           acts on: the name says what they hold, the pips say there is more. */
+        .sh-pips{ display:inline-flex; gap:.6cqi; }
+        .sh-pip{ width:1.1cqi; height:1.1cqi; border-radius:999px; background:rgb(255 255 255 / .28); }
+        .sh-pip-on{ background:#fff; box-shadow:0 0 .8cqi rgb(255 255 255 / .6); }
+        /* ROUNDED, because a VA's mark is very often a square PNG and a square
+           corner against a rounded card reads as a sticker somebody left on it.
+           A logo with its own transparent margin loses nothing to this — the
+           radius clips a corner that was not drawn on. */
+        .sh-card-logo{ max-height:8cqi; max-width:24cqi; object-fit:contain; border-radius:1.4cqi;
+            filter:drop-shadow(0 1px 2px rgb(0 0 0 / .35)); }
         /* The chip. Drawn rather than an image so it takes the card's own
            light, and because one more network request for 34 pixels is silly. */
         .sh-chip{ flex:none; width:10cqi; height:7.7cqi; border-radius:1.4cqi; margin:3.4cqi 0 .8cqi;
@@ -288,8 +342,8 @@
         .sh-card-blank .sh-card-balance b,.sh-card-blank .sh-card-name{ opacity:.45; }
 
         @media (hover:hover){
-            .sh-card-live:hover{ box-shadow:0 1px 0 0 rgb(255 255 255 / .3) inset,
-                0 26px 60px -20px color-mix(in srgb, var(--accent) 65%, transparent),
+            .sh-card-live:hover{ box-shadow:0 1px 0 0 var(--sh-rim) inset,
+                0 26px 60px -20px color-mix(in srgb, var(--sh-face) 65%, transparent),
                 0 40px 70px -40px rgb(0 0 0 / .95); }
         }
         @media (prefers-reduced-motion:reduce){
@@ -580,6 +634,108 @@
         .sh-icon i{ width:1rem; height:1rem; }
         .sh-icon[aria-pressed="true"]{ border-color:var(--accent);
             box-shadow:0 0 0 1px var(--accent); color:var(--accent); }
+        /* ---- THE CLUBS --------------------------------------------------
+           The ladder a pilot climbs by flying, and what each rung is worth.
+           The NEXT club is the whole screen — everything under it is context
+           for one sentence — so it gets the only box with a colour in it. */
+        .sh-club-next{ border-radius:.8rem; padding:.85rem .95rem; display:grid; gap:.5rem;
+            margin-bottom:1rem; border:1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+            background:color-mix(in srgb, var(--accent) 7%, transparent); }
+        .sh-club-next-h{ font-size:.95rem; font-weight:650; letter-spacing:-.01em;
+            display:flex; align-items:center; gap:.4rem; }
+        .sh-club-next-h b{ font-size:1.25rem; font-weight:800; letter-spacing:-.02em; }
+        .sh-club-next-h i{ width:1.05rem; height:1.05rem; color:var(--accent); }
+        .sh-club-top{ background:color-mix(in srgb, var(--accent) 10%, transparent); }
+        .sh-club-bar{ height:.4rem; border-radius:999px; overflow:hidden;
+            background:color-mix(in srgb, var(--ink,#1C1A16) 10%, transparent); }
+        .sh-club-bar span{ display:block; height:100%; border-radius:999px; background:var(--accent);
+            transition:width .5s cubic-bezier(.22,1.12,.36,1); }
+        .sh-club-next-foot{ display:flex; justify-content:space-between; gap:.75rem; }
+        .sh-club-gets{ display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; }
+        .sh-club-gets-h{ font-size:.66rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+            color:var(--muted,#736E64); width:100%; }
+        .sh-club-get{ display:inline-flex; align-items:center; gap:.3rem; font-size:.74rem; font-weight:650;
+            padding:.2rem .5rem; border-radius:999px;
+            background:color-mix(in srgb, var(--ink,#1C1A16) 6%, transparent); }
+        .sh-club-get i{ width:.8rem; height:.8rem; color:var(--accent); }
+        .sh-club-list{ display:grid; gap:.35rem; }
+        .sh-club{ display:flex; gap:.7rem; padding:.6rem .7rem; border-radius:.6rem;
+            border:1px solid transparent; align-items:flex-start; }
+        .sh-club-here{ border-color:var(--accent);
+            background:color-mix(in srgb, var(--accent) 6%, transparent); }
+        /* A club already behind you is dimmed rather than hidden: the ladder
+           has to read as a ladder, and the rungs below are what make the one
+           you are on mean anything. */
+        .sh-club-past{ opacity:.55; }
+        .sh-club-swatch{ flex:none; width:.5rem; align-self:stretch; min-height:2.2rem; border-radius:999px;
+            background:linear-gradient(180deg, color-mix(in srgb, var(--sh-face) 92%, #fff 8%),
+                       color-mix(in srgb, var(--sh-face) 55%, #000 45%)); }
+        .sh-club-main{ flex:1; min-width:0; display:grid; gap:.25rem; }
+        .sh-club-name{ font-weight:700; letter-spacing:-.01em; display:flex; align-items:center; gap:.4rem; }
+        .sh-club-at{ font-size:.75rem; color:var(--muted,#736E64); }
+        .sh-club-staff{ margin-top:1rem; padding-top:.8rem; display:grid; gap:.5rem; justify-items:start;
+            border-top:1px dashed var(--line,#e5e5e5); }
+        /* Early access, on the shelf. */
+        .sh-flag-club{ background:color-mix(in srgb, var(--accent) 88%, #000 12%); color:#fff; }
+        .sh-flag-wait{ background:color-mix(in srgb, var(--ink,#1C1A16) 10%, transparent);
+            color:var(--muted,#736E64); }
+        .sh-item-shut{ opacity:.72; }
+        .sh-item-shut .sh-item-art,.sh-item-shut .sh-item-band{ filter:saturate(.4); }
+        /* ---- THE CLUB EDITOR, IN THE BACK OFFICE ------------------------ */
+        .sh-cedit{ display:grid; gap:.4rem; }
+        .sh-crow{ display:grid; gap:.4rem; padding:.6rem .7rem; border-radius:.6rem;
+            border:1px solid var(--line,#e5e5e5); background:var(--surface,#fff); }
+        .sh-crow-top{ display:flex; gap:.4rem; align-items:center; }
+        .sh-crow-top input[type="text"]{ flex:1; min-width:0; }
+        .sh-crow-grid{ display:grid; gap:.4rem; grid-template-columns:repeat(auto-fit, minmax(7.5rem, 1fr)); }
+        .sh-crow-f{ display:grid; gap:.15rem; }
+        .sh-crow-f label{ font-size:.66rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+            color:var(--muted,#736E64); }
+        .sh-crow-check{ display:flex; align-items:center; gap:.4rem; font-size:.78rem; font-weight:650; }
+        .sh-crow-del{ flex:none; }
+        /* ---- THE CREW, AND WHAT THEY HOLD -------------------------------
+           Rows, not cards. A roster of two hundred cards is a wall; the card
+           is what you get when you open ONE of them, which is also the shape
+           of the question people actually ask here. */
+        .sh-crew{ display:grid; gap:.3rem; }
+        .sh-crew-row{ border:1px solid transparent; border-radius:.6rem; transition:border-color .15s ease; }
+        .sh-crew-open{ border-color:var(--line,#e5e5e5);
+            background:color-mix(in srgb, var(--ink,#1C1A16) 2%, transparent); }
+        .sh-crew-head{ display:flex; align-items:center; gap:.7rem; width:100%; text-align:left;
+            padding:.55rem .6rem; border:0; background:none; color:inherit; font:inherit; cursor:pointer;
+            border-radius:.6rem; }
+        .sh-crew-head:hover{ background:color-mix(in srgb, var(--ink,#1C1A16) 4%, transparent); }
+        /* The finish, at a glance, down the left edge of the list. This is what
+           makes the progression legible as a LIST — a column of colours that
+           gets richer towards the top is the whole reward, seen from outside. */
+        .sh-crew-swatch{ flex:none; width:1.6rem; height:1.1rem; border-radius:.25rem;
+            --sh-face:var(--accent); --sh-rim:rgb(255 255 255 / .22);
+            background:linear-gradient(135deg, color-mix(in srgb, var(--sh-face) 92%, #fff 8%),
+                       color-mix(in srgb, var(--sh-face) 58%, #000 42%));
+            box-shadow:0 0 0 1px var(--sh-rim) inset, 0 1px 2px rgb(0 0 0 / .25); }
+        .sh-crew-who{ flex:1; min-width:0; display:grid; gap:.1rem; }
+        .sh-crew-name{ font-weight:650; letter-spacing:-.01em; overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap; }
+        .sh-crew-sub{ font-size:.75rem; color:var(--muted,#736E64); overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap; }
+        .sh-crew-holds{ display:flex; align-items:center; gap:.25rem; flex-shrink:0;
+            max-width:min(48%, 18rem); overflow:hidden; }
+        .sh-crew-holds .cp-chip{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:9rem; }
+        .sh-crew-none{ font-size:.72rem; color:var(--faint,#A8A296); }
+        .sh-crew-caret{ width:1rem; height:1rem; flex:none; color:var(--faint,#A8A296);
+            transition:transform .18s ease; }
+        .sh-crew-open .sh-crew-caret{ transform:rotate(180deg); }
+        .sh-crew-body{ display:grid; gap:1rem; padding:.2rem .6rem .8rem; }
+        @media (min-width:34rem){ .sh-crew-body{ grid-template-columns:minmax(0,17rem) minmax(0,1fr);
+            align-items:start; } }
+        .sh-crew-side{ display:grid; gap:.7rem; align-content:start; }
+        .sh-crew-list{ list-style:none; margin:0; padding:0; display:grid; gap:.3rem; }
+        .sh-crew-list li{ display:flex; align-items:center; gap:.45rem; font-size:.82rem; }
+        .sh-crew-list i{ width:.9rem; height:.9rem; flex:none; color:var(--accent); }
+        .sh-crew-list b{ font-weight:700; }
+        .sh-crew-list em{ margin-left:auto; font-style:normal; font-size:.72rem;
+            color:var(--faint,#A8A296); white-space:nowrap; }
+        @media (hover:none){ .sh-crew-holds{ display:none; } }
         .sh-off{ text-align:center; padding:2.2rem 1rem; display:grid; gap:.6rem; justify-items:center; }
         .sh-off i{ width:1.7rem; height:1.7rem; color:var(--faint,#A8A296); }
         .sh-off-title{ font-size:1rem; font-weight:800; letter-spacing:-.015em; }
@@ -597,6 +753,69 @@
      * advertisement for signing in.
      * =================================================================== */
 
+    /* =====================================================================
+     * THE CLUB, ON THE FACE OF THE CARD
+     *
+     * TWO LADDERS, AND THE CARD SHOWS BOTH.
+     *
+     * The rank is what the airline CALLS this pilot: a decision somebody made,
+     * usually with a check-ride behind it. The club is what their flying has
+     * earned them: a line they crossed, applied automatically, that nobody has
+     * to remember to award. They are different in kind, every real airline runs
+     * both, and printing one in place of the other would lose the half that
+     * made the card worth looking at.
+     *
+     * WHICH CLUB, AND WHAT COLOUR, IS THE SERVER'S DECISION. Only the VA's own
+     * ladder knows where its top is and what it is called, so this reads
+     * `wallet.club` and draws it. It invents nothing when it is absent: an
+     * older server sends a wallet with no club, and the card falls back to the
+     * page's accent and names no club, which is exactly the card this was
+     * before and much better than a browser guessing at somebody's standing.
+     * =================================================================== */
+
+    const clubOf = (w) => (w && w.club && typeof w.club === 'object' ? w.club : null);
+
+    /** The face colour, as an inline custom property. Empty when unknown. */
+    function faceStyle(w) {
+        const c = clubOf(w);
+        // A colour only, and only one this module recognises as one: it lands
+        // in a style attribute, and a style attribute is not a place to put a
+        // string a server sent without looking at it.
+        const hex = c && typeof c.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(c.color.trim())
+            ? c.color.trim() : '';
+        return hex ? ` style="--sh-face:${esc(hex)}"` : '';
+    }
+
+    /** `sh-card-t3`, or nothing. The material, not the colour. */
+    function clubClass(w) {
+        const c = clubOf(w);
+        const at = c ? Math.round(Number(c.index)) : NaN;
+        return Number.isFinite(at) && at > 0 ? ` sh-card-t${Math.min(4, at)}` : '';
+    }
+
+    /**
+     * The line under the airline's name: the rank, and the club.
+     *
+     * The pips are the half a pilot acts on. The name says which club they are
+     * in; the pips say there are more of them, which is the only part of this
+     * that makes anybody fly another leg. Drawn only where there IS a ladder to
+     * climb — a one-club airline has not made a progression, and a row of empty
+     * circles would be a promise nobody there can keep.
+     */
+    function clubHtml(w) {
+        const c = clubOf(w);
+        const rank = w && w.rank ? esc(w.rank) : '';
+        if (!rank && !c) return '';
+        const pips = c && Number(c.of) > 1
+            ? `<span class="sh-pips" aria-hidden="true">${Array.from({ length: Number(c.of) }, (_, i) =>
+                `<span class="sh-pip${i <= Number(c.index) ? ' sh-pip-on' : ''}"></span>`).join('')}</span>`
+            : '';
+        const club = c && c.name
+            ? `<span class="sh-card-finish">${pips}${esc(c.name)}</span>` : '';
+        if (!rank && !club) return '';
+        return `<div class="sh-card-tier">${rank}${club}</div>`;
+    }
+
     function cardHtml(wallet, opts) {
         const o = opts || {};
         const w = wallet || null;
@@ -604,20 +823,21 @@
         const logo = b.logo && P.safeUrl(b.logo)
             ? `<img class="sh-card-logo" src="${esc(b.logo)}" alt="">` : '';
         const airline = esc(b.name || b.code || 'Crew Center');
-        const tier = w && w.rank ? `<div class="sh-card-tier">${esc(w.rank)}</div>` : '';
+        const club = clubHtml(w);
         const name = w && (w.name || w.callsign) ? esc(w.name || w.callsign) : 'Not linked';
         const since = w && w.since
             ? `Member since ${new Date(w.since).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}`
             : 'Member';
         const cs = w && w.callsign ? esc(w.callsign) : '';
-        return `<div class="sh-card-fit"><div class="sh-card ${w ? 'sh-card-live' : 'sh-card-blank'}" ${o.interactive === false ? '' : 'data-sh-tilt'}>
+        return `<div class="sh-card-fit"><div class="sh-card ${w ? 'sh-card-live' : 'sh-card-blank'}${clubClass(w)}"${faceStyle(w)} ${o.interactive === false ? '' : 'data-sh-tilt'}>
             <div class="sh-card-top">
-                <div><div class="sh-card-airline">${airline}</div>${tier}</div>
+                <div><div class="sh-card-airline">${airline}</div>${club}</div>
                 ${logo}
             </div>
             <div class="sh-chip" aria-hidden="true"></div>
             <div class="sh-card-balance">
-                <b>${w ? num(w.balance) : '—'}</b><span>${esc(currency().short)}</span>
+                <b>${w ? num(w.balance) : '—'}</b><span>${esc(currency().short)}${w && w.balanceNote
+                    ? ` ${esc(w.balanceNote)}` : ''}</span>
             </div>
             <div class="sh-card-num">${esc(cardNumber(w))}</div>
             <div class="sh-card-foot">
@@ -711,6 +931,26 @@
         draw();
     }
 
+    /**
+     * The crew, and what they hold.
+     *
+     * Its own fetch rather than part of /shop: it is a read of the whole
+     * roster joined to the whole order table, and a pilot who only ever opens
+     * the shelf should not pay for it on every visit. Fetched the first time
+     * the tab is opened and kept — a shelf does not change while somebody is
+     * looking at it, and re-reading it on every redraw would mean a round trip
+     * per expanded row.
+     */
+    async function loadCrew() {
+        try {
+            const d = await S.api('/shop/crew');
+            S.crew = Array.isArray(d.crew) ? d.crew : [];
+        } catch (err) {
+            S.crew = null; S.crewError = err;
+        }
+        draw();
+    }
+
     /* =====================================================================
      * DRAWING
      *
@@ -738,7 +978,8 @@
         const canManage = !!S.data.canManage;
         if (!S.data.enabled) return canManage ? offStaffHtml() : offPilotHtml();
 
-        const tabs = [['shop', 'Shop'], ['orders', canManage ? 'Orders' : 'My orders']];
+        const tabs = [['shop', 'Shop'], ['clubs', 'Clubs'], ['crew', 'Crew'],
+            ['orders', canManage ? 'Orders' : 'My orders']];
         if (canManage) tabs.push(['manage', 'Set up']);
         const tabBar = `<div class="sh-tabs" role="tablist">${tabs.map(([k, label]) =>
             `<button class="sh-tab ${S.view === k ? 'sh-tab-on' : ''}" role="tab"
@@ -746,6 +987,8 @@
 
         let view = '';
         if (S.view === 'orders') view = ordersHtml();
+        else if (S.view === 'clubs') view = clubsHtml();
+        else if (S.view === 'crew') view = crewHtml();
         else if (S.view === 'manage' && canManage) view = manageHtml();
         else view = shopHtml();
 
@@ -865,6 +1108,11 @@
         const short = wallet && Number(wallet.balance) < price;
         const sale = onOffer(item);
         const pinned = !!goalId() && goalId() === String(item.id);
+        // Early access. The server decides it; this draws what it decided and
+        // never works it out, because the buy route enforces the same answer
+        // and two copies of a rule is two rules eventually.
+        const a = (item.access && typeof item.access === 'object') ? item.access : null;
+        const shut = !!(a && a.open === false);
 
         /* The three things that change the answer to "should I spend twenty
            hours of flying on this", said on the tile where the decision is
@@ -875,9 +1123,19 @@
             item.saleEndsAt ? `Ends ${esc(relativeText(item.saleEndsAt))}` : 'On offer'}</span>`);
         else if (item.availableUntil && !over) flags.push(`<span class="sh-flag"><i data-lucide="clock"></i>Until ${esc(relativeText(item.availableUntil))}</span>`);
         if (pinned) flags.push(`<span class="sh-flag sh-flag-goal"><i data-lucide="target"></i>Saving for</span>`);
+        // "Yours first" while it is theirs; "opens in two days" while it is
+        // not. A pilot who cannot have it yet is told when they can and which
+        // club would have had it — which is an argument for flying, where a
+        // row that simply is not there is indistinguishable from a shelf that
+        // is smaller than advertised.
+        if (a && a.early) flags.push(`<span class="sh-flag sh-flag-club"><i data-lucide="sparkles"></i>Yours first</span>`);
+        else if (shut) flags.push(`<span class="sh-flag sh-flag-wait"><i data-lucide="lock"></i>${a.needs
+            ? `${esc(a.needs.name)} first` : 'Not yet'}</span>`);
 
         let right;
-        if (over) right = `<span class="sh-stock sh-stock-out">Offer over</span>`;
+        if (shut) right = `<span class="sh-stock">${a.opensAt
+            ? `Opens ${esc(relativeText(a.opensAt))}` : 'Opens soon'}</span>`;
+        else if (over) right = `<span class="sh-stock sh-stock-out">Offer over</span>`;
         else if (out) right = `<span class="sh-stock sh-stock-out">Sold out</span>`;
         else if (!wallet) right = `<span class="sh-short">Sign in</span>`;
         else if (short) right = `<span class="sh-short">${num(price - Number(wallet.balance))} ${esc(currency().short)} short</span>`;
@@ -890,13 +1148,13 @@
            who has already pinned it so they can unpin. Never on something they
            could buy right now: "saving for" a thing already in your pocket is
            not a goal, it is a note to go and press Buy. */
-        const pin = wallet && !out && !over && (short || pinned)
+        const pin = wallet && !out && !over && !shut && (short || pinned)
             ? `<button type="button" class="sh-pin" data-sh-goal="${esc(item.id)}" aria-pressed="${pinned}"
                 title="${pinned ? 'Stop saving for this' : 'Save for this'}"
                 aria-label="${pinned ? 'Stop saving for this' : 'Save for this'}"><i data-lucide="${pinned ? 'bookmark-check' : 'bookmark'}"></i></button>`
             : '';
 
-        return `<article class="sh-item">
+        return `<article class="sh-item${shut ? ' sh-item-shut' : ''}">
             ${art}
             <div class="sh-item-body">
                 ${flags.length ? `<div class="sh-flags">${flags.join('')}</div>` : ''}
@@ -1215,6 +1473,274 @@
         return `<div class="sh-section">${S.orders.map(orderHtml).join('')}</div>`;
     }
 
+    /* =====================================================================
+     * THE CLUBS
+     *
+     * A VA's second ladder, and the only screen that says what it is FOR.
+     *
+     * The rank ladder answers "what does this airline call me". The club
+     * ladder answers "what has my flying actually got me", and until there is
+     * a page that says so, a colour on a card is a mood. So this is the page:
+     * every club, where this pilot sits, what each one gives, and how far the
+     * next one is.
+     *
+     * THE NEXT CLUB IS THE POINT. Everything else here is context for one
+     * sentence — "38 hours to Gold, and Gold pays 15% more" — because that is
+     * the only part of a loyalty scheme that makes anybody fly another leg. It
+     * is drawn first, above the ladder, and it is the one thing on this screen
+     * that is a number rather than a list.
+     *
+     * The ladder comes down with the shop (GET /shop carries `clubs`), so
+     * opening this tab costs nothing. `S.data.wallet.club` is where the caller
+     * stands; a signed-out visitor has no club and is told what the ladder is
+     * without being told a claim about themselves.
+     * =================================================================== */
+
+    const clubs = () => (S.data && Array.isArray(S.data.clubs) ? S.data.clubs : []);
+    const myClub = () => clubOf(S.data && S.data.wallet);
+    /** True where any club on this ladder actually gives something. */
+    const clubsPay = () => clubs().some((c) => (c.benefits || []).length);
+
+    function clubsHtml() {
+        // An older server sends a shop with no `clubs` on it at all. That is a
+        // different sentence from "this airline runs none", and telling the
+        // second one would have a VA looking for a switch that is not there.
+        if (!S.data || !Array.isArray(S.data.clubs)) return P.notBuiltHtml('Clubs');
+        const list = clubs();
+        if (!list.length) {
+            return `<div class="cp-empty"><i data-lucide="medal"></i>
+                This airline does not run clubs.</div>`;
+        }
+        const mine = myClub();
+        const staff = S.data.canManage
+            ? `<div class="sh-club-staff">
+                <p class="cp-note">${clubsPay()
+                    ? 'Your pilots see exactly this. Change what each club is worth under Set&nbsp;up.'
+                    : 'Your clubs are colours on a card until you give them something. Set what each one is worth under Set&nbsp;up.'}</p>
+                <button class="cp-btn cp-btn-sm" data-sh-view="manage"><i data-lucide="settings-2"></i> Set up clubs</button>
+            </div>` : '';
+        return `${nextClubHtml(mine)}
+            <div class="sh-club-list">${list.map((c) => clubRowHtml(c, mine)).join('')}</div>
+            ${clubsPay() ? '' : `<p class="cp-note" style="margin-top:.8rem">These clubs are a badge on your
+                card for now — your airline has not attached anything to them yet.</p>`}
+            ${staff}`;
+    }
+
+    /**
+     * How far the next club is, and what crossing that line is worth.
+     *
+     * Drawn from the club the SERVER sent, which carries the next one and its
+     * benefits with it — so the sentence and the bar cannot disagree about
+     * which club is being talked about.
+     *
+     * Three states, and they read differently on purpose: climbing (a bar and
+     * a number), at the top (an arrival — "you are in the highest club" is not
+     * an empty progress bar), and signed out (the ladder, and nothing claimed
+     * about anybody).
+     */
+    function nextClubHtml(mine) {
+        if (!mine) {
+            return `<p class="cp-note" style="margin-bottom:.9rem">Sign in as a pilot of this
+                airline to see which club you are in.</p>`;
+        }
+        const next = mine.next || null;
+        if (!next) {
+            return `<div class="sh-club-next sh-club-top">
+                <div class="sh-club-next-h"><i data-lucide="crown"></i> You are in ${esc(mine.name)}</div>
+                <p class="cp-note">The highest club this airline runs. Nothing left to climb.</p>
+            </div>`;
+        }
+        const hours = Number((S.data.wallet && S.data.wallet.hours) || 0);
+        const from = Number(mine.minHours) || 0;
+        const to = Number(next.minHours) || 0;
+        // Progress across THIS step rather than across the whole ladder: the
+        // question is "how close am I to the next one", and a bar measured from
+        // zero hours barely moves for somebody three clubs up.
+        const pct = to > from ? Math.max(0, Math.min(100, Math.round(((hours - from) / (to - from)) * 100))) : 0;
+        const away = Number(next.hoursAway) || 0;
+        const gets = (next.benefits || []);
+        return `<div class="sh-club-next">
+            <div class="sh-club-next-h">
+                <b>${esc(hoursText(away))}</b> to ${esc(next.name)}
+            </div>
+            <div class="sh-club-bar"><span style="width:${pct}%"></span></div>
+            <div class="sh-club-next-foot">
+                <span class="cp-note">${esc(mine.name)} → ${esc(next.name)}</span>
+                <span class="cp-note">${esc(hoursText(hours))} flown</span>
+            </div>
+            ${gets.length ? `<div class="sh-club-gets">
+                <span class="sh-club-gets-h">What ${esc(next.name)} adds</span>
+                ${gets.map((b) => `<span class="sh-club-get"><i data-lucide="${esc(BENEFIT_ICON[b.kind] || 'gift')}"></i>${esc(b.label)}</span>`).join('')}
+            </div>` : ''}
+        </div>`;
+    }
+
+    const BENEFIT_ICON = { earn: 'trending-up', early: 'sparkles', priority: 'zap' };
+
+    /** Hours, as a person says them. `38h`, `1,240h`, `half an hour`. */
+    function hoursText(h) {
+        const n = Number(h) || 0;
+        if (n > 0 && n < 1) return `${Math.round(n * 60)} minutes`;
+        return `${Math.round(n).toLocaleString()}h`;
+    }
+
+    function clubRowHtml(c, mine) {
+        const here = mine && mine.key === c.key;
+        const past = mine && Number(mine.index) > clubAt(c.key);
+        const gets = c.benefits || [];
+        return `<div class="sh-club${here ? ' sh-club-here' : ''}${past ? ' sh-club-past' : ''}">
+            <span class="sh-club-swatch" style="--sh-face:${esc(hexOr(c.color))}" aria-hidden="true"></span>
+            <div class="sh-club-main">
+                <div class="sh-club-name">${esc(c.name)}
+                    ${here ? '<span class="cp-chip cp-chip-accent">You</span>' : ''}</div>
+                <div class="sh-club-at">${c.minHours ? `From ${esc(hoursText(c.minHours))} flown` : 'From your first flight'}</div>
+                ${gets.length
+                    ? `<div class="sh-club-gets">${gets.map((b) => `<span class="sh-club-get">
+                        <i data-lucide="${esc(BENEFIT_ICON[b.kind] || 'gift')}"></i>${esc(b.label)}</span>`).join('')}</div>`
+                    : '<div class="sh-club-at">The badge, and the card.</div>'}
+            </div>
+        </div>`;
+    }
+
+    const clubAt = (key) => clubs().findIndex((c) => c.key === key);
+    /** A colour we are willing to put in a style attribute, or the page accent. */
+    const hexOr = (v) => (typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v.trim()) ? v.trim() : 'var(--accent)');
+
+    /* =====================================================================
+     * THE CREW
+     *
+     * WHY A SHOP HAS A CREW LIST AT ALL
+     *
+     * Look at what a VA actually sells. A badge on your profile. Your own
+     * callsign. A tail number with your name on the fleet page. First pick of
+     * the gate. Featured on the website. Every one of those is a thing whose
+     * entire value is that OTHER PEOPLE CAN SEE IT — and until now nobody
+     * could. A pilot spent twenty hours of flying on a badge and the only
+     * person in the airline who knew was them.
+     *
+     * So this is the other half of the shelf: the same card every pilot holds,
+     * the finish their rank has earned, and what they have bought. It is the
+     * reason the badge was worth buying.
+     *
+     * WHAT IT DOES NOT SHOW, and the server enforces all of it rather than
+     * trusting this file: no balances, no prices, nobody's receipts, nothing
+     * still in the queue. What somebody has left to spend is between them and
+     * the airline. See crewShop.publicHolder on the backend.
+     *
+     * ONE ROW OPEN AT A TIME. A roster of two hundred cards is not a list, it
+     * is a wall — so the list is rows, and opening one draws that pilot's card
+     * at full size. Which is also the honest shape of the question people ask
+     * here, which is about one person at a time.
+     * =================================================================== */
+
+    function crewHtml() {
+        if (S.crew === null) {
+            if (!S.crewError) { loadCrew(); return `<p class="cp-note" style="text-align:center;padding:2rem 0">Reading the crew…</p>`; }
+            const err = S.crewError;
+            if (err && err.status === 401) {
+                return `<div class="cp-empty"><i data-lucide="lock"></i>
+                    Sign in as a pilot of this airline to see the crew.</div>`;
+            }
+            if (P.isSchemaGap(err)) return P.schemaGapHtml(err);
+            if (err && err.status === 404) return P.notBuiltHtml('The crew list');
+            return `<div class="cp-empty"><i data-lucide="cloud-off"></i>
+                ${esc((err && err.message) || 'The crew could not be read.')}</div>`;
+        }
+        if (!S.crew.length) {
+            return `<div class="cp-empty"><i data-lucide="users"></i>
+                Nobody on the roster yet.</div>`;
+        }
+        const holders = S.crew.filter((c) => c.holds && c.holds.length).length;
+        const note = holders
+            ? `${holders} of ${S.crew.length} ${S.crew.length === 1 ? 'pilot has' : 'pilots have'} something on the shelf.`
+            : `Nobody has collected anything yet. Whatever your crew buy shows up here.`;
+        return `<p class="cp-note" style="margin-bottom:.7rem">${esc(note)}</p>
+            <div class="sh-crew">${S.crew.map(crewRowHtml).join('')}</div>`;
+    }
+
+    function crewRowHtml(c) {
+        const open = String(S.crewOpen) === String(c.pilotId);
+        const holds = c.holds || [];
+        // The chips ARE the point of the row. Two at most before it becomes
+        // "+3 more": a row that wraps to three lines has stopped being a row,
+        // and the whole shelf is one tap away underneath it.
+        const chips = holds.slice(0, 2).map((h) =>
+            `<span class="cp-chip">${esc(h.name)}${h.count > 1 ? ` ×${h.count}` : ''}</span>`).join('');
+        const more = holds.length > 2
+            ? `<span class="cp-chip cp-chip-mute">+${holds.length - 2}</span>` : '';
+        // The club goes in the row's subtitle beside the rank: this list is
+        // where a pilot finds out the clubs are real and that other people are
+        // further up them.
+        const sub = [c.callsign, c.rank, c.club && c.club.name].filter(Boolean).join(' · ');
+        return `<div class="sh-crew-row${open ? ' sh-crew-open' : ''}">
+            <button type="button" class="sh-crew-head" data-sh-crew="${esc(c.pilotId)}"
+                aria-expanded="${open}">
+                <span class="sh-crew-swatch${clubClass(c)}"${faceStyle(c)} aria-hidden="true"></span>
+                <span class="sh-crew-who">
+                    <span class="sh-crew-name">${esc(c.name || 'A pilot')}${c.isMe
+                        ? ' <span class="cp-chip cp-chip-accent">You</span>' : ''}</span>
+                    <span class="sh-crew-sub">${esc(sub) || '&nbsp;'}</span>
+                </span>
+                <span class="sh-crew-holds">${chips}${more}
+                    ${holds.length ? '' : '<span class="sh-crew-none">Nothing yet</span>'}</span>
+                <i data-lucide="chevron-down" class="sh-crew-caret"></i>
+            </button>
+            ${open ? crewDetailHtml(c) : ''}
+        </div>`;
+    }
+
+    /**
+     * One pilot, opened: their card, and the whole shelf under it.
+     *
+     * The card is drawn by the same `cardHtml` the pilot themselves sees, with
+     * their own finish on it — that is the whole point, and a second, lesser
+     * rendering of a card for "other people" would be a different object.
+     * `interactive:false` because a card you can tilt is a card you own.
+     */
+    function crewDetailHtml(c) {
+        const holds = c.holds || [];
+        const shelf = holds.length
+            ? `<ul class="sh-crew-list">${holds.map((h) => `<li>
+                <i data-lucide="check"></i>
+                <span>${esc(h.name)}${h.count > 1 ? ` <b>×${h.count}</b>` : ''}</span>
+                ${h.since ? `<em>${esc(relativeText(h.since))}</em>` : ''}
+            </li>`).join('')}</ul>`
+            : `<p class="cp-note">Nothing collected yet.</p>`;
+        const earned = Number(c.earned) || 0;
+        return `<div class="sh-crew-body">
+            ${cardHtml(crewWallet(c), { interactive: false })}
+            <div class="sh-crew-side">
+                <div class="sh-stats">
+                    <div class="sh-stat"><b>${num(c.hours)}</b><span>hours flown</span></div>
+                    <div class="sh-stat"><b>${num(earned)}</b><span>${esc(currency().short)} earned</span></div>
+                </div>
+                ${shelf}
+            </div>
+        </div>`;
+    }
+
+    /**
+     * A crew member, in the shape the card draws.
+     *
+     * `balance` is deliberately absent and the card handles that: it prints the
+     * total this pilot has EARNED instead, which is a fact about their flying
+     * rather than about their money, and never goes down. What somebody has
+     * left to spend is theirs.
+     */
+    const crewWallet = (c) => ({
+        pilotId: c.pilotId,
+        name: c.name,
+        callsign: c.callsign,
+        rank: c.rank,
+        club: c.club,
+        since: c.since,
+        balance: Number(c.earned) || 0,
+        // The card prints this word next to the figure. Without it the number
+        // would read as a balance, and it is not one — it is what this pilot's
+        // flying has earned them, all of it, whatever they have since spent.
+        balanceNote: 'earned',
+    });
+
     function orderHtml(o) {
         const [label, chip] = ORDER_STATE[o.status] || ORDER_STATE.placed;
         const who = S.data.canManage && (o.pilotName || o.callsign)
@@ -1334,11 +1860,176 @@
             <p class="cp-note">Only approved flights pay, and each one pays once. Changing the rate
                 does not re-price flights you have already approved.</p>
 
+            ${clubEditHtml()}
+
             <div class="sh-h" style="margin-top:.8rem">On the shelf</div>
             ${items.length ? items.map(manageItemHtml).join('') : '<p class="cp-note">Nothing yet.</p>'}
             <div><button class="cp-btn" data-sh-additem><i data-lucide="plus"></i> Add something</button></div>
             ${suggestHtml()}
         </div>`;
+    }
+
+    /* ---- The clubs, in the back office ----------------------------------
+     *
+     * The ladder every VA already has, and the three things a rung can be
+     * worth. Every airline on the platform starts with five clubs and nothing
+     * attached to them, because a deploy must not start paying a 20% bonus in
+     * three hundred airlines that did not ask for one — so this screen's real
+     * job is the one button at the bottom of it.
+     *
+     * "USE A SENSIBLE LADDER" is the same idea as the shelf suggestions above,
+     * and it exists for the same reason: the hard part is not the form, it is
+     * the blank page. "What should Gold be worth" is where a VA stops. One tap
+     * fills every row with a set that climbs, and it is theirs to edit
+     * immediately — nothing is saved until they press Save.
+     *
+     * EDITED IN PLACE, IN THE DOM. The whole ladder is read back off the
+     * fields on save (see readClubs), which is why the rows carry no state of
+     * their own and typing in one never triggers a redraw. A redraw per
+     * keystroke here would take the cursor out of the field somebody is in —
+     * the same reason the rate inputs above are read the same way.
+     */
+    function clubEditHtml() {
+        const list = clubs();
+        const pays = clubsPay();
+        return `<div class="sh-h" style="margin-top:.8rem">Clubs</div>
+            <p class="cp-note">A second ladder, climbed by flying rather than by promotion. Every pilot
+                is in one from their first flight, and the club they are in is the colour of their card.
+                ${pays ? '' : 'They are a badge and nothing else until you give them something below.'}</p>
+            <div class="sh-cedit">${list.map(clubEditRowHtml).join('')}</div>
+            <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+                <button class="cp-btn cp-btn-primary" data-sh-saveclubs><i data-lucide="check"></i> Save the clubs</button>
+                <button class="cp-btn" data-sh-addclub><i data-lucide="plus"></i> Add a club</button>
+                <button class="cp-btn" data-sh-suggestclubs><i data-lucide="wand-sparkles"></i> Use a sensible ladder</button>
+            </div>
+            <p class="cp-note">Changing what a club is worth does not re-price flights you have already
+                approved. A club with nothing attached is still a badge on the card.</p>`;
+    }
+
+    function clubEditRowHtml(c, i) {
+        const n = (v) => Math.max(0, Math.round(Number(v) || 0));
+        return `<div class="sh-crow" data-sh-club>
+            <div class="sh-crow-top">
+                <input type="color" data-sh-cf="color" value="${esc(hexOr(c.color) === 'var(--accent)' ? '#4A5568' : hexOr(c.color))}"
+                    aria-label="Club colour" style="width:2.2rem;height:2.2rem;padding:0;border:0;background:none">
+                <input type="text" class="cp-input" data-sh-cf="name" maxlength="30"
+                    value="${esc(c.name || '')}" placeholder="Club name" aria-label="Club name">
+                <input type="hidden" data-sh-cf="key" value="${esc(c.key || '')}">
+                <button type="button" class="cp-btn cp-btn-sm cp-btn-bad sh-crow-del" data-sh-delclub
+                    ${i === 0 ? 'disabled title="Every pilot starts in the first club"' : ''}
+                    aria-label="Remove this club"><i data-lucide="trash-2"></i></button>
+            </div>
+            <div class="sh-crow-grid">
+                <div class="sh-crow-f">
+                    <label>Hours to reach</label>
+                    <input type="number" class="cp-input" data-sh-cf="minHours" min="0" step="1" inputmode="numeric"
+                        value="${n(c.minHours)}" ${i === 0 ? 'disabled' : ''}>
+                </div>
+                <div class="sh-crow-f">
+                    <label>Earn bonus %</label>
+                    <input type="number" class="cp-input" data-sh-cf="earnBonus" min="0" max="100" step="1" inputmode="numeric"
+                        value="${n(c.earnBonus)}">
+                </div>
+                <div class="sh-crow-f">
+                    <label>Early access h</label>
+                    <input type="number" class="cp-input" data-sh-cf="earlyHours" min="0" max="336" step="1" inputmode="numeric"
+                        value="${n(c.earlyHours)}">
+                </div>
+                <label class="sh-crow-check">
+                    <input type="checkbox" data-sh-cf="priority" ${c.priority ? 'checked' : ''}>
+                    Orders first
+                </label>
+            </div>
+        </div>`;
+    }
+
+    /**
+     * The ladder, read back off the fields.
+     *
+     * The server bounds every one of these again — see crewClubs.normalizeClubs
+     * — so this does no validation beyond sending numbers as numbers. That is
+     * deliberate: a browser that decided what a legal bonus was would be a
+     * second opinion on a rule the server has to hold anyway.
+     */
+    function readClubs(scope, { keepBlank = false } = {}) {
+        return [...scope.querySelectorAll('[data-sh-club]')].map((row) => {
+            const get = (f) => row.querySelector(`[data-sh-cf="${f}"]`);
+            const val = (f) => { const el = get(f); return el ? el.value : ''; };
+            return {
+                key: val('key'),
+                name: String(val('name') || '').trim(),
+                minHours: Number(val('minHours')) || 0,
+                color: val('color'),
+                earnBonus: Number(val('earnBonus')) || 0,
+                earlyHours: Number(val('earlyHours')) || 0,
+                priority: !!(get('priority') && get('priority').checked),
+            };
+        // Blanks are kept while a row is being ADDED or REMOVED, so the array
+        // and the fields on screen stay index-for-index; they are dropped on
+        // save, where a club with no name is nothing at all.
+        }).filter((c) => keepBlank || c.name);
+    }
+
+    async function saveClubs(btn) {
+        const rows = readClubs(S.panel.body);
+        if (!rows.length) { P.toast('Give at least one club a name.', 'bad'); return; }
+        const done = P.busy(btn, false);
+        try {
+            const d = await S.api('/clubs', { method: 'POST', body: { clubs: rows } });
+            // The ladder the SERVER settled on, not the one that was typed: it
+            // sorts by hours, floors the bottom rung at zero and clamps every
+            // rate, and the editor must show what was actually saved.
+            if (S.data) S.data.clubs = Array.isArray(d.clubs) ? d.clubs : S.data.clubs;
+            // The card's colour may have just changed under everybody,
+            // including the person editing.
+            await load();
+            P.toast('Clubs saved.', 'ok');
+        } catch (err) {
+            P.toast((err && err.message) || 'That didn’t work.', 'bad');
+        } finally { done(); }
+    }
+
+    /** A worked ladder from the server, dropped into the fields unsaved. */
+    async function suggestClubs(btn) {
+        const done = P.busy(btn, false);
+        try {
+            const d = await S.api('/clubs/suggested');
+            if (S.data && Array.isArray(d.clubs) && d.clubs.length) {
+                S.data.clubs = d.clubs;
+                draw();
+                // Said out loud, because nothing has been written yet and a
+                // screen that filled itself in looks like it saved.
+                P.toast('Filled in — press Save the clubs to keep it.', 'ok');
+            }
+        } catch (err) {
+            P.toast((err && err.message) || 'That didn’t work.', 'bad');
+        } finally { done(); }
+    }
+
+    /**
+     * One more rung, added to what is on screen rather than to what is saved.
+     *
+     * Read back off the fields first, so a VA who has typed into three rows and
+     * then presses Add does not lose the three.
+     */
+    function addClub() {
+        const rows = readClubs(S.panel.body, { keepBlank: true });
+        const top = rows.length ? Math.max(...rows.map((r) => Number(r.minHours) || 0)) : 0;
+        rows.push({ key: '', name: 'New club', minHours: top + 250, color: '#4A5568',
+            earnBonus: 0, earlyHours: 0, priority: false });
+        if (S.data) S.data.clubs = rows.map((r) => ({ ...r, benefits: [] }));
+        draw();
+    }
+
+    function removeClub(row) {
+        const rows = readClubs(S.panel.body, { keepBlank: true });
+        const all = [...S.panel.body.querySelectorAll('[data-sh-club]')];
+        const at = all.indexOf(row);
+        if (at < 0 || at === 0) return;   // the first club is where everybody starts
+
+        rows.splice(at, 1);
+        if (S.data) S.data.clubs = rows.map((r) => ({ ...r, benefits: [] }));
+        draw();
     }
 
     /* ---- Things a virtual airline can actually sell ---------------------
@@ -1740,10 +2431,27 @@
                 return;
             }
 
+            // One row open at a time: a second tap on the same pilot closes
+            // them, and opening another closes the first. A list where five
+            // cards are open at once is the wall this list exists to avoid.
+            const crew = t.closest('[data-sh-crew]');
+            if (crew) {
+                const id = crew.getAttribute('data-sh-crew');
+                S.crewOpen = String(S.crewOpen) === String(id) ? '' : id;
+                draw();
+                return;
+            }
+
             const fulfil = t.closest('[data-sh-fulfil]');
             if (fulfil) { reviewOrder(fulfil.getAttribute('data-sh-fulfil'), 'fulfil', fulfil); return; }
             const refund = t.closest('[data-sh-refund]');
             if (refund) { reviewOrder(refund.getAttribute('data-sh-refund'), 'cancel', refund); return; }
+
+            if (t.closest('[data-sh-saveclubs]')) { saveClubs(t.closest('[data-sh-saveclubs]')); return; }
+            if (t.closest('[data-sh-suggestclubs]')) { suggestClubs(t.closest('[data-sh-suggestclubs]')); return; }
+            if (t.closest('[data-sh-addclub]')) { addClub(); return; }
+            const delClub = t.closest('[data-sh-delclub]');
+            if (delClub) { removeClub(delClub.closest('[data-sh-club]')); return; }
 
             if (t.closest('[data-sh-saverates]')) { saveRates(t.closest('[data-sh-saverates]')); return; }
             if (t.closest('[data-sh-additem]')) { S.editing = {}; draw(); return; }
