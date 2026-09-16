@@ -36,6 +36,13 @@
          loads, a tick when it is ready, then the airline's own mark. Only ever
          after a sign-in, and it lifts on a ceiling whatever happens. -->
     <script src="/crewSplash.js"></script>
+    <!-- PREVIEW. The 787 on the front door — one of the three new tracker
+         models, slowly turning behind the sign-in card. A module, so it is
+         deferred and the backdrop it renders into already exists; and entirely
+         self-cancelling, so a device without WebGL or a blocked CDN gets the
+         backdrop this page has always had. ?hero=787-8|787-9|787-10 picks the
+         variant, ?hero=off removes it. See crew787Hero.js. -->
+    <script type="module" src="/crew787Hero.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,600&display=swap');
         /* Never let a field or a stray wide child scroll the whole page sideways. */
