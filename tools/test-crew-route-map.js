@@ -107,7 +107,20 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
             if (p.endsWith('/me')) return json({ role: 'owner', capabilities: ['routes.manage'], name: 'Owner' });
             return json({});
         });
-        await page.addInitScript(() => localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' })));
+        await page.addInitScript(() => {
+            localStorage.setItem('crew:session:testva', JSON.stringify({ token: 'tok', name: 'Owner', role: 'owner' }));
+            /* PIN THIS SUITE TO THE DRAWN MAP.
+               The route map now defaults to Leaflet over a raster basemap
+               (crewTileMap.js), with this one underneath it as the second
+               option AND as the automatic fallback. What is under test here is
+               still the floor: that the network draws from data we already
+               hold and asks NO third party for permission to do it. That
+               promise is what the reader falls back ONTO when a tile host is
+               blocked, so it is worth more now than it was when it was the only
+               map — and it has to be tested with the tiles deliberately out of
+               the way. tools/test-crew-tile-map.js covers the other one. */
+            localStorage.setItem('crew-routemap-base', 'drawn');
+        });
         if (deviceInit) await page.addInitScript(deviceInit);
         await page.goto(`http://127.0.0.1:${port}/crew-dashboard.html?va=testva`);
         await page.waitForTimeout(1100);

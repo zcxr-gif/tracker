@@ -275,19 +275,37 @@
             box = [bx0, by0, bx1 - bx0, by1 - by0];
         }
 
-        /* FILL THE BOX WE WERE GIVEN.
+        /* FILL THE BOX WE WERE GIVEN — BUT NOT AT ANY PRICE.
            `meet` fits the crop inside the host and leaves whatever is left over
            empty. For a world-spanning network on a portrait phone that is a
            110px band of map floating in 800px of background, which reads as a
            map that failed rather than one that fitted. Growing the crop to the
            host's own shape puts more of the world in that space instead of
            nothing — the network is still entirely inside it, there is simply
-           more map around it. Kept inside the world where it will fit, so the
-           growth never becomes a margin of its own. */
+           more map around it.
+
+           Left uncapped, though, that trade goes the wrong way on exactly the
+           screen it was meant to help. A portrait phone is about 1:2, a route
+           network is usually wider than it is tall, so matching the phone's
+           shape meant growing the crop's HEIGHT several times over — and every
+           one of those times made the network itself smaller. The airline ended
+           up a thumbnail in the middle of an ocean: "it's too far away on
+           mobile", which is the complaint this was supposed to answer.
+
+           So the growth is capped. Up to GROW× of the crop's own size we take
+           more map; past that we stop and let the leftover be empty, because a
+           network you can read with a margin beats a network you cannot read
+           without one. */
+        var GROW = 1.35;
         var need = [box[0], box[1], box[0] + box[2], box[1] + box[3]];
         var hostAR = hostW / hostH, boxAR = box[2] / box[3];
-        if (boxAR < hostAR) { var wantW = Math.min(W, box[3] * hostAR); box[0] -= (wantW - box[2]) / 2; box[2] = Math.max(box[2], wantW); }
-        else if (boxAR > hostAR) { var wantH = Math.min(H, box[2] / hostAR); box[1] -= (wantH - box[3]) / 2; box[3] = Math.max(box[3], wantH); }
+        if (boxAR < hostAR) {
+            var wantW = Math.min(W, box[3] * hostAR, box[2] * GROW);
+            box[0] -= (wantW - box[2]) / 2; box[2] = Math.max(box[2], wantW);
+        } else if (boxAR > hostAR) {
+            var wantH = Math.min(H, box[2] / hostAR, box[3] * GROW);
+            box[1] -= (wantH - box[3]) / 2; box[3] = Math.max(box[3], wantH);
+        }
         // Slide it back over the world rather than off the side of it…
         box[0] = box[2] <= W ? Math.max(0, Math.min(W - box[2], box[0])) : (W - box[2]) / 2;
         box[1] = box[3] <= H ? Math.max(0, Math.min(H - box[3], box[1])) : (H - box[3]) / 2;
@@ -438,6 +456,63 @@
             if (!e.ctrlKey && !e.metaKey) return;   // a bare wheel still scrolls the page
             e.preventDefault();
             setZoom(z * Math.exp(-e.deltaY * 0.0025), e.clientX, e.clientY);
+        }, { passive: false });
+
+        /* PINCH.
+           There was no pinch here at all, which is most of what "zoom doesn't
+           work" meant: the +/− buttons worked, but nobody reaches for a button
+           on a phone, they put two fingers on the map. The wheel path needs a
+           modifier key a phone has not got, and the buttons are a 2rem target
+           in the corner of a map somebody is already touching.
+
+           `touch-action:pan-x pan-y` on the wrap lets the browser keep
+           one-finger panning — native scrolling beats anything reimplemented
+           here — while withholding pinch from it, so a second finger arrives
+           without the page zooming underneath us. From there it is ours:
+           preventDefault stops the two-finger scroll and the span between the
+           fingers drives the zoom, anchored on the point between them so the
+           map does not walk out from under the gesture. */
+        var pinch = null;
+        var span = function (t) {
+            return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+        };
+        var mid = function (t) {
+            return [(t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2];
+        };
+        wrap.addEventListener('touchstart', function (e) {
+            if (e.touches.length !== 2) { pinch = null; return; }
+            var d = span(e.touches);
+            if (d < 1) return;
+            pinch = { d0: d, z0: z };
+        }, { passive: false });
+        wrap.addEventListener('touchmove', function (e) {
+            if (!pinch || e.touches.length !== 2) return;
+            e.preventDefault();                       // …and not a scroll
+            var d = span(e.touches);
+            if (d < 1) return;
+            var m = mid(e.touches);
+            setZoom(pinch.z0 * (d / pinch.d0), m[0], m[1]);
+        }, { passive: false });
+        ['touchend', 'touchcancel'].forEach(function (t) {
+            wrap.addEventListener(t, function (e) { if (e.touches.length < 2) pinch = null; });
+        });
+
+        /* DOUBLE TAP.
+           `dblclick` fires from a double tap on some mobile browsers and not on
+           others, and where it does it arrives after the browser's own delay.
+           Two taps in the same place inside 300ms is the gesture every other
+           map honours, so honour it here rather than hoping. */
+        var lastTap = 0, lastX = 0, lastY = 0;
+        wrap.addEventListener('touchend', function (e) {
+            if (pinch || e.changedTouches.length !== 1) return;
+            var t = e.changedTouches[0], now = Date.now();
+            if (now - lastTap < 300 && Math.abs(t.clientX - lastX) < 30 && Math.abs(t.clientY - lastY) < 30) {
+                e.preventDefault();
+                setZoom(z * 2, t.clientX, t.clientY);
+                lastTap = 0;
+                return;
+            }
+            lastTap = now; lastX = t.clientX; lastY = t.clientY;
         }, { passive: false });
 
         var down = false, sx = 0, sy = 0, sl = 0, st = 0, moved = false;
