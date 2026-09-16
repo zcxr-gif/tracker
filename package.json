@@ -12,6 +12,7 @@
     "test:command": "node tools/test-crew-command.js",
     "test:forgot": "node tools/test-crew-forgot-password.js",
     "test:route-map": "node tools/test-crew-route-map.js",
+    "test:tile-map": "node tools/test-crew-tile-map.js",
     "test:route-library": "node tools/test-crew-route-library.js",
     "test:partners": "node tools/test-crew-partners.js",
     "test:favicon": "node tools/test-crew-favicon.js"

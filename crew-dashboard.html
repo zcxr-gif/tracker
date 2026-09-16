@@ -48,6 +48,15 @@
          hold — no tiles, no engine, no host to be blocked by an office proxy or
          an ad-blocker, and no WebGL context for a phone to refuse. -->
     <script src="/crewNetMap.js"></script>
+    <!-- …and the slippy map that goes ON TOP of that floor: Leaflet (vendored
+         here, not fetched from a CDN) over Carto's raster basemap. It is the
+         default because a real basemap answers questions the drawing cannot —
+         which city is that, what is the coast doing, what is next to the field
+         — and it zooms into more detail rather than into a bigger picture.
+         Loaded lazily by crewTileMap.js itself, so the 230KB of Leaflet is
+         charged only to the readers who open the map. If a tile never arrives,
+         the drawn map above takes over on its own. -->
+    <script src="/crewTileMap.js"></script>
     <!-- The shared panel chrome the four modules below are built from: the
          slide-over shell, the toast, the API helper and the date formatting.
          Must load before them. -->
@@ -1084,6 +1093,10 @@
                         <label class="text-xs muted">Callsign prefix
                             <input id="callsignPrefix" placeholder="ACA" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
                         </label>
+                        <label class="text-xs muted">Reserved callsign numbers
+                            <input id="callsignReservedMax" type="number" min="0" max="999" placeholder="10" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                            <span id="reservedHint" class="block text-[11px] faint mt-1">1–10 are kept for you to assign. Applicants can’t pick them. 0 to allow any number.</span>
+                        </label>
                     </div>
                     <div class="mt-4">
                         <div class="flex items-center justify-between mb-2">
@@ -1643,7 +1656,7 @@
                 <div id="pilotFormTitle" class="text-sm font-semibold mb-2.5">Add pilot</div>
                 <div class="grid grid-cols-2 gap-2.5">
                     <input id="np_name" placeholder="Name" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                    <input id="np_callsign" placeholder="Callsign (ACA1174)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <input id="np_callsign" placeholder="Callsign or number" title="Type a number and it takes your VA's callsign shape — 1 becomes AEROMEXICO 001MX. Staff may issue a reserved number." class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <input id="np_hours" type="number" min="0" placeholder="Hours" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <select id="np_role" class="surface hair rounded-lg px-2.5 py-2 text-sm"></select>
                     <select id="np_status" class="surface hair rounded-lg px-2.5 py-2 text-sm col-span-2">
@@ -2033,6 +2046,13 @@
                 <option value="codeshare">Codeshares</option>
             </select>
             <button onclick="rmFitAll()" title="Fit whole network" class="surface hair rounded-lg w-9 h-9 grid place-items-center shadow-sm muted hover:text-[var(--ink)]"><i data-lucide="maximize" class="w-4 h-4"></i></button>
+            <!-- Basemap. Tiles by default; the drawn map is the second option
+                 and also where this falls back to on its own if the basemap
+                 never paints. The label says which one you are looking at. -->
+            <button id="rmBaseToggle" onclick="rmToggleBase()" title="Switch between the tiled basemap and the plain drawn one"
+                    class="surface hair rounded-lg px-3 py-1.5 text-sm shadow-sm inline-flex items-center gap-1.5">
+                <i data-lucide="layers" class="w-4 h-4"></i><span id="rmBaseLabel">Map</span>
+            </button>
         </div>
 
         <!-- Legend (bottom-left) -->
@@ -4633,7 +4653,11 @@
         }
 
         // ---- Recruitment (staff form builder) ----
-        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', discordInvite:'', form:[], reqs:[] };
+        // `callsignReservedMax` is the top of the range of pilot numbers this VA
+        // keeps for itself: the join form refuses them, staff assign them from
+        // the roster. 001 is the founder's, not whoever filled the form in
+        // first. 0 opens every number up.
+        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', callsignReservedMax:10, discordInvite:'', form:[], reqs:[] };
         // Extensible join requirements. Numeric types are auto-checked against
         // the applicant's real IF stats; 'agree' is a custom checkbox. (Grade has
         // its own control above, so it's intentionally not offered here.)
@@ -4694,6 +4718,15 @@
             renderJoinMode();
             document.getElementById('minGrade').value=String(JOIN.minGrade||0);
             document.getElementById('callsignPrefix').value=JOIN.callsignPrefix||'';
+            const rm=document.getElementById('callsignReservedMax');
+            if(rm){
+                const max=Number.isFinite(JOIN.callsignReservedMax)?JOIN.callsignReservedMax:10;
+                rm.value=String(max);
+                const hint=document.getElementById('reservedHint');
+                if(hint) hint.textContent = max>0
+                    ? `1–${max} are kept for you to assign. Applicants can’t pick them. 0 to allow any number.`
+                    : 'Nothing is reserved — applicants can pick any number, including 1.';
+            }
             const inv=document.getElementById('joinDiscord'); if(inv) inv.value=JOIN.discordInvite||'';
             renderQuestions();
             renderRequirements();
@@ -4872,8 +4905,16 @@
             const note=document.getElementById('recruitNote');
             JOIN.minGrade=Number(document.getElementById('minGrade').value)||0;
             JOIN.callsignPrefix=document.getElementById('callsignPrefix').value.trim();
+            // A blank box means "leave it as it is", not "reserve nothing" —
+            // losing 001 to an empty field is not a recoverable mistake. The
+            // server sanitises this the same way.
+            const rmRaw=(document.getElementById('callsignReservedMax')||{}).value;
+            if(String(rmRaw??'').trim()!==''){
+                const n=Math.trunc(Number(rmRaw));
+                if(Number.isFinite(n)&&n>=0) JOIN.callsignReservedMax=Math.min(999,n);
+            }
             JOIN.discordInvite=(document.getElementById('joinDiscord')||{}).value?.trim()||'';
-            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, discordInvite:JOIN.discordInvite||'', applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
+            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, callsignReservedMax:JOIN.callsignReservedMax, discordInvite:JOIN.discordInvite||'', applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ note.textContent='Applied on this device. Sign in to save for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); say('Applied on this device. Sign in to save it for your crew.','info'); return; }
             const stop=busy(btn,'Saving…');
@@ -6493,7 +6534,19 @@
 
         const RM={ data:null, routeFeat:[], filteredRoutes:[],
                    activeOnly:true, canManage:false, accent:'#3b82f6', drawnDark:false,
-                   focusApt:null, focusRoute:null };
+                   focusApt:null, focusRoute:null,
+                   /* WHICH MAP. 'tiles' is Leaflet over a real basemap and the
+                      default; 'drawn' is crewNetMap.js, which is both the second
+                      option and where `base` is forced when a basemap will not
+                      paint. `tilesDead` remembers that within the session, so a
+                      blocked tile host costs one deadline rather than one per
+                      filter change. */
+                   base:'tiles', tilesDead:false };
+        const RM_BASE_KEY='crew-routemap-base';
+        // The reader's own choice outlives the page; an automatic fallback does
+        // not, so a tile host that was having a bad minute is tried again next
+        // time rather than being written off forever.
+        try{ const saved=localStorage.getItem(RM_BASE_KEY); if(saved==='drawn'||saved==='tiles') RM.base=saved; }catch{}
 
         function rmHexToRgb(h){ h=String(h||'').trim(); let m=h.match(/^#?([0-9a-f]{6})$/i); if(m){const n=parseInt(m[1],16);return[(n>>16)&255,(n>>8)&255,n&255];} m=h.match(/^#?([0-9a-f]{3})$/i); if(m)return m[1].split('').map(c=>parseInt(c+c,16)); m=h.match(/rgba?\(([^)]+)\)/i); if(m){const p=m[1].split(',').map(parseFloat);return[p[0]||0,p[1]||0,p[2]||0];} return null; }
         // The VA's brand accent, but guaranteed visible against the map base: a
@@ -6582,9 +6635,17 @@
                     rmDraw(true);
                 });
                 RM._obs.observe(document.documentElement,{attributes:true,attributeFilter:['class']}); }
+            rmSyncBaseLabel();
             // The network first: the data is ours and it is what gets drawn.
             try{ await rmFetch(); }catch{}
             rmDraw(false);
+            // Leaflet measures its container when it is created, and this
+            // overlay was `hidden` until a moment ago. Without this the tile map
+            // comes up grey: a map sized against a zero-height box.
+            if(rmUseTiles() && window.CrewTileMap){
+                const c=document.getElementById('rmCanvas');
+                requestAnimationFrame(()=>CrewTileMap.invalidate(c));
+            }
             if(window.lucide) lucide.createIcons();
         }
         function rmEsc(e){ if(e.key==='Escape') closeRouteMap(); }
@@ -6593,9 +6654,14 @@
             if(ov.dataset.open==='1'){ delete ov.dataset.open; if(window.CrewPanels) CrewPanels.unlockScroll(); }
             document.removeEventListener('keydown',rmEsc);
             rmClearFocus(); rmHideTip();
-            // The map is markup in the canvas, not a library instance, so closing
-            // has to clear it or it is still there behind the next one.
+            // The drawn map is markup in the canvas, so closing has to clear it
+            // or it is still there behind the next one. The tile map IS a
+            // library instance, and one left running holds its tile requests,
+            // its listeners and a resize observer on a hidden element — so it
+            // gets torn down rather than emptied.
+            if(window.CrewTileMap) CrewTileMap.destroy(document.getElementById('rmCanvas'));
             document.getElementById('rmCanvas').innerHTML='';
+            RM.engineDrawn=null;
         }
         /* The one thing left that can stop this map existing: crewNetMap.js not
            arriving at all, which means the page's own scripts did not load and
@@ -6631,6 +6697,56 @@
          * filter change or a theme switch, false for "Fit", which is what
          * starting from the whole network again means here.
          */
+        /* WHICH ENGINE IS DRAWING RIGHT NOW.
+           Tiles unless the reader picked the drawn map, the basemap has already
+           failed this session, or crewTileMap.js is not on the page. */
+        function rmUseTiles(){ return RM.base==='tiles' && !RM.tilesDead && !!window.CrewTileMap; }
+        function rmEngine(){ return rmUseTiles() ? window.CrewTileMap : window.CrewNetMap; }
+        // Focus on whichever engine is drawing. One place, because the three
+        // callers below should never have to know which map they are looking at.
+        function rmEngineFocus(spec){
+            const e=rmEngine(), canvas=document.getElementById('rmCanvas');
+            if(e && canvas) e.focus(canvas,spec);
+        }
+        /* The two engines cannot share a canvas — one writes SVG into it, the
+           other hands it to Leaflet — so switching tears the old one down. */
+        function rmSwapEngine(){
+            const canvas=document.getElementById('rmCanvas'); if(!canvas) return;
+            if(window.CrewTileMap) CrewTileMap.destroy(canvas);
+            canvas.innerHTML='';
+            RM.engineDrawn=null;
+        }
+        function rmSyncBaseLabel(){
+            const l=document.getElementById('rmBaseLabel'); if(!l) return;
+            l.textContent = rmUseTiles() ? 'Map' : 'Plain';
+            const b=document.getElementById('rmBaseToggle');
+            if(b) b.title = rmUseTiles()
+                ? 'Showing the tiled basemap — switch to the plain drawn map'
+                : 'Showing the plain drawn map — switch to the tiled basemap';
+        }
+        function rmToggleBase(){
+            RM.base = rmUseTiles() ? 'drawn' : 'tiles';
+            // Asking for tiles again is a second opinion on a host we wrote off.
+            if(RM.base==='tiles') RM.tilesDead=false;
+            try{ localStorage.setItem(RM_BASE_KEY,RM.base); }catch{}
+            rmSwapEngine();
+            rmDraw(false);
+            rmSyncBaseLabel();
+            if(window.lucide) lucide.createIcons();
+        }
+        /* The basemap said it could not paint. Fall to the drawn map WITHOUT
+           touching the reader's saved preference — they asked for tiles, they
+           did not get them, and next time they should get the chance again. */
+        function rmTilesFailed(reason){
+            if(RM.tilesDead) return;
+            RM.tilesDead=true;
+            rmSwapEngine();
+            rmDraw(false);
+            rmSyncBaseLabel();
+            say('Basemap unavailable — showing the plain map instead.','info');
+            if(window.lucide) lucide.createIcons();
+        }
+
         function rmDraw(keepView){
             const canvas=document.getElementById('rmCanvas'); if(!canvas) return;
             document.getElementById('rmLoading').classList.add('hidden');
@@ -6639,7 +6755,13 @@
             document.getElementById('routeMap').style.setProperty('--rm-accent',RM.accent);
             const feats=rmVisibleFeats();
             RM.filteredRoutes=feats;
-            const drawn=CrewNetMap.draw(canvas,{
+            const engine=rmEngine();
+            // A redraw that lands on a different engine than last time is a
+            // switch, and the old engine's markup has to go first.
+            const kind=rmUseTiles()?'tiles':'drawn';
+            if(RM.engineDrawn && RM.engineDrawn!==kind) rmSwapEngine();
+            RM.engineDrawn=kind;
+            const drawn=engine.draw(canvas,{
                 routes: feats.map(f=>({ id:f.properties.id, origin:f.properties.origin, destination:f.properties.destination,
                     o:f.o, d:f.d, active:f.properties.active, codeshare:f.properties.codeshare })),
                 accent: RM.accent, dark: RM.drawnDark, keepView: !!keepView,
@@ -6647,6 +6769,7 @@
                 onRoute: (id)=>rmFocusRoute(id),
                 onBackground: ()=>rmClearFocus(),
                 onHover: (what,ev)=>rmShowTip(what,ev),
+                onUnavailable: (why)=>rmTilesFailed(why),
             });
             const deg={}; feats.forEach(f=>{ deg[f.properties.origin]=(deg[f.properties.origin]||0)+1; deg[f.properties.destination]=(deg[f.properties.destination]||0)+1; });
             rmUpdateStats(feats, Object.keys(deg).map(icao=>({properties:{icao,routes:deg[icao]}})));
@@ -6662,8 +6785,11 @@
                     :"Add routes with valid ICAO airports and they'll appear here as a live network.";
             } else empty.classList.add('hidden');
             // A redraw is new markup, and the focus lived on the old markup.
-            if(RM.focusApt) CrewNetMap.focus(canvas,{airport:RM.focusApt});
-            else if(RM.focusRoute) CrewNetMap.focus(canvas,{route:RM.focusRoute});
+            // Safe to do here for either engine: the drawn map has already
+            // finished, and the tile map remembers the spec and re-applies it
+            // when Leaflet and its layers arrive.
+            if(RM.focusApt) engine.focus(canvas,{airport:RM.focusApt});
+            else if(RM.focusRoute) engine.focus(canvas,{route:RM.focusRoute});
         }
         /* The tooltip. The map reports what is under the pointer; this page
            knows what that thing is, because the flight number, the aeroplane
@@ -6727,19 +6853,19 @@
            own (CrewNetMap.focus); the rail is this page's. */
         function rmFocusAirport(icao){
             RM.focusApt=icao; RM.focusRoute=null;
-            if(window.CrewNetMap) CrewNetMap.focus(document.getElementById('rmCanvas'),{airport:icao});
+            rmEngineFocus({airport:icao});
             const touching=(RM.filteredRoutes||RM.routeFeat||[]).filter(f=>f.properties.origin===icao||f.properties.destination===icao).map(f=>f.properties);
             rmOpenAirportRail(icao,touching);
         }
         function rmFocusRoute(id){
             id=String(id); RM.focusRoute=id; RM.focusApt=null;
-            if(window.CrewNetMap) CrewNetMap.focus(document.getElementById('rmCanvas'),{route:id});
+            rmEngineFocus({route:id});
             const r=RM.routeFeat.find(f=>f.properties.id===id);
             if(r) rmOpenRouteRail(r.properties);
         }
         function rmClearFocus(){
             RM.focusApt=null; RM.focusRoute=null;
-            if(window.CrewNetMap) CrewNetMap.focus(document.getElementById('rmCanvas'),null);
+            rmEngineFocus(null);
             const rail=document.getElementById('rmRail'); if(rail) rail.classList.add('hidden');
             document.getElementById('routeMap').classList.remove('rm-rail-open');
         }
@@ -6875,7 +7001,12 @@
             rmRailShow(head, body);
         }
         function rmFitAll(){
-            // The map is cropped to the network every time it is drawn, so
+            // On the tile map the view is Leaflet's, so ask it to re-fit rather
+            // than rebuilding every layer to move the camera.
+            if(rmUseTiles() && window.CrewTileMap && CrewTileMap.isLive(document.getElementById('rmCanvas'))){
+                return CrewTileMap.fit(document.getElementById('rmCanvas'));
+            }
+            // The drawn map is cropped to the network every time it is drawn, so
             // redrawing IS fitting — and it drops the zoom back to 1 with it.
             rmDraw(false);
         }
@@ -9371,7 +9502,11 @@
             if(Array.isArray(b.partners)) PARTNERS=normalizePartners(b.partners);
             if(b.social) SOCIAL=normalizeSocialConfig(b.social);
             PIREP_AUTO = !!b.pirepAutoApprove;
-            if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', discordInvite:b.join.discordInvite||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
+            if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'',
+                // A backend that doesn't send it yet leaves the default in
+                // place rather than reading as "reserve nothing".
+                callsignReservedMax:(typeof b.join.callsignReservedMax==='number'&&b.join.callsignReservedMax>=0)?b.join.callsignReservedMax:10,
+                discordInvite:b.join.discordInvite||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
             CREW_NAME=name;
             const mono=initials(name,b.code);
