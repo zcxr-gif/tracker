@@ -14,7 +14,8 @@
     "test:route-map": "node tools/test-crew-route-map.js",
     "test:route-library": "node tools/test-crew-route-library.js",
     "test:partners": "node tools/test-crew-partners.js",
-    "test:favicon": "node tools/test-crew-favicon.js"
+    "test:favicon": "node tools/test-crew-favicon.js",
+    "test:aircraft-3d": "node tools/test-aircraft-3d.js"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",

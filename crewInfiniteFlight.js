@@ -211,9 +211,13 @@
      * string is a missing thumbnail, which is a cosmetic loss, where an
      * exception inside a row renderer is a blank panel.
      */
-    const picture = (a) => (window.CrewAircraftImage
-        ? window.CrewAircraftImage.img(a || {})
-        : '');
+    const picture = (a) => {
+        const html = window.CrewAircraftImage ? window.CrewAircraftImage.img(a || {}) : '';
+        // And if somebody has published a 3D model of the type, the same
+        // thumbnail becomes the way in to it. Guarded the same way and for the
+        // same reason: an absent module costs a badge, never a row.
+        return window.CrewAircraft3D ? window.CrewAircraft3D.thumb(html, a || {}) : html;
+    };
 
     /* Whose photograph it is.
      *

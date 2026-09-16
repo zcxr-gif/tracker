@@ -621,11 +621,27 @@
         </li>`;
     }
 
+    /**
+     * The "view in 3D" button for a leg's aircraft type, or nothing at all.
+     *
+     * crewAircraft3D.js decides both halves of that — whether there is a model
+     * of what staff typed in the aircraft field, and what to say about it. This
+     * page only has to leave room for the answer, and is unchanged on a crew
+     * center where that module was never loaded.
+     */
+    const model3d = (type) => (window.CrewAircraft3D
+        ? window.CrewAircraft3D.button({ type }, { inline: true })
+        : '');
+
     function timelineHtml(s) {
         const block = durationText(s.blockMinutes);
         const mid = [
             s.flightNumber ? `<p class="cs-tl-flightno">${esc(s.flightNumber)}</p>` : '',
-            s.aircraft ? `<p class="cs-tl-fact">${esc(s.aircraft)}</p>` : '',
+            // The type, and — where somebody has published a 3D model of it —
+            // the way to go and look at it. The button is absent for every
+            // other type, so this line reads exactly as it did before for a
+            // leg we have no model of.
+            s.aircraft ? `<p class="cs-tl-fact">${esc(s.aircraft)}${model3d(s.aircraft)}</p>` : '',
             s.airframe && s.airframe.registration
                 ? `<p class="cs-tl-fact">Aircraft ${esc(s.airframe.registration)}</p>` : '',
             block ? `<p class="cs-tl-fact">${esc(block)}</p>` : '',

@@ -192,6 +192,12 @@ the Live `aircraftId` UUID against the same aircraft/livery catalogue live
 flights use — and when that resolution fails, the generic silhouette still
 renders.
 
+And where somebody has published a 3D model of the type, that same thumbnail
+gains a **3D** badge that opens it — `crewAircraft3D.js`, on both the fleet
+panel and the board. It only ever wraps the markup this module produced, so the
+guarantee above is untouched, and a type we have no model of is unchanged. See
+`CREW-AIRCRAFT-3D.md`.
+
 > The vendored `vendor/aircraft-shapes` planforms are deliberately **not** used
 > here. They are GPL-3.0 and are rasterised into a canvas atlas built for map
 > markers at device resolution; reusing them would mean either loading that
