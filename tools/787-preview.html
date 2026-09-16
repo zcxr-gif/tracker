@@ -1,0 +1,300 @@
+<!doctype html>
+<!--
+  787-preview.html — look at the three 787 tracker models properly.
+
+  crew787Hero.js puts one of them on the crew center's sign-in page, small, soft
+  and behind a card. That answers "does it sit well there"; it does not answer
+  "is the model any good". This page is the second question: all three variants
+  side by side, one shared camera, and controls for the handful of things that
+  decide whether a low-poly airframe looks right or looks cheap.
+
+  Open it from the repo root over a local server, e.g.
+
+      npx serve .        (then browse to /tools/787-preview.html)
+
+  — a file:// URL will not work: the page imports ES modules from /vendor/three
+  and fetches the .glb files from /models.
+
+  WHAT TO LOOK AT
+
+    Shading    the models ship with POSITION and nothing else — no normals. By
+               the glTF spec that means flat shading, and GLTFLoader obliges, so
+               the fuselage arrives faceted. Smooth computes vertex normals
+               instead. If the two look identical, the exporter did not merge
+               vertices and the mesh cannot be smoothed without rework.
+
+    Metal      the nacelles are 0.7 metalness with no texture. Metal with
+               nothing to reflect renders black, so both this page and the hero
+               light the scene with a generated RoomEnvironment. Turning the
+               environment off is what that would have looked like.
+
+    Length     the three differ only down the fuselage — 56.7 m, 62.8 m, 68.3 m,
+               on one 60.1 m wing. They are drawn at one common scale here, so
+               that difference is the thing you are meant to see.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>787 tracker models — preview</title>
+<style>
+  :root{ color-scheme: dark; --ink:#e8eaef; --dim:#8b94a6; --line:#242a36; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:#0b0d12; color:var(--ink);
+             font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  body{ display:flex; flex-direction:column; }
+  header{ padding:14px 18px; border-bottom:1px solid var(--line); display:flex;
+          gap:18px; align-items:center; flex-wrap:wrap; }
+  h1{ font-size:15px; font-weight:650; margin:0; letter-spacing:-.01em; }
+  h1 span{ color:var(--dim); font-weight:400; }
+  .ctl{ display:flex; gap:7px; align-items:center; }
+  .ctl > b{ font-weight:550; color:var(--dim); font-size:12px;
+            text-transform:uppercase; letter-spacing:.06em; }
+  button{ font:inherit; font-size:13px; padding:5px 11px; border-radius:8px;
+          border:1px solid var(--line); background:#141924; color:var(--ink);
+          cursor:pointer; transition:background .15s,border-color .15s; }
+  button:hover{ background:#1b2130; }
+  button[aria-pressed="true"]{ background:#2b6cff; border-color:#2b6cff; color:#fff; }
+  main{ flex:1; display:grid; grid-template-columns:repeat(3,1fr); min-height:0; }
+  @media (max-width:900px){ main{ grid-template-columns:1fr; } }
+  .cell{ position:relative; border-right:1px solid var(--line); min-height:0; }
+  .cell:last-child{ border-right:0; }
+  .cell canvas{ display:block; width:100%; height:100%; }
+  .tag{ position:absolute; left:14px; bottom:12px; pointer-events:none; }
+  .tag b{ display:block; font-size:13px; font-weight:600; }
+  .tag i{ display:block; font-style:normal; font-size:11px; color:var(--dim);
+          font-variant-numeric:tabular-nums; }
+  #err{ padding:18px; color:#ff9a9a; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>787 tracker models <span>· drag to orbit, scroll to zoom — the three views are linked</span></h1>
+  <div class="ctl"><b>Shading</b>
+    <button id="smooth" aria-pressed="true">Smooth</button>
+    <button id="flat" aria-pressed="false">Flat</button>
+  </div>
+  <div class="ctl"><b>Env</b>
+    <button id="env" aria-pressed="true">On</button>
+  </div>
+  <div class="ctl"><b>Wireframe</b>
+    <button id="wire" aria-pressed="false">Off</button>
+  </div>
+  <div class="ctl"><b>Spin</b>
+    <button id="spin" aria-pressed="true">On</button>
+  </div>
+  <div class="ctl"><b>Ground</b>
+    <button id="bg" aria-pressed="false">Light</button>
+  </div>
+</header>
+
+<main id="stage"></main>
+<div id="err" hidden></div>
+
+<script type="module">
+const THREE_DIR = '/vendor/three';
+
+const VARIANTS = [
+  { file:'/models/boeing_787-8_tracker.glb',  name:'Boeing 787-8',  len:56.7 },
+  { file:'/models/boeing_787-9_tracker.glb',  name:'Boeing 787-9',  len:62.8 },
+  { file:'/models/boeing_787-10_tracker.glb', name:'Boeing 787-10', len:68.3 },
+];
+
+let THREE, GLTFLoader, OrbitControls, RoomEnvironment;
+try {
+  [THREE, { GLTFLoader }, { OrbitControls }, { RoomEnvironment }] = await Promise.all([
+    import(`${THREE_DIR}/three.module.min.js`),
+    import(`${THREE_DIR}/GLTFLoader.js`),
+    import(`${THREE_DIR}/OrbitControls.js`),
+    import(`${THREE_DIR}/RoomEnvironment.js`),
+  ]);
+} catch (e) {
+  const box = document.getElementById('err');
+  box.hidden = false;
+  box.textContent = 'Could not load three.js from /vendor/three: ' + e.message;
+  throw e;
+}
+
+const stage = document.getElementById('stage');
+const views = [];
+const loader = new GLTFLoader();
+
+// One environment, generated once from a throwaway renderer and shared by all
+// three views — a PMREM render per cell is three times the cost for the same
+// six faces.
+const seed = new THREE.WebGLRenderer();
+const envMap = new THREE.PMREMGenerator(seed).fromScene(new RoomEnvironment(), 0.04).texture;
+seed.dispose();
+
+for (const v of VARIANTS) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cell.innerHTML = `<div class="tag"><b>${v.name}</b><i>${v.len.toFixed(1)} m · 60.1 m span</i></div>`;
+  stage.appendChild(cell);
+
+  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  cell.insertBefore(renderer.domElement, cell.firstChild);
+
+  const scene = new THREE.Scene();
+  scene.environment = envMap;
+
+  const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(4, 6, 5);
+  const fill = new THREE.DirectionalLight(0xbfd4ff, 0.7); fill.position.set(-5, 2, -4);
+  scene.add(key, fill, new THREE.HemisphereLight(0xffffff, 0x2a3240, 0.6));
+
+  const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 400);
+  // Direction only — how far along it is arithmetic, done in fit(), because a
+  // 60 m wingspan in a cell one third of a 1280px window is framed by the
+  // HORIZONTAL field of view, not the vertical one the camera is defined with.
+  camera.position.set(3.4, 1.9, 4.6).normalize();
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.enablePan = false;
+
+  const gltf = await loader.loadAsync(v.file);
+  const model = gltf.scene;
+
+  const mats = new Set();
+  model.traverse(o => {
+    if (!o.isMesh) return;
+    // Keep a flat-shaded copy of the normals question answerable both ways:
+    // the geometry arrives with none, so "flat" is what the file asks for and
+    // "smooth" is what computeVertexNormals makes of it.
+    if (!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => mats.add(m));
+  });
+
+  // Authored +X nose / +Z up; glTF renders +Y up. Without this they stand on
+  // their tails.
+  model.rotation.x = -Math.PI / 2;
+
+  const craft = new THREE.Group();
+  craft.add(model);
+  const box = new THREE.Box3().setFromObject(craft);
+  model.position.sub(box.getCenter(new THREE.Vector3()));
+  // Scaled on the wingspan (z after the rotation), which is 60.1 m on all
+  // three — so the fuselage difference survives instead of being normalised out.
+  craft.scale.setScalar(2.6 / box.getSize(new THREE.Vector3()).z);
+  // Start on a three-quarter view rather than nose-on, so the first frame — and
+  // any screenshot of this page — is the angle you would actually judge a model
+  // from. The spin carries on from here.
+  craft.rotation.y = -0.9;
+  scene.add(craft);
+
+  // The radius fit() frames to. Taken after the scale, and from the SAME sphere
+  // for all three, so the 787-10 is the one that fills more of its cell rather
+  // than the one that gets pushed further away to hide the fact.
+  const radius = new THREE.Box3().setFromObject(craft).getBoundingSphere(new THREE.Sphere()).radius;
+
+  // Once somebody drags or scrolls, fit() stops moving the camera: a window
+  // resize should not undo the angle they chose to look from.
+  const view = { cell, renderer, scene, camera, controls, craft, mats, radius, touched: false };
+  controls.addEventListener('start', () => { view.touched = true; });
+  views.push(view);
+}
+
+// The three cameras are kept in step so the variants are compared at one angle
+// rather than three. Whichever is dragged leads; the others copy its position.
+let leader = null;
+for (const v of views) {
+  v.controls.addEventListener('start', () => { leader = v; });
+  v.controls.addEventListener('end', () => { leader = null; });
+}
+
+const setAll = (fn) => views.forEach(v => { v.mats.forEach(m => { fn(m); m.needsUpdate = true; }); });
+const toggle = (btn, on) => btn.setAttribute('aria-pressed', String(on));
+
+const smoothBtn = document.getElementById('smooth');
+const flatBtn = document.getElementById('flat');
+smoothBtn.onclick = () => { setAll(m => m.flatShading = false); toggle(smoothBtn, true); toggle(flatBtn, false); };
+flatBtn.onclick   = () => { setAll(m => m.flatShading = true);  toggle(smoothBtn, false); toggle(flatBtn, true); };
+setAll(m => m.flatShading = false);
+
+let envOn = true;
+const envBtn = document.getElementById('env');
+envBtn.onclick = () => {
+  envOn = !envOn;
+  views.forEach(v => { v.scene.environment = envOn ? envMap : null; });
+  envBtn.textContent = envOn ? 'On' : 'Off';
+  toggle(envBtn, envOn);
+};
+
+let wireOn = false;
+const wireBtn = document.getElementById('wire');
+wireBtn.onclick = () => {
+  wireOn = !wireOn;
+  setAll(m => m.wireframe = wireOn);
+  wireBtn.textContent = wireOn ? 'On' : 'Off';
+  toggle(wireBtn, wireOn);
+};
+
+let spinOn = true;
+const spinBtn = document.getElementById('spin');
+spinBtn.onclick = () => {
+  spinOn = !spinOn;
+  spinBtn.textContent = spinOn ? 'On' : 'Off';
+  toggle(spinBtn, spinOn);
+};
+
+let lightGround = false;
+const bgBtn = document.getElementById('bg');
+bgBtn.onclick = () => {
+  lightGround = !lightGround;
+  document.documentElement.style.colorScheme = lightGround ? 'light' : 'dark';
+  document.body.style.background = lightGround ? '#eef1f6' : '#0b0d12';
+  document.body.style.color = lightGround ? '#12141a' : '#e8eaef';
+  bgBtn.textContent = lightGround ? 'Dark' : 'Light';
+  toggle(bgBtn, lightGround);
+};
+
+// The widest span of the three, so all three cells frame to one distance and a
+// -8 next to a -10 is genuinely shorter rather than merely nearer.
+const widest = Math.max(...views.map(v => v.radius));
+
+const fit = () => {
+  for (const v of views) {
+    const w = v.cell.clientWidth, h = v.cell.clientHeight;
+    if (!w || !h) continue;
+    v.renderer.setSize(w, h, false);
+    v.camera.aspect = w / h;
+    v.camera.updateProjectionMatrix();
+    if (v.touched) continue;
+    const vFov = v.camera.fov * Math.PI / 180;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * v.camera.aspect);
+    // Fitted to the bounding SPHERE, not the pose: the models turn, and a
+    // distance that frames the three-quarter view crops the wingtips the moment
+    // they come round side-on. 1.1 is the remaining breathing room.
+    const dist = (widest * 1.1) / Math.sin(Math.min(vFov, hFov) / 2);
+    v.camera.position.setLength(dist);
+    v.controls.update();
+  }
+};
+addEventListener('resize', fit, { passive:true });
+fit();
+
+let last = performance.now();
+(function frame(now){
+  requestAnimationFrame(frame);
+  const dt = Math.min((now - last) / 1000, 0.1);
+  last = now;
+  if (leader) {
+    for (const v of views) {
+      if (v === leader) continue;
+      v.camera.position.copy(leader.camera.position);
+      v.controls.target.copy(leader.controls.target);
+    }
+  }
+  for (const v of views) {
+    if (spinOn && !leader) v.craft.rotation.y += dt * 0.25;
+    v.controls.update();
+    v.renderer.render(v.scene, v.camera);
+  }
+})(performance.now());
+</script>
+</body>
+</html>
