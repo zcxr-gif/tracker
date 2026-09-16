@@ -11,8 +11,8 @@
 //     under it still gets a panel
 //   * a pilot with too little flying behind them is told that, rather than
 //     shown a confident sentence about habits nobody has
-//   * the card's finish follows the rank — a colour the SERVER chose — and an
-//     older server that sends no tier still draws the card it always drew
+//   * the card's finish follows the pilot's CLUB — a colour the server chose —
+//     and an older server that sends no club still draws the card it always drew
 //   * the shop's Crew tab shows what other pilots hold, and never a balance
 //   * staff, and only staff, can pin a leg as the day's or the week's
 //
@@ -67,11 +67,46 @@ const SUGGESTIONS = () => ([
     },
 ]);
 
+const club = (key, name, index, color) => ({
+    key, name, index, of: 5, color, minHours: [0, 25, 100, 250, 500][index], benefits: [],
+});
+// The ladder as the server sends it, with the benefits a VA has actually
+// attached. Only the top two give anything, which is the shape of every real
+// loyalty scheme and the shape this file needs to prove the page draws.
+const CLUBS = () => ([
+    { key: 'standard', name: 'Standard', minHours: 0, color: '#4A5568', earnBonus: 0, earlyHours: 0, priority: false, benefits: [] },
+    { key: 'bronze', name: 'Bronze', minHours: 25, color: '#A4622B', earnBonus: 0, earlyHours: 0, priority: false, benefits: [] },
+    { key: 'silver', name: 'Silver', minHours: 100, color: '#7C8794', earnBonus: 5, earlyHours: 0, priority: false,
+        benefits: [{ kind: 'earn', value: 5, label: '5% more on every flight', detail: '' }] },
+    { key: 'gold', name: 'Gold', minHours: 250, color: '#B8860B', earnBonus: 15, earlyHours: 24, priority: true,
+        benefits: [
+            { kind: 'earn', value: 15, label: '15% more on every flight', detail: '' },
+            { kind: 'early', value: 24, label: '24h early access to the shop', detail: '' },
+            { kind: 'priority', value: 1, label: 'Your orders are handled first', detail: '' },
+        ] },
+    { key: 'platinum', name: 'Platinum', minHours: 500, color: '#2C3446', earnBonus: 20, earlyHours: 48, priority: true,
+        benefits: [
+            { kind: 'earn', value: 20, label: '20% more on every flight', detail: '' },
+            { kind: 'early', value: 48, label: "2 days' early access to the shop", detail: '' },
+            { kind: 'priority', value: 1, label: 'Your orders are handled first', detail: '' },
+        ] },
+]);
+
+// Rae is 214 hours in: Silver, with Gold 36 hours away.
+const MY_CLUB = () => ({
+    ...club('silver', 'Silver', 2, '#7C8794'),
+    benefits: CLUBS()[2].benefits,
+    next: { key: 'gold', name: 'Gold', minHours: 250, hoursAway: 36, benefits: CLUBS()[3].benefits },
+});
+
 let state = null;
 const fresh = () => ({
     canManage: false,
+    shopManage: false,
     confident: true,
-    tier: { key: 'gold', name: 'Gold', index: 3, of: 5, accent: '#B8860B', branded: false },
+    club: MY_CLUB(),
+    clubs: CLUBS(),
+    savedClubs: [],                 // every POST /clubs, in order
     pins: [],                       // every POST /featured-routes, in order
     week: { period: 'week', periodKey: '2026-W38', pinned: false, estimatedMin: 153, route: route('c', 'EGKK', 'LEMG', { distanceNm: 900 }) },
     day: { period: 'day', periodKey: '2026-09-16', pinned: false, estimatedMin: 56, route: route('b', 'EGLL', 'LFPG', { distanceNm: 190 }) },
@@ -82,7 +117,7 @@ const fresh = () => ({
 const CREW = () => ([
     {
         pilotId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', rank: 'First Officer',
-        tier: { key: 'gold', name: 'Gold', index: 3, of: 5, accent: '#B8860B', branded: false },
+        club: MY_CLUB(),
         hours: 214, since: '2026-03-02', status: 'active', earned: 9140, isMe: true,
         holds: [
             { name: 'A badge on your profile', count: 2, since: '2026-06-01', itemId: 'i1' },
@@ -92,13 +127,13 @@ const CREW = () => ([
     },
     {
         pilotId: 'm2', name: 'Jo Lindqvist', callsign: 'BAW41', rank: 'Captain',
-        tier: { key: 'platinum', name: 'Platinum', index: 4, of: 5, accent: '#2C3446', branded: false },
+        club: { ...club('platinum', 'Platinum', 4, '#2C3446'), benefits: CLUBS()[4].benefits, next: null },
         hours: 640, since: '2025-11-04', status: 'active', earned: 26100, isMe: false,
         holds: [{ name: 'A tail number of your choosing', count: 1, since: '2026-02-02', itemId: 'i4' }],
     },
     {
         pilotId: 'm3', name: 'Kit Abara', callsign: 'BAW88', rank: 'Second Officer',
-        tier: { key: 'standard', name: 'Standard', index: 0, of: 5, accent: '#4A5568', branded: false },
+        club: { ...club('standard', 'Standard', 0, '#4A5568'), next: { key: 'bronze', name: 'Bronze', minHours: 25, hoursAway: 13, benefits: [] } },
         hours: 12, since: '2026-09-01', status: 'active', earned: 400, isMe: false,
         holds: [],
     },
@@ -139,14 +174,35 @@ function api(r) {
         }
         return json({ week: state.week, day: state.day });
     }
-    if (p.endsWith('/shop/crew')) return json({ enabled: true, currency: { name: 'Miles', short: 'mi' }, crew: CREW() });
+    if (p.endsWith('/shop/crew')) return json({ enabled: true, currency: { name: 'Miles', short: 'mi' }, crew: CREW(), clubs: CLUBS() });
+    if (p.endsWith('/clubs/suggested')) return json({ clubs: CLUBS() });
+    if (p.endsWith('/clubs') && method === 'POST') {
+        state.savedClubs.push(r.request().postDataJSON() || {});
+        return json({ clubs: CLUBS(), anyBenefits: true });
+    }
     if (p.endsWith('/shop') && method === 'GET') {
         return json({
-            enabled: true, canManage: false, currency: { name: 'Miles', short: 'mi' },
-            items: [{ id: 'i1', name: 'A badge on your profile', desc: 'A mark by your name.', price: 1100, stock: -1, active: true }],
-            wallet: {
+            enabled: true, canManage: state.shopManage, currency: { name: 'Miles', short: 'mi' },
+            // Three shelf states the club changes: open to everybody, open to
+            // this pilot EARLY, and not open to them yet. The server decides
+            // all three; the page must draw what it was told and work none of
+            // it out for itself.
+            items: [
+                { id: 'i1', name: 'A badge on your profile', desc: 'A mark by your name.', price: 1100, stock: -1, active: true,
+                    access: { open: true, early: false, opensAt: null, needs: null } },
+                { id: 'i2', name: 'Retro livery', desc: 'The 1987 scheme.', price: 900, stock: -1, active: true,
+                    access: { open: true, early: true, opensAt: new Date(Date.now() + 20 * 3600e3).toISOString(), needs: null } },
+                { id: 'i3', name: 'Name a route', desc: 'Pick the next city pair.', price: 800, stock: -1, active: true,
+                    access: { open: false, early: false, opensAt: new Date(Date.now() + 40 * 3600e3).toISOString(),
+                        needs: { key: 'platinum', name: 'Platinum', minHours: 500 } } },
+            ],
+            clubs: state.clubs,
+            wallet: state.club === null ? {
                 pilotId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', rank: 'First Officer',
-                rankIndex: 2, rankCount: 4, tier: state.tier,
+                since: '2026-03-02', balance: 4820, earned: 9140, spent: 4320,
+            } : {
+                pilotId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', rank: 'First Officer',
+                club: state.club, hours: 214,
                 since: '2026-03-02', balance: 4820, earned: 9140, spent: 4320,
             },
         });
@@ -360,38 +416,150 @@ const head = (s) => console.log(`\n${s}`);
     await ctx.close();
 
     // ==================================================================
-    head('The card’s finish follows the rank');
+    head('The card’s finish follows the club, not the rank');
     state = fresh();
     ({ ctx, page } = await open());
     await page.waitForSelector('#shopCard .sh-card', { timeout: 6000 });
     const cardClass = await page.getAttribute('#shopCard .sh-card', 'class');
     const cardStyle = await page.getAttribute('#shopCard .sh-card', 'style');
-    ok('the card wears the tier the server chose', /sh-card-t3/.test(cardClass), cardClass);
-    ok('…painted in the colour the server sent', /--sh-face:\s*#B8860B/i.test(cardStyle || ''), cardStyle);
+    ok('the card wears the club the server chose', /sh-card-t2/.test(cardClass), cardClass);
+    ok('…painted in the colour the server sent', /--sh-face:\s*#7C8794/i.test(cardStyle || ''), cardStyle);
     const face = await page.innerText('#shopCard .sh-card');
     // Case-insensitive throughout this block: the card's small caps are a
     // text-transform, so innerText is not the string the module wrote.
-    ok('…and names it', /gold/i.test(face), face.slice(0, 120));
+    ok('…and names it', /silver/i.test(face), face.slice(0, 120));
+    // The whole point of two ladders: a rank is what the airline calls you, a
+    // club is what your flying earned. Printing one in place of the other
+    // would lose the half that made the card worth looking at.
     ok('…beside the rank rather than instead of it', /first officer/i.test(face));
     ok('the ladder is drawn as pips', (await page.locator('#shopCard .sh-pip').count()) === 5);
-    ok('…filled to where this pilot is', (await page.locator('#shopCard .sh-pip-on').count()) === 4);
+    ok('…filled to where this pilot is', (await page.locator('#shopCard .sh-pip-on').count()) === 3);
     ok('a square logo cannot have a square corner',
         (await page.$eval('#navLogo', (el) => getComputedStyle(el).borderRadius)) !== '0px');
     await ctx.close();
 
     // ==================================================================
-    head('An older server that knows nothing about tiers still draws a card');
-    state = fresh(); state.tier = undefined;
+    head('An older server that knows nothing about clubs still draws a card');
+    state = fresh(); state.club = null; state.clubs = undefined;
     ({ ctx, page } = await open());
     await page.waitForSelector('#shopCard .sh-card', { timeout: 6000 });
     const plainClass = await page.getAttribute('#shopCard .sh-card', 'class');
-    ok('no tier class is invented', !/sh-card-t\d/.test(plainClass), plainClass);
+    ok('no club class is invented', !/sh-card-t\d/.test(plainClass), plainClass);
     ok('…no face colour either — it falls back to the page accent',
         !/--sh-face/.test((await page.getAttribute('#shopCard .sh-card', 'style')) || ''));
     ok('…and the rank is still on the front of it',
         /first officer/i.test(await page.innerText('#shopCard .sh-card')));
     ok('…with no pips promising a ladder nobody can see',
         (await page.locator('#shopCard .sh-pip').count()) === 0);
+    await ctx.close();
+
+    // ==================================================================
+    head('The Clubs tab says what a club is actually for');
+    state = fresh();
+    ({ ctx, page } = await open());
+    await page.waitForSelector('#shopCard [data-sh-open]', { timeout: 6000 });
+    await page.click('#shopCard [data-sh-open]');
+    await page.waitForSelector('#crewShop [data-sh-view="clubs"]', { timeout: 6000 });
+    await page.click('#crewShop [data-sh-view="clubs"]');
+    await page.waitForSelector('#crewShop .sh-club-list', { timeout: 6000 });
+    const clubsText = await page.innerText('#crewShop');
+    // The figure and the club name are separate elements in a flex row, so
+    // innerText puts a line break between them. Collapsed before matching —
+    // asserting the layout's whitespace would be asserting the stylesheet.
+    const flat = clubsText.replace(/\s+/g, ' ');
+
+    // The one sentence the whole screen exists for.
+    ok('how far the next club is, in hours', /36h to Gold/i.test(flat), flat.slice(0, 260));
+    ok('…and what crossing that line is worth', /15% more on every flight/i.test(clubsText));
+    ok('…drawn as a bar across THIS step, not the whole ladder',
+        (await page.locator('#crewShop .sh-club-bar span').count()) === 1);
+    const width = await page.$eval('#crewShop .sh-club-bar span', (el) => el.style.width);
+    // 214 hours, between Silver (100) and Gold (250): 114/150 = 76%.
+    ok('…filled to where this pilot actually is', width === '76%', width);
+
+    ok('every club on the ladder is listed', (await page.locator('#crewShop .sh-club').count()) === 5);
+    ok('…the pilot’s own is marked', (await page.locator('#crewShop .sh-club-here').count()) === 1);
+    ok('…the ones behind them are dimmed rather than hidden',
+        (await page.locator('#crewShop .sh-club-past').count()) === 2);
+    ok('…a club with nothing attached says so rather than looking broken',
+        /the badge, and the card/i.test(clubsText), clubsText.slice(0, 400));
+    ok('…and the hours each one takes are named', /from 250h flown/i.test(clubsText));
+    ok('a pilot is not offered the staff editor',
+        !(await page.locator('#crewShop [data-sh-saveclubs]').count()));
+    await ctx.close();
+
+    // ==================================================================
+    head('Early access is drawn from what the server decided');
+    state = fresh();
+    ({ ctx, page } = await open());
+    await page.waitForSelector('#shopCard [data-sh-open]', { timeout: 6000 });
+    await page.click('#shopCard [data-sh-open]');
+    await page.waitForSelector('#crewShop .sh-item', { timeout: 6000 });
+    const shelf = await page.innerText('#crewShop');
+    ok('an item that is theirs early says so', /yours first/i.test(shelf), shelf.slice(0, 500));
+    ok('…and one that is not yet names the club that has it', /platinum first/i.test(shelf));
+    ok('…with when it opens to everybody', /opens in/i.test(shelf), shelf.slice(0, 600));
+    ok('a shut item cannot be bought',
+        (await page.locator('#crewShop .sh-item-shut [data-sh-buy]').count()) === 0);
+    ok('…and the ones that are open still can',
+        (await page.locator('#crewShop [data-sh-buy]').count()) === 2);
+    ok('exactly one item is shut', (await page.locator('#crewShop .sh-item-shut').count()) === 1);
+    await ctx.close();
+
+    // ==================================================================
+    head('Staff set what each club is worth');
+    state = fresh(); state.shopManage = true;
+    ({ ctx, page } = await open());
+    await page.waitForSelector('#shopCard [data-sh-open]', { timeout: 6000 });
+    await page.click('#shopCard [data-sh-open]');
+    await page.waitForSelector('#crewShop [data-sh-view="manage"]', { timeout: 6000 });
+    await page.click('#crewShop [data-sh-view="manage"]');
+    await page.waitForSelector('#crewShop [data-sh-club]', { timeout: 6000 });
+    ok('the whole ladder is editable', (await page.locator('#crewShop [data-sh-club]').count()) === 5);
+    ok('the first club cannot be removed — everybody starts in it',
+        await page.locator('#crewShop [data-sh-club]').first().locator('[data-sh-delclub]').isDisabled());
+    ok('…nor moved off zero hours',
+        await page.locator('#crewShop [data-sh-club]').first().locator('[data-sh-cf="minHours"]').isDisabled());
+
+    // Typing into one row and then adding another must not lose the typing.
+    const row = (n) => page.locator('#crewShop [data-sh-club]').nth(n);
+    await row(2).locator('[data-sh-cf="name"]').fill('Emerald');
+    await row(2).locator('[data-sh-cf="earnBonus"]').fill('9');
+    await page.click('#crewShop [data-sh-addclub]');
+    await page.waitForTimeout(300);
+    ok('adding a club keeps what was already typed',
+        (await row(2).locator('[data-sh-cf="name"]').inputValue()) === 'Emerald');
+    ok('…and the new rung is on the end', (await page.locator('#crewShop [data-sh-club]').count()) === 6);
+    ok('…starting above the current top rather than at zero',
+        Number(await row(5).locator('[data-sh-cf="minHours"]').inputValue()) > 500,
+        await row(5).locator('[data-sh-cf="minHours"]').inputValue());
+
+    await page.click('#crewShop [data-sh-saveclubs]');
+    await page.waitForTimeout(600);
+    const saved = state.savedClubs[state.savedClubs.length - 1];
+    ok('saving sends the whole ladder', Array.isArray(saved && saved.clubs) && saved.clubs.length === 6,
+        JSON.stringify(saved).slice(0, 200));
+    ok('…with the edits in it',
+        saved.clubs[2].name === 'Emerald' && saved.clubs[2].earnBonus === 9,
+        JSON.stringify(saved.clubs[2]));
+    ok('…and the key kept, so an early-access window survives a rename',
+        saved.clubs[2].key === 'silver', JSON.stringify(saved.clubs[2]));
+    ok('a club is never validated in the browser — the numbers go as typed',
+        typeof saved.clubs[2].earnBonus === 'number');
+    // The editor redraws from what the SERVER settled on, not from what was
+    // typed: it sorts by hours, floors the bottom rung and clamps every rate,
+    // and a screen still showing the typed version would be lying about what
+    // is saved. The stub returns the original five.
+    ok('…and the editor comes back showing what was actually saved',
+        (await page.locator('#crewShop [data-sh-club]').count()) === 5);
+
+    await row(4).locator('[data-sh-delclub]').click();
+    await page.waitForTimeout(300);
+    ok('a club can be removed', (await page.locator('#crewShop [data-sh-club]').count()) === 4);
+    await page.click('#crewShop [data-sh-saveclubs]');
+    await page.waitForTimeout(600);
+    ok('…and saving sends the ladder without it',
+        state.savedClubs[state.savedClubs.length - 1].clubs.length === 4);
     await ctx.close();
 
     // ==================================================================
@@ -406,6 +574,7 @@ const head = (s) => console.log(`\n${s}`);
     const crew = await page.innerText('#crewShop');
     ok('the whole crew is listed', (await page.locator('#crewShop .sh-crew-row').count()) === 3);
     ok('…with what they hold on the row', /a badge on your profile/i.test(crew), crew.slice(0, 400));
+    ok('…and each pilot’s club beside their rank', /silver/i.test(crew) && /platinum/i.test(crew));
     ok('…counted where they hold more than one', /×2/.test(crew));
     ok('…and the pilot who holds nothing says so', /Nothing yet/.test(crew));
     ok('the signed-in pilot is marked', /\bYOU\b/i.test(crew));
@@ -417,7 +586,7 @@ const head = (s) => console.log(`\n${s}`);
     await page.waitForSelector('#crewShop .sh-crew-body', { timeout: 4000 });
     const opened = await page.innerText('#crewShop .sh-crew-body');
     ok('opening a pilot draws their card', (await page.locator('#crewShop .sh-crew-body .sh-card').count()) === 1);
-    ok('…in their own finish',
+    ok('…in their own club’s finish',
         /sh-card-t4/.test(await page.getAttribute('#crewShop .sh-crew-body .sh-card', 'class')));
     ok('…and the figure on it is what they EARNED, said so',
         /earned/.test(opened), opened.slice(0, 300));
