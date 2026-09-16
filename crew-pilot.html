@@ -89,6 +89,10 @@
     <script src="/crewTraining.js"></script>
     <!-- What they have to show for it. -->
     <script src="/crewAwards.js"></script>
+    <!-- …and all of it at the top of the page: rank, club, awards and anything
+         they have claimed, in one row across the hero. One fetch, because it is
+         one row and a hero does not get to flicker. -->
+    <script src="/crewBadges.js"></script>
     <!-- Telling the airline they are away, so the roster sweep leaves them be. -->
     <script src="/crewLeave.js"></script>
     <style>
@@ -335,7 +339,18 @@
             <!-- Was "You're 36 hours from Captain" for everybody, including
                  pilots who were already Captains and pilots with no hours. -->
             <p id="heroLine" class="text-white/85 text-sm sm:text-base mt-2.5 max-w-lg"></p>
-            <div class="flex flex-wrap items-center gap-2.5 mt-6">
+            <!-- ============ WHAT THIS PILOT WEARS ============
+                 Their rank, their club, every award they have earned and
+                 everything they have claimed from the shop, painted by
+                 crewBadges.js. Between the line and the buttons because it is
+                 about the person the line is addressed to.
+
+                 Hidden outright until the fetch lands and there is a badge to
+                 draw: a pilot on their first day at a VA with no rank ladder
+                 has nothing here, and a gap under their name is worse than no
+                 row at all. -->
+            <div id="heroBadges" class="mt-4 cp-hidden"></div>
+            <div class="flex flex-wrap items-center gap-2.5 mt-5">
                 <button onclick="openFilePirep()" class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2">
                     <i data-lucide="clipboard-pen" class="w-4 h-4"></i> File a PIREP
                 </button>
@@ -1196,6 +1211,28 @@
                 },
             });
         }
+        // ---- The row across the hero ----
+        //
+        // Every badge leads to the screen it came from — this page is the only
+        // thing that knows which panels it has mounted, so it owns the mapping
+        // rather than the module guessing at it.
+        function mountHeroBadges(){
+            const host=document.getElementById('heroBadges');
+            if(!host || !window.CrewBadges) return;
+            CrewBadges.mountRail(host, {
+                api: crewApi(),
+                onOpen: (where)=>{
+                    if(where==='training') openTraining();
+                    else if(where==='awards') openAwards();
+                    // A club and a claimed item both live in the shop; the club
+                    // ladder is a tab of it, so the two differ only in which
+                    // one opens.
+                    else if(where==='clubs') { if(window.CrewShop) CrewShop.open({ ...shopArgs(), view:'clubs' }); }
+                    else if(where==='shop') openShop();
+                },
+            });
+        }
+
         function mountAwardStrip(){
             const host=document.getElementById('awardStrip');
             if(host && window.CrewAwards) CrewAwards.mountStrip(host, { api: crewApi() });
@@ -1787,6 +1824,10 @@
             // and mark on the front of it, and both arrive with the record.
             mountShopCard();
             mountSuggestStrip();
+            // After applyBranding for the same reason the card is: this sits on
+            // the airline's own hero image, and until that has resolved there
+            // is nothing to sit on.
+            mountHeroBadges();
             mountAwardStrip();
             mountCommand(); mountAlerts();
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)

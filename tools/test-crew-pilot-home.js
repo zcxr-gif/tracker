@@ -1,6 +1,12 @@
-// test-crew-suggestions.js
-// Drives the REAL crew-pilot.html to prove the four things added for a pilot
-// who opens the crew center asking "what should I fly tonight":
+// test-crew-pilot-home.js
+// Drives the REAL crew-pilot.html — the page ordinary pilots open — to prove
+// what was added to it: the row of badges across the hero, the club on the
+// card and in the shop, early access on the shelf, and the answer to "what
+// should I fly tonight".
+//
+//   * a pilot's rank, club, awards and claimed items are in ONE row at the top
+//     of the page, in that order, and every badge leads to the screen it came
+//     from
 //
 //   * the Route of the Day and the Route of the Week are on the page, named,
 //     and lead somewhere — not a heading over an empty box
@@ -16,7 +22,7 @@
 //   * the shop's Crew tab shows what other pilots hold, and never a balance
 //   * staff, and only staff, can pin a leg as the day's or the week's
 //
-// Run:  node tools/test-crew-suggestions.js
+// Run:  node tools/test-crew-pilot-home.js
 // Needs: playwright-core, and a Chromium at $PLAYWRIGHT_CHROMIUM (or the
 //        pre-installed /opt/pw-browsers/chromium).
 const { chromium } = require('playwright-core');
@@ -92,6 +98,32 @@ const CLUBS = () => ([
         ] },
 ]);
 
+// What the server joins for the hero row: rank, club, awards, claimed. The
+// ORDER is the argument — what the airline calls you, what your flying earned
+// you, what you crossed a line for, what you chose to spend it on — so the
+// stub sends it in that order and the page must not re-sort it.
+const BADGES = () => ({
+    badges: [
+        { kind: 'rank', id: 'rank', name: 'First Officer', image: '', icon: 'badge-check',
+            color: '#2E5AAC', note: 'Rank', opens: 'training' },
+        { kind: 'club', id: 'club:silver', name: 'Silver', image: '', icon: 'medal',
+            color: '#7C8794', note: 'Club · 1 benefit', opens: 'clubs' },
+        { kind: 'award', id: 'award:long-haul', name: 'Long haul', image: '', icon: 'moon',
+            color: '#C9A227', note: 'Earned', at: '2026-06-02T00:00:00Z', opens: 'awards' },
+        { kind: 'award', id: 'award:ports-25', name: '25 airports', image: '', icon: 'map',
+            color: '#9AA3B2', note: 'Earned', at: '2026-03-11T00:00:00Z', opens: 'awards' },
+        { kind: 'award', id: 'award:hours-10', name: '10 hours', image: '', icon: 'clock',
+            color: '#B4794A', note: 'Earned', at: '2026-01-05T00:00:00Z', opens: 'awards' },
+        { kind: 'held', id: 'held:a-badge', name: 'A badge on your profile', image: '', icon: 'shield',
+            color: '', note: 'Claimed', at: '2026-02-01T00:00:00Z', count: 2, opens: 'shop' },
+        { kind: 'held', id: 'held:callsign', name: 'Your own callsign', image: '', icon: 'radio',
+            color: '', note: 'Claimed', at: '2026-07-11T00:00:00Z', count: 1, opens: 'shop' },
+    ],
+    total: 7,
+    counts: { rank: 1, club: 1, award: 3, held: 2 },
+    pilot: { memberId: 'm1', name: 'Rae Okafor', callsign: 'BAW22', hours: 214 },
+});
+
 // Rae is 214 hours in: Silver, with Gold 36 hours away.
 const MY_CLUB = () => ({
     ...club('silver', 'Silver', 2, '#7C8794'),
@@ -107,6 +139,7 @@ const fresh = () => ({
     club: MY_CLUB(),
     clubs: CLUBS(),
     savedClubs: [],                 // every POST /clubs, in order
+    badges: null,                   // null = the server's own answer; [] = nothing worn
     pins: [],                       // every POST /featured-routes, in order
     week: { period: 'week', periodKey: '2026-W38', pinned: false, estimatedMin: 153, route: route('c', 'EGKK', 'LEMG', { distanceNm: 900 }) },
     day: { period: 'day', periodKey: '2026-09-16', pinned: false, estimatedMin: 56, route: route('b', 'EGLL', 'LFPG', { distanceNm: 190 }) },
@@ -173,6 +206,10 @@ function api(r) {
             if (hit) state[period] = { period, periodKey: 'x', pinned: true, estimatedMin: hit.estimatedMin, route: hit.route };
         }
         return json({ week: state.week, day: state.day });
+    }
+    if (p.endsWith('/me/badges')) {
+        if (state.badges === 'none') return json({ badges: [], total: 0, counts: {}, pilot: null });
+        return json(state.badges || BADGES());
     }
     if (p.endsWith('/shop/crew')) return json({ enabled: true, currency: { name: 'Miles', short: 'mi' }, crew: CREW(), clubs: CLUBS() });
     if (p.endsWith('/clubs/suggested')) return json({ clubs: CLUBS() });
@@ -281,6 +318,88 @@ const head = (s) => console.log(`\n${s}`);
         await page.waitForTimeout(1200);
         return { ctx, page };
     };
+
+    // ==================================================================
+    head('What this pilot wears is at the top of the page');
+    state = fresh();
+    let ctx0 = await open();
+    await ctx0.page.waitForSelector('#heroBadges .cb', { timeout: 6000 });
+    const rail = await ctx0.page.innerText('#heroBadges');
+
+    ok('the rail is revealed once there is a badge to draw',
+        !((await ctx0.page.locator('#heroBadges').getAttribute('class')) || '').includes('cp-hidden'));
+    // Six fit across a hero; the seventh is behind the "+n" chip.
+    ok('it draws what fits and no more',
+        (await ctx0.page.locator('#heroBadges .cb:not(.cb-more)').count()) === 6);
+    ok('…and says how many did not fit', /\+1 more/.test(rail), rail);
+
+    // The order IS the argument, and the page must not re-sort it.
+    const kinds = await ctx0.page.$$eval('#heroBadges .cb:not(.cb-more)',
+        (els) => els.map((el) => el.querySelector('.cb-name').textContent.trim()));
+    ok('the rank comes first — it is how this pilot is addressed', kinds[0] === 'First Officer', kinds.join(' | '));
+    ok('…then the club', kinds[1] === 'Silver', kinds.join(' | '));
+    ok('…then the awards, newest first', kinds[2] === 'Long haul' && kinds[4] === '10 hours', kinds.join(' | '));
+    ok('…then what they claimed', kinds[5] === 'A badge on your profile', kinds.join(' | '));
+
+    ok('every badge says what kind of thing it is', /rank/i.test(rail) && /claimed/i.test(rail), rail);
+    ok('…and a club says what it is worth', /1 benefit/i.test(rail), rail);
+    ok('two of the same thing is one badge with a count', /×2/.test(rail), rail);
+    ok('the rank reads louder than the rest',
+        (await ctx0.page.locator('#heroBadges .cb-rank').count()) === 1);
+    ok('a badge carries its own colour as a mark',
+        (await ctx0.page.getAttribute('#heroBadges .cb:first-child .cb-mark', 'style') || '').includes('#2E5AAC'));
+    // A badge you cannot follow is a sticker.
+    ok('every badge is a button, not a div',
+        (await ctx0.page.$$eval('#heroBadges .cb', (els) => els.every((el) => el.tagName === 'BUTTON'))));
+    ok('…with an accessible name that is not just the badge’s',
+        /First Officer, Rank/.test(await ctx0.page.getAttribute('#heroBadges .cb:first-child', 'aria-label') || ''),
+        await ctx0.page.getAttribute('#heroBadges .cb:first-child', 'aria-label'));
+
+    head('…and every badge leads to the screen it came from');
+    // The rank goes to the ladder it is a rung of.
+    await ctx0.page.click('#heroBadges .cb:first-child');
+    await ctx0.page.waitForTimeout(500);
+    ok('the rank opens the training ladder',
+        (await ctx0.page.locator('#crewTraining:not(.cp-hidden)').count()) === 1);
+    await ctx0.page.keyboard.press('Escape');
+    await ctx0.page.waitForTimeout(400);
+
+    // The club goes to the clubs tab of the shop, not just the shop.
+    await ctx0.page.locator('#heroBadges .cb').nth(1).click();
+    await ctx0.page.waitForSelector('#crewShop:not(.cp-hidden)', { timeout: 5000 });
+    await ctx0.page.waitForTimeout(500);
+    ok('the club opens the shop on the clubs tab',
+        (await ctx0.page.getAttribute('#crewShop [data-sh-view="clubs"]', 'aria-selected')) === 'true');
+    await ctx0.page.keyboard.press('Escape');
+    await ctx0.page.waitForTimeout(400);
+
+    await ctx0.page.locator('#heroBadges .cb').nth(2).click();
+    await ctx0.page.waitForTimeout(500);
+    ok('an award opens the awards panel',
+        (await ctx0.page.locator('#crewAwards:not(.cp-hidden)').count()) === 1);
+    await ctx0.page.keyboard.press('Escape');
+    await ctx0.page.waitForTimeout(400);
+
+    head('…and the ones that did not fit are still reachable');
+    await ctx0.page.click('#heroBadges [data-cb-all]');
+    await ctx0.page.waitForSelector('#crewBadges .cb-row', { timeout: 5000 });
+    const all = await ctx0.page.innerText('#crewBadges');
+    ok('the whole set opens', (await ctx0.page.locator('#crewBadges .cb-row').count()) === 7);
+    ok('…grouped, because "what did I earn" and "what did I buy" are two questions',
+        /your rank/i.test(all) && /earned/i.test(all) && /claimed/i.test(all), all.slice(0, 300));
+    ok('…and the seventh badge is in there', /your own callsign/i.test(all));
+    await ctx0.ctx.close();
+
+    // ==================================================================
+    head('A pilot with nothing to show carries no empty row');
+    state = fresh(); state.badges = 'none';
+    ctx0 = await open();
+    await ctx0.page.waitForTimeout(900);
+    ok('the rail stays hidden',
+        ((await ctx0.page.locator('#heroBadges').getAttribute('class')) || '').includes('cp-hidden'));
+    ok('…and is empty, not blank-but-drawn',
+        !(await ctx0.page.innerHTML('#heroBadges')).trim());
+    await ctx0.ctx.close();
 
     // ==================================================================
     head('The two featured legs are on the pilot’s home');
