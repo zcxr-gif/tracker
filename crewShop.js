@@ -79,6 +79,9 @@
         view: 'shop',       // shop | orders | manage
         data: null,         // the last GET /shop
         orders: null,
+        crew: null,         // the last GET /shop/crew — the roster's cards
+        crewError: null,
+        crewOpen: '',       // the pilot whose shelf is expanded, by id
         loading: false,
         error: null,
         editing: null,      // the item being added or changed, in the back office
@@ -217,16 +220,38 @@
            face then scales off the width the wrapper was given, whether that
            is a phone's screen, the shop's hero or the pay sheet. */
         .sh-card-fit{ container-type:inline-size; width:100%; max-width:26rem; }
+        /* THE FACE IS --sh-face, NOT --accent.
+           ------------------------------------------------------------------
+           The card used to be painted straight out of the page's accent, which
+           meant every pilot at an airline held an identical object for as long
+           as they flew there. It is now painted out of a colour the SERVER
+           sends with the wallet — the finish their rank has earned, or the
+           colour the VA itself painted that rung (see crewShop.tier on the
+           backend). The default below is the old behaviour exactly, so a card
+           drawn before the fetch lands, or for a signed-out visitor, or by an
+           older server that sends no tier, is the card this always was.
+
+           The three numbers under it are the finish: how hard the light comes
+           off the face, how much texture it carries, and what the rim is made
+           of. Those are what actually make a Platinum card look like a
+           different object from a Standard one — a colour swap alone reads as
+           a theme, where deeper light and a brighter edge read as better
+           material, which is the thing being rewarded. */
         .sh-card{ position:relative; width:100%; aspect-ratio:1.586;
+            --sh-face:var(--accent);
+            --sh-gloss:.26;
+            --sh-grain:.16;
+            --sh-rim:rgb(255 255 255 / .22);
             border-radius:1.15rem; overflow:hidden; color:#fff; isolation:isolate;
             background:
-                radial-gradient(120% 140% at 12% 4%, color-mix(in srgb, var(--accent) 88%, #fff 12%), transparent 58%),
-                radial-gradient(100% 120% at 96% 96%, color-mix(in srgb, var(--accent) 70%, #000 30%), transparent 62%),
-                linear-gradient(135deg, color-mix(in srgb, var(--accent) 92%, #000 8%), color-mix(in srgb, var(--accent) 58%, #000 42%));
-            box-shadow:0 1px 0 0 rgb(255 255 255 / .22) inset,
-                       0 18px 44px -18px color-mix(in srgb, var(--accent) 55%, transparent),
+                radial-gradient(120% 140% at 12% 4%, color-mix(in srgb, var(--sh-face) 88%, #fff 12%), transparent 58%),
+                radial-gradient(100% 120% at 96% 96%, color-mix(in srgb, var(--sh-face) 70%, #000 30%), transparent 62%),
+                linear-gradient(135deg, color-mix(in srgb, var(--sh-face) 92%, #000 8%), color-mix(in srgb, var(--sh-face) 58%, #000 42%));
+            box-shadow:0 1px 0 0 var(--sh-rim) inset,
+                       0 18px 44px -18px color-mix(in srgb, var(--sh-face) 55%, transparent),
                        0 30px 60px -40px rgb(0 0 0 / .9);
-            transition:transform .4s cubic-bezier(.22,1.12,.36,1), box-shadow .4s ease;
+            transition:transform .4s cubic-bezier(.22,1.12,.36,1), box-shadow .4s ease,
+                       background .6s ease;
             transform-style:preserve-3d; will-change:transform;
             padding:4.4cqi 4.8cqi; display:flex; flex-direction:column;
             font-variant-numeric:tabular-nums;
@@ -237,19 +262,30 @@
                swamps the name, the number wraps. In cqi it is one card, drawn
                larger or smaller, exactly like the object it is imitating. */
         }
+        /* The five finishes. Five and not one per rank: a twelve-rung airline
+           with twelve card colours is a palette rather than a progression —
+           nobody can tell the eighth from the ninth. Which rung maps to which
+           is the server's decision, because only the ladder knows where its own
+           top is; these are just the materials. */
+        .sh-card-t1{ --sh-gloss:.30; --sh-grain:.19; --sh-rim:rgb(255 226 196 / .34); }
+        .sh-card-t2{ --sh-gloss:.36; --sh-grain:.22; --sh-rim:rgb(236 242 248 / .42); }
+        .sh-card-t3{ --sh-gloss:.44; --sh-grain:.27; --sh-rim:rgb(255 236 178 / .52); }
+        .sh-card-t4{ --sh-gloss:.54; --sh-grain:.32; --sh-rim:rgb(226 232 244 / .68); }
         /* The sheen. One pass of light across the face, following the pointer
            where there is one and sitting still where there is not. */
         .sh-card::before{
             content:''; position:absolute; inset:-40%; z-index:0; pointer-events:none;
-            background:linear-gradient(115deg, transparent 38%, rgb(255 255 255 / .26) 48%,
+            background:linear-gradient(115deg, transparent 38%,
+                       rgb(255 255 255 / var(--sh-gloss)) 48%,
                        rgb(255 255 255 / .06) 56%, transparent 64%);
             transform:translateX(var(--sh-sheen, -12%)) rotate(4deg);
             transition:transform .5s cubic-bezier(.22,1.12,.36,1);
         }
         /* A fine guilloché — the texture that stops a flat gradient reading as
-           a placeholder. Two hairline grids at an angle, at 6% opacity. */
+           a placeholder. Two hairline grids at an angle. */
         .sh-card::after{
-            content:''; position:absolute; inset:0; z-index:0; pointer-events:none; opacity:.16;
+            content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
+            opacity:var(--sh-grain);
             background-image:
                 repeating-linear-gradient(68deg, rgb(255 255 255 / .5) 0 1px, transparent 1px 9px),
                 repeating-linear-gradient(-68deg, rgb(255 255 255 / .35) 0 1px, transparent 1px 13px);
@@ -260,8 +296,24 @@
         .sh-card-airline{ font-size:2.9cqi; font-weight:800; letter-spacing:.16em; text-transform:uppercase;
             opacity:.86; line-height:1.3; max-width:60cqi; }
         .sh-card-tier{ font-size:2.4cqi; font-weight:800; letter-spacing:.14em; text-transform:uppercase;
-            opacity:.72; margin-top:.4cqi; }
-        .sh-card-logo{ max-height:8cqi; max-width:24cqi; object-fit:contain; filter:drop-shadow(0 1px 2px rgb(0 0 0 / .35)); }
+            opacity:.72; margin-top:.4cqi; display:flex; align-items:center; gap:1.4cqi; flex-wrap:wrap; }
+        /* The finish, named. A pilot who can see their card change but cannot
+           say what it changed TO has been given a mood, not a reward — and
+           "Gold" is a word an airline's pilots already know the meaning of. */
+        .sh-card-finish{ display:inline-flex; align-items:center; gap:.9cqi; opacity:1;
+            padding:.5cqi 1.5cqi; border-radius:999px; letter-spacing:.16em;
+            border:1px solid var(--sh-rim); background:rgb(255 255 255 / .1); }
+        /* How far up the ladder that finish is. The pips are the half a pilot
+           acts on: the name says what they hold, the pips say there is more. */
+        .sh-pips{ display:inline-flex; gap:.6cqi; }
+        .sh-pip{ width:1.1cqi; height:1.1cqi; border-radius:999px; background:rgb(255 255 255 / .28); }
+        .sh-pip-on{ background:#fff; box-shadow:0 0 .8cqi rgb(255 255 255 / .6); }
+        /* ROUNDED, because a VA's mark is very often a square PNG and a square
+           corner against a rounded card reads as a sticker somebody left on it.
+           A logo with its own transparent margin loses nothing to this — the
+           radius clips a corner that was not drawn on. */
+        .sh-card-logo{ max-height:8cqi; max-width:24cqi; object-fit:contain; border-radius:1.4cqi;
+            filter:drop-shadow(0 1px 2px rgb(0 0 0 / .35)); }
         /* The chip. Drawn rather than an image so it takes the card's own
            light, and because one more network request for 34 pixels is silly. */
         .sh-chip{ flex:none; width:10cqi; height:7.7cqi; border-radius:1.4cqi; margin:3.4cqi 0 .8cqi;
@@ -288,8 +340,8 @@
         .sh-card-blank .sh-card-balance b,.sh-card-blank .sh-card-name{ opacity:.45; }
 
         @media (hover:hover){
-            .sh-card-live:hover{ box-shadow:0 1px 0 0 rgb(255 255 255 / .3) inset,
-                0 26px 60px -20px color-mix(in srgb, var(--accent) 65%, transparent),
+            .sh-card-live:hover{ box-shadow:0 1px 0 0 var(--sh-rim) inset,
+                0 26px 60px -20px color-mix(in srgb, var(--sh-face) 65%, transparent),
                 0 40px 70px -40px rgb(0 0 0 / .95); }
         }
         @media (prefers-reduced-motion:reduce){
@@ -580,6 +632,49 @@
         .sh-icon i{ width:1rem; height:1rem; }
         .sh-icon[aria-pressed="true"]{ border-color:var(--accent);
             box-shadow:0 0 0 1px var(--accent); color:var(--accent); }
+        /* ---- THE CREW, AND WHAT THEY HOLD -------------------------------
+           Rows, not cards. A roster of two hundred cards is a wall; the card
+           is what you get when you open ONE of them, which is also the shape
+           of the question people actually ask here. */
+        .sh-crew{ display:grid; gap:.3rem; }
+        .sh-crew-row{ border:1px solid transparent; border-radius:.6rem; transition:border-color .15s ease; }
+        .sh-crew-open{ border-color:var(--line,#e5e5e5);
+            background:color-mix(in srgb, var(--ink,#1C1A16) 2%, transparent); }
+        .sh-crew-head{ display:flex; align-items:center; gap:.7rem; width:100%; text-align:left;
+            padding:.55rem .6rem; border:0; background:none; color:inherit; font:inherit; cursor:pointer;
+            border-radius:.6rem; }
+        .sh-crew-head:hover{ background:color-mix(in srgb, var(--ink,#1C1A16) 4%, transparent); }
+        /* The finish, at a glance, down the left edge of the list. This is what
+           makes the progression legible as a LIST — a column of colours that
+           gets richer towards the top is the whole reward, seen from outside. */
+        .sh-crew-swatch{ flex:none; width:1.6rem; height:1.1rem; border-radius:.25rem;
+            --sh-face:var(--accent); --sh-rim:rgb(255 255 255 / .22);
+            background:linear-gradient(135deg, color-mix(in srgb, var(--sh-face) 92%, #fff 8%),
+                       color-mix(in srgb, var(--sh-face) 58%, #000 42%));
+            box-shadow:0 0 0 1px var(--sh-rim) inset, 0 1px 2px rgb(0 0 0 / .25); }
+        .sh-crew-who{ flex:1; min-width:0; display:grid; gap:.1rem; }
+        .sh-crew-name{ font-weight:650; letter-spacing:-.01em; overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap; }
+        .sh-crew-sub{ font-size:.75rem; color:var(--muted,#736E64); overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap; }
+        .sh-crew-holds{ display:flex; align-items:center; gap:.25rem; flex-shrink:0;
+            max-width:min(48%, 18rem); overflow:hidden; }
+        .sh-crew-holds .cp-chip{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:9rem; }
+        .sh-crew-none{ font-size:.72rem; color:var(--faint,#A8A296); }
+        .sh-crew-caret{ width:1rem; height:1rem; flex:none; color:var(--faint,#A8A296);
+            transition:transform .18s ease; }
+        .sh-crew-open .sh-crew-caret{ transform:rotate(180deg); }
+        .sh-crew-body{ display:grid; gap:1rem; padding:.2rem .6rem .8rem; }
+        @media (min-width:34rem){ .sh-crew-body{ grid-template-columns:minmax(0,17rem) minmax(0,1fr);
+            align-items:start; } }
+        .sh-crew-side{ display:grid; gap:.7rem; align-content:start; }
+        .sh-crew-list{ list-style:none; margin:0; padding:0; display:grid; gap:.3rem; }
+        .sh-crew-list li{ display:flex; align-items:center; gap:.45rem; font-size:.82rem; }
+        .sh-crew-list i{ width:.9rem; height:.9rem; flex:none; color:var(--accent); }
+        .sh-crew-list b{ font-weight:700; }
+        .sh-crew-list em{ margin-left:auto; font-style:normal; font-size:.72rem;
+            color:var(--faint,#A8A296); white-space:nowrap; }
+        @media (hover:none){ .sh-crew-holds{ display:none; } }
         .sh-off{ text-align:center; padding:2.2rem 1rem; display:grid; gap:.6rem; justify-items:center; }
         .sh-off i{ width:1.7rem; height:1.7rem; color:var(--faint,#A8A296); }
         .sh-off-title{ font-size:1rem; font-weight:800; letter-spacing:-.015em; }
@@ -597,6 +692,69 @@
      * advertisement for signing in.
      * =================================================================== */
 
+    /* =====================================================================
+     * THE FINISH
+     *
+     * The card changes as a pilot climbs. What it changes TO is the server's
+     * decision — only the VA's own ladder knows where its top rung is, and a
+     * four-rung airline and a twelve-rung one are both complete ladders — so
+     * this reads `wallet.tier` and draws it, and invents nothing when it is
+     * absent.
+     *
+     * An older server sends a wallet with no `tier` on it. That is not a
+     * degraded state to paper over: the card falls back to the page's accent
+     * and no finish is named, which is exactly the card this was before, and
+     * is a great deal better than a browser guessing at a rank ladder it
+     * cannot see.
+     * =================================================================== */
+
+    const tierOf = (w) => (w && w.tier && typeof w.tier === 'object' ? w.tier : null);
+
+    /** The face colour, as an inline custom property. Empty when unknown. */
+    function faceStyle(w) {
+        const t = tierOf(w);
+        // A colour only, and only one this module recognises as one: it lands
+        // in a style attribute, and a style attribute is not a place to put a
+        // string a server sent without looking at it.
+        const hex = t && typeof t.accent === 'string' && /^#[0-9a-f]{3,8}$/i.test(t.accent.trim())
+            ? t.accent.trim() : '';
+        return hex ? ` style="--sh-face:${esc(hex)}"` : '';
+    }
+
+    /** `sh-card-t3`, or nothing. The material, not the colour. */
+    function tierClass(w) {
+        const t = tierOf(w);
+        const at = t ? Math.round(Number(t.index)) : NaN;
+        return Number.isFinite(at) && at > 0 ? ` sh-card-t${Math.min(4, at)}` : '';
+    }
+
+    /**
+     * The line under the airline's name: the rank, and the finish it earned.
+     *
+     * The pips are the half a pilot acts on. The name says what they hold; the
+     * pips say there is more of it, which is the only part of this that makes
+     * anybody fly another leg. Drawn only where there IS a ladder — a VA that
+     * has not written one has not made a progression, and four empty circles
+     * would be a promise nobody at that airline can keep.
+     */
+    function tierHtml(w) {
+        const t = tierOf(w);
+        const rank = w && w.rank ? esc(w.rank) : '';
+        if (!rank && !t) return '';
+        const ladder = t && Number(t.of) > 1 && Number(w.rankCount) > 1;
+        const pips = ladder
+            ? `<span class="sh-pips" aria-hidden="true">${Array.from({ length: Number(t.of) }, (_, i) =>
+                `<span class="sh-pip${i <= Number(t.index) ? ' sh-pip-on' : ''}"></span>`).join('')}</span>`
+            : '';
+        // The finish is named next to the rank rather than in place of it: the
+        // rank is what the airline calls this pilot and it is not this feature's
+        // to replace.
+        const finish = t && t.name
+            ? `<span class="sh-card-finish">${pips}${esc(t.name)}</span>` : '';
+        if (!rank && !finish) return '';
+        return `<div class="sh-card-tier">${rank}${finish}</div>`;
+    }
+
     function cardHtml(wallet, opts) {
         const o = opts || {};
         const w = wallet || null;
@@ -604,20 +762,21 @@
         const logo = b.logo && P.safeUrl(b.logo)
             ? `<img class="sh-card-logo" src="${esc(b.logo)}" alt="">` : '';
         const airline = esc(b.name || b.code || 'Crew Center');
-        const tier = w && w.rank ? `<div class="sh-card-tier">${esc(w.rank)}</div>` : '';
+        const tier = tierHtml(w);
         const name = w && (w.name || w.callsign) ? esc(w.name || w.callsign) : 'Not linked';
         const since = w && w.since
             ? `Member since ${new Date(w.since).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}`
             : 'Member';
         const cs = w && w.callsign ? esc(w.callsign) : '';
-        return `<div class="sh-card-fit"><div class="sh-card ${w ? 'sh-card-live' : 'sh-card-blank'}" ${o.interactive === false ? '' : 'data-sh-tilt'}>
+        return `<div class="sh-card-fit"><div class="sh-card ${w ? 'sh-card-live' : 'sh-card-blank'}${tierClass(w)}"${faceStyle(w)} ${o.interactive === false ? '' : 'data-sh-tilt'}>
             <div class="sh-card-top">
                 <div><div class="sh-card-airline">${airline}</div>${tier}</div>
                 ${logo}
             </div>
             <div class="sh-chip" aria-hidden="true"></div>
             <div class="sh-card-balance">
-                <b>${w ? num(w.balance) : '—'}</b><span>${esc(currency().short)}</span>
+                <b>${w ? num(w.balance) : '—'}</b><span>${esc(currency().short)}${w && w.balanceNote
+                    ? ` ${esc(w.balanceNote)}` : ''}</span>
             </div>
             <div class="sh-card-num">${esc(cardNumber(w))}</div>
             <div class="sh-card-foot">
@@ -711,6 +870,26 @@
         draw();
     }
 
+    /**
+     * The crew, and what they hold.
+     *
+     * Its own fetch rather than part of /shop: it is a read of the whole
+     * roster joined to the whole order table, and a pilot who only ever opens
+     * the shelf should not pay for it on every visit. Fetched the first time
+     * the tab is opened and kept — a shelf does not change while somebody is
+     * looking at it, and re-reading it on every redraw would mean a round trip
+     * per expanded row.
+     */
+    async function loadCrew() {
+        try {
+            const d = await S.api('/shop/crew');
+            S.crew = Array.isArray(d.crew) ? d.crew : [];
+        } catch (err) {
+            S.crew = null; S.crewError = err;
+        }
+        draw();
+    }
+
     /* =====================================================================
      * DRAWING
      *
@@ -738,7 +917,7 @@
         const canManage = !!S.data.canManage;
         if (!S.data.enabled) return canManage ? offStaffHtml() : offPilotHtml();
 
-        const tabs = [['shop', 'Shop'], ['orders', canManage ? 'Orders' : 'My orders']];
+        const tabs = [['shop', 'Shop'], ['crew', 'Crew'], ['orders', canManage ? 'Orders' : 'My orders']];
         if (canManage) tabs.push(['manage', 'Set up']);
         const tabBar = `<div class="sh-tabs" role="tablist">${tabs.map(([k, label]) =>
             `<button class="sh-tab ${S.view === k ? 'sh-tab-on' : ''}" role="tab"
@@ -746,6 +925,7 @@
 
         let view = '';
         if (S.view === 'orders') view = ordersHtml();
+        else if (S.view === 'crew') view = crewHtml();
         else if (S.view === 'manage' && canManage) view = manageHtml();
         else view = shopHtml();
 
@@ -1214,6 +1394,140 @@
         }
         return `<div class="sh-section">${S.orders.map(orderHtml).join('')}</div>`;
     }
+
+    /* =====================================================================
+     * THE CREW
+     *
+     * WHY A SHOP HAS A CREW LIST AT ALL
+     *
+     * Look at what a VA actually sells. A badge on your profile. Your own
+     * callsign. A tail number with your name on the fleet page. First pick of
+     * the gate. Featured on the website. Every one of those is a thing whose
+     * entire value is that OTHER PEOPLE CAN SEE IT — and until now nobody
+     * could. A pilot spent twenty hours of flying on a badge and the only
+     * person in the airline who knew was them.
+     *
+     * So this is the other half of the shelf: the same card every pilot holds,
+     * the finish their rank has earned, and what they have bought. It is the
+     * reason the badge was worth buying.
+     *
+     * WHAT IT DOES NOT SHOW, and the server enforces all of it rather than
+     * trusting this file: no balances, no prices, nobody's receipts, nothing
+     * still in the queue. What somebody has left to spend is between them and
+     * the airline. See crewShop.publicHolder on the backend.
+     *
+     * ONE ROW OPEN AT A TIME. A roster of two hundred cards is not a list, it
+     * is a wall — so the list is rows, and opening one draws that pilot's card
+     * at full size. Which is also the honest shape of the question people ask
+     * here, which is about one person at a time.
+     * =================================================================== */
+
+    function crewHtml() {
+        if (S.crew === null) {
+            if (!S.crewError) { loadCrew(); return `<p class="cp-note" style="text-align:center;padding:2rem 0">Reading the crew…</p>`; }
+            const err = S.crewError;
+            if (err && err.status === 401) {
+                return `<div class="cp-empty"><i data-lucide="lock"></i>
+                    Sign in as a pilot of this airline to see the crew.</div>`;
+            }
+            if (P.isSchemaGap(err)) return P.schemaGapHtml(err);
+            if (err && err.status === 404) return P.notBuiltHtml('The crew list');
+            return `<div class="cp-empty"><i data-lucide="cloud-off"></i>
+                ${esc((err && err.message) || 'The crew could not be read.')}</div>`;
+        }
+        if (!S.crew.length) {
+            return `<div class="cp-empty"><i data-lucide="users"></i>
+                Nobody on the roster yet.</div>`;
+        }
+        const holders = S.crew.filter((c) => c.holds && c.holds.length).length;
+        const note = holders
+            ? `${holders} of ${S.crew.length} ${S.crew.length === 1 ? 'pilot has' : 'pilots have'} something on the shelf.`
+            : `Nobody has collected anything yet. Whatever your crew buy shows up here.`;
+        return `<p class="cp-note" style="margin-bottom:.7rem">${esc(note)}</p>
+            <div class="sh-crew">${S.crew.map(crewRowHtml).join('')}</div>`;
+    }
+
+    function crewRowHtml(c) {
+        const open = String(S.crewOpen) === String(c.pilotId);
+        const t = tierOf(c);
+        const holds = c.holds || [];
+        // The chips ARE the point of the row. Two at most before it becomes
+        // "+3 more": a row that wraps to three lines has stopped being a row,
+        // and the whole shelf is one tap away underneath it.
+        const chips = holds.slice(0, 2).map((h) =>
+            `<span class="cp-chip">${esc(h.name)}${h.count > 1 ? ` ×${h.count}` : ''}</span>`).join('');
+        const more = holds.length > 2
+            ? `<span class="cp-chip cp-chip-mute">+${holds.length - 2}</span>` : '';
+        const sub = [c.callsign, c.rank].filter(Boolean).join(' · ');
+        return `<div class="sh-crew-row${open ? ' sh-crew-open' : ''}">
+            <button type="button" class="sh-crew-head" data-sh-crew="${esc(c.pilotId)}"
+                aria-expanded="${open}">
+                <span class="sh-crew-swatch${tierClass(c)}"${faceStyle(c)} aria-hidden="true"></span>
+                <span class="sh-crew-who">
+                    <span class="sh-crew-name">${esc(c.name || 'A pilot')}${c.isMe
+                        ? ' <span class="cp-chip cp-chip-accent">You</span>' : ''}</span>
+                    <span class="sh-crew-sub">${esc(sub) || '&nbsp;'}</span>
+                </span>
+                <span class="sh-crew-holds">${chips}${more}
+                    ${holds.length ? '' : '<span class="sh-crew-none">Nothing yet</span>'}</span>
+                <i data-lucide="chevron-down" class="sh-crew-caret"></i>
+            </button>
+            ${open ? crewDetailHtml(c) : ''}
+        </div>`;
+    }
+
+    /**
+     * One pilot, opened: their card, and the whole shelf under it.
+     *
+     * The card is drawn by the same `cardHtml` the pilot themselves sees, with
+     * their own finish on it — that is the whole point, and a second, lesser
+     * rendering of a card for "other people" would be a different object.
+     * `interactive:false` because a card you can tilt is a card you own.
+     */
+    function crewDetailHtml(c) {
+        const holds = c.holds || [];
+        const shelf = holds.length
+            ? `<ul class="sh-crew-list">${holds.map((h) => `<li>
+                <i data-lucide="check"></i>
+                <span>${esc(h.name)}${h.count > 1 ? ` <b>×${h.count}</b>` : ''}</span>
+                ${h.since ? `<em>${esc(relativeText(h.since))}</em>` : ''}
+            </li>`).join('')}</ul>`
+            : `<p class="cp-note">Nothing collected yet.</p>`;
+        const earned = Number(c.earned) || 0;
+        return `<div class="sh-crew-body">
+            ${cardHtml(crewWallet(c), { interactive: false })}
+            <div class="sh-crew-side">
+                <div class="sh-stats">
+                    <div class="sh-stat"><b>${num(c.hours)}</b><span>hours flown</span></div>
+                    <div class="sh-stat"><b>${num(earned)}</b><span>${esc(currency().short)} earned</span></div>
+                </div>
+                ${shelf}
+            </div>
+        </div>`;
+    }
+
+    /**
+     * A crew member, in the shape the card draws.
+     *
+     * `balance` is deliberately absent and the card handles that: it prints the
+     * total this pilot has EARNED instead, which is a fact about their flying
+     * rather than about their money, and never goes down. What somebody has
+     * left to spend is theirs.
+     */
+    const crewWallet = (c) => ({
+        pilotId: c.pilotId,
+        name: c.name,
+        callsign: c.callsign,
+        rank: c.rank,
+        rankCount: c.tier ? c.tier.of : 0,
+        tier: c.tier,
+        since: c.since,
+        balance: Number(c.earned) || 0,
+        // The card prints this word next to the figure. Without it the number
+        // would read as a balance, and it is not one — it is what this pilot's
+        // flying has earned them, all of it, whatever they have since spent.
+        balanceNote: 'earned',
+    });
 
     function orderHtml(o) {
         const [label, chip] = ORDER_STATE[o.status] || ORDER_STATE.placed;
@@ -1737,6 +2051,17 @@
             if (buy) {
                 const item = (S.data.items || []).find((x) => String(x.id) === buy.getAttribute('data-sh-buy'));
                 if (item) pay(item);
+                return;
+            }
+
+            // One row open at a time: a second tap on the same pilot closes
+            // them, and opening another closes the first. A list where five
+            // cards are open at once is the wall this list exists to avoid.
+            const crew = t.closest('[data-sh-crew]');
+            if (crew) {
+                const id = crew.getAttribute('data-sh-crew');
+                S.crewOpen = String(S.crewOpen) === String(id) ? '' : id;
+                draw();
                 return;
             }
 

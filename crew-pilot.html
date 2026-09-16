@@ -71,6 +71,11 @@
          Inflight Pay sheet they spend it through. Draws nothing at all for a
          VA that does not run a shop. -->
     <script src="/crewShop.js"></script>
+    <!-- What to fly tonight: the Route of the Day, the Route of the Week, and
+         a short list scored against what this pilot actually flies. Reads live
+         ATC off the tracker where this page is running inside it, and works
+         without it where it is not. -->
+    <script src="/crewSuggestions.js"></script>
     <!-- Paying should be felt. Silent on a desktop and in any browser without
          the Vibration API; the crew center's only use of it. -->
     <script src="/haptics.js"></script>
@@ -93,6 +98,14 @@
            class stops being hidden, including the password gate. See the same
            rule and reasoning in crew-dashboard.html. */
         .hidden{ display:none; }
+        /* A VA's mark is very often a square PNG, and a square corner against
+           this page's rounded chrome reads as a sticker somebody left on it.
+           Written here rather than as a Tailwind class on purpose: Tailwind is
+           a CDN script, and when it is slow or blocked every logo on the page
+           goes back to being a block — the same reason `.hidden` is restated
+           above. A logo with its own transparent margin loses nothing to this;
+           the radius clips a corner that was never drawn on. */
+        #navLogo{ border-radius:.4rem; }
         /* Never let a field or a stray wide child scroll the whole page sideways. */
         html,body{ max-width:100%; overflow-x:hidden; }
         input,select,textarea{ max-width:100%; }
@@ -367,6 +380,13 @@
             </div>
         </section>
 
+        <!-- ============ WHAT TO FLY ============
+             The Route of the Day and the Route of the Week, drawn by
+             crewSuggestions.js. Hidden outright until the fetch lands and
+             there is a leg to name: a VA that has published no routes must not
+             carry an empty frame here. -->
+        <section id="suggestStrip" class="mt-6 cp-hidden"></section>
+
         <!-- ============ THE CARD ============
              This pilot's own card and balance, painted by crewShop.js. Starts
              hidden and stays hidden unless the VA runs a shop — an empty frame
@@ -597,6 +617,10 @@
             {icon:'award',label:'Awards',desc:'What you’ve earned',action:'awards'},
             {icon:'palmtree',label:'Going away?',desc:'Pause the roster sweep',action:'leave'},
             {icon:'route',label:'Route network',desc:'Where this airline flies',action:'network'},
+            // The question this page could never answer. Last in the grid
+            // because the two featured legs are already up the page in their
+            // own strip — this tile is for the pilot who wants the rest.
+            {icon:'compass',label:'What to fly',desc:'Picked for how you fly',action:'suggest'},
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
@@ -626,6 +650,7 @@
                 if(act==='awards') el.addEventListener('click', openAwards);
                 if(act==='leave') el.addEventListener('click', openLeave);
                 if(act==='network') el.addEventListener('click', openNetwork);
+                if(act==='suggest') el.addEventListener('click', openSuggestions);
             });
             // Both hosts only exist once the tiles have been drawn, so they are
             // handed over here rather than at mount. Each module keeps painting
@@ -1103,6 +1128,21 @@
         function mountShopCard(){
             const host=document.getElementById('shopCard');
             if(host && window.CrewShop) CrewShop.mountCard(host, shopArgs());
+        }
+
+        // ---- What to fly ----
+        //
+        // A route tile leads to the network panel, which is where a leg's own
+        // detail lives. Passing the handler rather than letting the module
+        // guess keeps the flown-set below — the ticks on legs this pilot has
+        // already done — the same in both places.
+        function suggestArgs(){
+            return { api: crewApi(), onOpenRoute: ()=>openNetwork() };
+        }
+        function openSuggestions(){ if(window.CrewSuggestions) CrewSuggestions.open(suggestArgs()); }
+        function mountSuggestStrip(){
+            const host=document.getElementById('suggestStrip');
+            if(host && window.CrewSuggestions) CrewSuggestions.mountStrip(host, suggestArgs());
         }
 
         // ---- The ladder, the awards, and being away ----
@@ -1746,6 +1786,7 @@
             // After applyBranding, not before: the card has the airline's name
             // and mark on the front of it, and both arrive with the record.
             mountShopCard();
+            mountSuggestStrip();
             mountAwardStrip();
             mountCommand(); mountAlerts();
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
