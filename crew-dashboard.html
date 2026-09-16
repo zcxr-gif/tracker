@@ -1084,6 +1084,10 @@
                         <label class="text-xs muted">Callsign prefix
                             <input id="callsignPrefix" placeholder="ACA" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
                         </label>
+                        <label class="text-xs muted">Reserved callsign numbers
+                            <input id="callsignReservedMax" type="number" min="0" max="999" placeholder="10" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                            <span id="reservedHint" class="block text-[11px] faint mt-1">1–10 are kept for you to assign. Applicants can’t pick them. 0 to allow any number.</span>
+                        </label>
                     </div>
                     <div class="mt-4">
                         <div class="flex items-center justify-between mb-2">
@@ -1643,7 +1647,7 @@
                 <div id="pilotFormTitle" class="text-sm font-semibold mb-2.5">Add pilot</div>
                 <div class="grid grid-cols-2 gap-2.5">
                     <input id="np_name" placeholder="Name" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                    <input id="np_callsign" placeholder="Callsign (ACA1174)" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <input id="np_callsign" placeholder="Callsign or number" title="Type a number and it takes your VA's callsign shape — 1 becomes AEROMEXICO 001MX. Staff may issue a reserved number." class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <input id="np_hours" type="number" min="0" placeholder="Hours" class="surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                     <select id="np_role" class="surface hair rounded-lg px-2.5 py-2 text-sm"></select>
                     <select id="np_status" class="surface hair rounded-lg px-2.5 py-2 text-sm col-span-2">
@@ -4633,7 +4637,11 @@
         }
 
         // ---- Recruitment (staff form builder) ----
-        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', discordInvite:'', form:[], reqs:[] };
+        // `callsignReservedMax` is the top of the range of pilot numbers this VA
+        // keeps for itself: the join form refuses them, staff assign them from
+        // the roster. 001 is the founder's, not whoever filled the form in
+        // first. 0 opens every number up.
+        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', callsignReservedMax:10, discordInvite:'', form:[], reqs:[] };
         // Extensible join requirements. Numeric types are auto-checked against
         // the applicant's real IF stats; 'agree' is a custom checkbox. (Grade has
         // its own control above, so it's intentionally not offered here.)
@@ -4694,6 +4702,15 @@
             renderJoinMode();
             document.getElementById('minGrade').value=String(JOIN.minGrade||0);
             document.getElementById('callsignPrefix').value=JOIN.callsignPrefix||'';
+            const rm=document.getElementById('callsignReservedMax');
+            if(rm){
+                const max=Number.isFinite(JOIN.callsignReservedMax)?JOIN.callsignReservedMax:10;
+                rm.value=String(max);
+                const hint=document.getElementById('reservedHint');
+                if(hint) hint.textContent = max>0
+                    ? `1–${max} are kept for you to assign. Applicants can’t pick them. 0 to allow any number.`
+                    : 'Nothing is reserved — applicants can pick any number, including 1.';
+            }
             const inv=document.getElementById('joinDiscord'); if(inv) inv.value=JOIN.discordInvite||'';
             renderQuestions();
             renderRequirements();
@@ -4872,8 +4889,16 @@
             const note=document.getElementById('recruitNote');
             JOIN.minGrade=Number(document.getElementById('minGrade').value)||0;
             JOIN.callsignPrefix=document.getElementById('callsignPrefix').value.trim();
+            // A blank box means "leave it as it is", not "reserve nothing" —
+            // losing 001 to an empty field is not a recoverable mistake. The
+            // server sanitises this the same way.
+            const rmRaw=(document.getElementById('callsignReservedMax')||{}).value;
+            if(String(rmRaw??'').trim()!==''){
+                const n=Math.trunc(Number(rmRaw));
+                if(Number.isFinite(n)&&n>=0) JOIN.callsignReservedMax=Math.min(999,n);
+            }
             JOIN.discordInvite=(document.getElementById('joinDiscord')||{}).value?.trim()||'';
-            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, discordInvite:JOIN.discordInvite||'', applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
+            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, callsignReservedMax:JOIN.callsignReservedMax, discordInvite:JOIN.discordInvite||'', applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ note.textContent='Applied on this device. Sign in to save for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); say('Applied on this device. Sign in to save it for your crew.','info'); return; }
             const stop=busy(btn,'Saving…');
@@ -9371,7 +9396,11 @@
             if(Array.isArray(b.partners)) PARTNERS=normalizePartners(b.partners);
             if(b.social) SOCIAL=normalizeSocialConfig(b.social);
             PIREP_AUTO = !!b.pirepAutoApprove;
-            if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'', discordInvite:b.join.discordInvite||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
+            if(b.join) JOIN={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||'',
+                // A backend that doesn't send it yet leaves the default in
+                // place rather than reading as "reserve nothing".
+                callsignReservedMax:(typeof b.join.callsignReservedMax==='number'&&b.join.callsignReservedMax>=0)?b.join.callsignReservedMax:10,
+                discordInvite:b.join.discordInvite||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
             CREW_NAME=name;
             const mono=initials(name,b.code);

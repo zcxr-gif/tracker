@@ -137,7 +137,12 @@
         const mq = (q) => !!(window.matchMedia && window.matchMedia(q).matches);
         const STILL  = mq('(prefers-reduced-motion: reduce)');
         const COARSE = mq('(pointer: coarse)');
-        let CFG = { mode:'application', minGrade:0, callsignPrefix:'', form:[], reqs:[], emailEnabled:false };
+        // `callsign` is the SHAPE this VA issues — one entry per airline it has
+        // registered, each carrying the tag its pilots append and how wide the
+        // number is — plus the top of the range only staff can hand out. See
+        // the callsign-shape block below for why this form no longer just
+        // staples a prefix to a number.
+        let CFG = { mode:'application', minGrade:0, callsignPrefix:'', callsign:{ airlines:[], reservedMax:10 }, form:[], reqs:[], emailEnabled:false };
         let VA = { name:'', code:'' };
         let STEPS = [], cur = 0;
         const DATA = { ifcName:'', prefix:'', number:'', email:'', grade:0, answers:[], verified:false, vGrade:null, stats:null, agreed:[] };
@@ -145,6 +150,12 @@
         // self-report grade step when we already know the true grade, and block
         // a name our lookup says doesn't exist.
         let verifyState = { name:'', status:'idle' }; // idle|checking|found|notfound|down
+        // The last answer we got about the callsign they are typing, so the step
+        // can badge it and Continue can refuse a number somebody already holds.
+        // `key` is the airline+number it is an answer ABOUT — the moment they
+        // type another digit it is stale and the badge goes back to idle rather
+        // than showing a verdict for a callsign that is no longer on screen.
+        let csState = { key:'', status:'idle', message:'', callsign:'' }; // idle|checking|free|taken|reserved|down
 
         // ---- Theme (follow the host / OS) ----
         (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{} const d=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches; document.documentElement.classList.toggle('dark',d); })();
@@ -172,7 +183,101 @@
             document.getElementById('backBtn').style.visibility = showBack ? 'visible':'hidden';
             document.getElementById('nextBtn').innerHTML = nextLabel + ' <i data-lucide="arrow-right" class="w-4 h-4"></i>';
         }
-        function fullCallsign(){ return (DATA.prefix + DATA.number).replace(/\s+/g,''); }
+        /* ---- Callsign shape -------------------------------------------------
+         * A pilot's callsign is the VA's REGISTERED MASK with their number in
+         * it: "AEROMEXICO ###MX" + 1 -> "AEROMEXICO 001MX". The airline, the
+         * width of the number and the tag all come out of the mask.
+         *
+         * This form used to paste the prefix and the number together and call
+         * it done — "AEROMEXICO001". That has no tag, which means it is not a
+         * VA callsign at all, it IS Aeromexico: the VA's own flight matcher
+         * then failed to recognise its own pilot and their flying was credited
+         * to nobody. And nothing asked whether the number was already held, so
+         * two pilots could take 001 the same afternoon.
+         *
+         * The server builds the same string from the same rules (crewCallsign.js
+         * on the backend) and is the one that decides. Everything here exists so
+         * the applicant SEES what they are being issued, and hears "that one is
+         * taken", while they can still do something about it.
+         * ------------------------------------------------------------------ */
+        function airlines(){ return (CFG.callsign && CFG.callsign.airlines) || []; }
+        // The shape in play: the airline they picked, this VA's primary one, or
+        // — for a VA that has registered no callsign at all — whatever they
+        // typed, read the way the rest of the product reads a bare airline.
+        function currentShape(){
+            const list = airlines();
+            if(!list.length){ const p=(DATA.prefix||'').trim().toUpperCase(); return p ? { base:p, tag:'VA', digits:3 } : null; }
+            return list.find(a=>a.base===DATA.prefix) || list[0];
+        }
+        function buildCallsign(shape, number){
+            const n = parseInt(String(number==null?'':number).replace(/[^0-9]/g,''), 10);
+            if(!shape || !n) return '';
+            const width = Math.max(1, Math.min(5, shape.digits||3));
+            // Padded to the mask's width, never truncated: a VA on two digits
+            // that has grown past 99 keeps issuing callsigns rather than
+            // handing out a second "42".
+            return `${shape.base} ${String(n).padStart(width,'0')}${shape.tag||''}`.trim();
+        }
+        function fullCallsign(){ return buildCallsign(currentShape(), DATA.number); }
+        // Low numbers are the VA's to hand out — 001 is the founder's, not
+        // whoever filled this form in first — so the form refuses them and says
+        // who can. Staff issue them from the roster.
+        function reservedMax(){ const m=CFG.callsign&&CFG.callsign.reservedMax; return (typeof m==='number'&&m>=0)?m:10; }
+        function isReservedNumber(number){
+            const n = parseInt(String(number==null?'':number).replace(/[^0-9]/g,''), 10);
+            return !!n && reservedMax()>0 && n<=reservedMax();
+        }
+
+        // ---- Is this callsign free? ----
+        // Asked as they type, answered by the same three checks /apply runs. It
+        // is advisory — the number can go between this call and the submit — so
+        // /apply checks again and has the last word. Anything we can't get an
+        // answer to leaves them able to continue: our outage is not their
+        // problem, and the submit will still refuse a taken callsign.
+        let csTimer = null;
+        function csKey(){ const s=currentShape(); return `${s?s.base:''}#${DATA.number}`; }
+        function renderCsStatus(){
+            const el=document.getElementById('csStatus'); if(!el) return;
+            const S = csState.key===csKey() ? csState.status : 'idle';
+            if(S==='checking'){ el.innerHTML=`<span class="muted inline-flex items-center gap-1.5"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Checking…</span>`; }
+            else if(S==='free'){ el.innerHTML=`<span class="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium"><i data-lucide="badge-check" class="w-4 h-4"></i> Available</span>`; }
+            else if(S==='taken'||S==='reserved'){ el.innerHTML=`<span class="inline-flex items-center gap-1.5 text-red-500 font-medium"><i data-lucide="alert-circle" class="w-4 h-4"></i> ${escapeHtml(csState.message)}</span>`; }
+            else if(S==='down'){ el.innerHTML=`<span class="muted inline-flex items-center gap-1.5"><i data-lucide="info" class="w-4 h-4"></i> Couldn’t check right now — you can still continue.</span>`; }
+            else { el.innerHTML=''; }
+            if(window.lucide) lucide.createIcons();
+            postHeight();
+        }
+        async function checkCallsign(){
+            const key=csKey();
+            const shape=currentShape();
+            if(!shape || !DATA.number){ csState={ key:'', status:'idle', message:'', callsign:'' }; renderCsStatus(); return; }
+            // The reserved range is known here, so say so immediately rather
+            // than spending a round trip to be told.
+            if(isReservedNumber(DATA.number)){
+                const max=reservedMax();
+                csState={ key, status:'reserved', callsign:'',
+                    message:`Numbers 1–${max} are reserved for senior crew — pick ${max+1} or above.` };
+                renderCsStatus(); return;
+            }
+            const slug=getSlug();
+            if(!slug){ csState={ key, status:'free', message:'', callsign:fullCallsign() }; renderCsStatus(); return; } // preview mode, no backend
+            csState={ key, status:'checking', message:'', callsign:'' }; renderCsStatus();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/callsign-check`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
+                    body:JSON.stringify({ callsignPrefix:shape.base, callsignNumber:DATA.number }) });
+                const d=await res.json().catch(()=>({}));
+                if(csKey()!==key) return; // they typed on; this answer is about a callsign that is gone
+                if(!res.ok){ csState={ key, status:'down', message:'', callsign:'' }; }
+                else if(d.ok){ csState={ key, status:'free', message:'', callsign:d.callsign||'' }; }
+                else { csState={ key, status:d.code==='reserved'?'reserved':'taken', message:d.error||'That callsign isn’t available.', callsign:'' }; }
+            }catch{
+                if(csKey()!==key) return;
+                csState={ key, status:'down', message:'', callsign:'' };
+            }
+            renderCsStatus();
+        }
+        function queueCallsignCheck(){ clearTimeout(csTimer); csTimer=setTimeout(checkCallsign, 400); }
 
         // ---- Infinite Flight verification (uses our own IF tooling) ----
         function renderIfcStatus(){
@@ -289,21 +394,49 @@
                 setTimeout(()=>inp.focus(),50);
             }
             else if(s==='callsign'){
+                // The airline is the VA's, not the applicant's: it comes from
+                // the callsign they registered, along with the tag and the
+                // width. A VA with sub-fleets registers several and the pilot
+                // picks one; a VA that registered nothing at all falls back to
+                // the old free-text box, because there is no shape to hold them
+                // to. The number is the only part that is ever theirs to choose.
+                const list = airlines();
+                const shape = currentShape();
+                const max = reservedMax();
+                const airlineField = list.length>1
+                    ? `<select id="f_prefix" class="field w-auto font-semibold">${list.map(a=>`<option value="${escapeHtml(a.base)}" ${shape&&a.base===shape.base?'selected':''}>${escapeHtml(a.base)}</option>`).join('')}</select>`
+                    : (list.length===1
+                        ? `<span id="f_prefix" data-value="${escapeHtml(list[0].base)}" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold whitespace-nowrap">${escapeHtml(list[0].base)}</span>`
+                        : `<input id="f_prefix" class="field w-28 text-center font-semibold" placeholder="ACA" value="${escapeHtml(DATA.prefix||CFG.callsignPrefix||VA.code||'')}" maxlength="10">`);
                 body.innerHTML = `<div class="step">
-                    <h2 class="text-lg font-bold tracking-tight">Pick your callsign</h2>
-                    <p class="text-sm muted mt-1 mb-4">Your radio callsign for VA flights.</p>
+                    <h2 class="text-lg font-bold tracking-tight">Pick your callsign number</h2>
+                    <p class="text-sm muted mt-1 mb-4">${list.length?`${escapeHtml(VA.name||'This VA')} flies as <b>${escapeHtml(shape?shape.base:'')}</b>${shape&&shape.tag?` with the <b>${escapeHtml(shape.tag)}</b> tag`:''} — you choose the number.`:'Your radio callsign for VA flights.'}</p>
                     <div class="flex items-center gap-2">
-                        <input id="f_prefix" class="field w-24 text-center font-semibold" placeholder="ACA" value="${escapeHtml(DATA.prefix||CFG.callsignPrefix||VA.code||'')}" maxlength="6">
-                        <input id="f_number" class="field flex-1 text-center font-semibold tracking-wider" placeholder="1174" inputmode="numeric" value="${escapeHtml(DATA.number)}" maxlength="5">
+                        ${airlineField}
+                        <input id="f_number" class="field flex-1 text-center font-semibold tracking-wider" placeholder="${escapeHtml(String(max+1))}" inputmode="numeric" value="${escapeHtml(DATA.number)}" maxlength="5">
                     </div>
+                    ${max>0?`<p class="text-xs faint mt-2">Numbers 1–${max} are reserved for senior crew and assigned by staff.</p>`:''}
                     <div class="mt-4 text-center">
                         <div class="text-xs uppercase tracking-wider faint mb-1">Your callsign</div>
                         <div id="csPreview" class="text-2xl font-extrabold tracking-wide accent-text">—</div>
+                        <div id="csStatus" class="text-sm mt-2 min-h-[1.25rem]"></div>
                     </div>
                 </div>`;
                 setNav(true, "Continue");
-                const upd=()=>{ const p=document.getElementById('f_prefix').value.trim().toUpperCase(); const n=document.getElementById('f_number').value.replace(/[^0-9]/g,''); document.getElementById('f_number').value=n; document.getElementById('csPreview').textContent=(p||n)?`${p} ${n}`.trim():'—'; };
-                document.getElementById('f_prefix').addEventListener('input',upd); document.getElementById('f_number').addEventListener('input',upd); upd();
+                const pf=document.getElementById('f_prefix');
+                const readPrefix=()=> pf ? (pf.dataset && pf.dataset.value!==undefined ? pf.dataset.value : (pf.value||'')) : '';
+                const upd=()=>{
+                    DATA.prefix = String(readPrefix()).trim().toUpperCase();
+                    const nf=document.getElementById('f_number');
+                    nf.value = nf.value.replace(/[^0-9]/g,'');
+                    DATA.number = nf.value;
+                    document.getElementById('csPreview').textContent = fullCallsign() || '—';
+                    renderCsStatus();
+                    queueCallsignCheck();
+                };
+                if(pf && pf.tagName!=='SPAN') pf.addEventListener(pf.tagName==='SELECT'?'change':'input', upd);
+                document.getElementById('f_number').addEventListener('input', upd);
+                upd();
             }
             else if(s==='grade'){
                 body.innerHTML = `<div class="step">
@@ -412,7 +545,21 @@
                 if(verifyState.name===DATA.ifcName && verifyState.status==='notfound'){ shake('f_ifc'); return false; }
                 const em=document.getElementById('f_email'); DATA.email = em ? em.value.trim() : '';
                 if(DATA.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(DATA.email)){ shake('f_email'); return false; } }
-            if(s==='callsign'){ DATA.prefix = document.getElementById('f_prefix').value.trim().toUpperCase(); DATA.number = document.getElementById('f_number').value.replace(/[^0-9]/g,''); if(!DATA.number){ shake('f_number'); return false; } }
+            if(s==='callsign'){
+                const pf=document.getElementById('f_prefix');
+                DATA.prefix = String(pf ? (pf.dataset && pf.dataset.value!==undefined ? pf.dataset.value : (pf.value||'')) : '').trim().toUpperCase();
+                DATA.number = document.getElementById('f_number').value.replace(/[^0-9]/g,'');
+                if(!DATA.number){ shake('f_number'); return false; }
+                // Held back here rather than at the submit: being told on the
+                // last screen that the number you picked four steps ago belongs
+                // to somebody else is the whole of what was wrong with this.
+                if(isReservedNumber(DATA.number)){
+                    const max=reservedMax();
+                    toast(`Numbers 1–${max} are reserved for senior crew — pick ${max+1} or above. Staff can assign you one later.`);
+                    shake('f_number'); return false;
+                }
+                if(csState.key===csKey() && csState.status==='taken'){ toast(csState.message||'That callsign is already taken.'); shake('f_number'); return false; }
+            }
             if(s==='grade'){ if(!DATA.grade){ return false; } if(DATA.grade<CFG.minGrade){ toast('Grade '+CFG.minGrade+'+ required.'); return false; } }
             if(s==='requirements'){
                 const missing=CFG.reqs.filter(r=>r.type==='agree'&&r.required&&!DATA.agreed.includes(r.label));
@@ -474,6 +621,22 @@
                 await verifyIfc();
                 if(verifyState.status==='notfound') return;
             }
+            // Same on the callsign step: if the debounce hasn't fired yet, or a
+            // check is still in flight, settle it here and pause on a taken
+            // number so they see WHICH number is the problem while it is still
+            // the thing on screen. A check we couldn't complete does not block
+            // them — /apply runs the same check and will refuse it there.
+            if(STEPS[cur]==='callsign'){
+                if(csState.key!==csKey() || csState.status==='checking'){
+                    clearTimeout(csTimer);
+                    await checkCallsign();
+                }
+                if(csState.key===csKey() && (csState.status==='taken'||csState.status==='reserved')){
+                    toast(csState.message||'That callsign isn’t available.');
+                    shake('f_number');
+                    return;
+                }
+            }
             if(cur>=STEPS.length-1){ submit(); return; }
             cur++; renderStep();
         }
@@ -483,11 +646,30 @@
             const btn=document.getElementById('nextBtn'); btn.disabled=true;
             const note=document.getElementById('submitNote');
             const slug=getSlug();
-            const body={ ifcName:DATA.ifcName, email:DATA.email, callsignPrefix:DATA.prefix, callsignNumber:DATA.number, grade:DATA.grade, answers:DATA.answers, agreed:DATA.agreed };
+            // Send the resolved airline, not whatever is left in DATA.prefix: on
+            // a VA with one registered callsign the applicant never touches the
+            // field, so the shape is the only thing that knows which airline
+            // this is.
+            const shape=currentShape();
+            const body={ ifcName:DATA.ifcName, email:DATA.email, callsignPrefix:(shape?shape.base:DATA.prefix), callsignNumber:DATA.number, grade:DATA.grade, answers:DATA.answers, agreed:DATA.agreed };
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/apply`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ if(note){ note.textContent=d.error||'Something went wrong. Please try again.'; note.className='text-sm text-red-500 mt-3'; note.classList.remove('hidden'); } btn.disabled=false; return; }
+                if(!res.ok){
+                    // A callsign refused HERE was free when they picked it and
+                    // has gone since, or our own check never got an answer. The
+                    // fix is one field back, so send them to it with the reason
+                    // rather than leaving them on a review screen with a red
+                    // line about a number they can't see.
+                    if(String(d.code||'').startsWith('callsign_')){
+                        const i=STEPS.indexOf('callsign');
+                        csState={ key:csKey(), status:d.code==='callsign_reserved'?'reserved':'taken', message:d.error||'That callsign isn’t available.', callsign:'' };
+                        btn.disabled=false;
+                        if(i>=0){ cur=i; renderStep(); toast(d.error||'That callsign isn’t available.'); shake('f_number'); return; }
+                    }
+                    if(note){ note.textContent=d.error||'Something went wrong. Please try again.'; note.className='text-sm text-red-500 mt-3'; note.classList.remove('hidden'); }
+                    btn.disabled=false; return;
+                }
                 success(d);
             }catch{ if(note){ note.textContent='Couldn’t reach the server. Please try again.'; note.className='text-sm text-red-500 mt-3'; note.classList.remove('hidden'); } btn.disabled=false; }
         }
@@ -549,8 +731,22 @@
             document.getElementById('mono').textContent=mono;
             if(VA.name){ document.getElementById('vaName').textContent=VA.name; document.title=`Join ${VA.name} — Crew Center`; }
             if(b.logo && isSafeImageUrl(b.logo)){ const el=document.getElementById('logo'); el.src=b.logo; el.classList.remove('hidden'); document.getElementById('mono').classList.add('hidden'); }
-            if(b.join){ CFG={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||b.code||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[], emailEnabled:!!b.join.emailEnabled }; }
-            DATA.prefix = CFG.callsignPrefix || VA.code || '';
+            if(b.join){
+                const cs=b.join.callsign||{};
+                CFG={ mode:b.join.mode||'application', minGrade:b.join.minGrade||0, callsignPrefix:b.join.callsignPrefix||b.code||'',
+                    // The shape this VA issues under. A VA on an older backend
+                    // sends no `callsign` block at all, which leaves the list
+                    // empty and the form on its free-text airline field — the
+                    // behaviour it had before any of this.
+                    callsign:{
+                        airlines:(Array.isArray(cs.airlines)?cs.airlines:[])
+                            .map(a=>({ base:String(a.base||'').toUpperCase(), tag:String(a.tag||'').toUpperCase(), digits:Number(a.digits)||3 }))
+                            .filter(a=>a.base),
+                        reservedMax:(typeof cs.reservedMax==='number'&&cs.reservedMax>=0)?cs.reservedMax:10,
+                    },
+                    form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[], emailEnabled:!!b.join.emailEnabled };
+            }
+            DATA.prefix = (airlines()[0] && airlines()[0].base) || CFG.callsignPrefix || VA.code || '';
             document.getElementById('joinSub').textContent = CFG.mode==='free' ? 'Instant access' : 'Applications reviewed by staff';
         }
         (async function(){
