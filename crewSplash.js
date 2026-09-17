@@ -25,6 +25,12 @@
  * · IT IS ONLY EVER A COVER. Nothing behind it is blocked from loading and
  *   nothing about the page depends on it: delete this file and the crew centre
  *   is exactly as it was, a little more abrupt.
+ * · IT GOES UP BEFORE THE PAGE DOES, WHICH IS WHY `arm` BELONGS IN <head>.
+ *   It paints into <html> when there is no <body> yet rather than waiting for
+ *   one, because DOMContentLoaded fires when the WHOLE document has been
+ *   parsed — a cover armed there is a cover that goes up over a crew centre
+ *   the reader has already seen. Armed from the head, the cover is the first
+ *   thing the browser draws and the page draws once, underneath it.
  * · IT ONLY SHOWS AFTER A SIGN-IN. `arm` looks for a one-shot flag that the
  *   login page sets and reads once — a refresh, a bookmark, or coming back from
  *   a panel is not an arrival and gets nothing.
@@ -97,7 +103,21 @@
         + '.csplash__tick path{stroke-dashoffset:0;}'
         + '.csplash__mark{opacity:1;transform:none;transition:none;}'
         + '.csplash.is-done .csplash__arc{transition:none;}'
-        + '}';
+        + '}'
+        /* ---- THE PAGE UNDERNEATH, WHILE THE COVER IS UP ------------------
+           The cover is opaque and covers the viewport, so this is not about
+           what can be SEEN. It is about what is drawn and then covered: an
+           arriving page paints its own header, hero and skeletons behind the
+           cover, and on a phone that paint is the expensive one. Held back
+           until the cover lifts, the first thing the browser draws is the
+           cover, and the page draws once — into a viewport nobody is
+           looking at yet.
+
+           `visibility` rather than `display`: the layout still happens, so
+           scripts that measure an element while the cover is up get the
+           answer they would have got, and nothing reflows on the lift. */
+        + 'html.csplash-up{overflow:hidden;}'
+        + 'html.csplash-up body>*:not(.csplash){visibility:hidden;}';
 
     function styles() {
         if (document.getElementById('csplash-style')) return;
@@ -142,7 +162,26 @@
             + '</div>'
             + '<div class="csplash__mark"></div>'
             + '</div>';
-        document.body.appendChild(cover);
+        /* INTO <html> WHEN THERE IS NO <body> YET, AND THAT IS THE WHOLE FIX.
+         *
+         * This is called from a <head> script, so `document.body` is null: the
+         * parser has not reached it. The old code waited for DOMContentLoaded
+         * to get one — which fires only once the ENTIRE document has been
+         * parsed, by which time the crew centre has already painted. That is
+         * the flicker: the page, and then the cover over it, in that order.
+         *
+         * An element appended to <html> renders exactly as one in <body> does,
+         * and it is in the tree before the parser has read a single row of the
+         * page, so the cover is the first thing drawn. It is moved into <body>
+         * once there is one, so the document ends up the shape every other
+         * script expects to find it in. */
+        (document.body || document.documentElement).appendChild(cover);
+        if (!document.body) {
+            document.addEventListener('DOMContentLoaded', function () {
+                if (document.body && cover.parentNode !== document.body) document.body.appendChild(cover);
+            });
+        }
+        try { document.documentElement.classList.add('csplash-up'); } catch (e) { /* not ours */ }
         return cover;
     }
 
@@ -151,6 +190,10 @@
         var cover = state.cover;
         state = null;
         finished = true;
+        // The page underneath is allowed to draw again BEFORE the fade rather
+        // than after it: it paints under an opaque cover that is on its way
+        // out, so the reveal is the fade and not a second paint behind it.
+        try { document.documentElement.classList.remove('csplash-up'); } catch (e) { /* not ours */ }
         cover.classList.add('is-gone');
         var gone = function () {
             if (cover.parentNode) cover.parentNode.removeChild(cover);
@@ -180,16 +223,16 @@
         } catch (e) { armed = false; }
         if (!armed && !opts.force) { finished = true; return false; }
 
-        var start = function () {
-            if (state || !document.body) return;
+        // Painted NOW, synchronously, whether or not there is a <body> yet.
+        // See paint(): waiting for one is what put the cover on top of a page
+        // the reader had already seen.
+        if (!state) {
             state = {
                 cover: paint(),
                 openedAt: Date.now(),
                 ceiling: setTimeout(function () { done(state && state.said); }, CEILING_MS),
             };
-        };
-        if (document.body) start();
-        else document.addEventListener('DOMContentLoaded', start);
+        }
         return true;
     }
 

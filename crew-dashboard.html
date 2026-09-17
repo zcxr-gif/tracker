@@ -38,7 +38,33 @@
     <!-- The moment between signing in and being in: a ring while the page
          loads, a tick when it is ready, then the airline's own mark. Only ever
          after a sign-in, and it lifts on a ceiling whatever happens. -->
+    <!-- The one time the whole of aviation agrees on, in the top bar. Every
+         other time in this crew centre is shown in the reader's own zone,
+         which is right for "when is my flight" and useless for reading a
+         brief that says 1430Z. -->
+    <script src="/crewZulu.js"></script>
     <script src="/crewSplash.js"></script>
+    <!-- ARMED HERE, IN THE HEAD, AND NOT AT THE BOTTOM OF THE PAGE.
+         It used to be armed from the boot block at the end of this file, which
+         runs after the parser has read the whole document — so the reader got
+         the crew centre first and the cover over it a beat later. That beat is
+         the flicker. The cover has to be in the tree before the page is, which
+         means before the page is parsed, which means here.
+
+         `getSlug` is not defined yet (it lives in the page's own script), so
+         the slug is read the same way it reads it. Wrapped in its own try:
+         nothing on this page may fail to load because a splash could not go
+         up. -->
+    <script>
+        (function () {
+            try {
+                var m = location.pathname.match(/\/crew\/([^\/?#]+)/i);
+                var slug = m && m[1] ? decodeURIComponent(m[1]).trim().toLowerCase()
+                    : (new URLSearchParams(location.search).get('va') || '').trim().toLowerCase();
+                if (window.CrewSplash) CrewSplash.arm({ slug: slug });
+            } catch (e) { /* no splash, no harm */ }
+        })();
+    </script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
@@ -111,6 +137,11 @@
     <script src="/crewAlerts.js"></script>
     <!-- The ladder, and the check-rides that move a pilot up it. -->
     <script src="/crewTraining.js"></script>
+    <!-- One pilot's flying, opened by their staff: every report they have
+         filed, the arithmetic underneath it, and the two things that did not
+         exist before — correcting a flight's hours, and filing one by hand
+         when the logbook is missing it rather than wrong about it. -->
+    <script src="/crewLogbook.js"></script>
     <!-- What a pilot has to show for it, off flights already approved. -->
     <script src="/crewAwards.js"></script>
     <!-- Being away on purpose, and spotting the pilots slipping away by
@@ -475,7 +506,6 @@
            above. A logo with its own transparent margin loses nothing to this;
            the radius clips a corner that was never drawn on. */
         #navLogo{ border-radius:.4rem; }
-        #idLogo{ border-radius:.6rem; }
         .lyt-opt{ transition:border-color .2s, background .2s; }
         .lyt-opt[aria-checked="true"]{ border-color:var(--accent); }
         .lyt-opt[aria-checked="true"] .dot{ background:var(--accent); border-color:var(--accent); }
@@ -549,6 +579,12 @@
                 </div>
             </div>
             <div class="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0">
+                <!-- The airline's clock. Off the bar on a phone, like the
+                     switch below it: the bar has a logo, a name, a search box,
+                     a bell, settings and an avatar to fit, and the clock is
+                     the one thing here a reader can get from their own
+                     device. -->
+                <time data-crew-zulu class="hidden sm:inline-flex mr-1.5"></time>
                 <!-- crewSkin.js puts the interface switch here. Empty until it
                      does, and empty for good if the script did not arrive.
                      Off the bar on a phone — it is in Settings › Appearance. -->
@@ -596,7 +632,20 @@
                 <div id="identityTint" class="absolute inset-0 accent-bg opacity-[0.10]"></div>
                 <div class="absolute inset-0" style="background:linear-gradient(105deg, color-mix(in srgb, var(--surface) 92%, transparent), transparent 65%);"></div>
                 <div class="relative p-6 sm:p-7 flex flex-col sm:flex-row sm:items-center gap-5">
-                    <img id="idLogo" alt="" class="hidden h-14 w-auto max-w-[180px] object-contain">
+                    <!-- The airline's mark on a rounded plate rather than
+                         loose on the card. A VA's logo is almost never square
+                         — a wordmark, a roundel on a transparent PNG, a
+                         screenshot with a white edge — and a bare <img> of any
+                         of those against the tinted banner behind it reads as
+                         something that failed to load. The plate, the radius
+                         and the hairline are what make an arbitrary image look
+                         placed; `object-contain` inside it letterboxes a
+                         wordmark rather than cropping through the word.
+                         Matches the monogram beside it, which has always been
+                         a rounded square. -->
+                    <div id="idLogoPlate" class="hidden w-14 h-14 rounded-xl overflow-hidden grid place-items-center shrink-0 border hair bg-white">
+                        <img id="idLogo" alt="" class="w-full h-full object-contain p-1">
+                    </div>
                     <div id="idMonogram" class="accent-bg w-14 h-14 rounded-xl grid place-items-center text-white text-xl font-black shrink-0">VA</div>
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 mb-1.5">
@@ -800,6 +849,79 @@
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Opening a topic</h3>
                     <div id="topicOpts" class="space-y-2.5"></div>
                     <p class="text-xs muted mt-3">Applies to the roster, routes, schedule, events, flights, statistics, announcements, embeds and partnership.</p>
+                </div>
+
+                <!-- ============ THE HERO ============
+                     The band across the top of what a PILOT sees — the one
+                     screen in the crew centre that had no settings at all.
+                     Every VA got the same 400px banner, greeting, badge rail
+                     and two buttons, forever, and that is wrong in both
+                     directions at once: a big airline with a photographer on
+                     staff wants the picture as large as it goes and nothing
+                     over it, and a VA of nine people flying out of one field
+                     wants their crest, their name and a short band.
+
+                     Seven decisions, none of which can produce a broken page,
+                     and every default is the hero as it shipped — so a VA who
+                     never opens this sees no change. See crewHero.js. -->
+                <div id="heroBlock" class="hidden">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-1">The crew centre hero</h3>
+                    <p class="text-xs muted mb-3">What your pilots see across the top of their page.</p>
+
+                    <label class="text-xs font-semibold muted">Behind the words</label>
+                    <div id="heroBackdropOpts" class="grid grid-cols-2 gap-2 mt-2"></div>
+
+                    <label class="text-xs font-semibold muted block mt-4">How tall</label>
+                    <div id="heroHeightOpts" class="grid grid-cols-3 gap-2 mt-2"></div>
+
+                    <label class="text-xs font-semibold muted block mt-4">Where the greeting sits</label>
+                    <div id="heroAlignOpts" class="grid grid-cols-2 gap-2 mt-2"></div>
+
+                    <label class="text-xs font-semibold muted block mt-4">The two buttons</label>
+                    <div id="heroActionOpts" class="grid grid-cols-2 gap-2 mt-2"></div>
+
+                    <!-- WHAT IS ON IT. Three switches, and each one turns off a
+                         thing that is ALSO hidden by its own module until it
+                         has something true to say. This is the airline saying
+                         "not here even then", which is a different statement
+                         and the reason it is a setting rather than an
+                         accident of data. -->
+                    <div class="mt-4 space-y-2">
+                        <label class="flex items-center justify-between surface hair rounded-lg px-3.5 py-2.5 cursor-pointer">
+                            <span class="min-w-0">
+                                <span class="text-sm font-medium block">Your logo and name, top-left</span>
+                                <span class="text-xs muted">On a rounded plate over the picture.</span>
+                            </span>
+                            <input id="heroBrandOn" type="checkbox" class="w-4 h-4 shrink-0 ml-3">
+                        </label>
+                        <label class="flex items-center justify-between surface hair rounded-lg px-3.5 py-2.5 cursor-pointer">
+                            <span class="min-w-0">
+                                <span class="text-sm font-medium block">Rank and club emblems, top-right</span>
+                                <span class="text-xs muted">What that pilot is at your airline, at the size it is worth.</span>
+                            </span>
+                            <input id="heroCrestOn" type="checkbox" class="w-4 h-4 shrink-0 ml-3">
+                        </label>
+                        <label class="flex items-center justify-between surface hair rounded-lg px-3.5 py-2.5 cursor-pointer">
+                            <span class="min-w-0">
+                                <span class="text-sm font-medium block">The badge rail under their name</span>
+                                <span class="text-xs muted">Awards they have earned and things they have claimed.</span>
+                            </span>
+                            <input id="heroBadgesOn" type="checkbox" class="w-4 h-4 shrink-0 ml-3">
+                        </label>
+                    </div>
+
+                    <label class="text-xs font-semibold muted block mt-4">How dark the picture goes</label>
+                    <input id="heroDim" type="range" min="10" max="90" step="5" class="w-full mt-2 accent-[var(--accent)]">
+                    <p class="text-xs muted">Enough that white text reads. A bright apron at noon needs more of it than a night shot.</p>
+
+                    <label class="text-xs font-semibold muted block mt-4">Your own line (optional)</label>
+                    <input id="heroLineText" maxlength="120" placeholder="Leave empty to keep ours"
+                        class="w-full surface hair rounded-md px-3 py-2 text-sm mt-2 focus:outline-none focus:border-[var(--ink)]">
+                    <p class="text-xs muted mt-1.5">Ours says how far that pilot is from their next rank. Yours replaces it for everybody.</p>
+
+                    <button onclick="saveHero(this)" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition mt-4">Save hero</button>
+                    <a id="heroPreview" target="_blank" rel="noopener" class="hidden items-center gap-1.5 text-xs accent-text font-semibold mt-3 inline-flex">Preview a pilot's page <i data-lucide="external-link" class="w-3.5 h-3.5"></i></a>
+                    <p id="heroNote" class="hidden text-sm mt-2"></p>
                 </div>
 
                 <!-- Login page look -->
@@ -2121,6 +2243,14 @@
                     </div>
                 </div>
                 <div id="pf_routecheck" class="text-xs mt-2.5 flex items-center gap-1.5"></div>
+                <!-- Offered only to the people who could approve it a second
+                     later anyway (see openPirepForm). Without it, filing a
+                     flight the logbook is missing is a two-step: put it in,
+                     then go and find it in the queue. -->
+                <label id="pf_approveRow" class="hidden flex items-center gap-2 text-sm cursor-pointer surface hair rounded-lg px-3 py-2.5 mt-2.5">
+                    <input id="pf_approve" type="checkbox" class="accent-[var(--accent)]" checked>
+                    <span>Count it straight away <span class="muted">— credit the hours now instead of sending it to the queue</span></span>
+                </label>
                 <div class="flex gap-2 mt-3">
                     <button id="pirepSubmitBtn" onclick="submitPirep()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">File flight</button>
                     <button onclick="closePirepForm()" class="surface hair rounded-lg px-4 text-sm font-semibold">Cancel</button>
@@ -2198,6 +2328,10 @@
             else if(el) el.scrollIntoView({block:block||'nearest'}); };
 
         let CREW_CODE='', CREW_NAME='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
+        // The whole branding record, kept rather than picked apart into six
+        // globals. applyEmbeds needs the VA's own embed token off it, and the
+        // next thing that needs a field will not need a seventh global either.
+        let CREW_BRANDING=null;
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
         // The airlines this VA sells seats on. Same shape as FLEET rows for the
         // aeroplanes, because a partner's aircraft ARE fleet rows — somebody
@@ -3369,11 +3503,45 @@
         }
 
         // ---- Live map (in content; theme-synced; no Mapbox token/billing) ----
+        /* THE LIVE MAP, AND WHOSE EMBED IT IS.
+         *
+         * This built `embed.html?va=<CALLSIGN>&mode=map&…` out of thin air —
+         * the widget's "direct params" path, which produces a brand new
+         * generic embed every time. So the crew centre has never once shown
+         * the embed a VA actually configured: their Mapbox token was ignored
+         * (the map silently fell back to the free basemap), and so were their
+         * appearance, their callsign rules, their server filter and their
+         * hubs. A VA who set all of that up in the embeds tool got none of it
+         * here.
+         *
+         * Now the branding record carries the token of the VA's own embed —
+         * see `liveEmbed` on the backend — and a token, when there is one,
+         * always wins. `?token=` is resolved by the backend, which hands the
+         * widget everything the VA saved.
+         *
+         * TWO REASONS IT STILL FALLS BACK, and neither is a failure:
+         *   · the VA has never made an embed, which is most of them; and
+         *   · the one they made is a ROSTER widget, so pointing the map panel
+         *     at it would replace a map with a list.
+         * Either way the generic map is drawn exactly as before.
+         *
+         * The theme is NOT passed alongside a token. A token carries the VA's
+         * own chosen appearance, and overriding half of it from here would
+         * give them a map that is theirs in every respect except the one they
+         * would notice. */
         function applyEmbeds(){
-            if(!CREW_CODE) return;
+            const frame=document.getElementById('liveMap');
+            if(!frame) return;
             const t=isDark()?'dark':'light';
-            document.getElementById('liveMap').src=`/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off&mode=map&theme=${t}&freeStyle=${t}`;
-            document.getElementById('liveMap').classList.remove('hidden');
+            const embed=(CREW_BRANDING&&CREW_BRANDING.liveEmbed)||null;
+            const src = (embed&&embed.token&&embed.mode==='map')
+                ? `/embed.html?token=${encodeURIComponent(embed.token)}&header=off`
+                : (CREW_CODE
+                    ? `/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off&mode=map&theme=${t}&freeStyle=${t}`
+                    : '');
+            if(!src) return;
+            if(frame.getAttribute('src')!==src) frame.src=src;
+            frame.classList.remove('hidden');
             document.getElementById('liveHost').classList.add('hidden');
         }
 
@@ -3796,6 +3964,130 @@
                 if(res.ok){ note.textContent='Saved — your login now uses this.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
                 else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device.'; note.className='text-sm muted'; }
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
+        /* ============================================================
+           THE CREW CENTRE HERO
+
+           The band across the top of what a PILOT sees. Staff choose how it is
+           built; the pilot page applies it. Every default below is the hero as
+           it shipped, so a VA who never touches this screen sees no change —
+           see crewHero.js on the backend for the bounds, which are enforced
+           there as well as here because a browser is not where a rule lives.
+
+           SAVED IN ONE PRESS, NOT ON EVERY CLICK. The login look saves each
+           choice as it is made, which is right for two radio buttons; this is
+           seven controls that are read together, and seven POSTs while
+           somebody makes up their mind is seven chances for the last one to
+           lose a race with the fourth.
+           ============================================================ */
+        const HERO_BACKDROPS=[
+            ['banner','Your banner','The hero image from your listing.'],
+            ['accent','Your accent','A field of your own colour. For a logo-on-white banner.'],
+            ['map','Live traffic','Your aircraft, moving. Needs your callsign set.'],
+            ['none','Nothing','Just the words, on the page background.'],
+        ];
+        const HERO_HEIGHTS=[['short','Short'],['standard','Standard'],['tall','Tall']];
+        const HERO_ALIGNS=[['left','Left'],['center','Centred']];
+        const HERO_ACTIONS=[
+            ['both','Both'],['pirep','File a PIREP only'],
+            ['book','Book a flight only'],['none','Neither'],
+        ];
+        let HERO={ backdrop:'banner', height:'standard', align:'left', actions:'both',
+            brand:true, crest:true, badges:true, line:'', dim:55 };
+
+        /** The record as the branding endpoint sent it, bounded the same way
+         *  the server bounds it. A field we do not recognise keeps our default
+         *  rather than reaching the page. */
+        function readHero(b){
+            const h=(b&&b.hero&&typeof b.hero==='object')?b.hero:{};
+            const pick=(v,list,d)=>list.some(x=>x[0]===String(v||'').toLowerCase())?String(v).toLowerCase():d;
+            HERO={
+                backdrop: pick(h.backdrop,HERO_BACKDROPS,'banner'),
+                height:   pick(h.height,HERO_HEIGHTS,'standard'),
+                align:    pick(h.align,HERO_ALIGNS,'left'),
+                actions:  pick(h.actions,HERO_ACTIONS,'both'),
+                brand:  h.brand  !== false,
+                crest:  h.crest  !== false,
+                badges: h.badges !== false,
+                line:   String(h.line||'').slice(0,120),
+                // Not `|| 55`: 0 is falsy, so "as light as it goes" would come
+                // back as the default rather than as the floor. A number that
+                // is not a number falls back; a number that is one is clamped.
+                dim:    Number.isFinite(Math.round(Number(h.dim)))
+                    ? Math.max(10, Math.min(90, Math.round(Number(h.dim)))) : 55,
+            };
+        }
+        function heroPickHtml(list, chosen, attr){
+            return list.map(([k,name,desc])=>{
+                const on=k===chosen;
+                return `<button role="radio" aria-checked="${on}" data-${attr}="${k}"
+                    class="lyt-opt surface hair rounded-lg px-3 py-2.5 text-left hover:border-[var(--ink)]">
+                    <span class="flex items-center gap-2">
+                        <span class="dot w-3.5 h-3.5 rounded-full border-2 hair shrink-0"></span>
+                        <span class="text-sm font-semibold">${escapeHtml(name)}</span>
+                    </span>
+                    ${desc?`<span class="block text-xs muted mt-0.5 pl-5">${escapeHtml(desc)}</span>`:''}
+                </button>`;
+            }).join('');
+        }
+        function renderHeroOpts(){
+            const block=document.getElementById('heroBlock');
+            if(!block) return;
+            // Same gate as the rest of the appearance screen.
+            block.classList.toggle('hidden', !can('settings.branding'));
+            const wire=(hostId, list, attr, key)=>{
+                const host=document.getElementById(hostId); if(!host) return;
+                host.innerHTML=heroPickHtml(list, HERO[key], attr);
+                host.querySelectorAll(`[data-${attr}]`).forEach(b=>b.addEventListener('click',()=>{
+                    HERO[key]=b.getAttribute(`data-${attr}`); renderHeroOpts();
+                }));
+            };
+            wire('heroBackdropOpts',HERO_BACKDROPS,'hbd','backdrop');
+            wire('heroHeightOpts',HERO_HEIGHTS,'hht','height');
+            wire('heroAlignOpts',HERO_ALIGNS,'hal','align');
+            wire('heroActionOpts',HERO_ACTIONS,'hac','actions');
+            const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.checked=!!v; };
+            set('heroBrandOn',HERO.brand); set('heroCrestOn',HERO.crest); set('heroBadgesOn',HERO.badges);
+            const dim=document.getElementById('heroDim'); if(dim) dim.value=String(HERO.dim);
+            const line=document.getElementById('heroLineText'); if(line) line.value=HERO.line;
+            // The preview is the pilot page itself, which is the only honest
+            // preview of it: a picture of a hero in a settings panel is a
+            // promise the real page then has to keep.
+            const a=document.getElementById('heroPreview'), slug=getSlug();
+            if(a && slug){ a.href=`/crew/${encodeURIComponent(slug)}/crew-pilot.html`; a.classList.remove('hidden'); }
+            if(window.lucide) lucide.createIcons();
+        }
+        /** What the three switches and the two free fields say right now. The
+         *  radios are already in HERO — they are chosen by pressing them. */
+        function readHeroForm(){
+            const on=(id)=>{ const el=document.getElementById(id); return el?!!el.checked:true; };
+            HERO.brand=on('heroBrandOn'); HERO.crest=on('heroCrestOn'); HERO.badges=on('heroBadgesOn');
+            const dim=document.getElementById('heroDim');
+            // Same guard as readHero: the slider's floor is 10, and `|| 55`
+            // would read a 0 as "nothing was said".
+            if(dim){ const n=Math.round(Number(dim.value));
+                HERO.dim = Number.isFinite(n) ? Math.max(10,Math.min(90,n)) : 55; }
+            const line=document.getElementById('heroLineText');
+            if(line) HERO.line=String(line.value||'').trim().slice(0,120);
+            return { ...HERO };
+        }
+        async function saveHero(btn){
+            const note=document.getElementById('heroNote');
+            const body=readHeroForm();
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Sign in as owner/staff to save this.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            const done=busy(btn,'Saving…');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ hero: body }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not save the hero.'; note.className='text-sm text-red-500'; say(d.error||'Could not save the hero.','bad'); }
+                else { note.textContent='Saved — your pilots will see this.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; say('Hero saved.','ok'); }
+            }catch{ note.textContent='Server unreachable. Nothing was saved.'; note.className='text-sm text-red-500'; say('Server unreachable. Nothing was saved.','bad'); }
+            finally{ done(); }
             note.classList.remove('hidden');
         }
 
@@ -4982,16 +5274,27 @@
                     <div class="flex items-center gap-1.5 flex-wrap mt-1">${rankBadge}${roleBadge}<span class="text-xs muted">${Math.round(Number(m.hours)||0)}h</span>${waitBadge}</div>
                     ${ac?`<div class="flex items-center gap-1 flex-wrap mt-1.5">${ac}</div>`:''}
                 </div>
-                ${ROSTER_CANMANAGE?`<div class="flex items-center gap-0.5 shrink-0">
+                <div class="flex items-center gap-0.5 shrink-0">
+                    ${ROSTER_CANREVIEW?`<button data-logbook title="Open their logbook" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="book-open" class="w-4 h-4"></i></button>`:''}
+                    ${ROSTER_CANMANAGE?`
                     ${waiting?`<button data-checkride="${escapeHtml(waiting.name)}" title="Pass their ${escapeHtml(waiting.name)} check-ride" class="w-8 h-8 grid place-items-center rounded-md hover:opacity-80" style="color:#7C3AED"><i data-lucide="badge-check" class="w-4 h-4"></i></button>`:''}
                     <button data-edit title="Edit pilot" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="pencil" class="w-4 h-4"></i></button>
-                    <button data-remove title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500"><i data-lucide="user-minus" class="w-4 h-4"></i></button>
-                </div>`:''}
+                    <button data-remove title="Remove" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500"><i data-lucide="user-minus" class="w-4 h-4"></i></button>`:''}
+                </div>
             </div>`;
         }
         let ROSTER_CANMANAGE=false;
+        /* The logbook is gated SEPARATELY from the rest of the row, on the
+         * capability that already approves and rejects flights rather than on
+         * roster.manage. They are two different jobs: a flight reviewer works
+         * the queue all week and is exactly the person who needs to see why a
+         * pilot's hours look wrong, and they very often cannot edit the roster.
+         * Gating this on roster.manage would have put the tool behind the one
+         * power its user is least likely to hold. */
+        let ROSTER_CANREVIEW=false;
         function renderRoster(){
             ROSTER_CANMANAGE = can('roster.manage');
+            ROSTER_CANREVIEW = can('flights.review');
             document.getElementById('addPilotBtn').classList.toggle('hidden', !ROSTER_CANMANAGE);
             const list=document.getElementById('rosterList');
             document.getElementById('rosterCount').textContent = ROSTER.length?`· ${ROSTER.length}`:'';
@@ -5162,13 +5465,32 @@
             // worst possible answer to "did that register?".
             const done=busy(el && el.querySelector('[data-remove]'), false);
             try{
-                if(!await ask({ title:`Remove ${who} from the roster?`, danger:true, confirm:'Remove them',
-                    body:'Their flight reports and hours stay in your database — this takes them off the roster.' })) return;
+                /* THIS USED TO SAY THE OPPOSITE, AND IT WAS TRUE WHEN IT WAS
+                 * WRITTEN. Removing a pilot deleted the roster row and left
+                 * everything else — which meant their flights stayed in the
+                 * log with nothing to attach to, their bookings kept holding
+                 * seats, and their login kept working. Remove now means
+                 * remove, so the question has to say so before it is asked. */
+                if(!await ask({ title:`Remove ${who} and delete everything of theirs?`, danger:true, confirm:'Delete everything',
+                    body:`This cannot be undone. ${who}’s flight reports, bookings, event signups, shop orders, messages and login are all deleted from your database, and their flights stop counting towards your airline’s totals. If you only want them off the active roster, set their status to Inactive instead.` })) return;
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
                 if(res.ok){
+                    const d=await res.json().catch(()=>({}));
                     ROSTER=ROSTER.filter(m=>String(m.id)!==String(id));
                     if(String(EDITING)===String(id)) closePilotForm();
-                    renderRoster(); say(`${who} removed from the roster.`,'ok'); changed('roster');
+                    renderRoster();
+                    // What actually went, rather than a bare "removed". Staff
+                    // were told everything would be deleted; the reply is where
+                    // that promise is either kept or visibly not.
+                    const n=(d.removed&&Number(d.removed.crew_pireps))||0;
+                    say(n ? `${who} and ${n} flight report${n===1?'':'s'} deleted.` : `${who} deleted.`,'ok');
+                    // A table that refused the delete leaves something of
+                    // theirs in the project. Staff should hear that from us
+                    // rather than find it later.
+                    if(Array.isArray(d.failed) && d.failed.length){
+                        say(`Some of their records could not be removed (${d.failed.join(', ')}). Try again, or check your data store.`,'bad');
+                    }
+                    changed('roster');
                 } else {
                     const d=await res.json().catch(()=>({}));
                     sayFailed(d.error,'Could not remove them.');
@@ -5200,9 +5522,39 @@
             }catch{ say('Server unreachable. Try again.','bad'); }
             finally{ done(); }
         }
+        /* ---- ONE PILOT'S LOGBOOK ------------------------------------------
+         *
+         * Everything they have filed, the arithmetic underneath it, and the two
+         * things staff could not do before: correct a flight's hours, and file
+         * one by hand when the logbook is missing a flight rather than wrong
+         * about one.
+         *
+         * `onChanged` is what stops the roster going stale behind it. Correcting
+         * a flight moves that pilot's hours, which moves their rank, which is
+         * drawn on the row this panel was opened from — so the row is re-read
+         * rather than left showing the number that sent somebody here.
+         */
+        function openLogbook(id){
+            if(!window.CrewLogbook || !id) return;
+            CrewLogbook.open({
+                api: CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }),
+                pilotId: id,
+                onChanged: ()=>{
+                    fetchRoster().then(renderRoster); changed('roster');
+                    // And the queue, when it is what this was opened from: an
+                    // approval or a correction made in here is a row in there
+                    // that is now out of date, and two panels disagreeing about
+                    // one flight is the worst state this pair can be in.
+                    const q=document.getElementById('pirepList');
+                    if(q && q.children.length) fetchPireps().then(renderPireps).catch(()=>{});
+                },
+            });
+        }
         document.addEventListener('click', e=>{
             const pt=e.target.closest('#routePartners [data-partner]');
             if(pt){ setRoutePartner(pt.getAttribute('data-partner')); return; }
+            const lb=e.target.closest('#rosterList [data-logbook]');
+            if(lb){ const card=lb.closest('[data-id]'); if(card) openLogbook(card.getAttribute('data-id')); return; }
             const ed=e.target.closest('#rosterList [data-edit]');
             if(ed){ const card=ed.closest('[data-id]'); const id=card&&card.getAttribute('data-id'); const m=ROSTER.find(x=>String(x.id)===String(id)); if(m) openPilotForm(m); return; }
             const cr=e.target.closest('#rosterList [data-checkride]');
@@ -7037,12 +7389,23 @@
             let controls='';
             if(PIREPS_CANREVIEW){
                 const btns=[];
+                /* Straight to the logbook this report is one line of.
+                 *
+                 * The queue answers "should this count" and cannot answer the
+                 * question that actually comes up — "is this pilot's flying
+                 * plausible, and does this number belong to it". A reviewer
+                 * looking at a 9h 40m leg needs to see the other forty flights
+                 * before they decide, and the only route to them used to be
+                 * closing this drawer, opening the roster and finding the
+                 * person. Only offered where the report is attributed to
+                 * somebody: an unattributed one has no logbook to open. */
+                if(p.memberId) btns.push(`<button data-plogbook title="Open this pilot's logbook" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="book-open" class="w-4 h-4"></i></button>`);
                 if(p.status!=='approved') btns.push(`<button data-papprove title="Approve" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-emerald-500"><i data-lucide="check" class="w-4 h-4"></i></button>`);
                 if(p.status!=='rejected') btns.push(`<button data-preject title="Reject" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-amber-500"><i data-lucide="x" class="w-4 h-4"></i></button>`);
                 btns.push(`<button data-pdel title="Delete" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`);
                 controls=`<div class="flex items-center gap-0.5 shrink-0">${btns.join('')}</div>`;
             }
-            return `<div class="surface rounded-xl p-3.5 flex items-center gap-3" data-pid="${p.id||''}">
+            return `<div class="surface rounded-xl p-3.5 flex items-center gap-3" data-pid="${p.id||''}" data-pmember="${escapeHtml(p.memberId||'')}">
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2 flex-wrap">
                         <span class="font-semibold tracking-tight">${escapeHtml(p.origin||'—')}</span>
@@ -7197,7 +7560,8 @@
             const tab=e.target.closest('#pirepTabs [data-ptab]'); if(tab){ setPirepTab(tab.getAttribute('data-ptab')); return; }
             const card=e.target.closest('#pirepList [data-pid]'); if(!card) return;
             const id=card.getAttribute('data-pid');
-            if(e.target.closest('[data-papprove]')) reviewPirep(id,'approve',card);
+            if(e.target.closest('[data-plogbook]')) openLogbook(card.getAttribute('data-pmember'));
+            else if(e.target.closest('[data-papprove]')) reviewPirep(id,'approve',card);
             else if(e.target.closest('[data-preject]')) reviewPirep(id,'reject',card);
             else if(e.target.closest('[data-pdel]')) deletePirep(id,card);
         });
@@ -7237,7 +7601,27 @@
         let PIREP_SCHEDULE_ID='';
         function openPirepForm(prefill){
             const pilotSel=document.getElementById('pf_pilot');
-            pilotSel.innerHTML='<option value="">Unassigned pilot</option>'+(ROSTER||[]).map(m=>`<option value="${m.id}">${escapeHtml(m.name||m.callsign||'Pilot')}</option>`).join('');
+            /* WHOSE FLIGHT THIS IS, AND WHO IS ALLOWED TO SAY.
+             *
+             * Filing onto another pilot's record is `flights.review` on the
+             * server now — the same capability that approves one — because a
+             * form that could put hours on anybody's row was a form any crew
+             * member could use to promote themselves.
+             *
+             * So the picker is only offered to the people the server will
+             * listen to. Anybody else files their own flight and the server
+             * resolves them from their session; showing them a roster of names
+             * they cannot actually file against would be a control that
+             * silently does nothing, which is worse than no control. */
+            const canPickPilot = can('flights.review');
+            pilotSel.classList.toggle('hidden', !canPickPilot);
+            // Same gate, same reason: the server ignores `approve` from anybody
+            // who could not press Approve.
+            const apRow=document.getElementById('pf_approveRow');
+            if(apRow) apRow.classList.toggle('hidden', !canPickPilot);
+            pilotSel.innerHTML = canPickPilot
+                ? '<option value="">Unassigned pilot</option>'+(ROSTER||[]).map(m=>`<option value="${m.id}">${escapeHtml(m.name||m.callsign||'Pilot')}</option>`).join('')
+                : '';
             const acSel=document.getElementById('pf_aircraft');
             acSel.innerHTML='<option value="">Aircraft (optional)</option>'
                 +routableFleet().map(a=>`<option value="${escapeHtml(fleetValue(a))}">${escapeHtml(fleetLabel(a))}</option>`).join('');
@@ -7277,6 +7661,7 @@
                 landings: Number(document.getElementById('pf_land').value)||0,
                 hours: Number(document.getElementById('pf_h').value)||0,
                 minutes: Number(document.getElementById('pf_m').value)||0,
+                approve: can('flights.review') && !!document.getElementById('pf_approve').checked,
             };
             if(!body.origin||!body.destination){ note.textContent='Enter a departure and arrival airport.'; note.className='text-sm text-amber-600 dark:text-amber-400'; note.classList.remove('hidden'); return; }
             const done=busy('pirepSubmitBtn','Filing…');
@@ -7284,7 +7669,12 @@
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/pireps`,{ method:'POST', headers:{'Content-Type':'application/json',Authorization:'Bearer '+token}, body:JSON.stringify(body) });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ note.textContent=d.error||'Could not file the flight.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); return; }
-                const verdict = d.routeMatched ? (d.flightNumberMismatch ? 'Filed — route matched, but the flight number differs from the network.' : 'Filed — route confirmed on your network.') : 'Filed off-network — no matching route. It is waiting under Pending.';
+                const verdict = d.autoApproved
+                    // A flight that has already been credited is not "waiting
+                    // under Pending", and saying so is how somebody goes
+                    // looking for it in the wrong tab.
+                    ? (d.routeMatched ? 'Filed and credited — route confirmed on your network.' : 'Filed and credited — it did not match a published route.')
+                    : d.routeMatched ? (d.flightNumberMismatch ? 'Filed — route matched, but the flight number differs from the network.' : 'Filed — route confirmed on your network.') : 'Filed off-network — no matching route. It is waiting under Pending.';
                 // The verdict went into a note inside the form, and the next
                 // line hid the form — so the one thing the pilot needed to read
                 // was written and immediately taken away. It goes to a toast,
@@ -8926,6 +9316,11 @@
             document.querySelectorAll('.settings-tab').forEach(t=>{
                 const c=t.getAttribute('data-cat'); if(c in vis) t.classList.toggle('hidden', !vis[c]);
             });
+            // The hero block gates itself on the same capability the tab it
+            // sits in does. Redrawn here as well as at boot because /me can
+            // land after the first paint, and a staff member whose branding
+            // power arrived late should not have to reopen the drawer.
+            renderHeroOpts();
             // If the active tab got hidden, jump to the first visible one.
             const active=document.querySelector('.settings-tab.active');
             if(active && active.classList.contains('hidden')){
@@ -9481,6 +9876,7 @@
         }
         function applyBranding(b){
             if(!b) return;
+            CREW_BRANDING=b;
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
             // The VA's full design system, when it has one. Applied before the
             // rest so the page paints in brand colours on first frame.
@@ -9548,7 +9944,14 @@
                 // On a phone the bar has no room for the second copy, so the
                 // logo carries it and the name comes back at `sm`.
                 document.getElementById('navName').classList.add('hidden','sm:inline');
-                document.getElementById('idLogo').src=b.logo; document.getElementById('idLogo').classList.remove('hidden'); document.getElementById('idMonogram').classList.add('hidden');
+                // The plate is what is shown or hidden now, not the image
+                // inside it — see #idLogoPlate in the markup. A logo that 404s
+                // takes the plate down with it and the monogram comes back,
+                // rather than leaving a white square with a broken-image glyph
+                // in it where the airline is supposed to be.
+                const idLogo=document.getElementById('idLogo'), idPlate=document.getElementById('idLogoPlate');
+                idLogo.addEventListener('error',()=>{ idPlate.classList.add('hidden'); document.getElementById('idMonogram').classList.remove('hidden'); },{once:true});
+                idLogo.src=b.logo; idPlate.classList.remove('hidden'); document.getElementById('idMonogram').classList.add('hidden');
             }
             if(b.banner && isSafeImageUrl(b.banner)){
                 document.getElementById('identityBg').src=b.banner; document.getElementById('identityBg').classList.remove('hidden'); document.getElementById('identityTint').classList.add('hidden');
@@ -9795,10 +10198,10 @@
 
         // ---- Boot ----
         (async function(){
-            // Before anything is drawn: if this is an arrival from the sign-in
-            // page, the cover goes up now and comes down when the page below it
-            // is worth looking at.
-            if(window.CrewSplash) CrewSplash.arm({ slug:getSlug() });
+            // The cover is already up, if this is an arrival: it is armed in
+            // the <head> of this file, before the page is parsed, because a
+            // cover raised from here goes up over a page the reader has
+            // already seen. All that is left for the boot to do is `done`.
             wireLiveUpdates();
             renderTiles(); readSession();
             const b = await resolveBranding();
@@ -9833,6 +10236,8 @@
             mountIfLive();                  // the Live fleet board (and the panel behind it, for staff)
             renderSwatches(); syncAccentPicker();
             renderLookOpts(); renderUiOpts();
+            readHero(b); renderHeroOpts();   // how this VA has built its pilots' hero
+            if(window.CrewZulu) CrewZulu.mount();   // the clock in the top bar
             mountCommand(); mountAlerts();
             wireStructure(); renderStructure(); loadFleetMeta();
             wireSocial(); renderSocialEditor(); renderSocial();   // the Instagram wall + its editor

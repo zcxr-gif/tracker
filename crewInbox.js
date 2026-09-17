@@ -89,6 +89,17 @@
         document:    { icon: 'book-open',        label: 'Document' },
         checkride:   { icon: 'clipboard-check',  label: 'Check-ride' },
         system:      { icon: 'settings',         label: 'Crew centre' },
+        /* The three the crew centre writes about a pilot's flying. They were
+           missing from this map entirely, so every one of them has been
+           arriving in the inbox wearing an envelope and the word "Message" —
+           which is the one thing they are not. Separate entries rather than one
+           'flight', because the icon and the colour are the whole of the
+           glanceable difference between "it counted", "it did not" and "we
+           changed a number on your record". */
+        flight_approved: { icon: 'check-circle-2', label: 'Flight approved' },
+        flight_rejected: { icon: 'x-circle',       label: 'Flight not approved' },
+        flight_edited:   { icon: 'pencil-line',    label: 'Flight corrected' },
+        order:       { icon: 'gift',             label: 'Order' },
     };
     const kindOf = (n) => KINDS[n && n.kind] || KINDS.message;
 

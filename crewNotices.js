@@ -72,6 +72,9 @@
         event:     { icon: 'calendar-days', label: 'Event' },
         checkride: { icon: 'clipboard-check', label: 'Check-ride' },
         schedule:  { icon: 'calendar-clock', label: 'Schedule' },
+        // The other half of 'join'. A board that announces only the arrivals
+        // is a board where people quietly stop existing.
+        leave:     { icon: 'user-minus',  label: 'Left the airline' },
     };
     const kindOf = (n) => KINDS[n && n.kind] || KINDS.notice;
 
