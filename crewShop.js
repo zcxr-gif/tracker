@@ -24,6 +24,25 @@
       had the argument about it. Staff set the rate; the server does the sums
       when it approves the flight.
 
+      There are ten rates rather than the original four, because three of those
+      four were the same sentence — you flew, here is some money — and nothing
+      in the set could say that one flight was worth more to the airline than
+      another. The extra six are the levers a VA already wanted: the long haul,
+      its own route network, a rostered departure, an event, the route of the
+      week, and landing it clean. Every one of them still pays THROUGH the
+      flight, and there is still no button that hands anybody anything.
+
+   1b. THE STREAK. How many weeks in a row a pilot has flown. The only number
+      in the crew center that can go down, and the only one that says somebody
+      came BACK rather than that they flew a lot — hours, flights and miles all
+      count the same thing. It pays a percentage per week to a cap, plus one-off
+      milestones, and both ride on an approved flight like everything else.
+
+      Nothing about it is stored: the server derives it from the VA's own
+      logbook every time it is asked, so this file never computes one. Drawing
+      a run the browser had guessed at would mean drawing a different number
+      from the one the approval paid.
+
    2. THE CARD. Every pilot has one — their name, their callsign, their
       airline's colours and logo, their balance. It is deliberately the most
       finished-looking object in the crew center, because it is the thing a
@@ -47,9 +66,10 @@
 
    THE BACKEND (implemented in the database repo)
 
-     GET    /shop                    the lot: settings, items, and the caller's
-                                     own wallet. Public-ish: signed out gets
-                                     the items and no wallet.
+     GET    /shop                    the lot: settings, items, the clubs, what a
+                                     streak is worth here, and the caller's own
+                                     wallet (which carries their run). Public-ish:
+                                     signed out gets the items and no wallet.
      POST   /shop/settings           staff. { enabled, currency, earn }
      POST   /shop/items              staff. one item
      PATCH  /shop/items/<id>         staff
@@ -57,6 +77,15 @@
      GET    /shop/orders             staff: everyone's. Pilot: their own.
      POST   /shop/orders             { itemId } → { order, wallet }
      PATCH  /shop/orders/<id>        staff. { action: 'fulfil' | 'cancel' }
+     GET    /streaks                 what a streak is worth here, and the
+                                     caller's own. Public to read.
+     POST   /streaks                 staff. { perWeek, maxBonus, freezeOnLeave,
+                                     milestones: [{ weeks, bonus }] }
+     GET    /streaks/suggested       staff. A worked set, priced in this
+                                     airline's own flights.
+     GET    /pireps/<id>/earnings    why that flight paid what it paid — the
+                                     lines, the bonuses and the total. The pilot
+                                     it belongs to, or anyone who reviews.
 
    Until a VA's database has those, every call answers 409 with a `*_missing`
    code, which CrewPanels.isSchemaGap already recognises — so a VA on an older
@@ -329,7 +358,8 @@
         .sh-card-balance b{ font-size:7.4cqi; font-weight:800; letter-spacing:-.03em; line-height:1; }
         .sh-card-balance span{ font-size:3cqi; font-weight:700; opacity:.8; letter-spacing:.04em; }
         .sh-card-num{ font-size:3.2cqi; letter-spacing:.14em; opacity:.85; margin-top:1.9cqi; white-space:nowrap;
-            font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+            font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+            display:flex; align-items:center; gap:2.4cqi; }
         .sh-card-foot{ display:flex; align-items:flex-end; justify-content:space-between; gap:3cqi; margin-top:1.7cqi; }
         .sh-card-name{ font-size:3.2cqi; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -753,6 +783,52 @@
             color:var(--muted,#736E64); }
         .sh-item-shut{ opacity:.72; }
         .sh-item-shut .sh-item-art,.sh-item-shut .sh-item-band{ filter:saturate(.4); }
+        /* ---- THE STREAK -------------------------------------------------
+           One number, as big as the card's balance, because it is the same
+           KIND of thing: a figure a pilot checks rather than reads. The state
+           is carried by the border and the rule under the number, not by the
+           number's colour — a red "12" reads as an error. */
+        .sh-streak{ border-radius:.8rem; padding:1rem; display:grid; gap:.6rem;
+            border:1px solid var(--line,#e5e5e5); background:var(--surface,#fff); }
+        .sh-streak-n{ display:flex; align-items:baseline; gap:.5rem; }
+        .sh-streak-n i{ width:1.4rem; height:1.4rem; align-self:center;
+            color:color-mix(in srgb, var(--ink,#1C1A16) 35%, transparent); }
+        .sh-streak-n b{ font-size:2.6rem; line-height:1; font-weight:800; letter-spacing:-.04em;
+            font-variant-numeric:tabular-nums; }
+        .sh-streak-n span{ font-size:.82rem; font-weight:650; color:var(--muted,#736E64); }
+        .sh-streak-line{ margin:0; font-size:.88rem; font-weight:600; letter-spacing:-.01em; }
+        .sh-streak-pay{ display:grid; gap:.35rem; }
+        .sh-streak-foot{ display:flex; justify-content:space-between; gap:.75rem; flex-wrap:wrap;
+            border-top:1px dashed var(--line,#e5e5e5); padding-top:.5rem; }
+        /* SAFE is calm and AT RISK is the only loud thing in this panel. It is
+           loud because it is the one piece of genuinely useful bad news the
+           crew center has: there is something to lose and time left to save
+           it. ON LEAVE is deliberately NOT loud — a pilot who told their
+           airline they are away has already done the right thing. */
+        .sh-streak-safe{ border-color:color-mix(in srgb, var(--accent) 35%, transparent);
+            background:color-mix(in srgb, var(--accent) 6%, transparent); }
+        .sh-streak-safe .sh-streak-n i{ color:var(--accent); }
+        .sh-streak-risk{ border-color:color-mix(in srgb, #C2410C 45%, transparent);
+            background:color-mix(in srgb, #C2410C 7%, transparent); }
+        .sh-streak-risk .sh-streak-n i{ color:#C2410C; }
+        .sh-streak-risk .sh-streak-line{ color:#9A3412; }
+        .sh-streak-leave .sh-streak-n i{ color:var(--muted,#736E64); }
+        .sh-streak-leave .sh-streak-n b{ opacity:.65; }
+        /* On the card itself: a chip, not a second balance. The card already
+           has one big number and a face; this is the smallest thing on it that
+           is still legible at the size a screenshot gets shared at. */
+        .sh-card-streak{ display:inline-flex; align-items:center; gap:.25rem; flex:none;
+            font-family:inherit; font-size:2.6cqi; font-weight:800; letter-spacing:.02em; opacity:1;
+            padding:.15rem .45rem; border-radius:999px;
+            background:rgba(255,255,255,.16); color:#fff; }
+        .sh-card-streak i{ width:2.8cqi; height:2.8cqi; }
+        /* ---- THE RATES, GROUPED ------------------------------------------
+           Ten numbers in one column is a form nobody finishes. */
+        .sh-rateset{ display:grid; gap:.3rem; padding:.7rem .8rem; border-radius:.7rem;
+            border:1px solid var(--line,#e5e5e5); margin-bottom:.5rem; }
+        .sh-rateset-h{ font-size:.68rem; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
+            color:var(--muted,#736E64); }
+        .sh-rateset .cp-note{ margin:0 0 .2rem; }
         /* ---- THE CLUB EDITOR, IN THE BACK OFFICE ------------------------ */
         .sh-cedit{ display:grid; gap:.4rem; }
         .sh-crow{ display:grid; gap:.4rem; padding:.6rem .7rem; border-radius:.6rem;
@@ -888,6 +964,26 @@
         return `<div class="sh-card-tier">${rank}${club}</div>`;
     }
 
+    /**
+     * The run, on the card face.
+     *
+     * Drawn from two weeks up, never from one: "1 week running" on somebody's
+     * first flight is not an achievement, it is a description of having flown,
+     * and putting it on the card would make the chip mean nothing by the time
+     * it means something.
+     *
+     * A chip and not a second balance. The card already has one big number; this
+     * is the smallest thing on it that is still legible at the size a screenshot
+     * gets shared at, which is the only size that matters for this card.
+     */
+    function streakChipHtml(w) {
+        const st = w && w.streak;
+        const weeks = st ? Math.round(Number(st.weeks) || 0) : 0;
+        if (weeks < 2) return '';
+        return `<span class="sh-card-streak" title="${weeks} weeks running">
+            <i data-lucide="flame"></i>${weeks}w</span>`;
+    }
+
     function cardHtml(wallet, opts) {
         const o = opts || {};
         const w = wallet || null;
@@ -911,7 +1007,7 @@
                 <b>${w ? num(w.balance) : '—'}</b><span>${esc(currency().short)}${w && w.balanceNote
                     ? ` ${esc(w.balanceNote)}` : ''}</span>
             </div>
-            <div class="sh-card-num">${esc(cardNumber(w))}</div>
+            <div class="sh-card-num">${esc(cardNumber(w))}${streakChipHtml(w)}</div>
             <div class="sh-card-foot">
                 <div class="min-w-0">
                     <div class="sh-card-name">${name}${cs && cs !== name ? ` · ${cs}` : ''}</div>
@@ -1050,7 +1146,7 @@
         const canManage = !!S.data.canManage;
         if (!S.data.enabled) return canManage ? offStaffHtml() : offPilotHtml();
 
-        const tabs = [['shop', 'Shop'], ['clubs', 'Clubs'], ['crew', 'Crew'],
+        const tabs = [['shop', 'Shop'], ['clubs', 'Clubs'], ['streak', 'Streak'], ['crew', 'Crew'],
             ['orders', canManage ? 'Orders' : 'My orders']];
         if (canManage) tabs.push(['manage', 'Set up']);
         const tabBar = `<div class="sh-tabs" role="tablist">${tabs.map(([k, label]) =>
@@ -1060,6 +1156,7 @@
         let view = '';
         if (S.view === 'orders') view = ordersHtml();
         else if (S.view === 'clubs') view = clubsHtml();
+        else if (S.view === 'streak') view = streakHtml();
         else if (S.view === 'crew') view = crewHtml();
         else if (S.view === 'manage' && canManage) view = manageHtml();
         else view = shopHtml();
@@ -1801,6 +1898,160 @@
     const hexOr = (v) => (typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v.trim()) ? v.trim() : 'var(--accent)');
 
     /* =====================================================================
+     * THE STREAK
+     *
+     * How many weeks in a row this pilot has flown, and what their airline
+     * gives them for it. The third thing flying earns, and the only one that is
+     * not a ladder: a rank and a club both go up and stay up, and a streak is
+     * the one number on this screen that can go DOWN.
+     *
+     * WHICH IS THE ENTIRE REASON IT WORKS, and it is also the reason this tab
+     * is written the way it is. A thing you can lose needs to tell you, in
+     * order: where you stand, whether it is safe, and by when. Everything else
+     * — what it is paying, the next milestone, the settings — is context under
+     * those three, and a card that opened with "you earn 18% more" would have
+     * buried the only sentence a pilot acts on.
+     *
+     * NOTHING IS COMPUTED HERE. The run, the deadline, the bonus and the next
+     * milestone all come down with the shop (GET /shop carries `streaks`, and
+     * the wallet carries `streak`), because a streak is derived from the VA's
+     * own logbook and a browser guessing at it would guess differently from the
+     * approval that pays it. This file draws the answer.
+     * =================================================================== */
+
+    const streakSettings = () => (S.data && S.data.streaks) || {};
+    const myStreak = () => (S.data && S.data.wallet && S.data.wallet.streak) || null;
+    /** True where a streak actually gives a pilot at this airline anything. */
+    const streaksPay = () => !!streakSettings().pays;
+
+    /** Weeks, as a person says them — the client half of crewStreaks.weeksText. */
+    function weeksText(n) {
+        const w = Math.max(0, Math.round(Number(n) || 0));
+        if (w === 1) return '1 week';
+        if (w === 52) return 'a year';
+        if (w === 26) return '6 months';
+        if (w === 13) return '3 months';
+        if (w && w % 52 === 0) return `${w / 52} years`;
+        return `${w} weeks`;
+    }
+
+    function streakHtml() {
+        // An older server sends a shop with no `streaks` on it at all. That is
+        // a different sentence from "this airline pays nothing for one", and
+        // telling the second would have a VA looking for a switch that is not
+        // there yet.
+        if (!S.data || !S.data.streaks) return P.notBuiltHtml('Streaks');
+        const mine = myStreak();
+        const st = streakSettings();
+        const staff = S.data.canManage
+            ? `<div class="sh-club-staff">
+                <p class="cp-note">${streaksPay()
+                    ? 'Your pilots see exactly this. Change what a streak is worth under Set&nbsp;up.'
+                    : 'Every pilot already has a streak — it is a fact about their logbook. What it is WORTH is under Set&nbsp;up, and it is nothing until you set it.'}</p>
+                <button class="cp-btn cp-btn-sm" data-sh-view="manage"><i data-lucide="settings-2"></i> Set up streaks</button>
+            </div>` : '';
+        const offer = (st.benefits || []).length
+            ? `<div class="sh-club-gets" style="margin-top:.9rem">
+                <span class="sh-club-gets-h">What a streak is worth here</span>
+                ${st.benefits.map((b) => `<span class="sh-club-get">
+                    <i data-lucide="${b.kind === 'milestone' ? 'gift' : 'flame'}"></i>${esc(b.label)}</span>`).join('')}
+            </div>`
+            : '';
+        return `${streakCardHtml(mine)}${offer}${milestoneListHtml(mine)}${staff}`;
+    }
+
+    /**
+     * Where they stand, whether it is safe, and by when.
+     *
+     * Four states, and they read differently on purpose:
+     *
+     *   SIGNED OUT   the offer, and nothing claimed about anybody.
+     *   NO RUN       an invitation. "Fly once this week and you are on one" is
+     *                a thing somebody can do tonight; an empty progress bar is
+     *                a thing that has already failed.
+     *   SAFE         flown this week. The deadline is a week further out and
+     *                the card is calm about it.
+     *   AT RISK      the only loud state in this file, and it is loud because
+     *                it is the one piece of genuinely useful bad news the crew
+     *                center has: there is something to lose and time to save
+     *                it. On leave is NOT this — a pilot who has told their
+     *                airline they are away has already done the right thing.
+     */
+    function streakCardHtml(mine) {
+        if (!mine) {
+            return `<div class="sh-streak">
+                <div class="sh-streak-n"><i data-lucide="flame"></i><b>—</b></div>
+                <p class="cp-note">Sign in as a pilot of this airline to see your streak.</p>
+            </div>`;
+        }
+        const weeks = Math.max(0, Math.round(Number(mine.weeks) || 0));
+        if (!weeks) {
+            return `<div class="sh-streak">
+                <div class="sh-streak-n"><i data-lucide="flame"></i><b>0</b><span>weeks running</span></div>
+                <p class="sh-streak-line">Fly once this week and you are on a streak. One flight a week keeps it.</p>
+                ${mine.longest > 0 ? `<p class="cp-note">Your longest run so far: ${esc(weeksText(mine.longest))}.</p>` : ''}
+            </div>`;
+        }
+        const state = mine.onLeave ? 'leave' : (mine.atRisk ? 'risk' : 'safe');
+        const when = mine.endsAt ? whenText(mine.endsAt) : '';
+        const line = mine.onLeave
+            ? 'Held while you’re on leave. It picks up where you left it.'
+            : (mine.atRisk
+                ? `Fly once before ${esc(when)} to keep it.`
+                : `Safe until ${esc(when)}.`);
+        const pct = mine.maxBonus > 0
+            ? Math.max(0, Math.min(100, Math.round((Number(mine.bonus) || 0) / mine.maxBonus * 100)))
+            : 0;
+        return `<div class="sh-streak sh-streak-${state}">
+            <div class="sh-streak-n"><i data-lucide="flame"></i><b>${num(weeks)}</b>
+                <span>${weeks === 1 ? 'week' : 'weeks'} running</span></div>
+            <p class="sh-streak-line">${line}</p>
+            ${mine.bonus ? `<div class="sh-streak-pay">
+                <div class="sh-club-bar"><span style="width:${pct}%"></span></div>
+                <div class="sh-club-next-foot">
+                    <span class="cp-note"><b>${mine.bonus}%</b> more on every flight</span>
+                    <span class="cp-note">${mine.bonus >= mine.maxBonus
+                        ? 'the most a streak pays'
+                        : `${mine.nextBonus}% next week · ${mine.maxBonus}% at ${esc(weeksText(mine.capAt))}`}</span>
+                </div>
+            </div>` : ''}
+            <div class="sh-streak-foot">
+                <span class="cp-note">Longest: ${esc(weeksText(mine.longest))}</span>
+                <span class="cp-note">${num(mine.totalWeeks)} weeks flown in all</span>
+            </div>
+        </div>`;
+    }
+
+    /**
+     * The milestones, and how far off the next one is.
+     *
+     * Drawn as a list with the passed ones dimmed, which is the same shape the
+     * club ladder uses and for the same reason: the ones behind you are what
+     * make the one ahead mean anything.
+     */
+    function milestoneListHtml(mine) {
+        const list = (streakSettings().milestones || []).filter((m) => m.bonus > 0);
+        if (!list.length) return '';
+        const weeks = mine ? Math.max(0, Math.round(Number(mine.weeks) || 0)) : -1;
+        const c = currency();
+        return `<div class="sh-h" style="margin-top:1rem">Milestones</div>
+            <div class="sh-club-list">${list.map((m) => {
+                const past = weeks >= m.weeks;
+                const away = weeks >= 0 ? m.weeks - weeks : null;
+                return `<div class="sh-club${past ? ' sh-club-past' : ''}">
+                    <span class="sh-club-swatch" style="--sh-face:var(--accent)" aria-hidden="true"></span>
+                    <div class="sh-club-main">
+                        <div class="sh-club-name">${esc(weeksText(m.weeks))} running
+                            ${past ? '<span class="cp-chip">Reached</span>' : ''}</div>
+                        <div class="sh-club-at">Pays <b>${num(m.bonus)} ${esc(c.short)}</b> once, on the
+                            flight that gets you there.${away != null && away > 0
+                                ? ` ${esc(weeksText(away))} to go.` : ''}</div>
+                    </div>
+                </div>`;
+            }).join('')}</div>`;
+    }
+
+    /* =====================================================================
      * THE CREW
      *
      * WHY A SHOP HAS A CREW LIST AT ALL
@@ -1983,42 +2234,123 @@
      * the shop" a question with two answers.
      * =================================================================== */
 
-    const RATES = [
-        ['perHour', 'Per flight hour', 'The main one. A 2-hour flight pays twice this.'],
-        ['perLanding', 'Per landing', 'For airlines that fly short legs.'],
-        ['fleetBonus', 'Fleet bonus', 'Added when the aircraft is one of yours.'],
-        /* EVENTS PAY, AND THEY PAY THROUGH THE FLIGHT.
-         *
-         * Every VA wants its group flights to be worth turning up to, and the
-         * obvious way to do that — a button that hands out points for
-         * attendance — is the one thing this economy does not have and must
-         * not get. A second supply nobody can audit is how every hand-rolled
-         * VA economy has ended up in an argument.
-         *
-         * So an event pays the same way everything else does: the pilot flies
-         * it, files it, a staff member approves it, and the approval carries
-         * this on top of the usual rate. Signing up and not flying pays
-         * nothing, which is also the honest answer. An individual event can
-         * name its own figure and override this one. */
-        ['eventBonus', 'Event bonus', 'Added when the approved flight was for one of your events.'],
-        ['violationPenalty', 'Violation penalty', 'Taken off per violation on the flight.'],
+    /* ---- WHAT A FLIGHT IS WORTH -----------------------------------------
+     *
+     * The shop shipped with four rates: an hour, a landing, a bonus for the
+     * airline's own aircraft, and a fine per violation. Three of them are the
+     * same sentence — you flew, here is some money — and nothing in the set
+     * could say that one flight was worth more to the airline than another.
+     *
+     * The rest are the levers a VA already wanted and had nowhere to pull: the
+     * long haul, its own network, a rostered departure, an event, the route of
+     * the week, and landing it clean. Grouped, because ten numbers in one
+     * column is a form nobody finishes and three short lists is a screen — and
+     * the groups are the honest shape of them anyway. The rate is what flying
+     * costs the airline; a bonus is what the airline is asking for.
+     *
+     * EVERY ONE DEFAULTS TO ZERO on the server, so opening this screen is the
+     * only thing that can change what an airline pays.
+     */
+    const RATE_GROUPS = [
+        ['The rate', 'Paid on every approved flight, whatever it was.', [
+            ['perHour', 'Per flight hour', 'The main one. A 2-hour flight pays twice this.'],
+            ['perLanding', 'Per landing', 'For airlines that fly short legs.'],
+            ['per100Nm', 'Per 100 nautical miles', 'For the long haul. A 4,000nm sector pays forty times this.'],
+        ]],
+        ['Bonuses', 'Paid on top, when the flight was the one you were asking for.', [
+            ['fleetBonus', 'Flown in your fleet', 'Added when the aircraft is one of yours.'],
+            ['routeBonus', 'On your route network', 'Added when the leg matched a route you published.'],
+            ['scheduleBonus', 'A rostered departure', 'Added when they flew a seat they booked on your schedule.'],
+            /* EVENTS PAY, AND THEY PAY THROUGH THE FLIGHT.
+             *
+             * Every VA wants its group flights to be worth turning up to, and
+             * the obvious way to do that — a button that hands out points for
+             * attendance — is the one thing this economy does not have and
+             * must not get. A second supply nobody can audit is how every
+             * hand-rolled VA economy has ended up in an argument.
+             *
+             * So an event pays the same way everything else does: the pilot
+             * flies it, files it, a staff member approves it, and the approval
+             * carries this on top of the usual rate. Signing up and not flying
+             * pays nothing, which is also the honest answer. */
+            ['eventBonus', 'Flown for an event', 'Added when the approved flight was for one of your events.'],
+            ['featuredBonus', 'The featured route', 'Added for the route of the week, and the route of the day.'],
+            ['cleanBonus', 'No violations', 'Added when they got it down clean.'],
+        ]],
+        ['Taken off', '', [
+            ['violationPenalty', 'Per violation', 'Taken off the flight. It never takes a balance a pilot already has.'],
+        ]],
     ];
 
+    const RATES = RATE_GROUPS.reduce((all, [, , rows]) => all.concat(rows), []);
+
     function earn() { return (S.data && S.data.earn) || {}; }
+
+    /* ONE ORDINARY FLIGHT, and the reason the rates mean anything.
+     *
+     * "perHour: 120" is not a number anybody has a feeling about. "A 2h 15m
+     * sector pays 412" is, and it is the only feedback that makes this screen
+     * possible to fill in — so it is recomputed under the fields as they are
+     * typed rather than after a save.
+     *
+     * The same leg the SERVER prices (crewShop.exampleFlight), and priced the
+     * same way: per line, rounded per line, floored once at the end. Two copies
+     * of that arithmetic is two answers eventually, so the server sends its own
+     * figure as `unit` on load — this exists for the keystrokes in between, and
+     * if the two ever disagree the server is right.
+     *
+     * It has to exercise the bonuses to be worth printing: an example that
+     * ignored six of the ten rates would tell a VA their new distance rate had
+     * changed nothing. */
+    const EXAMPLE = {
+        durationMin: 135, landings: 1, violations: 0,
+        inFleet: true, distanceNm: 980, routeId: 'example',
+    };
+    const EXAMPLE_UNITS = {
+        perHour: EXAMPLE.durationMin / 60,
+        perLanding: EXAMPLE.landings,
+        per100Nm: EXAMPLE.distanceNm / 100,
+        fleetBonus: 1,
+        routeBonus: 1,
+        cleanBonus: 1,
+    };
+
+    function examplePay(e) {
+        let total = 0;
+        for (const [k, units] of Object.entries(EXAMPLE_UNITS)) {
+            const rate = Math.max(0, Number((e || {})[k]) || 0);
+            if (rate) total += Math.round(rate * units);
+        }
+        return Math.max(0, Math.round(total));
+    }
 
     /** What the rates above pay for one real, ordinary flight. */
     function exampleHtml() {
         const e = earn();
-        const hours = 2.25, landings = 1;
-        const base = Math.max(0, Math.round(
-            (Number(e.perHour) || 0) * hours
-            + (Number(e.perLanding) || 0) * landings
-            + (Number(e.fleetBonus) || 0)));
-        const ev = Math.max(0, Math.round(Number(e.eventBonus) || 0));
-        return `<div class="sh-example">A 2h 15m flight in one of your own aircraft pays
-            <b>${num(base)} ${esc(currency().short)}</b> when you approve it${ev
-                ? `, or <b>${num(base + ev)} ${esc(currency().short)}</b> if it was flown for an event`
-                : ''}.</div>`;
+        const base = examplePay(e);
+        const c = currency();
+        // The two rates the example flight deliberately does NOT trigger, named
+        // rather than folded in: a VA needs to see that an event is worth more
+        // than an ordinary leg, and adding both to one figure would hide it.
+        const on = [
+            ['eventBonus', 'flown for an event'],
+            ['featuredBonus', 'the featured route'],
+        ].filter(([k]) => Math.round(Number(e[k]) || 0) > 0)
+            .map(([k, what]) => `<b>${num(base + Math.round(Number(e[k]) || 0))} ${esc(c.short)}</b> ${esc(what)}`);
+        return `<div class="sh-example">A 2h 15m, 980nm flight on your own network, in one of your
+            own aircraft, with no violations, pays <b>${num(base)} ${esc(c.short)}</b> when you approve
+            it${on.length ? ` — or ${on.join(', or ')}` : ''}.${streakTail(base)}</div>`;
+    }
+
+    /* AND WHAT A PILOT ON A RUN WOULD GET FOR IT. Appended to the example
+       rather than given a worked example of its own: a streak bonus is a
+       percentage of the number immediately to its left, and printing it
+       anywhere else would make a VA do the multiplication themselves. */
+    function streakTail(base) {
+        const st = streakSettings();
+        if (!base || !st.maxBonus || !st.perWeek) return '';
+        const top = Math.round(base * (1 + st.maxBonus / 100));
+        return ` A pilot at the top of a streak gets <b>${num(top)} ${esc(currency().short)}</b> for the same leg.`;
     }
 
     function manageHtml() {
@@ -2042,10 +2374,14 @@
             </div>
 
             <div class="sh-h" style="margin-top:.5rem">What a flight earns</div>
-            ${RATES.map(([k, label, note]) => `<div class="sh-rate">
-                <label for="sh-r-${k}">${esc(label)}<small>${esc(note)}</small></label>
-                <input id="sh-r-${k}" class="cp-input" type="number" min="0" step="1" inputmode="numeric"
-                    data-sh-rate="${k}" value="${Math.max(0, Math.round(Number(e[k]) || 0))}">
+            ${RATE_GROUPS.map(([heading, note, rows]) => `<div class="sh-rateset">
+                <div class="sh-rateset-h">${esc(heading)}</div>
+                ${note ? `<p class="cp-note">${esc(note)}</p>` : ''}
+                ${rows.map(([k, label, hint]) => `<div class="sh-rate">
+                    <label for="sh-r-${k}">${esc(label)}<small>${esc(hint)}</small></label>
+                    <input id="sh-r-${k}" class="cp-input" type="number" min="0" step="1" inputmode="numeric"
+                        data-sh-rate="${k}" value="${Math.max(0, Math.round(Number(e[k]) || 0))}">
+                </div>`).join('')}
             </div>`).join('')}
             ${exampleHtml()}
             <div>
@@ -2055,12 +2391,108 @@
                 does not re-price flights you have already approved.</p>
 
             ${clubEditHtml()}
+            ${streakEditHtml()}
 
             <div class="sh-h" style="margin-top:.8rem">On the shelf</div>
             ${items.length ? items.map(manageItemHtml).join('') : '<p class="cp-note">Nothing yet.</p>'}
             <div><button class="cp-btn" data-sh-additem><i data-lucide="plus"></i> Add something</button></div>
             ${suggestHtml()}
         </div>`;
+    }
+
+    /* ---- The streak, in the back office ----------------------------------
+     *
+     * Two percentages and a list. The screen's real job is the same one the
+     * club editor's is: the hard part is never the form, it is the blank page —
+     * "what should twelve weeks be worth" is where a VA stops. One tap fills
+     * every field with a set that climbs, priced against THIS airline's own
+     * rates, and it is theirs to edit immediately because nothing is saved
+     * until they press Save.
+     *
+     * EDITED IN PLACE, IN THE DOM, like the clubs above and the rates above
+     * those: the milestone list is read back off the fields on save (see
+     * readMilestones), so the rows carry no state of their own and typing in
+     * one never triggers a redraw. A redraw per keystroke would take the cursor
+     * out of the field somebody is in.
+     */
+    function streakEditHtml() {
+        const st = streakSettings();
+        const c = currency();
+        const rows = st.milestones || [];
+        const cap = st.capAt;
+        return `<div class="sh-h" style="margin-top:.8rem">Streaks</div>
+            <p class="cp-note">A pilot's streak is the number of weeks in a row they have flown at least
+                one approved flight. Every pilot already has one — it is counted off their logbook, and
+                nothing here turns it on. What these set is what it is <em>worth</em>.</p>
+            <div class="cp-grid2">
+                <label class="cp-label">Added per week
+                    <input class="cp-input" type="number" min="0" max="25" step="1" inputmode="numeric"
+                        data-sh-st="perWeek" value="${Math.max(0, Math.round(Number(st.perWeek) || 0))}">
+                    <small class="cp-note">Per cent, on every flight. A 6-week streak is five steps.</small>
+                </label>
+                <label class="cp-label">Never more than
+                    <input class="cp-input" type="number" min="0" max="200" step="1" inputmode="numeric"
+                        data-sh-st="maxBonus" value="${Math.max(0, Math.round(Number(st.maxBonus) || 0))}">
+                    <small class="cp-note">Per cent. ${cap
+                        ? `Reached at ${esc(weeksText(cap))} running.`
+                        : 'The ceiling the steps climb to.'}</small>
+                </label>
+            </div>
+            <label class="sh-switch" style="margin-top:.4rem">
+                <div class="sh-switch-main">
+                    <div class="sh-row-name">Leave holds a streak</div>
+                    <div class="sh-row-sub">A week a pilot spends on declared leave neither counts nor breaks
+                        their run. Off, and leave ends it like any other quiet week.</div>
+                </div>
+                <input type="checkbox" data-sh-st="freezeOnLeave" ${st.freezeOnLeave === false ? '' : 'checked'}>
+            </label>
+
+            <div class="sh-h" style="margin-top:.6rem">Milestones</div>
+            <p class="cp-note">A one-off payment, carried by the flight that gets a pilot there. It rides on
+                an approved flight like everything else in this shop — there is no button that hands anybody
+                ${esc(c.name)}, and there is deliberately no way to add one.</p>
+            <div class="sh-cedit">${rows.length
+                ? rows.map(milestoneEditRowHtml).join('')
+                : '<p class="cp-note">None yet.</p>'}</div>
+            <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+                <button class="cp-btn cp-btn-primary" data-sh-savestreak><i data-lucide="check"></i> Save the streak</button>
+                <button class="cp-btn" data-sh-addms><i data-lucide="plus"></i> Add a milestone</button>
+                <button class="cp-btn" data-sh-suggeststreak><i data-lucide="wand-sparkles"></i> Use a sensible set</button>
+            </div>
+            <p class="cp-note">Changing any of this does not re-price flights you have already approved.</p>`;
+    }
+
+    function milestoneEditRowHtml(m) {
+        const c = currency();
+        return `<div class="sh-crow" data-sh-ms>
+            <div class="sh-crow-top">
+                <label class="cp-label" style="flex:1;min-width:6rem">Weeks
+                    <input class="cp-input" type="number" min="1" max="208" step="1" inputmode="numeric"
+                        data-sh-mf="weeks" value="${Math.max(1, Math.round(Number(m.weeks) || 1))}"></label>
+                <label class="cp-label" style="flex:1;min-width:6rem">Pays (${esc(c.short)})
+                    <input class="cp-input" type="number" min="0" max="100000" step="1" inputmode="numeric"
+                        data-sh-mf="bonus" value="${Math.max(0, Math.round(Number(m.bonus) || 0))}"></label>
+                <button class="cp-btn cp-btn-sm" data-sh-delms title="Remove this milestone"
+                    aria-label="Remove this milestone"><i data-lucide="trash-2"></i></button>
+            </div>
+        </div>`;
+    }
+
+    /**
+     * The milestone list, read back off the fields.
+     *
+     * A blank week or a blank payment is a row somebody started and abandoned,
+     * not a milestone at nought weeks — it is dropped rather than saved, which
+     * is the same rule readClubs applies to a club with no name.
+     */
+    function readMilestones(scope) {
+        return [...scope.querySelectorAll('[data-sh-ms]')].map((row) => {
+            const v = (k) => {
+                const el = row.querySelector(`[data-sh-mf="${k}"]`);
+                return el ? el.value.trim() : '';
+            };
+            return { weeks: Math.round(Number(v('weeks')) || 0), bonus: Math.round(Number(v('bonus')) || 0) };
+        }).filter((m) => m.weeks > 0 && m.bonus > 0);
     }
 
     /* ---- The clubs, in the back office ----------------------------------
@@ -2223,6 +2655,78 @@
 
         rows.splice(at, 1);
         if (S.data) S.data.clubs = rows.map((r) => ({ ...r, benefits: [] }));
+        draw();
+    }
+
+    /* ---- The streak, saved ----------------------------------------------
+     *
+     * The same three actions the club editor has, and written the same way for
+     * the same reasons: the list is read off the DOM so typing never redraws,
+     * the server's answer replaces what was typed so the screen shows what was
+     * actually saved, and a suggestion fills the fields without writing
+     * anything.
+     */
+    async function saveStreak(btn) {
+        const body = S.panel.body;
+        const patch = { milestones: readMilestones(body) };
+        body.querySelectorAll('[data-sh-st]').forEach((el) => {
+            const k = el.getAttribute('data-sh-st');
+            patch[k] = el.type === 'checkbox' ? el.checked : Math.max(0, Math.round(Number(el.value) || 0));
+        });
+        const done = P.busy(btn, false);
+        try {
+            const d = await S.api('/streaks', { method: 'POST', body: patch });
+            // What the SERVER settled on: it clamps both percentages, drops
+            // duplicate weeks and sorts the list, and the editor must show what
+            // was saved rather than what was typed.
+            if (S.data && d.settings) S.data.streaks = d.settings;
+            draw();
+            P.toast('Streaks saved.', 'ok');
+        } catch (err) {
+            P.toast((err && err.message) || 'That didn’t work.', 'bad');
+        } finally { done(); }
+    }
+
+    /** A worked set from the server, priced in this airline's own flights. */
+    async function suggestStreak(btn) {
+        const done = P.busy(btn, false);
+        try {
+            const d = await S.api('/streaks/suggested');
+            if (S.data && d.settings) {
+                S.data.streaks = d.settings;
+                draw();
+                // Said out loud, because nothing has been written yet and a
+                // screen that filled itself in looks like it saved.
+                P.toast('Filled in — press Save the streak to keep it.', 'ok');
+            }
+        } catch (err) {
+            P.toast((err && err.message) || 'That didn’t work.', 'bad');
+        } finally { done(); }
+    }
+
+    /**
+     * One more milestone, added to what is on screen rather than to what is
+     * saved — and read back off the fields first, so a VA who has typed into
+     * two rows and then presses Add does not lose the two.
+     *
+     * The suggested week is double the last one, which is roughly the shape of
+     * every set of milestones anybody has ever written down.
+     */
+    function addMilestone() {
+        const rows = readMilestones(S.panel.body);
+        const top = rows.length ? Math.max(...rows.map((r) => r.weeks)) : 0;
+        rows.push({ weeks: Math.min(208, top ? top * 2 : 4), bonus: 0 });
+        if (S.data) S.data.streaks = { ...streakSettings(), milestones: rows };
+        draw();
+    }
+
+    function removeMilestone(row) {
+        const rows = readMilestones(S.panel.body);
+        const all = [...S.panel.body.querySelectorAll('[data-sh-ms]')];
+        const at = all.indexOf(row);
+        if (at < 0) return;
+        rows.splice(at, 1);
+        if (S.data) S.data.streaks = { ...streakSettings(), milestones: rows };
         draw();
     }
 
@@ -2672,6 +3176,12 @@
             const refund = t.closest('[data-sh-refund]');
             if (refund) { reviewOrder(refund.getAttribute('data-sh-refund'), 'cancel', refund); return; }
 
+            if (t.closest('[data-sh-savestreak]')) { saveStreak(t.closest('[data-sh-savestreak]')); return; }
+            if (t.closest('[data-sh-suggeststreak]')) { suggestStreak(t.closest('[data-sh-suggeststreak]')); return; }
+            if (t.closest('[data-sh-addms]')) { addMilestone(); return; }
+            const delMs = t.closest('[data-sh-delms]');
+            if (delMs) { removeMilestone(delMs.closest('[data-sh-ms]')); return; }
+
             if (t.closest('[data-sh-saveclubs]')) { saveClubs(t.closest('[data-sh-saveclubs]')); return; }
             if (t.closest('[data-sh-suggestclubs]')) { suggestClubs(t.closest('[data-sh-suggestclubs]')); return; }
             if (t.closest('[data-sh-addclub]')) { addClub(); return; }
@@ -2748,9 +3258,21 @@
         // The worked example under the rates keeps up as they are typed. It is
         // the only feedback that makes "perHour: 120" mean anything.
         panel.el.addEventListener('input', (ev) => {
-            if (!ev.target.matches('[data-sh-rate]')) return;
-            if (!S.data.earn) S.data.earn = {};
-            S.data.earn[ev.target.getAttribute('data-sh-rate')] = Number(ev.target.value) || 0;
+            const rate = ev.target.matches('[data-sh-rate]');
+            // The streak's two percentages feed the same sentence — it ends
+            // with what a pilot at the top of a run gets for the same leg — so
+            // they repaint it too. Held on S.data rather than redrawn, for the
+            // reason every other field on this screen is: a redraw per
+            // keystroke takes the cursor out of the field somebody is in.
+            const st = !rate && ev.target.matches('[data-sh-st]:not([type=checkbox])');
+            if (!rate && !st) return;
+            if (rate) {
+                if (!S.data.earn) S.data.earn = {};
+                S.data.earn[ev.target.getAttribute('data-sh-rate')] = Number(ev.target.value) || 0;
+            } else {
+                S.data.streaks = { ...streakSettings(),
+                    [ev.target.getAttribute('data-sh-st')]: Number(ev.target.value) || 0 };
+            }
             const ex = panel.body.querySelector('.sh-example');
             if (ex) ex.outerHTML = exampleHtml();
         });
