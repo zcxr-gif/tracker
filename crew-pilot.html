@@ -947,7 +947,7 @@
            that fetched them separately would show them disagreeing.
            ================================================================ */
 
-        let MY={ pilot:null, rank:null, flights:[], totals:null, loaded:false, error:null };
+        let MY={ pilot:null, rank:null, flights:[], totals:null, streak:null, loaded:false, error:null };
 
         // The bearer token for this crew center, from the session the login
         // stored. Named to match the dashboard's helper so the two pages read
@@ -966,6 +966,20 @@
             }catch{ MY.error='Could not reach the server.'; }
             MY.loaded=true;
             paintMyFlying();
+        }
+
+        /* The deadline, said the way somebody would say it. The server sends the
+           instant the week closes (Monday 00:00 UTC); "ends Monday" is true and
+           reads as a day later than it is, so the day NAMED is the last one a
+           pilot can fly on. */
+        function streakEndsText(at){
+            const t=at?new Date(at).getTime():NaN;
+            if(!Number.isFinite(t)) return 'this week';
+            const last=new Date(t-86400000);
+            const days=Math.ceil((t-Date.now())/86400000);
+            if(days<=1) return 'today';
+            if(days===2) return 'tomorrow';
+            return `on ${last.toLocaleDateString(undefined,{weekday:'long'})}`;
         }
 
         const hoursText=(min)=>{ const m=Math.round(Number(min)||0); const h=Math.floor(m/60);
@@ -997,6 +1011,24 @@
             if(!line) return;
             // Says something true about THIS pilot, or says nothing.
             const r=MY.rank;
+            /* A STREAK ABOUT TO LAPSE OUTRANKS EVERYTHING ELSE HERE, and it is
+               the only thing that does. Every other line on this list is a
+               nudge towards something that will still be there next month — a
+               rank is thirty hours away whether you fly tonight or not. A run
+               of weeks is the one thing on this page that can be LOST, there is
+               a deadline on it, and one flight saves it. That is the only
+               genuinely urgent sentence the crew center has, and burying it
+               under "you're 12 hours from Captain" wastes it.
+               Two weeks up, never one: "your 1-week streak" is not a thing
+               anybody minds losing. And never while they are on leave — they
+               have already told us they are away, and the server holds the run
+               for exactly that reason. */
+            const st=MY.streak;
+            if(MY.pilot&&st&&st.atRisk&&Number(st.weeks)>=2){
+                line.textContent=`Your ${st.weeks}-week streak ends ${streakEndsText(st.endsAt)}. One flight keeps it.`;
+                if(HERO&&HERO.line) line.textContent=HERO.line;
+                return;
+            }
             if(MY.pilot&&r&&r.awaitingCheck) line.textContent='You have the hours for your next rank — it needs a check-ride signed off.';
             else if(MY.pilot&&r&&r.next&&Number(r.next.hoursAway)>0) line.textContent=`You’re ${Math.round(Number(r.next.hoursAway)*10)/10} hours from ${r.next.name}. Log a flight to keep it moving.`;
             else if(MY.pilot&&r&&!r.next) line.textContent=`You hold ${r.name} — the top of this airline’s ladder.`;
