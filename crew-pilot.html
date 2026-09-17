@@ -37,6 +37,27 @@
          loads, a tick when it is ready, then the airline's own mark. Only ever
          after a sign-in, and it lifts on a ceiling whatever happens. -->
     <script src="/crewSplash.js"></script>
+    <!-- ARMED HERE, IN THE HEAD, AND NOT AT THE BOTTOM OF THE PAGE.
+         It used to be armed from the boot block at the end of this file, which
+         runs after the parser has read the whole document — so the reader got
+         the crew centre first and the cover over it a beat later. That beat is
+         the flicker. The cover has to be in the tree before the page is, which
+         means before the page is parsed, which means here.
+
+         `getSlug` is not defined yet (it lives in the page's own script), so
+         the slug is read the same way it reads it. Wrapped in its own try:
+         nothing on this page may fail to load because a splash could not go
+         up. -->
+    <script>
+        (function () {
+            try {
+                var m = location.pathname.match(/\/crew\/([^\/?#]+)/i);
+                var slug = m && m[1] ? decodeURIComponent(m[1]).trim().toLowerCase()
+                    : (new URLSearchParams(location.search).get('va') || '').trim().toLowerCase();
+                if (window.CrewSplash) CrewSplash.arm({ slug: slug });
+            } catch (e) { /* no splash, no harm */ }
+        })();
+    </script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board: the calendar, who's attending, and the map a
@@ -171,6 +192,95 @@
         .stat-num{ font-variant-numeric: tabular-nums; letter-spacing:-0.01em; }
         @media (prefers-reduced-motion: reduce){
             *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+        }
+
+        /* ===== THE HERO, AS THE AIRLINE BUILT IT =========================
+           Seven decisions, none of which can produce a broken page. See
+           crewHero.js on the backend for what each one is and why the default
+           of every one of them is the hero as it shipped.
+
+           Driven by data-hero-* on <html> rather than by classes on the
+           section, for the same reason data-layout is: these are read before
+           the first paint, and an attribute on the root is the only hook that
+           exists that early. */
+        #heroScrim{ background:linear-gradient(to top,
+            rgb(0 0 0 / var(--hero-dim, .72)),
+            rgb(0 0 0 / calc(var(--hero-dim, .72) * .28)) 45%,
+            rgb(0 0 0 / calc(var(--hero-dim, .72) * .2)) 100%); }
+        :root[data-hero-height="short"] #hero{ height:220px; }
+        @media (min-width:640px){ :root[data-hero-height="short"] #hero{ height:260px; } }
+        :root[data-hero-height="tall"] #hero{ height:420px; }
+        @media (min-width:640px){ :root[data-hero-height="tall"] #hero{ height:560px; } }
+        /* Centred. The two corners stay in their corners — a crest in the
+           middle of a hero is not a crest — and it is the greeting, the rail
+           and the buttons that move. */
+        :root[data-hero-align="center"] #heroGreeting{ align-items:center; text-align:center; }
+        :root[data-hero-align="center"] #heroGreeting .cb-rail{ justify-content:center; }
+        :root[data-hero-align="center"] #heroActions{ justify-content:center; }
+        /* A hero with nothing behind it. Not a special case in the markup —
+           every backdrop is hidden and the band falls back to the surface the
+           section already carries — so "none" cannot leave a half-drawn layer
+           behind. The scrim goes with it: a dark gradient over the page's own
+           background is a grey smear, and the text under it is page ink. */
+        :root[data-hero-backdrop="none"] #heroScrim{ display:none; }
+        :root[data-hero-backdrop="none"] #hero,
+        :root[data-hero-backdrop="none"] #hero h1,
+        :root[data-hero-backdrop="none"] #hero .hero-brand-name{ color:var(--ink); }
+        :root[data-hero-backdrop="none"] #heroLine{ color:var(--muted); }
+
+        /* ===== THE HERO'S TWO CORNERS =====================================
+           WHOSE CREW CENTRE THIS IS, AND WHO THIS PILOT IS IN IT.
+
+           The hero had the pilot's name across the bottom of it and nothing
+           else. The airline was a 28px logo in the top bar — the same place
+           every website in the world puts one, which is to say the place a
+           reader stops seeing it — and the pilot's rank and club were pills in
+           a rail under their name, the same size and shape as "3 badges" and
+           "First pick of the gate".
+
+           So the two facts worth a hero go in the two corners of it:
+
+             LEFT   the airline's own mark, at a size you can read, with its
+                    name and callsign beside it. Rounded, because a logo is
+                    almost never square and a hard-edged crop of one on a
+                    photograph reads as a mistake; the radius and the hairline
+                    are what make it look placed rather than pasted.
+             RIGHT  this pilot's rank and club, as emblems rather than chips.
+                    Drawn by crewBadges.mountCrest — the rail underneath keeps
+                    everything else.
+
+           Every colour here is white-on-dark and none of it is a page token,
+           for the same reason crewBadges gives: this sits on the VA's own hero
+           image, the one place in the crew centre where the ground underneath
+           is not ours to know. */
+        /* THE AIRLINE'S OWN "NOT HERE". Distinct from `cp-hidden`, which the
+           badge modules add and remove as their fetch lands: this is a
+           decision the VA made, and it has to outlive a repaint that knows
+           nothing about it. !important because the module writes the element's
+           class list wholesale. */
+        .hero-off{ display:none !important; }
+        .hero-brand{ display:inline-flex; align-items:center; gap:.7rem; min-width:0; max-width:min(60%,22rem);
+            padding:.45rem .85rem .45rem .5rem; border-radius:1rem;
+            background:rgb(0 0 0 / .28); border:1px solid rgb(255 255 255 / .18);
+            backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+        .hero-brand-mark{ width:2.6rem; height:2.6rem; flex:none; border-radius:.85rem; overflow:hidden;
+            display:grid; place-items:center; background:rgb(255 255 255 / .92);
+            box-shadow:0 1px 0 rgb(255 255 255 / .35) inset, 0 6px 16px rgb(0 0 0 / .25); }
+        .hero-brand-mark img{ width:100%; height:100%; object-fit:contain; padding:.2rem; }
+        /* The monogram, for an airline with no logo. It wears the accent rather
+           than the white plate: a set of white initials on a white square is
+           the one case where the plate stops helping. */
+        .hero-brand-mark.is-mono{ background:var(--accent-fill, var(--accent, #1C1A16));
+            color:var(--accent-ink, #fff); font-weight:800; font-size:.95rem; letter-spacing:-.02em; }
+        .hero-brand-text{ min-width:0; display:grid; gap:.1rem; }
+        .hero-brand-name{ font-size:.95rem; font-weight:700; letter-spacing:-.015em; color:#fff;
+            line-height:1.15; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .hero-brand-sub{ font-size:.6rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+            color:rgb(255 255 255 / .72); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        @media (max-width:640px){
+            .hero-brand{ max-width:72%; padding:.35rem .7rem .35rem .4rem; gap:.55rem; }
+            .hero-brand-mark{ width:2.1rem; height:2.1rem; border-radius:.7rem; }
+            .hero-brand-name{ font-size:.85rem; }
         }
 
         /* ===== LAYOUT PRESETS (see owner dashboard for the full note) ===== */
@@ -327,8 +437,26 @@
         <div id="heroMapWrap" class="hidden absolute inset-0 pointer-events-none">
             <iframe id="heroMap" title="Live traffic" class="w-full h-full border-0" loading="lazy" scrolling="no"></iframe>
         </div>
-        <div class="absolute inset-0" style="background:linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,.2) 45%, rgba(0,0,0,.15) 100%);"></div>
-        <div class="relative h-full max-w-6xl mx-auto px-5 flex flex-col justify-end pb-9">
+        <!-- The scrim. White text over an arbitrary photograph is only
+             legible because of this, and how much of it a hero needs depends
+             entirely on the picture: a night shot of a stand needs almost
+             none, a bright apron at noon needs most of it. So the strength is
+             the VA's to set (Settings › Appearance › Hero) and applyHero
+             writes it into --hero-dim. -->
+        <div id="heroScrim" class="absolute inset-0"></div>
+        <div class="relative h-full max-w-6xl mx-auto px-5 flex flex-col pt-5 sm:pt-6 pb-9">
+            <!-- ============ THE TOP OF THE HERO ============
+                 The airline on the left, this pilot's standing on the right.
+                 Both are hidden until they have something true to say — a VA
+                 with no logo and no name, and a pilot with no rank at a VA
+                 with no ladder, get a clean photograph rather than two empty
+                 frames. See the note over .hero-brand in the styles. -->
+            <div class="flex items-start justify-between gap-3 sm:gap-4">
+                <div id="heroBrand" class="hero-brand cp-hidden"></div>
+                <div id="heroCrest" class="cp-hidden"></div>
+            </div>
+            <div class="mt-auto"></div>
+            <div id="heroGreeting" class="flex flex-col items-start">
             <div class="flex items-center gap-2 mb-3">
                 <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.14em] text-white/95 bg-white/15 backdrop-blur px-2.5 py-1 rounded">
                     <i data-lucide="id-card" class="w-3.5 h-3.5"></i> <span id="heroCallsign">ACA1174</span>
@@ -350,11 +478,12 @@
                  has nothing here, and a gap under their name is worse than no
                  row at all. -->
             <div id="heroBadges" class="mt-4 cp-hidden"></div>
-            <div class="flex flex-wrap items-center gap-2.5 mt-5">
-                <button onclick="openFilePirep()" class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2">
+            <div id="heroActions" class="flex flex-wrap items-center gap-2.5 mt-5">
+                <button id="heroPirepBtn" onclick="openFilePirep()" class="accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:opacity-90 active:scale-[.99] transition inline-flex items-center gap-2">
                     <i data-lucide="clipboard-pen" class="w-4 h-4"></i> File a PIREP
                 </button>
-                <button onclick="openSchedule()" class="bg-white/12 backdrop-blur text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:bg-white/20 transition">Book a flight</button>
+                <button id="heroBookBtn" onclick="openSchedule()" class="bg-white/12 backdrop-blur text-white text-sm font-semibold px-5 py-2.5 rounded-md hover:bg-white/20 transition">Book a flight</button>
+            </div>
             </div>
         </div>
     </section>
@@ -562,6 +691,76 @@
             const l=(q || (b&&b.layout) || 'editorial').toLowerCase();
             return LAYOUTS.includes(l) ? l : 'editorial';
         }
+        /* ---- THE HERO, AS THE AIRLINE BUILT IT ---------------------------
+         *
+         * Seven decisions, read off the branding record before anything else
+         * on the page has landed. See crewHero.js on the backend for what each
+         * one means and why the default of every one is the hero as it
+         * shipped — a VA who has never opened the screen gets exactly the page
+         * they had, and this function is a no-op for them in everything but
+         * name.
+         *
+         * WRITTEN ONTO <html>, NOT ONTO THE SECTION, for the same reason
+         * data-layout is: the hero is the first paint, and an attribute on the
+         * root is the only hook that exists that early. The CSS that reads
+         * them is beside the layout presets.
+         *
+         * NOTHING HERE HIDES AN ELEMENT THAT MIGHT NOT EXIST YET. Every id it
+         * touches is in the markup of this file, so a hero setting cannot
+         * depend on a fetch having landed first.
+         */
+        let HERO = null;
+        function resolveHero(b){
+            const h=(b&&b.hero&&typeof b.hero==='object')?b.hero:{};
+            const pick=(v,list,d)=>list.includes(String(v||'').toLowerCase())?String(v).toLowerCase():d;
+            return {
+                backdrop: pick(h.backdrop,['banner','accent','map','none'],'banner'),
+                height:   pick(h.height,['short','standard','tall'],'standard'),
+                align:    pick(h.align,['left','center'],'left'),
+                actions:  pick(h.actions,['both','pirep','book','none'],'both'),
+                brand:  h.brand  !== false,
+                crest:  h.crest  !== false,
+                badges: h.badges !== false,
+                line:   String(h.line||'').slice(0,120),
+                dim:    Math.max(10, Math.min(90, Math.round(Number(h.dim))||55)),
+            };
+        }
+        function applyHero(b){
+            const h = HERO = resolveHero(b);
+            const root=document.documentElement;
+            root.setAttribute('data-hero-backdrop',h.backdrop);
+            root.setAttribute('data-hero-height',h.height);
+            root.setAttribute('data-hero-align',h.align);
+            root.style.setProperty('--hero-dim', String(h.dim/100));
+
+            const show=(id,on)=>{ const el=document.getElementById(id); if(el) el.classList.toggle('hidden',!on); };
+            // The picture. `banner` is the VA's own hero image where they have
+            // one and the drawn accent field where they have not — which is
+            // what the hero has always done, and is why a VA with no banner
+            // sees no change at all.
+            const hasBanner = !!(b && b.banner && isSafeImageUrl(b.banner));
+            show('heroImg',    h.backdrop==='banner' && hasBanner);
+            show('heroFallback', h.backdrop==='accent' || (h.backdrop==='banner' && !hasBanner));
+            // The map is applyEmbeds' business — it owns the iframe's src and
+            // re-points it when the theme flips — so this only records the
+            // choice and lets that function act on it.
+            applyEmbeds();
+
+            // The two corners, and the rail under the name. Each of these is
+            // ALSO hidden by its own module until it has something true to
+            // say; this is the airline saying "not here even then", which is a
+            // different statement and has to survive the module's repaint.
+            // Hence cp-hidden rather than `hidden`: the modules test for it.
+            const corner=(id,on)=>{ const el=document.getElementById(id); if(!el) return;
+                el.classList.toggle('hero-off',!on); };
+            corner('heroBrand',h.brand);
+            corner('heroCrest',h.crest);
+            corner('heroBadges',h.badges);
+
+            show('heroPirepBtn', h.actions==='both'||h.actions==='pirep');
+            show('heroBookBtn',  h.actions==='both'||h.actions==='book');
+            show('heroActions',  h.actions!=='none');
+        }
         function applyLayout(layout){
             CREW_LAYOUT = layout;
             document.documentElement.setAttribute('data-layout', layout);
@@ -580,13 +779,30 @@
         }
         function isDark(){ return document.documentElement.classList.contains('dark'); }
 
-        // Live map behind the hero (free MapLibre embed, no Mapbox token/billing),
-        // re-pointed on theme change so it follows the light/dark toggle.
+        /* Live traffic behind the hero — the airline's own aircraft, moving,
+         * as the background of its crew centre.
+         *
+         * OFF FOR EVERYBODY UNLESS THE AIRLINE ASKED FOR IT. It was hard-off
+         * here with a note saying the pilot hero keeps a clean banner, which
+         * was the right default and the wrong way to hold it: it meant no VA
+         * could have the map even when the map is the better picture of their
+         * airline than a stock photograph is. Now it is one of the four
+         * backdrops in Settings › Appearance › Hero, and `banner` — what every
+         * VA has today — still gets exactly the clean banner it always did.
+         *
+         * Re-sourced on a theme flip, because the embed is themed by URL and
+         * a dark map under a light page is the one state that looks broken.
+         */
         function applyEmbeds(){
-            // No map behind the header anymore — the pilot hero keeps a clean
-            // banner. (Full pilot rebuild with an in-content live map follows.)
             const wrap = document.getElementById('heroMapWrap');
-            if(wrap) wrap.classList.add('hidden');
+            const frame = document.getElementById('heroMap');
+            if(!wrap || !frame) return;
+            const on = !!(HERO && HERO.backdrop==='map' && CREW_CODE);
+            wrap.classList.toggle('hidden', !on);
+            if(!on){ frame.removeAttribute('src'); return; }
+            const src=`https://inflight.info/embed.html?va=${encodeURIComponent(CREW_CODE)}`
+                +`&theme=${isDark()?'dark':'light'}&ui=0`;
+            if(frame.getAttribute('src')!==src) frame.setAttribute('src',src);
         }
 
         function toggleTheme(){
@@ -745,6 +961,11 @@
             else if(MY.pilot&&r&&!r.next) line.textContent=`You hold ${r.name} — the top of this airline’s ladder.`;
             else if(MY.pilot&&MY.totals&&!MY.totals.flights) line.textContent='Nothing logged yet. File your first flight and it lands here.';
             else line.textContent='';
+            // The airline's own line, where they have written one, INSTEAD of
+            // ours. Last, so it wins whatever we worked out above — and only
+            // when it is set, because ours says something true about this
+            // particular pilot and a fixed line cannot. See crewHero.js.
+            if(HERO && HERO.line) line.textContent=HERO.line;
         }
 
         function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
@@ -1217,20 +1438,24 @@
         // thing that knows which panels it has mounted, so it owns the mapping
         // rather than the module guessing at it.
         function mountHeroBadges(){
+            if(!window.CrewBadges) return;
+            const where = (w)=>{
+                if(w==='training') openTraining();
+                else if(w==='awards') openAwards();
+                // A club and a claimed item both live in the shop; the club
+                // ladder is a tab of it, so the two differ only in which
+                // one opens.
+                else if(w==='clubs') { if(window.CrewShop) CrewShop.open({ ...shopArgs(), view:'clubs' }); }
+                else if(w==='shop') openShop();
+            };
+            // THE CREST FIRST, AND THAT ORDER MATTERS. Mounting it takes the
+            // rank and the club off the rail — the same badge at two sizes in
+            // one hero is one fact said twice — so the rail has to be told
+            // there is a crest before it decides what it is drawing.
+            const crest=document.getElementById('heroCrest');
+            if(crest) CrewBadges.mountCrest(crest, { api: crewApi(), onOpen: where });
             const host=document.getElementById('heroBadges');
-            if(!host || !window.CrewBadges) return;
-            CrewBadges.mountRail(host, {
-                api: crewApi(),
-                onOpen: (where)=>{
-                    if(where==='training') openTraining();
-                    else if(where==='awards') openAwards();
-                    // A club and a claimed item both live in the shop; the club
-                    // ladder is a tab of it, so the two differ only in which
-                    // one opens.
-                    else if(where==='clubs') { if(window.CrewShop) CrewShop.open({ ...shopArgs(), view:'clubs' }); }
-                    else if(where==='shop') openShop();
-                },
-            });
+            if(host) CrewBadges.mountRail(host, { api: crewApi(), onOpen: where });
         }
 
         function mountAwardStrip(){
@@ -1365,6 +1590,57 @@
                 document.getElementById('heroImg').classList.remove('hidden');
                 document.getElementById('heroFallback').classList.add('hidden');
             }
+            paintHeroBrand(b);
+        }
+
+        /* ---- THE AIRLINE, IN THE TOP-LEFT OF ITS OWN HERO ----------------
+         *
+         * The logo was a 28px image in the top bar and nowhere else, which is
+         * where every reader has learned not to look. Here it is at a size
+         * that can be read, with the airline's name and callsign beside it,
+         * over the airline's own photograph.
+         *
+         * ROUNDED, AND THAT IS NOT DECORATION. A VA's logo is almost never
+         * square: it is a wordmark, a roundel on a transparent PNG, or a
+         * screenshot with a white edge. Dropped straight onto a photograph any
+         * of those reads as something that failed to load properly. The plate
+         * — a white card, a radius, a hairline and a shadow — is what makes an
+         * arbitrary image look placed. `object-fit:contain` inside it is the
+         * other half: a wordmark is letterboxed rather than cropped through
+         * the middle of the word.
+         *
+         * A LOGO THAT 404s FALLS BACK TO THE MONOGRAM. Stored hotlinks rot,
+         * and the last thing a pilot should meet on arriving is a broken-image
+         * glyph where their airline is supposed to be.
+         *
+         * NOTHING TRUE TO SAY, NOTHING DRAWN. Same rule as the badge rail
+         * under it: a VA with neither a name nor a logo gets the photograph.
+         */
+        function paintHeroBrand(b){
+            const host=document.getElementById('heroBrand');
+            if(!host) return;
+            const name=(b&&(b.name||b.code))||CREW_NAME||'';
+            const logo=(b&&b.logo&&isSafeImageUrl(b.logo))?b.logo:'';
+            const sub=[(b&&b.code)||'', (b&&b.tagline)||''].find(Boolean)||'';
+            if(!name && !logo){ host.classList.add('cp-hidden'); host.innerHTML=''; return; }
+            const mark = logo
+                ? `<span class="hero-brand-mark"><img alt="" decoding="async"></span>`
+                : `<span class="hero-brand-mark is-mono">${escapeHtml(initials(name,(b&&b.code)||''))}</span>`;
+            host.innerHTML = `${mark}
+                <span class="hero-brand-text">
+                    <span class="hero-brand-name">${escapeHtml(name||'Crew Center')}</span>
+                    ${sub?`<span class="hero-brand-sub">${escapeHtml(sub)}</span>`:''}
+                </span>`;
+            if(logo){
+                const img=host.querySelector('.hero-brand-mark img');
+                img.addEventListener('error',()=>{
+                    const plate=host.querySelector('.hero-brand-mark');
+                    plate.classList.add('is-mono');
+                    plate.textContent=initials(name,(b&&b.code)||'');
+                });
+                img.src=logo;
+            }
+            host.classList.remove('cp-hidden');
         }
 
         // ---- Signed-in identity (from the login's stored session) ----
@@ -1800,9 +2076,10 @@
         }
 
         (async function(){
-            // Before anything is drawn — see crewSplash.js. Only an arrival
-            // from the sign-in page shows anything at all.
-            if(window.CrewSplash) CrewSplash.arm({ slug:getSlug() });
+            // The cover is already up, if this is an arrival: it is armed in
+            // the <head> of this file, before the page is parsed, because a
+            // cover raised from here goes up over a page the reader has
+            // already seen. All that is left for the boot to do is `done`.
             renderActions(); renderFlights(); renderNotices([]); readSession();
             document.addEventListener('visibilitychange', catchUpMyFlying);
             window.addEventListener('focus', catchUpMyFlying);
@@ -1831,6 +2108,7 @@
             mountAwardStrip();
             mountCommand(); mountAlerts();
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
+            applyHero(b);                    // and how the airline has built its hero
             applyEmbeds();                   // hero map / banner per layout
             // The hero map is themed by URL, so re-source it if a host flips us.
             if(window.CrewBrand) CrewBrand.onMode(()=>{ applyThemeIcon(); applyEmbeds(); });

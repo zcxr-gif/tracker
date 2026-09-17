@@ -49,6 +49,10 @@
         api: null,
         data: null,
         hosts: [],
+        // Where the crest is drawn, kept apart from the rail's hosts: a page
+        // may have one, the other, or both, and what the rail draws depends on
+        // whether a crest is taking the two ladders off it.
+        crests: [],
         onOpen: null,
         panel: null,
     };
@@ -113,6 +117,56 @@
             .cb{ flex:none; }
         }
         @media (prefers-reduced-motion:reduce){ .cb{ transition:none; } }
+        /* ---- THE CREST, ON THE RIGHT OF THE HERO -------------------------
+           THE TWO LADDERS, AT THE SIZE THEY ARE WORTH.
+
+           A rank and a club were pills in the rail below, the same size and
+           shape as "3 badges" and "First pick of the gate". They are not the
+           same kind of thing. A rank is what the airline calls this pilot; a
+           club is what their flying has earned them. Everything else in the
+           rail is a thing they bought or collected.
+
+           So the two ladders come out of the rail and go to the top-right of
+           the hero, opposite the airline's own mark — the airline on one side,
+           what this pilot is at it on the other — drawn as emblems with the
+           VA's own artwork rather than as text with a dot beside it. The rail
+           underneath keeps the awards and the holdings, and the "+n" chip
+           still opens the lot.
+
+           STACKED ON A PHONE'S HERO, AND SMALLER. 320px of hero has a name, a
+           line, a rail and two buttons to fit; a pair of 64px emblems is a
+           hero with no room left for the pilot. */
+        .cb-crest{ display:flex; align-items:flex-start; gap:.5rem; flex:none; }
+        .cb-crest-item{ display:grid; justify-items:center; gap:.3rem; width:4.6rem;
+            padding:.5rem .35rem .55rem; border-radius:1rem; cursor:pointer; font:inherit;
+            color:#fff; text-align:center;
+            background:rgb(0 0 0 / .28); border:1px solid rgb(255 255 255 / .18);
+            backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+            transition:background .16s ease, transform .16s cubic-bezier(.22,1.12,.36,1); }
+        .cb-crest-item:hover{ background:rgb(0 0 0 / .4); transform:translateY(-1px); }
+        .cb-crest-item:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
+        /* The emblem itself. Same gradient-from-its-own-colour as the rail's
+           mark, three times the size, and with room for the VA's uploaded
+           artwork to be the whole of it. */
+        .cb-crest-mark{ width:2.6rem; height:2.6rem; border-radius:999px; display:grid; place-items:center;
+            overflow:hidden; background:radial-gradient(120% 120% at 30% 20%,
+                color-mix(in srgb, var(--cb-c, #fff) 82%, #fff 18%), var(--cb-c, rgb(255 255 255 / .3)));
+            box-shadow:inset 0 1px 0 rgb(255 255 255 / .5), 0 4px 12px rgb(0 0 0 / .3); }
+        .cb-crest-mark i{ width:1.3rem; height:1.3rem; color:#fff;
+            filter:drop-shadow(0 1px 2px rgb(0 0 0 / .45)); }
+        .cb-crest-mark img{ width:100%; height:100%; object-fit:cover; }
+        .cb-crest-kind{ font-size:.53rem; font-weight:800; letter-spacing:.11em; text-transform:uppercase;
+            opacity:.7; line-height:1; }
+        .cb-crest-name{ font-size:.68rem; font-weight:700; letter-spacing:-.005em; line-height:1.15;
+            max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        @media (max-width:640px){
+            .cb-crest{ gap:.35rem; }
+            .cb-crest-item{ width:3.7rem; padding:.4rem .25rem .45rem; border-radius:.85rem; }
+            .cb-crest-mark{ width:2rem; height:2rem; }
+            .cb-crest-mark i{ width:1rem; height:1rem; }
+            .cb-crest-name{ font-size:.6rem; }
+        }
+        @media (prefers-reduced-motion:reduce){ .cb-crest-item{ transition:none; } }
         /* ---- THE SAME BADGES, IN A PANEL --------------------------------
            Where the whole set lives once there are more than a hero can hold.
            Off the photograph, so these are ordinary page tokens again. */
@@ -178,11 +232,61 @@
         </button>`;
     }
 
+    /** The two ladders, in the order a crest reads them. */
+    const CREST_KINDS = ['rank', 'club'];
+    const crestBadges = () => ((S.data && S.data.badges) || []).filter((b) => CREST_KINDS.indexOf(b.kind) !== -1)
+        .sort((a, b) => CREST_KINDS.indexOf(a.kind) - CREST_KINDS.indexOf(b.kind));
+
+    function crestItemHtml(b) {
+        const c = hex(b.color);
+        const style = c ? ` style="--cb-c:${esc(c)}"` : '';
+        const inner = b.image && P.safeUrl(b.image)
+            ? `<img src="${esc(b.image)}" alt="" loading="lazy" onerror="this.remove()">`
+            : `<i data-lucide="${esc(b.icon || (b.kind === 'club' ? 'gem' : 'award'))}"></i>`;
+        const kind = b.kind === 'club' ? 'Club' : 'Rank';
+        const label = [kind, b.name, b.note].filter(Boolean).join(', ');
+        return `<button type="button" class="cb-crest-item" data-cb-open="${esc(b.opens || '')}"
+            title="${esc(label)}" aria-label="${esc(label)}">
+            <span class="cb-crest-mark"${style} aria-hidden="true">${inner}</span>
+            <span class="cb-crest-kind">${esc(kind)}</span>
+            <span class="cb-crest-name">${esc(b.name)}</span>
+        </button>`;
+    }
+
+    function crestHtml() {
+        const rows = crestBadges();
+        if (!rows.length) return '';
+        return `<div class="cb-crest">${rows.map(crestItemHtml).join('')}</div>`;
+    }
+
+    function paintCrest() {
+        S.crests = S.crests.filter((h) => h.isConnected);
+        S.crests.forEach((host) => {
+            const html = crestHtml();
+            if (!html) { host.innerHTML = ''; host.classList.add('cp-hidden'); return; }
+            host.classList.remove('cp-hidden');
+            host.innerHTML = html;
+            if (!host.dataset.cbWired) {
+                host.dataset.cbWired = '1';
+                host.addEventListener('click', onClick);
+            }
+            try { icons(); } catch (_) {}
+        });
+    }
+
     function railHtml() {
         const all = (S.data && S.data.badges) || [];
-        if (!all.length) return '';
-        const shown = all.slice(0, RAIL_MAX);
-        const rest = (Number(S.data.total) || all.length) - shown.length;
+        // The rank and the club are drawn as the crest where a page has one —
+        // the same badge in both places is the same fact said twice, and the
+        // rail is the one that loses, because it is the one that says it small.
+        const mine = S.crests.length ? all.filter((b) => CREST_KINDS.indexOf(b.kind) === -1) : all;
+        if (!mine.length) return '';
+        const shown = mine.slice(0, RAIL_MAX);
+        // The "+n" counts against what this rail is actually showing, not
+        // against a total that includes two badges drawn twice the size
+        // immediately above it.
+        const rest = Math.max(0, (Number(S.data.total) || all.length)
+            - (all.length - mine.length) - shown.length);
         return `<div class="cb-rail">
             ${shown.map(chipHtml).join('')}
             ${rest > 0 ? `<button type="button" class="cb cb-more" data-cb-all
@@ -193,6 +297,7 @@
     }
 
     function paint() {
+        paintCrest();
         S.hosts = S.hosts.filter((h) => h.isConnected);
         S.hosts.forEach((host) => {
             const html = railHtml();
@@ -310,5 +415,31 @@
             .catch(() => {});
     }
 
-    window.CrewBadges = { mountRail, openAll, refresh };
+    /**
+     * Paint the crest into a page — the rank and the club, as emblems.
+     *
+     * Same contract as mountRail and for the same reason: hidden until the
+     * fetch lands and there is a ladder to draw. A VA with no rank ladder and
+     * no clubs has nothing to put in the corner of its hero, and an empty
+     * frame there is worse than a clean photograph.
+     *
+     * Mounting this CHANGES THE RAIL: the two ladders come out of it, because
+     * the same badge at two sizes in the same hero is the same fact said
+     * twice. Call it before mountRail, or call both and let the rail repaint.
+     */
+    function mountCrest(host, { api, onOpen } = {}) {
+        if (!host) return;
+        styles();
+        if (typeof api === 'function') S.api = api;
+        if (onOpen) S.onOpen = onOpen;
+        host.classList.add('cp-hidden');
+        if (S.crests.indexOf(host) === -1) S.crests.push(host);
+        if (S.data) { paint(); return; }
+        if (typeof S.api !== 'function') return;
+        S.api('/me/badges')
+            .then((d) => { S.data = d; paint(); })
+            .catch(() => { /* no badges, no crest, no noise */ });
+    }
+
+    window.CrewBadges = { mountRail, mountCrest, openAll, refresh };
 })();

@@ -432,6 +432,78 @@
             display:inline-flex; align-items:baseline; gap:.25rem; }
         .sh-price small{ font-size:.66rem; font-weight:700; color:var(--muted,#736E64); letter-spacing:.04em; }
         .sh-buy{ margin-left:auto; }
+
+        /* ---- THE THREE SIZES A THING IS DRAWN AT ------------------------
+           The shelf shipped as one grid of identical tiles, which is right for
+           a shop where everything costs about the same and wrong for this one.
+           The three things on it a pilot will actually talk about — their own
+           livery, the month they were the crew centre's hero, the aircraft
+           they put in the fleet — were the same 13rem card as "a line in the
+           next NOTAM", and the effect was that a shelf of genuinely good
+           things read as a list of odds and ends.
+
+           See TIERS in crewShop.js on the backend for what each one means.
+
+           SHOWCASE: twice the width and a picture that is allowed to be a
+           picture. These are the things whose entire value is that other
+           people can see them, and a thing nobody notices on the shelf is a
+           thing nobody buys. It spans two columns where two exist and falls
+           back to one on a phone: a two-column span on a one-column grid is not an
+           error, it is one column. */
+        .sh-item-showcase{ grid-column:span 2; }
+        .sh-item-showcase .sh-item-art{ aspect-ratio:16/7; }
+        .sh-item-showcase .sh-item-band{ height:4rem; }
+        .sh-item-showcase .sh-item-band i{ width:1.6rem; height:1.6rem; }
+        .sh-item-showcase .sh-item-name{ font-size:1.02rem; }
+        .sh-item-showcase .sh-item-desc{ font-size:.82rem; }
+        .sh-item-showcase .sh-price{ font-size:1.1rem; }
+        @media (max-width:33rem){ .sh-item-showcase{ grid-column:span 1; } }
+
+        /* FLAGSHIP: a band across the whole shelf, above everything else.
+           These change the AIRLINE rather than the pilot — an aircraft in the
+           fleet, a base, the livery everybody flies — there are never more
+           than a few, and each one is a month of somebody's flying. A grid
+           tile cannot carry that, so they do not get one.
+
+           The gold hairline and the corner mark are the only ornament in this
+           whole file, and they are here because this is the one row on the
+           shelf where a pilot should be able to tell, without reading, that
+           they are looking at something different in kind. */
+        .sh-flag-band{ display:grid; gap:.6rem; margin:.2rem 0 .9rem; }
+        .sh-fl{ position:relative; display:flex; align-items:stretch; gap:0;
+            border:1px solid color-mix(in srgb, #C9A227 45%, var(--line,#e5e5e5));
+            border-radius:1rem; overflow:hidden; background:
+                linear-gradient(100deg, color-mix(in srgb, #C9A227 9%, var(--surface,#fff)),
+                var(--surface,#fff) 60%);
+            transition:border-color .22s ease, transform .22s cubic-bezier(.22,1.12,.36,1), box-shadow .22s ease; }
+        @media (hover:hover){
+            .sh-fl:hover{ transform:translateY(-2px); border-color:#C9A227;
+                box-shadow:0 16px 40px -22px rgb(0 0 0 / .6); }
+        }
+        .sh-fl-art{ width:11rem; flex:none; background:color-mix(in srgb, #C9A227 14%, transparent);
+            display:grid; place-items:center; overflow:hidden; }
+        .sh-fl-art img{ width:100%; height:100%; object-fit:cover; display:block; }
+        .sh-fl-art i{ width:2.1rem; height:2.1rem; color:color-mix(in srgb, #C9A227 70%, var(--ink,#1C1A16)); }
+        .sh-fl-body{ flex:1; min-width:0; padding:1rem 1.1rem; display:flex; flex-direction:column; gap:.35rem; }
+        .sh-fl-kind{ font-size:.6rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase;
+            color:color-mix(in srgb, #C9A227 68%, var(--ink,#1C1A16)); display:inline-flex; align-items:center; gap:.3rem; }
+        .sh-fl-kind i{ width:.8rem; height:.8rem; }
+        .sh-fl-name{ font-size:1.15rem; font-weight:800; letter-spacing:-.02em; line-height:1.15;
+            display:flex; align-items:flex-start; gap:.4rem; }
+        .sh-fl-name > span{ min-width:0; }
+        .sh-fl-desc{ font-size:.84rem; color:var(--muted,#736E64); line-height:1.45; }
+        .sh-fl-foot{ display:flex; align-items:center; flex-wrap:wrap; gap:.4rem .7rem; margin-top:auto; padding-top:.7rem; }
+        .sh-fl-foot .sh-price{ font-size:1.3rem; }
+        @media (max-width:33rem){
+            .sh-fl{ flex-direction:column; }
+            .sh-fl-art{ width:auto; height:6rem; }
+            .sh-fl-body{ padding:.85rem .9rem; }
+            .sh-fl-name{ font-size:1.02rem; }
+        }
+        /* The shut state applies to a flagship exactly as it does to a tile. */
+        .sh-fl.sh-item-shut{ opacity:.72; }
+        .sh-fl.sh-item-shut .sh-fl-art{ filter:saturate(.4); }
+        @media (prefers-reduced-motion:reduce){ .sh-fl{ transition:none; } }
         .sh-stock{ font-size:.66rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
             color:var(--muted,#736E64); }
         .sh-stock-out{ color:#DC2626; }
@@ -1081,22 +1153,143 @@
      * under a heading at the END: a VA who has sorted half their shelf has not
      * thereby said the other half comes first.
      */
+    /** How loudly a thing is drawn. Anything unrecognised — including the
+     *  absent value every item saved before tiers existed carries — is an
+     *  ordinary tile, which is what those items already were. */
+    const tierOf = (i) => (['standard', 'showcase', 'flagship'].indexOf(String((i && i.tier) || '')) !== -1
+        ? String(i.tier) : 'standard');
+
     function shelfHtml(items, wallet) {
+        /* THE FLAGSHIPS COME OUT FIRST, AND OUT OF THE GROUPING ENTIRELY.
+         *
+         * They change the airline rather than the pilot — an aircraft in the
+         * fleet, a base, the livery everybody flies — there are never more
+         * than a few, and each one is a month of somebody's flying. A tile in
+         * a grid cannot carry that, and a heading over them would put them
+         * back in the shelf they are deliberately above. So: a band across the
+         * top, then the shelf.
+         *
+         * Sorted cheapest first, unlike the rest, which keeps whatever order
+         * the VA gave it: this is a ladder a pilot is reading as "what could I
+         * actually get to", and a ladder that starts at the top is a wall. */
+        const flag = items.filter((i) => tierOf(i) === 'flagship')
+            .slice()
+            .sort((a, b) => priceOf(a) - priceOf(b));
+        const rest = items.filter((i) => tierOf(i) !== 'flagship');
+        const band = flag.length
+            ? `<div class="sh-flag-band">${flag.map((i) => flagshipHtml(i, wallet)).join('')}</div>` : '';
+
         const groups = [];
-        items.forEach((i) => {
+        rest.forEach((i) => {
             const name = String(i.group || '').trim();
             const at = groups.find((g) => g.name.toLowerCase() === name.toLowerCase());
             if (at) at.items.push(i); else groups.push({ name, items: [i] });
         });
-        const grid = (rows) => `<div class="sh-grid">${rows.map((i) => itemHtml(i, wallet)).join('')}</div>`;
-        if (groups.length < 2 || !groups.some((g) => g.name)) return grid(items);
+        const grid = (rows) => (rows.length
+            ? `<div class="sh-grid">${rows.map((i) => itemHtml(i, wallet)).join('')}</div>` : '');
+        if (groups.length < 2 || !groups.some((g) => g.name)) return band + grid(rest);
         groups.sort((a, b) => (a.name ? 0 : 1) - (b.name ? 0 : 1));
-        return groups.map((g) => `<div class="sh-h" style="margin-top:.4rem">${esc(g.name || 'Everything else')}</div>
+        return band + groups.map((g) => `<div class="sh-h" style="margin-top:.4rem">${esc(g.name || 'Everything else')}</div>
             ${grid(g.items)}`).join('');
     }
 
     /** The shelf item this pilot is flying towards, if they have named one. */
     const goalId = () => String((S.data && S.data.wallet && S.data.wallet.goalItemId) || '');
+
+    /* WHAT THE SHELF HAS TO SAY ABOUT ONE THING, WORKED OUT ONCE.
+     *
+     * Three tiers draw the same item at three sizes, and every one of them has
+     * to answer the same questions: is it on offer, is it sold out, is it shut
+     * behind a club, can this pilot afford it, are they saving for it. That is
+     * eight branches, and three copies of eight branches is how a shelf ends up
+     * saying "Sold out" on a tile and "Buy" on the band above it.
+     *
+     * So it is computed here and the three renderers only lay it out.
+     */
+    function itemState(item, wallet) {
+        const price = priceOf(item);
+        const over = gone(item.availableUntil);
+        const out = Number(item.stock) === 0;
+        const short = wallet && Number(wallet.balance) < price;
+        const sale = onOffer(item);
+        const pinned = !!goalId() && goalId() === String(item.id);
+        // Early access. The server decides it; this draws what it decided and
+        // never works it out, because the buy route enforces the same answer
+        // and two copies of a rule is two rules eventually.
+        const a = (item.access && typeof item.access === 'object') ? item.access : null;
+        const shut = !!(a && a.open === false);
+
+        /* The three things that change the answer to "should I spend twenty
+           hours of flying on this", said where the decision is actually made
+           rather than one tap further in. */
+        const flags = [];
+        if (selfClaim(item)) flags.push(`<span class="sh-flag sh-flag-now"><i data-lucide="zap"></i>Instant</span>`);
+        if (sale) flags.push(`<span class="sh-flag sh-flag-sale"><i data-lucide="tag"></i>${
+            item.saleEndsAt ? `Ends ${esc(relativeText(item.saleEndsAt))}` : 'On offer'}</span>`);
+        else if (item.availableUntil && !over) flags.push(`<span class="sh-flag"><i data-lucide="clock"></i>Until ${esc(relativeText(item.availableUntil))}</span>`);
+        if (pinned) flags.push(`<span class="sh-flag sh-flag-goal"><i data-lucide="target"></i>Saving for</span>`);
+        // "Yours first" while it is theirs; "opens in two days" while it is
+        // not. A pilot who cannot have it yet is told when they can and which
+        // club would have had it — which is an argument for flying, where a
+        // row that simply is not there is indistinguishable from a shelf that
+        // is smaller than advertised.
+        if (a && a.early) flags.push(`<span class="sh-flag sh-flag-club"><i data-lucide="sparkles"></i>Yours first</span>`);
+        else if (shut) flags.push(`<span class="sh-flag sh-flag-wait"><i data-lucide="lock"></i>${a.needs
+            ? `${esc(a.needs.name)} first` : 'Not yet'}</span>`);
+
+        let right;
+        if (shut) right = `<span class="sh-stock">${a.opensAt
+            ? `Opens ${esc(relativeText(a.opensAt))}` : 'Opens soon'}</span>`;
+        else if (over) right = `<span class="sh-stock sh-stock-out">Offer over</span>`;
+        else if (out) right = `<span class="sh-stock sh-stock-out">Sold out</span>`;
+        else if (!wallet) right = `<span class="sh-short">Sign in</span>`;
+        else if (short) right = `<span class="sh-short">${num(price - Number(wallet.balance))} ${esc(currency().short)} short</span>`;
+        else right = `<button class="cp-btn cp-btn-primary cp-btn-sm sh-buy" data-sh-buy="${esc(item.id)}">Buy</button>`;
+
+        const stock = !out && !over && Number(item.stock) > 0
+            ? `<span class="sh-stock">${num(item.stock)} left</span>` : '';
+
+        /* The pin is offered to a pilot who cannot afford this yet, and to one
+           who has already pinned it so they can unpin. Never on something they
+           could buy right now: "saving for" a thing already in your pocket is
+           not a goal, it is a note to go and press Buy. */
+        const pin = wallet && !out && !over && !shut && (short || pinned)
+            ? `<button type="button" class="sh-pin" data-sh-goal="${esc(item.id)}" aria-pressed="${pinned}"
+                title="${pinned ? 'Stop saving for this' : 'Save for this'}"
+                aria-label="${pinned ? 'Stop saving for this' : 'Save for this'}"><i data-lucide="${pinned ? 'bookmark-check' : 'bookmark'}"></i></button>`
+            : '';
+
+        return { price, over, out, short, sale, pinned, shut, flags, right, stock, pin };
+    }
+
+    /**
+     * A FLAGSHIP: the whole width of the shelf, above everything else.
+     *
+     * The only ornament in this file — a gold hairline and a word — and it is
+     * here because this is the one row on the shelf where a pilot should be
+     * able to tell, without reading, that they are looking at something
+     * different in kind from the tiles below it.
+     */
+    function flagshipHtml(item, wallet) {
+        const st = itemState(item, wallet);
+        const art = item.image && P.safeUrl(item.image)
+            ? `<div class="sh-fl-art"><img src="${esc(item.image)}" alt="" loading="lazy"></div>`
+            : `<div class="sh-fl-art"><i data-lucide="${esc(item.icon || 'crown')}"></i></div>`;
+        return `<article class="sh-fl${st.shut ? ' sh-item-shut' : ''}">
+            ${art}
+            <div class="sh-fl-body">
+                <span class="sh-fl-kind"><i data-lucide="crown"></i>For the airline</span>
+                <div class="sh-fl-name"><span>${esc(item.name || 'Item')}</span>${st.pin}</div>
+                ${item.desc ? `<div class="sh-fl-desc">${esc(item.desc)}</div>` : ''}
+                ${st.flags.length ? `<div class="sh-flags">${st.flags.join('')}</div>` : ''}
+                <div class="sh-fl-foot">
+                    <span class="sh-price">${num(st.price)}<small>${esc(currency().short)}</small></span>
+                    ${st.sale ? `<span class="sh-was">${num(item.price)}</span>` : ''}
+                    ${st.stock}${st.right}
+                </div>
+            </div>
+        </article>`;
+    }
 
     function itemHtml(item, wallet) {
         const art = item.image && P.safeUrl(item.image)
@@ -1154,7 +1347,8 @@
                 aria-label="${pinned ? 'Stop saving for this' : 'Save for this'}"><i data-lucide="${pinned ? 'bookmark-check' : 'bookmark'}"></i></button>`
             : '';
 
-        return `<article class="sh-item${shut ? ' sh-item-shut' : ''}">
+        return `<article class="sh-item${shut ? ' sh-item-shut' : ''}${
+            tierOf(item) === 'showcase' ? ' sh-item-showcase' : ''}">
             ${art}
             <div class="sh-item-body">
                 ${flags.length ? `<div class="sh-flags">${flags.join('')}</div>` : ''}
@@ -2089,7 +2283,11 @@
         return `<div class="sh-row">
             <div class="sh-row-main">
                 <div class="sh-row-name">${esc(i.name || 'Item')}${i.active === false ? ' <span class="cp-chip cp-chip-mute">Hidden</span>' : ''}${
-                    dry ? ' <span class="cp-chip cp-chip-bad">Out of codes</span>' : ''}</div>
+                    dry ? ' <span class="cp-chip cp-chip-bad">Out of codes</span>' : ''}${
+                    // Only when it is not the ordinary one. A chip on every row
+                    // saying "Ordinary" is a column of the word "Ordinary".
+                    tierOf(i) !== 'standard'
+                        ? ` <span class="cp-chip">${esc(TIER_META[tierOf(i)].label)}</span>` : ''}</div>
                 <div class="sh-row-sub">${esc(bits.join(' · '))}</div>
             </div>
             <div class="sh-row-actions">
@@ -2186,6 +2384,17 @@
             </div>
             <p class="cp-note">A limit of 0 means no limit. Leave the picture empty and it gets a plain tile.</p>
 
+            <div class="cp-label">How loudly it is drawn
+                <div class="sh-deliv">${Object.keys(TIER_META).map((k) => `<button type="button"
+                    class="sh-deliv-opt" data-sh-tier="${k}" aria-pressed="${tierOf(it) === k ? 'true' : 'false'}">
+                    <i data-lucide="${esc(TIER_META[k].icon)}"></i>
+                    <span><b>${esc(TIER_META[k].label)}</b><small>${esc(TIER_META[k].note)}</small></span>
+                </button>`).join('')}</div>
+            </div>
+            <p class="cp-note">Most of a shelf is ordinary. Keep <b>showcase</b> for the few things a pilot
+                would screenshot, and <b>flagship</b> for the ones that change the airline — those go in a
+                band above everything else, so three of them is a shelf and eight is wallpaper.</p>
+
             <label class="cp-label">Section <span class="cp-note" style="font-weight:400">optional</span>
                 <input class="cp-input" data-sh-f="group" list="shGroups" maxlength="40"
                     value="${esc(it.group || '')}" placeholder="Liveries">
@@ -2230,7 +2439,22 @@
      * suggested catalogue uses, so anything a VA adds from it can be matched by
      * anything they write themselves. */
     const ICONS = ['gift', 'shield', 'radio', 'plane', 'route', 'paintbrush',
-        'map-pin', 'ticket', 'users', 'clipboard-check', 'calendar-plus', 'star', 'megaphone'];
+        'map-pin', 'ticket', 'users', 'clipboard-check', 'calendar-plus', 'star', 'megaphone',
+        // The icons the flagship and showcase suggestions use. Added so a VA
+        // who takes one from the catalogue and then edits it can find the icon
+        // it arrived with — an editor that cannot represent the thing it is
+        // editing silently rewrites it on the first save.
+        'plane-takeoff', 'tower-control', 'calendar-heart', 'spray-can', 'palette',
+        'crown', 'image', 'type', 'scroll'];
+
+    /* The three sizes a thing is drawn at, in the words a VA reads. The keys
+       match TIERS in crewShop.js on the backend, which is where the rule
+       actually lives — this is the picker for it, not a second copy of it. */
+    const TIER_META = {
+        standard: { label: 'Ordinary', icon: 'square', note: 'A tile on the shelf. Most things.' },
+        showcase: { label: 'Showcase', icon: 'sparkles', note: 'Twice the width, room for the picture. Things people show off.' },
+        flagship: { label: 'Flagship', icon: 'crown', note: 'A band above the shelf. Things that change the airline.' },
+    };
 
     function readForm(scope) {
         const out = {};
@@ -2245,6 +2469,7 @@
         // live anyway.
         out.icon = (S.editing && S.editing.icon) || 'gift';
         out.delivery = deliveryOf(S.editing);
+        out.tier = tierOf(S.editing);
 
         // An empty offer price is "no offer", which is not the same number as
         // free — and a zero here would put the whole shelf on the house.
@@ -2492,6 +2717,20 @@
                 });
                 panel.body.querySelectorAll('[data-sh-when]').forEach((el) => {
                     el.hidden = el.getAttribute('data-sh-when') !== kind;
+                });
+                return;
+            }
+
+            /* The tier picker. Held on S.editing like the icon and the
+               delivery, for the same reason: it is a set of buttons rather
+               than an input, so readForm's sweep of [data-sh-f] cannot see it,
+               and the form's starting values live there anyway. */
+            const tpick = t.closest('[data-sh-tier]');
+            if (tpick) {
+                const kind = tpick.getAttribute('data-sh-tier');
+                S.editing = { ...(S.editing || {}), tier: kind };
+                panel.body.querySelectorAll('[data-sh-tier]').forEach((el) => {
+                    el.setAttribute('aria-pressed', el.getAttribute('data-sh-tier') === kind ? 'true' : 'false');
                 });
                 return;
             }

@@ -39,6 +39,27 @@
          loads, a tick when it is ready, then the airline's own mark. Only ever
          after a sign-in, and it lifts on a ceiling whatever happens. -->
     <script src="/crewSplash.js"></script>
+    <!-- ARMED HERE, IN THE HEAD, AND NOT AT THE BOTTOM OF THE PAGE.
+         It used to be armed from the boot block at the end of this file, which
+         runs after the parser has read the whole document — so the reader got
+         the crew centre first and the cover over it a beat later. That beat is
+         the flicker. The cover has to be in the tree before the page is, which
+         means before the page is parsed, which means here.
+
+         `getSlug` is not defined yet (it lives in the page's own script), so
+         the slug is read the same way it reads it. Wrapped in its own try:
+         nothing on this page may fail to load because a splash could not go
+         up. -->
+    <script>
+        (function () {
+            try {
+                var m = location.pathname.match(/\/crew\/([^\/?#]+)/i);
+                var slug = m && m[1] ? decodeURIComponent(m[1]).trim().toLowerCase()
+                    : (new URLSearchParams(location.search).get('va') || '').trim().toLowerCase();
+                if (window.CrewSplash) CrewSplash.arm({ slug: slug });
+            } catch (e) { /* no splash, no harm */ }
+        })();
+    </script>
     <!-- Shell mode + the app bridge when framed with ?embed=1. Inert otherwise. -->
     <script src="/crewBridge.js"></script>
     <!-- Events + the gate board. Brings its own panel, styles and map; the page
@@ -475,7 +496,6 @@
            above. A logo with its own transparent margin loses nothing to this;
            the radius clips a corner that was never drawn on. */
         #navLogo{ border-radius:.4rem; }
-        #idLogo{ border-radius:.6rem; }
         .lyt-opt{ transition:border-color .2s, background .2s; }
         .lyt-opt[aria-checked="true"]{ border-color:var(--accent); }
         .lyt-opt[aria-checked="true"] .dot{ background:var(--accent); border-color:var(--accent); }
@@ -596,7 +616,20 @@
                 <div id="identityTint" class="absolute inset-0 accent-bg opacity-[0.10]"></div>
                 <div class="absolute inset-0" style="background:linear-gradient(105deg, color-mix(in srgb, var(--surface) 92%, transparent), transparent 65%);"></div>
                 <div class="relative p-6 sm:p-7 flex flex-col sm:flex-row sm:items-center gap-5">
-                    <img id="idLogo" alt="" class="hidden h-14 w-auto max-w-[180px] object-contain">
+                    <!-- The airline's mark on a rounded plate rather than
+                         loose on the card. A VA's logo is almost never square
+                         — a wordmark, a roundel on a transparent PNG, a
+                         screenshot with a white edge — and a bare <img> of any
+                         of those against the tinted banner behind it reads as
+                         something that failed to load. The plate, the radius
+                         and the hairline are what make an arbitrary image look
+                         placed; `object-contain` inside it letterboxes a
+                         wordmark rather than cropping through the word.
+                         Matches the monogram beside it, which has always been
+                         a rounded square. -->
+                    <div id="idLogoPlate" class="hidden w-14 h-14 rounded-xl overflow-hidden grid place-items-center shrink-0 border hair bg-white">
+                        <img id="idLogo" alt="" class="w-full h-full object-contain p-1">
+                    </div>
                     <div id="idMonogram" class="accent-bg w-14 h-14 rounded-xl grid place-items-center text-white text-xl font-black shrink-0">VA</div>
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 mb-1.5">
@@ -800,6 +833,79 @@
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Opening a topic</h3>
                     <div id="topicOpts" class="space-y-2.5"></div>
                     <p class="text-xs muted mt-3">Applies to the roster, routes, schedule, events, flights, statistics, announcements, embeds and partnership.</p>
+                </div>
+
+                <!-- ============ THE HERO ============
+                     The band across the top of what a PILOT sees — the one
+                     screen in the crew centre that had no settings at all.
+                     Every VA got the same 400px banner, greeting, badge rail
+                     and two buttons, forever, and that is wrong in both
+                     directions at once: a big airline with a photographer on
+                     staff wants the picture as large as it goes and nothing
+                     over it, and a VA of nine people flying out of one field
+                     wants their crest, their name and a short band.
+
+                     Seven decisions, none of which can produce a broken page,
+                     and every default is the hero as it shipped — so a VA who
+                     never opens this sees no change. See crewHero.js. -->
+                <div id="heroBlock" class="hidden">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-1">The crew centre hero</h3>
+                    <p class="text-xs muted mb-3">What your pilots see across the top of their page.</p>
+
+                    <label class="text-xs font-semibold muted">Behind the words</label>
+                    <div id="heroBackdropOpts" class="grid grid-cols-2 gap-2 mt-2"></div>
+
+                    <label class="text-xs font-semibold muted block mt-4">How tall</label>
+                    <div id="heroHeightOpts" class="grid grid-cols-3 gap-2 mt-2"></div>
+
+                    <label class="text-xs font-semibold muted block mt-4">Where the greeting sits</label>
+                    <div id="heroAlignOpts" class="grid grid-cols-2 gap-2 mt-2"></div>
+
+                    <label class="text-xs font-semibold muted block mt-4">The two buttons</label>
+                    <div id="heroActionOpts" class="grid grid-cols-2 gap-2 mt-2"></div>
+
+                    <!-- WHAT IS ON IT. Three switches, and each one turns off a
+                         thing that is ALSO hidden by its own module until it
+                         has something true to say. This is the airline saying
+                         "not here even then", which is a different statement
+                         and the reason it is a setting rather than an
+                         accident of data. -->
+                    <div class="mt-4 space-y-2">
+                        <label class="flex items-center justify-between surface hair rounded-lg px-3.5 py-2.5 cursor-pointer">
+                            <span class="min-w-0">
+                                <span class="text-sm font-medium block">Your logo and name, top-left</span>
+                                <span class="text-xs muted">On a rounded plate over the picture.</span>
+                            </span>
+                            <input id="heroBrandOn" type="checkbox" class="w-4 h-4 shrink-0 ml-3">
+                        </label>
+                        <label class="flex items-center justify-between surface hair rounded-lg px-3.5 py-2.5 cursor-pointer">
+                            <span class="min-w-0">
+                                <span class="text-sm font-medium block">Rank and club emblems, top-right</span>
+                                <span class="text-xs muted">What that pilot is at your airline, at the size it is worth.</span>
+                            </span>
+                            <input id="heroCrestOn" type="checkbox" class="w-4 h-4 shrink-0 ml-3">
+                        </label>
+                        <label class="flex items-center justify-between surface hair rounded-lg px-3.5 py-2.5 cursor-pointer">
+                            <span class="min-w-0">
+                                <span class="text-sm font-medium block">The badge rail under their name</span>
+                                <span class="text-xs muted">Awards they have earned and things they have claimed.</span>
+                            </span>
+                            <input id="heroBadgesOn" type="checkbox" class="w-4 h-4 shrink-0 ml-3">
+                        </label>
+                    </div>
+
+                    <label class="text-xs font-semibold muted block mt-4">How dark the picture goes</label>
+                    <input id="heroDim" type="range" min="10" max="90" step="5" class="w-full mt-2 accent-[var(--accent)]">
+                    <p class="text-xs muted">Enough that white text reads. A bright apron at noon needs more of it than a night shot.</p>
+
+                    <label class="text-xs font-semibold muted block mt-4">Your own line (optional)</label>
+                    <input id="heroLineText" maxlength="120" placeholder="Leave empty to keep ours"
+                        class="w-full surface hair rounded-md px-3 py-2 text-sm mt-2 focus:outline-none focus:border-[var(--ink)]">
+                    <p class="text-xs muted mt-1.5">Ours says how far that pilot is from their next rank. Yours replaces it for everybody.</p>
+
+                    <button onclick="saveHero(this)" class="w-full accent-bg text-white rounded-lg py-2.5 text-sm font-semibold hover:opacity-90 transition mt-4">Save hero</button>
+                    <a id="heroPreview" target="_blank" rel="noopener" class="hidden items-center gap-1.5 text-xs accent-text font-semibold mt-3 inline-flex">Preview a pilot's page <i data-lucide="external-link" class="w-3.5 h-3.5"></i></a>
+                    <p id="heroNote" class="hidden text-sm mt-2"></p>
                 </div>
 
                 <!-- Login page look -->
@@ -3796,6 +3902,123 @@
                 if(res.ok){ note.textContent='Saved — your login now uses this.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; }
                 else { const d=await res.json().catch(()=>({})); note.textContent=d.error||'Saved on this device.'; note.className='text-sm muted'; }
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm muted'; }
+            note.classList.remove('hidden');
+        }
+
+        /* ============================================================
+           THE CREW CENTRE HERO
+
+           The band across the top of what a PILOT sees. Staff choose how it is
+           built; the pilot page applies it. Every default below is the hero as
+           it shipped, so a VA who never touches this screen sees no change —
+           see crewHero.js on the backend for the bounds, which are enforced
+           there as well as here because a browser is not where a rule lives.
+
+           SAVED IN ONE PRESS, NOT ON EVERY CLICK. The login look saves each
+           choice as it is made, which is right for two radio buttons; this is
+           seven controls that are read together, and seven POSTs while
+           somebody makes up their mind is seven chances for the last one to
+           lose a race with the fourth.
+           ============================================================ */
+        const HERO_BACKDROPS=[
+            ['banner','Your banner','The hero image from your listing.'],
+            ['accent','Your accent','A field of your own colour. For a logo-on-white banner.'],
+            ['map','Live traffic','Your aircraft, moving. Needs your callsign set.'],
+            ['none','Nothing','Just the words, on the page background.'],
+        ];
+        const HERO_HEIGHTS=[['short','Short'],['standard','Standard'],['tall','Tall']];
+        const HERO_ALIGNS=[['left','Left'],['center','Centred']];
+        const HERO_ACTIONS=[
+            ['both','Both'],['pirep','File a PIREP only'],
+            ['book','Book a flight only'],['none','Neither'],
+        ];
+        let HERO={ backdrop:'banner', height:'standard', align:'left', actions:'both',
+            brand:true, crest:true, badges:true, line:'', dim:55 };
+
+        /** The record as the branding endpoint sent it, bounded the same way
+         *  the server bounds it. A field we do not recognise keeps our default
+         *  rather than reaching the page. */
+        function readHero(b){
+            const h=(b&&b.hero&&typeof b.hero==='object')?b.hero:{};
+            const pick=(v,list,d)=>list.some(x=>x[0]===String(v||'').toLowerCase())?String(v).toLowerCase():d;
+            HERO={
+                backdrop: pick(h.backdrop,HERO_BACKDROPS,'banner'),
+                height:   pick(h.height,HERO_HEIGHTS,'standard'),
+                align:    pick(h.align,HERO_ALIGNS,'left'),
+                actions:  pick(h.actions,HERO_ACTIONS,'both'),
+                brand:  h.brand  !== false,
+                crest:  h.crest  !== false,
+                badges: h.badges !== false,
+                line:   String(h.line||'').slice(0,120),
+                dim:    Math.max(10, Math.min(90, Math.round(Number(h.dim))||55)),
+            };
+        }
+        function heroPickHtml(list, chosen, attr){
+            return list.map(([k,name,desc])=>{
+                const on=k===chosen;
+                return `<button role="radio" aria-checked="${on}" data-${attr}="${k}"
+                    class="lyt-opt surface hair rounded-lg px-3 py-2.5 text-left hover:border-[var(--ink)]">
+                    <span class="flex items-center gap-2">
+                        <span class="dot w-3.5 h-3.5 rounded-full border-2 hair shrink-0"></span>
+                        <span class="text-sm font-semibold">${escapeHtml(name)}</span>
+                    </span>
+                    ${desc?`<span class="block text-xs muted mt-0.5 pl-5">${escapeHtml(desc)}</span>`:''}
+                </button>`;
+            }).join('');
+        }
+        function renderHeroOpts(){
+            const block=document.getElementById('heroBlock');
+            if(!block) return;
+            // Same gate as the rest of the appearance screen.
+            block.classList.toggle('hidden', !can('settings.branding'));
+            const wire=(hostId, list, attr, key)=>{
+                const host=document.getElementById(hostId); if(!host) return;
+                host.innerHTML=heroPickHtml(list, HERO[key], attr);
+                host.querySelectorAll(`[data-${attr}]`).forEach(b=>b.addEventListener('click',()=>{
+                    HERO[key]=b.getAttribute(`data-${attr}`); renderHeroOpts();
+                }));
+            };
+            wire('heroBackdropOpts',HERO_BACKDROPS,'hbd','backdrop');
+            wire('heroHeightOpts',HERO_HEIGHTS,'hht','height');
+            wire('heroAlignOpts',HERO_ALIGNS,'hal','align');
+            wire('heroActionOpts',HERO_ACTIONS,'hac','actions');
+            const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.checked=!!v; };
+            set('heroBrandOn',HERO.brand); set('heroCrestOn',HERO.crest); set('heroBadgesOn',HERO.badges);
+            const dim=document.getElementById('heroDim'); if(dim) dim.value=String(HERO.dim);
+            const line=document.getElementById('heroLineText'); if(line) line.value=HERO.line;
+            // The preview is the pilot page itself, which is the only honest
+            // preview of it: a picture of a hero in a settings panel is a
+            // promise the real page then has to keep.
+            const a=document.getElementById('heroPreview'), slug=getSlug();
+            if(a && slug){ a.href=`/crew/${encodeURIComponent(slug)}/crew-pilot.html`; a.classList.remove('hidden'); }
+            if(window.lucide) lucide.createIcons();
+        }
+        /** What the three switches and the two free fields say right now. The
+         *  radios are already in HERO — they are chosen by pressing them. */
+        function readHeroForm(){
+            const on=(id)=>{ const el=document.getElementById(id); return el?!!el.checked:true; };
+            HERO.brand=on('heroBrandOn'); HERO.crest=on('heroCrestOn'); HERO.badges=on('heroBadgesOn');
+            const dim=document.getElementById('heroDim');
+            if(dim) HERO.dim=Math.max(10,Math.min(90,Math.round(Number(dim.value))||55));
+            const line=document.getElementById('heroLineText');
+            if(line) HERO.line=String(line.value||'').trim().slice(0,120);
+            return { ...HERO };
+        }
+        async function saveHero(btn){
+            const note=document.getElementById('heroNote');
+            const body=readHeroForm();
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ note.textContent='Sign in as owner/staff to save this.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
+            const done=busy(btn,'Saving…');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ hero: body }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'Could not save the hero.'; note.className='text-sm text-red-500'; say(d.error||'Could not save the hero.','bad'); }
+                else { note.textContent='Saved — your pilots will see this.'; note.className='text-sm text-emerald-600 dark:text-emerald-400'; say('Hero saved.','ok'); }
+            }catch{ note.textContent='Server unreachable. Nothing was saved.'; note.className='text-sm text-red-500'; say('Server unreachable. Nothing was saved.','bad'); }
+            finally{ done(); }
             note.classList.remove('hidden');
         }
 
@@ -8926,6 +9149,11 @@
             document.querySelectorAll('.settings-tab').forEach(t=>{
                 const c=t.getAttribute('data-cat'); if(c in vis) t.classList.toggle('hidden', !vis[c]);
             });
+            // The hero block gates itself on the same capability the tab it
+            // sits in does. Redrawn here as well as at boot because /me can
+            // land after the first paint, and a staff member whose branding
+            // power arrived late should not have to reopen the drawer.
+            renderHeroOpts();
             // If the active tab got hidden, jump to the first visible one.
             const active=document.querySelector('.settings-tab.active');
             if(active && active.classList.contains('hidden')){
@@ -9548,7 +9776,14 @@
                 // On a phone the bar has no room for the second copy, so the
                 // logo carries it and the name comes back at `sm`.
                 document.getElementById('navName').classList.add('hidden','sm:inline');
-                document.getElementById('idLogo').src=b.logo; document.getElementById('idLogo').classList.remove('hidden'); document.getElementById('idMonogram').classList.add('hidden');
+                // The plate is what is shown or hidden now, not the image
+                // inside it — see #idLogoPlate in the markup. A logo that 404s
+                // takes the plate down with it and the monogram comes back,
+                // rather than leaving a white square with a broken-image glyph
+                // in it where the airline is supposed to be.
+                const idLogo=document.getElementById('idLogo'), idPlate=document.getElementById('idLogoPlate');
+                idLogo.addEventListener('error',()=>{ idPlate.classList.add('hidden'); document.getElementById('idMonogram').classList.remove('hidden'); },{once:true});
+                idLogo.src=b.logo; idPlate.classList.remove('hidden'); document.getElementById('idMonogram').classList.add('hidden');
             }
             if(b.banner && isSafeImageUrl(b.banner)){
                 document.getElementById('identityBg').src=b.banner; document.getElementById('identityBg').classList.remove('hidden'); document.getElementById('identityTint').classList.add('hidden');
@@ -9795,10 +10030,10 @@
 
         // ---- Boot ----
         (async function(){
-            // Before anything is drawn: if this is an arrival from the sign-in
-            // page, the cover goes up now and comes down when the page below it
-            // is worth looking at.
-            if(window.CrewSplash) CrewSplash.arm({ slug:getSlug() });
+            // The cover is already up, if this is an arrival: it is armed in
+            // the <head> of this file, before the page is parsed, because a
+            // cover raised from here goes up over a page the reader has
+            // already seen. All that is left for the boot to do is `done`.
             wireLiveUpdates();
             renderTiles(); readSession();
             const b = await resolveBranding();
@@ -9833,6 +10068,7 @@
             mountIfLive();                  // the Live fleet board (and the panel behind it, for staff)
             renderSwatches(); syncAccentPicker();
             renderLookOpts(); renderUiOpts();
+            readHero(b); renderHeroOpts();   // how this VA has built its pilots' hero
             mountCommand(); mountAlerts();
             wireStructure(); renderStructure(); loadFleetMeta();
             wireSocial(); renderSocialEditor(); renderSocial();   // the Instagram wall + its editor
