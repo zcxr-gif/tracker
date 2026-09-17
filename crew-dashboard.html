@@ -38,6 +38,11 @@
     <!-- The moment between signing in and being in: a ring while the page
          loads, a tick when it is ready, then the airline's own mark. Only ever
          after a sign-in, and it lifts on a ceiling whatever happens. -->
+    <!-- The one time the whole of aviation agrees on, in the top bar. Every
+         other time in this crew centre is shown in the reader's own zone,
+         which is right for "when is my flight" and useless for reading a
+         brief that says 1430Z. -->
+    <script src="/crewZulu.js"></script>
     <script src="/crewSplash.js"></script>
     <!-- ARMED HERE, IN THE HEAD, AND NOT AT THE BOTTOM OF THE PAGE.
          It used to be armed from the boot block at the end of this file, which
@@ -574,6 +579,12 @@
                 </div>
             </div>
             <div class="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0">
+                <!-- The airline's clock. Off the bar on a phone, like the
+                     switch below it: the bar has a logo, a name, a search box,
+                     a bell, settings and an avatar to fit, and the clock is
+                     the one thing here a reader can get from their own
+                     device. -->
+                <time data-crew-zulu class="hidden sm:inline-flex mr-1.5"></time>
                 <!-- crewSkin.js puts the interface switch here. Empty until it
                      does, and empty for good if the script did not arrive.
                      Off the bar on a phone — it is in Settings › Appearance. -->
@@ -2317,6 +2328,10 @@
             else if(el) el.scrollIntoView({block:block||'nearest'}); };
 
         let CREW_CODE='', CREW_NAME='', CREW_LAYOUT='editorial', ALLOWED=['editorial','console','split','classic'];
+        // The whole branding record, kept rather than picked apart into six
+        // globals. applyEmbeds needs the VA's own embed token off it, and the
+        // next thing that needs a field will not need a seventh global either.
+        let CREW_BRANDING=null;
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
         // The airlines this VA sells seats on. Same shape as FLEET rows for the
         // aeroplanes, because a partner's aircraft ARE fleet rows — somebody
@@ -3488,11 +3503,45 @@
         }
 
         // ---- Live map (in content; theme-synced; no Mapbox token/billing) ----
+        /* THE LIVE MAP, AND WHOSE EMBED IT IS.
+         *
+         * This built `embed.html?va=<CALLSIGN>&mode=map&…` out of thin air —
+         * the widget's "direct params" path, which produces a brand new
+         * generic embed every time. So the crew centre has never once shown
+         * the embed a VA actually configured: their Mapbox token was ignored
+         * (the map silently fell back to the free basemap), and so were their
+         * appearance, their callsign rules, their server filter and their
+         * hubs. A VA who set all of that up in the embeds tool got none of it
+         * here.
+         *
+         * Now the branding record carries the token of the VA's own embed —
+         * see `liveEmbed` on the backend — and a token, when there is one,
+         * always wins. `?token=` is resolved by the backend, which hands the
+         * widget everything the VA saved.
+         *
+         * TWO REASONS IT STILL FALLS BACK, and neither is a failure:
+         *   · the VA has never made an embed, which is most of them; and
+         *   · the one they made is a ROSTER widget, so pointing the map panel
+         *     at it would replace a map with a list.
+         * Either way the generic map is drawn exactly as before.
+         *
+         * The theme is NOT passed alongside a token. A token carries the VA's
+         * own chosen appearance, and overriding half of it from here would
+         * give them a map that is theirs in every respect except the one they
+         * would notice. */
         function applyEmbeds(){
-            if(!CREW_CODE) return;
+            const frame=document.getElementById('liveMap');
+            if(!frame) return;
             const t=isDark()?'dark':'light';
-            document.getElementById('liveMap').src=`/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off&mode=map&theme=${t}&freeStyle=${t}`;
-            document.getElementById('liveMap').classList.remove('hidden');
+            const embed=(CREW_BRANDING&&CREW_BRANDING.liveEmbed)||null;
+            const src = (embed&&embed.token&&embed.mode==='map')
+                ? `/embed.html?token=${encodeURIComponent(embed.token)}&header=off`
+                : (CREW_CODE
+                    ? `/embed.html?va=${encodeURIComponent(CREW_CODE)}&header=off&mode=map&theme=${t}&freeStyle=${t}`
+                    : '');
+            if(!src) return;
+            if(frame.getAttribute('src')!==src) frame.src=src;
+            frame.classList.remove('hidden');
             document.getElementById('liveHost').classList.add('hidden');
         }
 
@@ -9827,6 +9876,7 @@
         }
         function applyBranding(b){
             if(!b) return;
+            CREW_BRANDING=b;
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
             // The VA's full design system, when it has one. Applied before the
             // rest so the page paints in brand colours on first frame.
@@ -10187,6 +10237,7 @@
             renderSwatches(); syncAccentPicker();
             renderLookOpts(); renderUiOpts();
             readHero(b); renderHeroOpts();   // how this VA has built its pilots' hero
+            if(window.CrewZulu) CrewZulu.mount();   // the clock in the top bar
             mountCommand(); mountAlerts();
             wireStructure(); renderStructure(); loadFleetMeta();
             wireSocial(); renderSocialEditor(); renderSocial();   // the Instagram wall + its editor

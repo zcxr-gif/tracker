@@ -36,6 +36,14 @@
     <!-- The moment between signing in and being in: a ring while the page
          loads, a tick when it is ready, then the airline's own mark. Only ever
          after a sign-in, and it lifts on a ceiling whatever happens. -->
+    <!-- The one time the whole of aviation agrees on, in the top bar. Every
+         other time in this crew centre is shown in the reader's own zone,
+         which is right for "when is my flight" and useless for reading a
+         brief that says 1430Z. -->
+    <script src="/crewZulu.js"></script>
+    <!-- The leg this pilot is on right now, if they are flying for this
+         airline. Draws nothing at all otherwise. -->
+    <script src="/crewLiveFlight.js"></script>
     <script src="/crewSplash.js"></script>
     <!-- ARMED HERE, IN THE HEAD, AND NOT AT THE BOTTOM OF THE PAGE.
          It used to be armed from the boot block at the end of this file, which
@@ -408,6 +416,11 @@
                      never sees it, so this button is how the choice reaches
                      the people who actually read this page every day.
                      crewSkin.js fills it; empty if that script did not load. -->
+                <!-- The airline's clock. Hidden on the narrowest phones,
+                     where the bar has a logo, a name, a bell, a theme toggle
+                     and an avatar to fit and the clock is the one thing a
+                     pilot can get from their own device. -->
+                <time data-crew-zulu class="hidden sm:inline-flex mr-1.5"></time>
                 <span data-skin-toggle></span>
                 <!-- The dot that used to live here was markup: always on, never
                      counting anything. crewAlerts.js owns this button now and
@@ -489,6 +502,15 @@
     </section>
 
     <main class="max-w-6xl mx-auto px-5 pb-16">
+
+        <!-- ============ THE LEG THEY ARE ON ============
+             Above the numbers, because a pilot who is airborne for this
+             airline right now does not want to read their career totals first.
+             Painted by crewLiveFlight.js and hidden outright unless there is a
+             flight: a pilot on the ground — which is nearly every pilot nearly
+             always — gets the page they have always had, with no empty frame
+             where a flight would be. -->
+        <section id="liveFlight" class="mt-8 cp-hidden"></section>
 
         <!-- ============ MY NUMBERS ============ -->
         <section id="myNumbers" class="mt-8">
@@ -682,6 +704,9 @@
         const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         let CREW_CODE = '';   // VA callsign — drives the live map behind the hero
         let CREW_NAME = '', CREW_LOGO = '';   // the airline on the front of the pilot's card
+        // The whole branding record. applyEmbeds reads the VA's own embed
+        // token off it; keeping the record beats picking it apart into globals.
+        let CREW_BRANDING = null;
         let CREW_LAYOUT = 'editorial';
 
         // Staff-allowed layout presets; ?layout=<preset> overrides for preview.
@@ -801,11 +826,20 @@
             const wrap = document.getElementById('heroMapWrap');
             const frame = document.getElementById('heroMap');
             if(!wrap || !frame) return;
-            const on = !!(HERO && HERO.backdrop==='map' && CREW_CODE);
+            /* The VA's OWN embed where they have made one, exactly as the
+             * staff dashboard's map does — see applyEmbeds there for why the
+             * generic `?va=` form was never the right thing to draw. A token
+             * carries their Mapbox key, their appearance and their callsign
+             * rules; without one, the generic map as before. */
+            const embed=(CREW_BRANDING&&CREW_BRANDING.liveEmbed)||null;
+            const token=(embed&&embed.mode==='map')?embed.token:'';
+            const on = !!(HERO && HERO.backdrop==='map' && (token || CREW_CODE));
             wrap.classList.toggle('hidden', !on);
             if(!on){ frame.removeAttribute('src'); return; }
-            const src=`https://inflight.info/embed.html?va=${encodeURIComponent(CREW_CODE)}`
-                +`&theme=${isDark()?'dark':'light'}&ui=0`;
+            const src = token
+                ? `/embed.html?token=${encodeURIComponent(token)}&header=off&ui=0`
+                : `/embed.html?va=${encodeURIComponent(CREW_CODE)}`
+                    +`&header=off&mode=map&theme=${isDark()?'dark':'light'}&ui=0`;
             if(frame.getAttribute('src')!==src) frame.setAttribute('src',src);
         }
 
@@ -1465,6 +1499,17 @@
             if(host) CrewBadges.mountRail(host, { api: crewApi(), onOpen: where });
         }
 
+        /* The leg this pilot is flying for this airline, right now.
+         *
+         * Nothing here decides what "flying for the airline" means — the
+         * callsign rule lives in the matcher the live map and the webhooks
+         * share, and the endpoint asks that. This only says where to draw the
+         * answer. */
+        function mountLiveFlight(){
+            const host=document.getElementById('liveFlight');
+            if(host && window.CrewLiveFlight) CrewLiveFlight.mount(host, { api: crewApi() });
+        }
+
         function mountAwardStrip(){
             const host=document.getElementById('awardStrip');
             if(host && window.CrewAwards) CrewAwards.mountStrip(host, { api: crewApi() });
@@ -1569,6 +1614,7 @@
             if(!b) return;
             if(isHex(b.accent)) document.documentElement.style.setProperty('--accent', b.accent);
             // The VA's full design system, when it has one.
+            CREW_BRANDING=b;
             if(window.CrewBrand) CrewBrand.apply(b);
             // The interface the VA chose for its crew, unless this pilot has
             // picked their own from the top bar.
@@ -2116,6 +2162,8 @@
             mountCommand(); mountAlerts();
             applyLayout(resolveLayout(b));   // staff-allowed preset (or ?layout= for preview)
             applyHero(b);                    // and how the airline has built its hero
+            if(window.CrewZulu) CrewZulu.mount();   // the clock in the top bar
+            mountLiveFlight();               // …and the leg they are on, if they are on one
             applyEmbeds();                   // hero map / banner per layout
             // The hero map is themed by URL, so re-source it if a host flips us.
             if(window.CrewBrand) CrewBrand.onMode(()=>{ applyThemeIcon(); applyEmbeds(); });

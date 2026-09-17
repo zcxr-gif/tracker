@@ -16,7 +16,8 @@
     "test:route-library": "node tools/test-crew-route-library.js",
     "test:partners": "node tools/test-crew-partners.js",
     "test:favicon": "node tools/test-crew-favicon.js",
-    "test:pilot-home": "node tools/test-crew-pilot-home.js"
+    "test:pilot-home": "node tools/test-crew-pilot-home.js",
+    "test:zulu": "node tools/test-crew-zulu.js"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",
