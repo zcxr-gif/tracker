@@ -722,7 +722,11 @@
                 crest:  h.crest  !== false,
                 badges: h.badges !== false,
                 line:   String(h.line||'').slice(0,120),
-                dim:    Math.max(10, Math.min(90, Math.round(Number(h.dim))||55)),
+                // Not `|| 55`: 0 is falsy, so "as light as it goes" would come
+                // back as the default rather than as the floor. A number that
+                // is not a number falls back; a number that is one is clamped.
+                dim:    Number.isFinite(Math.round(Number(h.dim)))
+                    ? Math.max(10, Math.min(90, Math.round(Number(h.dim)))) : 55,
             };
         }
         function applyHero(b){
