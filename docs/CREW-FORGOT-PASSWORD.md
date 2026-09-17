@@ -98,6 +98,20 @@ tab, not an error where the list should be.
 
 Implemented in the database repo, like the rest of the crew center.
 
+It needs **schema v19**, which adds five columns to `crew_accounts`: the
+SHA-256 of the one-time link (never the link), when it expires, when the pilot
+asked, whether it is waiting on staff, and why it reached them. A VA on v18
+re-runs the setup SQL — or has it re-run for them by the auto-update — and
+until they do, every route here answers the 404 above rather than promising an
+email the project has nowhere to record. The columns are deliberately **not**
+droppable in `crewStore.js`'s `LATE_COLUMNS`, for the reason `discord_id` is
+not: on a request the column *is* the write, and dropping it would turn "a way
+back in is on its way" into a sentence that is not true.
+
+A VA still on our managed store gets the same 404. Their pilots' logins are
+rows in our central collection, which has no column for a one-time link, so
+there is nothing to record one in.
+
 ```
 POST /api/crew/<slug>/forgot-password          { who }        → { ok: true }
 GET  /api/crew/<slug>/password-reset/<token>                  → { ok, name }
@@ -136,6 +150,11 @@ Server-side rules the client depends on:
 | `crew-dashboard.html` | The Logins tab: requests beside invitations. |
 | `docs/CREW-FORGOT-PASSWORD.md` | This. |
 | `tools/test-crew-forgot-password.js` | 51 checks. |
+
+The other half is in the database repo: `crewPasswordReset.js` (the token's
+lifetime, the rate limiter, the wording), the five routes in `server.js`, the
+`crew_accounts` columns in `supabase/crew-center-schema.sql`, and
+`scripts/test-crew-password-reset.js` — 84 checks, run with `npm run test:forgot`.
 
 ## Tests
 
