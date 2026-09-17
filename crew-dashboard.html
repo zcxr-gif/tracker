@@ -5416,13 +5416,32 @@
             // worst possible answer to "did that register?".
             const done=busy(el && el.querySelector('[data-remove]'), false);
             try{
-                if(!await ask({ title:`Remove ${who} from the roster?`, danger:true, confirm:'Remove them',
-                    body:'Their flight reports and hours stay in your database — this takes them off the roster.' })) return;
+                /* THIS USED TO SAY THE OPPOSITE, AND IT WAS TRUE WHEN IT WAS
+                 * WRITTEN. Removing a pilot deleted the roster row and left
+                 * everything else — which meant their flights stayed in the
+                 * log with nothing to attach to, their bookings kept holding
+                 * seats, and their login kept working. Remove now means
+                 * remove, so the question has to say so before it is asked. */
+                if(!await ask({ title:`Remove ${who} and delete everything of theirs?`, danger:true, confirm:'Delete everything',
+                    body:`This cannot be undone. ${who}’s flight reports, bookings, event signups, shop orders, messages and login are all deleted from your database, and their flights stop counting towards your airline’s totals. If you only want them off the active roster, set their status to Inactive instead.` })) return;
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster/${encodeURIComponent(id)}`,{ method:'DELETE', headers:{Authorization:'Bearer '+token} });
                 if(res.ok){
+                    const d=await res.json().catch(()=>({}));
                     ROSTER=ROSTER.filter(m=>String(m.id)!==String(id));
                     if(String(EDITING)===String(id)) closePilotForm();
-                    renderRoster(); say(`${who} removed from the roster.`,'ok'); changed('roster');
+                    renderRoster();
+                    // What actually went, rather than a bare "removed". Staff
+                    // were told everything would be deleted; the reply is where
+                    // that promise is either kept or visibly not.
+                    const n=(d.removed&&Number(d.removed.crew_pireps))||0;
+                    say(n ? `${who} and ${n} flight report${n===1?'':'s'} deleted.` : `${who} deleted.`,'ok');
+                    // A table that refused the delete leaves something of
+                    // theirs in the project. Staff should hear that from us
+                    // rather than find it later.
+                    if(Array.isArray(d.failed) && d.failed.length){
+                        say(`Some of their records could not be removed (${d.failed.join(', ')}). Try again, or check your data store.`,'bad');
+                    }
+                    changed('roster');
                 } else {
                     const d=await res.json().catch(()=>({}));
                     sayFailed(d.error,'Could not remove them.');

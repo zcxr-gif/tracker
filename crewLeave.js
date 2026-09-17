@@ -53,6 +53,12 @@
         health: null,      // GET /crew-health
         loading: false,
         error: null,
+        // The other kind of leaving. Read lazily — nobody should pay a round
+        // trip for the exit on their way to saying they are on holiday — and
+        // only when the section is opened. See quitHtml.
+        quit: null,        // GET /me/leave → { canLeave, expects, takes }
+        quitOpen: false,
+        quitAsked: false,
     };
 
     const GROUPS = [
@@ -98,6 +104,38 @@
         .lv-spark i{ width:.28rem; border-radius:1px; background:color-mix(in srgb, var(--accent) 55%, transparent);
             min-height:2px; display:block; }
         .lv-spark i.lv-zero{ background:color-mix(in srgb, var(--ink,#1C1A16) 12%, transparent); }
+
+        /* ---- THE OTHER KIND OF LEAVING ----------------------------------
+           Going away and going for good are the same question with two
+           answers, so a pilot looking for the exit looks here — but they are
+           not the same WEIGHT, and a panel that drew them as two equal cards
+           would be offering "delete everything I have ever flown" as a
+           sibling of "I have exams until the 14th".
+
+           So it is a disclosure, shut by default, below a rule, in red, and
+           the button inside it does not appear until a name has been typed.
+           Every one of those is a small piece of friction and all of them
+           together are the point: this is the only irreversible thing a pilot
+           can do to themselves in this product. */
+        .lv-quit{ margin-top:1.6rem; border-top:1px solid var(--line,#e5e5e5); padding-top:1rem; }
+        .lv-quit-open{ display:inline-flex; align-items:center; gap:.4rem; background:none; border:0;
+            cursor:pointer; font:inherit; font-size:.78rem; font-weight:700; color:var(--muted,#736E64);
+            padding:.2rem 0; }
+        .lv-quit-open i{ width:.9rem; height:.9rem; }
+        .lv-quit-open:hover{ color:#DC2626; }
+        .lv-quit-box{ margin-top:.8rem; border:1px solid color-mix(in srgb, #DC2626 40%, var(--line,#e5e5e5));
+            border-radius:.9rem; padding:1rem; background:color-mix(in srgb, #DC2626 5%, transparent); }
+        .lv-quit-t{ font-size:.98rem; font-weight:800; letter-spacing:-.02em; color:#B91C1C; }
+        .lv-quit-p{ font-size:.82rem; line-height:1.5; color:var(--ink,#1C1A16); margin-top:.4rem; }
+        /* Their own flying, itemised. A warning that says "everything will be
+           wiped" is a form of words; a warning that says "your 214 hours and
+           your 96 flights" is the same sentence with the person in it. */
+        .lv-quit-list{ list-style:none; margin:.7rem 0 0; padding:0; display:grid; gap:.3rem; }
+        .lv-quit-list li{ display:flex; align-items:center; gap:.5rem; font-size:.82rem; }
+        .lv-quit-list i{ width:.9rem; height:.9rem; color:#DC2626; flex:none; }
+        .lv-quit-note{ font-size:.75rem; line-height:1.45; color:var(--muted,#736E64); margin-top:.7rem; }
+        .lv-quit-danger{ background:#DC2626; border-color:#DC2626; color:#fff; }
+        .lv-quit-danger:hover{ background:#B91C1C; border-color:#B91C1C; }
         `);
     }
 
@@ -112,6 +150,47 @@
         catch (err) { S.error = err; }
         S.loading = false;
         draw();
+    }
+
+    async function loadQuit() {
+        try { S.quit = await S.api('/me/leave'); }
+        catch (err) { S.quit = { error: err }; }
+        draw();
+    }
+
+    /**
+     * Leave, for good.
+     *
+     * The server asks for the username again and checks it again — this is not
+     * the gate, it is the warning. The gate is in the route, because a
+     * confirmation a browser enforces is a confirmation anybody can skip.
+     */
+    async function quit(btn) {
+        const box = S.panel && S.panel.body.querySelector('[data-lv-quit-confirm]');
+        const typed = box ? String(box.value || '').trim() : '';
+        if (!typed) return;
+        const done = P.busy(btn, 'Leaving…');
+        try {
+            await S.api('/me/leave', { method: 'POST', body: { confirm: typed } });
+            // No toast and no repaint: there is nothing left behind this panel
+            // for this person to look at, and a crew centre that sat there
+            // with their name still in the top bar would be the last thing
+            // they saw of it. Out, to the sign-in page, with the session gone.
+            let slug = '';
+            try {
+                slug = (location.pathname.match(/\/crew\/([^/?#]+)/i) || [])[1] || '';
+                slug = slug ? decodeURIComponent(slug).trim().toLowerCase() : '';
+                if (slug) localStorage.removeItem('crew:session:' + slug);
+            } catch (_) { /* private window: the redirect still ends the visit */ }
+            // Back to this airline's own sign-in page rather than to /crew,
+            // which is the bare one and would ask them which crew centre they
+            // meant. They know which one they just left.
+            location.href = slug ? `/crew/${encodeURIComponent(slug)}` : '/crew';
+        } catch (err) {
+            // The one error worth keeping them here for: they typed it wrong.
+            P.toast((err && err.message) || 'That did not work.', 'bad');
+            done();
+        }
     }
 
     async function loadHealth() {
@@ -174,7 +253,8 @@
                 <div class="cp-facts"><span class="cp-fact">Told your staff ${esc(relativeText(mine.createdAt))}</span></div>
                 <button class="cp-btn" data-lv-end="${esc(mine.id || '')}">I’m back</button>
             </div>
-            <p class="cp-note">Coming back early is fine — press that and the clock starts again.</p>`;
+            <p class="cp-note">Coming back early is fine — press that and the clock starts again.</p>
+            ${quitHtml()}`;
         }
 
         const today = new Date();
@@ -192,7 +272,108 @@
             <button class="cp-btn cp-btn-primary" data-lv-start>Tell my staff I’m away</button>
         </div>
         <p class="cp-note">Only your staff see this. It does not cancel legs you have already booked —
-            do that in the schedule if you need to.</p>`;
+            do that in the schedule if you need to.</p>
+        ${quitHtml()}`;
+    }
+
+    /* =====================================================================
+     * LEAVING FOR GOOD
+     *
+     * WHY IT IS IN THIS PANEL
+     *
+     * "I am going away" and "I am going away for good" are the same question
+     * with two answers, and a pilot who wants out looks where the going-away
+     * thing is. Putting the exit in a settings screen a pilot does not have —
+     * they do not have one — or nowhere at all, which is where it was, means
+     * the only way to leave a virtual airline is to ask permission and wait.
+     * In practice people stop signing in instead, and sit on the roster
+     * forever as somebody the sweep keeps nagging.
+     *
+     * WHY IT LOOKS LIKE THIS
+     *
+     * It is shut by default, under a rule, in red, and the button does not
+     * exist until the pilot has typed their own username. Every one of those
+     * is a small piece of friction and all of them together are the point:
+     * this deletes their flying, and nobody can undo it afterwards.
+     *
+     * AND IT ITEMISES WHAT GOES. "Everything will be wiped" is a form of
+     * words that a person skims. "Your 214 hours, your 96 flights, your Gold
+     * card and the three things you have claimed" is the same sentence with
+     * their own life in it, and it is the difference between a dialog that is
+     * dismissed and one that is read. The figures come from the server, which
+     * is the only thing that actually knows them.
+     * =================================================================== */
+
+    function quitHtml() {
+        if (!S.quitOpen) {
+            return `<div class="lv-quit">
+                <button type="button" class="lv-quit-open" data-lv-quit-open>
+                    <i data-lucide="chevron-right"></i> Leave this airline for good
+                </button>
+            </div>`;
+        }
+        // Asked for lazily the first time the section is opened, so a pilot
+        // reporting a fortnight's holiday never pays for this round trip.
+        if (!S.quit) {
+            if (!S.quitAsked) { S.quitAsked = true; loadQuit(); }
+            return `<div class="lv-quit"><p class="cp-note">One moment…</p></div>`;
+        }
+        if (S.quit.error) {
+            const e = S.quit.error;
+            if (e.status === 404) return `<div class="lv-quit">${P.notBuiltHtml('Leaving')}</div>`;
+            return `<div class="lv-quit"><div class="cp-empty"><i data-lucide="triangle-alert"></i>
+                ${esc(e.message || 'That could not be read.')}</div></div>`;
+        }
+        // A staff account cannot leave through this door — the route cannot
+        // reach a central login, so it says so rather than pretending.
+        if (S.quit.canLeave === false) {
+            return `<div class="lv-quit">
+                <div class="lv-quit-t">Staff leave a different way</div>
+                <p class="lv-quit-p">This is a staff account, so it is not ours to close from here.
+                    Take your staff role off first, or ask another owner to take you off the roster.</p>
+            </div>`;
+        }
+
+        const t = S.quit.takes || {};
+        const items = [];
+        if (t.linked) {
+            if (t.hours) items.push(['clock', `${Number(t.hours).toLocaleString()} hours of flying`]);
+            // `null` means we could not read it — see the route. Only a number
+            // is stated, because a zero here is a claim about somebody's
+            // logbook and this is the worst screen to be wrong on.
+            if (Number.isFinite(t.reports) && t.reports) {
+                items.push(['notebook-tabs', `${Number(t.reports).toLocaleString()} flight report${t.reports === 1 ? '' : 's'}`]);
+            }
+            if (t.rank) items.push(['award', `Your rank — ${t.rank}`]);
+            if (t.club) items.push(['gem', `Your ${t.club} card`]);
+            if (Number.isFinite(t.held) && t.held) {
+                items.push(['gift', `${t.held} thing${t.held === 1 ? '' : 's'} you have claimed from the shop`]);
+            }
+            items.push(['calendar-x', 'Any flights you have booked, and your event signups']);
+        }
+        items.push(['user-x', 'Your login, and every message in your inbox']);
+
+        return `<div class="lv-quit">
+            <button type="button" class="lv-quit-open" data-lv-quit-open aria-expanded="true">
+                <i data-lucide="chevron-down"></i> Leave this airline for good
+            </button>
+            <div class="lv-quit-box">
+                <div class="lv-quit-t">This cannot be undone</div>
+                <p class="lv-quit-p">Leaving does not hide you or mark you inactive — it removes you.
+                    Everything below is deleted from this airline's records, and neither you nor your
+                    staff can bring any of it back.</p>
+                <ul class="lv-quit-list">
+                    ${items.map(([icon, text]) => `<li><i data-lucide="${esc(icon)}"></i>${esc(text)}</li>`).join('')}
+                </ul>
+                <p class="lv-quit-note">Your hours at this airline are not your hours in Infinite Flight —
+                    your IF logbook is untouched. If you only want a break, use the box above instead.</p>
+                <label class="cp-label" style="margin-top:.9rem">Type <b>${esc(S.quit.expects || '')}</b> to confirm
+                    <input class="cp-input" data-lv-quit-confirm autocomplete="off"
+                        placeholder="${esc(S.quit.expects || 'your username')}"></label>
+                <button class="cp-btn lv-quit-danger" data-lv-quit-go disabled>Leave ${esc(
+                    (S.quit.pilot && S.quit.pilot.name) ? 'this airline' : 'this airline')}</button>
+            </div>
+        </div>`;
     }
 
     /* ---- The board ------------------------------------------------------ */
@@ -348,6 +529,25 @@
             if (e) { end(e.getAttribute('data-lv-end'), e); return; }
             const n = t.closest('[data-lv-nudge]');
             if (n) { nudge(n.getAttribute('data-lv-nudge'), n.getAttribute('data-lv-name'), n); return; }
+            if (t.closest('[data-lv-quit-open]')) { S.quitOpen = !S.quitOpen; draw(); return; }
+            const q = t.closest('[data-lv-quit-go]');
+            if (q && !q.disabled) { quit(q); return; }
+        });
+
+        /* THE BUTTON DOES NOT EXIST UNTIL THE NAME IS RIGHT.
+         *
+         * Disabled rather than hidden, so somebody who has read the list can
+         * see what they are being asked for before they decide — and enabled
+         * only on an exact match, trimmed and case-insensitively, because
+         * asking a person to reproduce capitalisation under a red banner is a
+         * puzzle rather than a check. The server checks it again; this is the
+         * warning, not the gate. */
+        panel.el.addEventListener('input', (ev) => {
+            if (!ev.target.matches('[data-lv-quit-confirm]')) return;
+            const go = panel.body.querySelector('[data-lv-quit-go]');
+            if (!go) return;
+            const want = String((S.quit && S.quit.expects) || '').trim().toLowerCase();
+            go.disabled = !want || String(ev.target.value || '').trim().toLowerCase() !== want;
         });
     }
 
@@ -360,6 +560,11 @@
             S.panel = P.sheet({ id: 'crewLeave', title: 'Leave & crew health', icon: 'heart-pulse' });
             wire(S.panel);
         }
+        // Shut again on every open. Somebody who looked at the exit last week
+        // and closed the panel should not find it sitting open, with their
+        // flying itemised under a red heading, when they come back to report a
+        // fortnight's holiday.
+        S.quitOpen = false; S.quitAsked = false; S.quit = null;
         S.panel.open();
         draw();
         load();

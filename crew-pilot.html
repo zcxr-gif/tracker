@@ -850,7 +850,10 @@
             {icon:'store',label:'Shop',desc:'Spend what you’ve flown',action:'shop'},
             {icon:'graduation-cap',label:'Training',desc:'Your ladder & check-rides',action:'training'},
             {icon:'award',label:'Awards',desc:'What you’ve earned',action:'awards'},
-            {icon:'palmtree',label:'Going away?',desc:'Pause the roster sweep',action:'leave'},
+            // The description names both answers now. A pilot who wants out
+            // permanently has nowhere else to look for the door, and "Pause
+            // the roster sweep" is not a sentence anybody reads as "leave".
+            {icon:'palmtree',label:'Going away?',desc:'Pause the sweep, or leave for good',action:'leave'},
             {icon:'route',label:'Route network',desc:'Where this airline flies',action:'network'},
             // The question this page could never answer. Last in the grid
             // because the two featured legs are already up the page in their
