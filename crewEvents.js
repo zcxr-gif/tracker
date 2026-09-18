@@ -178,6 +178,35 @@
     /* ---------------------------------------------------------------------
      * Talking to the backend
      * ------------------------------------------------------------------- */
+    /* What the picker will take before the network is involved. The backend
+     * re-encodes everything to WebP and caps the dimensions, so this is about
+     * the UPLOAD being reasonable rather than the stored file — a phone
+     * photograph is fine, a 40 MB screen recording renamed .gif is not. */
+    const MAX_ART_BYTES = 12 * 1024 * 1024;
+
+    /**
+     * A multipart POST, for the one thing the crew center sends that is not
+     * JSON. Deliberately does NOT set Content-Type: the browser has to add the
+     * multipart boundary itself, and a hand-written header loses it — which
+     * arrives at the server as an empty body and an unexplained 400.
+     */
+    async function upload(path, formData) {
+        const headers = { Accept: 'application/json' };
+        const token = S.getToken();
+        if (token) headers.Authorization = 'Bearer ' + token;
+        const res = await fetch(`${S.backend}/api/crew/${encodeURIComponent(S.slug)}${path}`, {
+            method: 'POST', headers, body: formData,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            const err = new Error(data.error || 'That image didn’t upload.');
+            err.code = data.code || '';
+            err.status = res.status;
+            throw err;
+        }
+        return data;
+    }
+
     async function api(path, { method = 'GET', body = null } = {}) {
         const headers = { Accept: 'application/json' };
         const token = S.getToken();
@@ -1134,9 +1163,30 @@
                 </label>
             </div>` : ''}
 
-            <label class="cev-label">Banner image URL <span class="cev-hint">optional · https only</span>
-                <input id="cevfBanner" class="cev-input" maxlength="600" placeholder="https://…" value="${esc(v.bannerUrl || '')}">
-            </label>
+            <!-- THE PICTURE IS UPLOADED, NOT LINKED.
+                 This was a box asking for an https URL, which meant every
+                 airline went and found somewhere else to host a banner — a
+                 Discord CDN link, an imgur page, a Drive share — and half of
+                 those were dead by the time anyone scrolled back to the event.
+                 An event with a broken image reads as an airline that has
+                 stopped caring, which is the opposite of what a banner is for.
+                 We hold it now, and we say plainly that we let it go again. -->
+            <div class="cev-fieldset">
+                <div class="cev-fieldset-head">Event image</div>
+                <div class="cev-art">
+                    <div class="cev-art-shot" id="cevArtShot">${
+                        v.bannerUrl && safeImg(v.bannerUrl)
+                            ? `<img src="${esc(v.bannerUrl)}" alt="">`
+                            : '<span class="cev-art-empty">No image yet</span>'}</div>
+                    <div class="cev-art-side">
+                        <input type="file" id="cevfArt" accept="image/*" class="cev-art-file">
+                        <button type="button" class="cev-btn" id="cevArtPick">Choose image…</button>
+                        <button type="button" class="cev-btn cev-art-drop${v.bannerUrl ? '' : ' cev-hidden'}" id="cevArtDrop">Remove</button>
+                        <span class="cev-hint" id="cevArtNote">Optional. Animated GIFs work.
+                            We host it, and take it down about a week after the event.</span>
+                    </div>
+                </div>
+            </div>
 
             <div class="cev-edit-foot">
                 <button class="cev-btn cev-btn-primary" id="cevSaveBtn">
@@ -1166,7 +1216,9 @@
                 gatesOpen: document.getElementById('cevfGates').checked,
                 gateIcao: val('cevfGateIcao'),
                 minRank: val('cevfRank'),
-                bannerUrl: val('cevfBanner'),
+                // No bannerUrl. The picture is not a field on this form any
+                // more — it has its own endpoints, and a PATCH that did not
+                // mention it keeps whatever the event already has.
             };
             // Only sent by an airline that runs a shop — and an empty box is
             // "use the standing rate", which is a different thing from zero.
@@ -1179,21 +1231,100 @@
             return body;
         };
 
+        /* THE PICTURE, AND WHEN IT IS SENT.
+         *
+         * Held here until the event is saved, and sent afterwards, because the
+         * upload is addressed at an event id — and a brand-new event has not
+         * got one until the POST comes back. One rule for both cases rather
+         * than uploading immediately when editing and deferring when creating:
+         * two paths would mean two ways for the picture and the row to
+         * disagree, and the staff member sees one "Saving…" either way.
+         *
+         * `artDrop` is a separate flag from "no file chosen". Choosing nothing
+         * means leave it alone; pressing Remove means take it off, and those
+         * are different instructions that a single null cannot carry. */
+        let artFile = null;
+        let artDrop = false;
+        const artShot = document.getElementById('cevArtShot');
+        const artNote = document.getElementById('cevArtNote');
+        const artInput = document.getElementById('cevfArt');
+        const artDropBtn = document.getElementById('cevArtDrop');
+        const showArt = (src) => {
+            artShot.innerHTML = src
+                ? `<img src="${esc(src)}" alt="">`
+                : '<span class="cev-art-empty">No image yet</span>';
+            artDropBtn.classList.toggle('cev-hidden', !src);
+        };
+        document.getElementById('cevArtPick').onclick = () => artInput.click();
+        artInput.onchange = () => {
+            const f = artInput.files && artInput.files[0];
+            if (!f) return;
+            // Refused here as well as at the backend, because a staff member who
+            // waited through an 18 MB upload to be told no has been treated
+            // badly by us, not by their file.
+            if (!/^image\//.test(f.type)) { artNote.textContent = 'That is not an image.'; return; }
+            if (f.size > MAX_ART_BYTES) {
+                artNote.textContent = `That image is over ${Math.round(MAX_ART_BYTES / 1e6)} MB. Try a smaller one.`;
+                artInput.value = '';
+                return;
+            }
+            artFile = f;
+            artDrop = false;
+            artNote.textContent = 'Added when you save.';
+            // A local preview, so what they picked is on screen before it has
+            // been anywhere near the network.
+            try { showArt(URL.createObjectURL(f)); } catch { showArt(''); }
+        };
+        artDropBtn.onclick = () => {
+            artFile = null;
+            artDrop = true;
+            artInput.value = '';
+            artNote.textContent = 'Removed when you save.';
+            showArt('');
+        };
+
         const save = async (status, btn) => {
             const note = document.getElementById('cevEditNote');
             const body = collect(status);
             if (!body.title) { note.textContent = 'Give it a title.'; return; }
             btn.disabled = true;
             try {
-                const out = isNew
+                let out = isNew
                     ? await api('/events', { method: 'POST', body })
                     : await api(`/events/${encodeURIComponent(e.id)}`, { method: 'PATCH', body });
+                const id = (out.event && out.event.id) || e.id;
+
+                /* The picture, once there is an event to hang it on.
+                 *
+                 * Its own try: the event IS saved by this point, and an upload
+                 * that fails must not be reported as a save that failed. The
+                 * staff member is told the picture did not make it and the
+                 * event they just wrote is still there, which is the honest
+                 * reading of what happened. */
+                if (id && (artFile || artDrop)) {
+                    note.textContent = artFile ? 'Uploading the image…' : 'Removing the image…';
+                    try {
+                        if (artFile) {
+                            const fd = new FormData();
+                            fd.append('image', artFile);
+                            out = await upload(`/events/${encodeURIComponent(id)}/banner`, fd);
+                        } else {
+                            out = await api(`/events/${encodeURIComponent(id)}/banner`, { method: 'DELETE' });
+                        }
+                    } catch (err) {
+                        toast(`Event saved, but the image didn’t: ${err.message}`, 'warn');
+                        modal.classList.add('cev-hidden');
+                        await refreshAll(id);
+                        return;
+                    }
+                }
+
                 // A write that landed but could not hold everything says so —
                 // the VA's database is behind and there is a button for that.
                 if (out.warning) toast(out.warning, 'info');
                 else toast(isNew ? 'Event created.' : 'Saved.', 'ok');
                 modal.classList.add('cev-hidden');
-                await refreshAll(out.event ? out.event.id : S.openEventId);
+                await refreshAll(id || S.openEventId);
             } catch (err) {
                 note.textContent = err.message;
                 btn.disabled = false;
@@ -1452,6 +1583,10 @@
             max-width:min(90vw,26rem); transition:opacity .3s, transform .3s; }
         .cev-toast-ok{ background:#16A34A; color:#fff; }
         .cev-toast-bad{ background:#DC2626; color:#fff; }
+        /* Half a success: the thing was saved, one part of it was not. Amber
+           rather than red, because red says "nothing happened" and something
+           did. */
+        .cev-toast-warn{ background:#B45309; color:#fff; }
         .cev-toast.cev-out{ opacity:0; transform:translateY(6px); }
 
         /* Border-box, for the reason crewPanels.js sets it on its own classes:
@@ -1638,6 +1773,23 @@
             letter-spacing:.06em; color:var(--faint,#A8A296); }
         .cev-check{ display:flex; align-items:center; gap:.5rem; font-size:.85rem;
             color:var(--ink,#1C1A16); font-weight:500; }
+
+        /* The event picture. A wide thumbnail rather than a square one, because
+           a banner IS wide and a square crop of one tells a staff member
+           nothing about how it will actually look on the card. */
+        .cev-art{ display:grid; gap:.7rem; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);
+            align-items:start; }
+        .cev-art-shot{ aspect-ratio:16/7; border-radius:.5rem; overflow:hidden;
+            border:1px solid var(--line,#e5e5e5); background:var(--surface-2,#f5f4f1);
+            display:grid; place-items:center; }
+        .cev-art-shot img{ width:100%; height:100%; object-fit:cover; display:block; }
+        .cev-art-empty{ font-size:.72rem; font-weight:600; letter-spacing:.04em;
+            text-transform:uppercase; color:var(--faint,#A8A296); }
+        .cev-art-side{ display:grid; gap:.4rem; justify-items:start; }
+        /* Hidden but still focusable from the visible button that clicks it —
+           display:none would take it out of the accessibility tree entirely. */
+        .cev-art-file{ position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+        @media (max-width:520px){ .cev-art{ grid-template-columns:1fr; } }
         .cev-edit-foot{ display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-top:.4rem; }
         .cev-sum-title{ font-weight:700; font-size:1rem; margin-bottom:.35rem; color:var(--ink,#1C1A16); }
         .cev-sum-clock{ font-size:1.4rem; font-weight:800; line-height:1.1; letter-spacing:-.01em;
