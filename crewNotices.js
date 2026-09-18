@@ -75,6 +75,12 @@
         // The other half of 'join'. A board that announces only the arrivals
         // is a board where people quietly stop existing.
         leave:     { icon: 'user-minus',  label: 'Left the airline' },
+        // v20. Somebody joining or leaving the team that RUNS the airline. Its
+        // own kind rather than folded into 'promotion', because the two answer
+        // different questions: a promotion is how far up the ladder somebody
+        // has got, and this is who can now act on everybody else's behalf. The
+        // board used to record only the first.
+        staff:     { icon: 'briefcase',   label: 'Staff team' },
     };
     const kindOf = (n) => KINDS[n && n.kind] || KINDS.notice;
 
