@@ -124,6 +124,9 @@
     <script src="/crewBadges.js"></script>
     <!-- Telling the airline they are away, so the roster sweep leaves them be. -->
     <script src="/crewLeave.js"></script>
+    <!-- Applying for a job on the staff team. Until this existed, volunteering
+         meant saying so in Discord and hoping somebody remembered. -->
+    <script src="/crewStaffApply.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* `hidden` is Tailwind's, and Tailwind is a CDN script — when it is
@@ -893,6 +896,13 @@
             // because the two featured legs are already up the page in their
             // own strip — this tile is for the pilot who wants the rest.
             {icon:'compass',label:'What to fly',desc:'Picked for how you fly',action:'suggest'},
+            // Shown to everybody, like the shop, and for the same reason: the
+            // panel says plainly when the airline is advertising nothing, and a
+            // pilot who would like to help should not have to already know that
+            // asking is possible. Hiding it until there is an opening would
+            // mean the one tile that answers "how do I get involved?" only
+            // appears to people who have already worked out the answer.
+            {icon:'briefcase',label:'Join the team',desc:'Staff jobs you can apply for',action:'staffjobs'},
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
@@ -923,6 +933,7 @@
                 if(act==='leave') el.addEventListener('click', openLeave);
                 if(act==='network') el.addEventListener('click', openNetwork);
                 if(act==='suggest') el.addEventListener('click', openSuggestions);
+                if(act==='staffjobs') el.addEventListener('click', openStaffJobs);
             });
             // Both hosts only exist once the tiles have been drawn, so they are
             // handed over here rather than at mount. Each module keeps painting
@@ -1459,6 +1470,7 @@
         function openTraining(){ if(window.CrewTraining) CrewTraining.open({ api: crewApi(), view:'me' }); }
         function openAwards(){ if(window.CrewAwards) CrewAwards.open({ api: crewApi() }); }
         function openLeave(){ if(window.CrewLeave) CrewLeave.open({ api: crewApi(), view:'me' }); }
+        function openStaffJobs(){ if(window.CrewStaffApply) CrewStaffApply.open({ api: crewApi() }); }
 
         // ---- The search box, and the bell ----
         //

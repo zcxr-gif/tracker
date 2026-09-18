@@ -1386,22 +1386,66 @@
                 </div>
               </div><!-- /alerts -->
 
-              <div data-panel="team" class="space-y-6 hidden">
-                <!-- Staff roles: owner names them and picks what they can do -->
-                <div>
-                    <div class="flex items-center justify-between mb-1">
+              <div data-panel="team" class="space-y-5 hidden">
+                <!-- THREE JOBS, THREE TABS.
+                     This panel used to be one column: a permissions catalogue,
+                     then the people, then a way to add one, then a disclosure
+                     nobody opened — with four paragraphs of explanation stacked
+                     on top. An owner arriving to answer "who is on my team?"
+                     landed on a wall of tick boxes and had to scroll past the
+                     hardest part of the screen to reach the easiest.
+                     So the first thing you see is now the people. Roles are a
+                     thing you go and edit when a job needs changing, which is
+                     rarely; hiring is its own job with its own queue. -->
+                <div id="teamViewTabs" class="hscroll inline-flex items-center gap-1 p-1 rounded-lg surface hair text-sm font-semibold">
+                    <button type="button" data-teamview="people" onclick="switchTeamView('people')" class="px-3 py-1.5 rounded-md transition">Your team</button>
+                    <button type="button" data-teamview="roles" onclick="switchTeamView('roles')" class="px-3 py-1.5 rounded-md transition">Roles</button>
+                    <button type="button" data-teamview="hiring" onclick="switchTeamView('hiring')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Hiring<span id="staffAppsBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
+                </div>
+
+                <!-- ============ YOUR TEAM ============ -->
+                <div data-teampane="people" class="space-y-5">
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-1">Who’s on the team</h3>
+                        <p class="text-xs muted mb-3">Everyone with a staff login here, and what each one can actually do. Change somebody’s job with the dropdown; open <b>Fine-tune</b> only when one person needs a single extra thing that doesn’t deserve a whole new role.</p>
+                        <div id="accountRows" class="space-y-2"></div>
+                        <p id="accountsNote" class="text-xs muted mt-2 hidden"></p>
+                    </div>
+
+                    <!-- MAKE SOMEBODY STAFF, FROM THE ROSTER YOU ALREADY HAVE.
+                         Staff logins and roster pilots were two identities in
+                         two places, and only the first could hold a role — so an
+                         airline with three pilots opened a page full of
+                         permissions with nobody to give them to but the owner. -->
+                    <div id="promoteBlock" class="pt-4 border-t hair hidden">
+                        <h4 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Make someone staff</h4>
+                        <p class="text-xs muted mb-3">Pick the job first. A staff account with no role keeps the everyday permissions, which is almost always more than you meant.</p>
+                        <div id="promoteRows" class="space-y-2"></div>
+                        <p id="promoteNote" class="text-sm mt-2 hidden"></p>
+                    </div>
+
+                    <details class="pt-1">
+                        <summary class="text-xs muted cursor-pointer select-none">Assign a username that isn’t listed</summary>
+                        <p class="text-xs muted mt-2 mb-2">For a login that lives outside this crew center’s account list. Enter it exactly as they sign in.</p>
+                        <div id="assignRows" class="space-y-2"></div>
+                        <button onclick="addAssignment()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1 mt-2"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a username</button>
+                    </details>
+                </div>
+
+                <!-- ============ ROLES ============ -->
+                <div data-teampane="roles" class="space-y-4 hidden">
+                    <div class="flex items-center justify-between">
                         <h3 class="text-xs font-semibold uppercase tracking-wider faint">Staff roles</h3>
                         <button onclick="addStaffRole()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add role</button>
                     </div>
-                    <p class="text-xs muted mb-2">Name a role and tick exactly what it can do. The tick boxes appear <b>inside each role</b> once you add one — there is no separate permissions screen. A role is a reusable <b>job</b>: use one when several people do the same thing, and fine-tune an individual below when it is one person’s exception. Not sure where to start? Pick a job from the row underneath — it comes with the ticks already worked out. Roles belong to this crew center only; another VA’s roles are its own.</p>
-                    <p class="text-xs muted mb-3">Only you, the owner — and anyone you give <b>“Create staff roles &amp; assign the team”</b> to — can see or change this. Owners always have full access. A staff member with no role assigned keeps the everyday permissions until you give them one, but never the owner-level ones below. Nobody can grant a permission they don’t hold themselves, so handing someone this page cannot make them the owner.</p>
+                    <p class="text-xs muted">A role is a reusable <b>job</b> — name it, tick what it can do, then put people in it on the <b>Your team</b> tab. Nobody can grant a permission they don’t hold themselves, so handing someone this page cannot make them the owner.</p>
 
                     <!-- Presets. The permission system worked before this and
                          almost nobody used it, because it asked a volunteer
                          airline manager to read eleven capability ids and work
                          out which combination adds up to "the person who does
                          the PIREPs". VAs think in jobs, not capabilities. -->
-                    <div class="mb-3">
+                    <div>
                         <div class="text-[11px] uppercase tracking-wide faint mb-1.5">Start from a job</div>
                         <div id="rolePresetRow" class="flex flex-wrap gap-1.5"></div>
                         <p class="text-xs muted mt-1.5">Adds a role you can rename and re-tick. Nothing about it stays “a preset” afterwards.</p>
@@ -1410,39 +1454,28 @@
                     <div id="staffRoleRows" class="space-y-3"></div>
                 </div>
 
-                <!-- Assign staff accounts to a role -->
-                <div>
-                    <div class="flex items-center justify-between mb-1">
-                        <h3 class="text-xs font-semibold uppercase tracking-wider faint">Assign staff</h3>
-                    </div>
-                    <p class="text-xs muted mb-3">Every staff login on this crew center is listed below. Pick the role each one holds, then open <b>Fine-tune</b> to tick anything extra for that <b>one person</b> — you don’t need a whole new role to give somebody a single extra permission. <b>No role</b> and no ticks means they keep the everyday permissions: everything except the owner-level lines.</p>
-                    <!-- The accounts, fetched from the backend, so nobody has to
-                         remember a login username and type it exactly. Typing it
-                         wrong was the silent failure this whole panel had: the
-                         save succeeded, the assignment matched nobody, and the
-                         person carried on with full access. -->
-                    <div id="accountRows" class="space-y-2"></div>
-                    <p id="accountsNote" class="text-xs muted mt-2 hidden"></p>
-
-                    <!-- MAKE SOMEBODY STAFF, FROM THE ROSTER YOU ALREADY HAVE.
-                         The step this screen was missing. Staff logins and
-                         roster pilots were two identities in two places, and
-                         only the first could hold a role — so an airline with
-                         three pilots opened a page full of permissions with
-                         nobody to give them to but the owner. -->
-                    <div id="promoteBlock" class="mt-5 pt-4 border-t hair hidden">
-                        <h4 class="text-xs font-semibold uppercase tracking-wider faint mb-2">Make someone staff</h4>
-                        <p class="text-xs muted mb-3">Your pilots don’t have staff logins until you give them one. Pick the job first — a staff account with no role would keep the everyday permissions, which is more than you probably mean.</p>
-                        <div id="promoteRows" class="space-y-2"></div>
-                        <p id="promoteNote" class="text-sm mt-2 hidden"></p>
+                <!-- ============ HIRING ============ -->
+                <div data-teampane="hiring" class="space-y-5 hidden">
+                    <!-- The queue first, the advert second. Somebody opening
+                         this tab almost always has people waiting on them; the
+                         openings editor is the thing they set up once. -->
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-1">Applications</h3>
+                        <p class="text-xs muted mb-3">Pilots who’ve put their name forward. <b>Accepting gives them a staff login and the role the job carries</b> — the same as making somebody staff by hand, without you having to remember who asked.</p>
+                        <div id="staffAppRows" class="space-y-2"></div>
+                        <p id="staffAppNote" class="text-sm mt-2 hidden"></p>
                     </div>
 
-                    <details class="mt-3">
-                        <summary class="text-xs muted cursor-pointer select-none">Assign a username that isn’t listed</summary>
-                        <p class="text-xs muted mt-2 mb-2">For a login that lives outside this crew center’s account list. Enter it exactly as they sign in.</p>
-                        <div id="assignRows" class="space-y-2"></div>
-                        <button onclick="addAssignment()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1 mt-2"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a username</button>
-                    </details>
+                    <div class="pt-4 border-t hair">
+                        <div class="flex items-center justify-between mb-1">
+                            <h3 class="text-xs font-semibold uppercase tracking-wider faint">Jobs you’re advertising</h3>
+                            <button onclick="addOpening()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a job</button>
+                        </div>
+                        <p class="text-xs muted mb-3">Each job points at one of your roles, and your pilots see it on their own page. Ask them whatever you’d ask in a DM — the answers arrive with the application instead of in a thread you have to scroll back through.</p>
+                        <div id="openingRows" class="space-y-3"></div>
+                        <button onclick="saveOpenings(this)" class="mt-3 w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save jobs</button>
+                        <p id="openingNote" class="hidden text-sm mt-2"></p>
+                    </div>
                 </div>
 
                 <button onclick="saveTeam(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Save team</button>
@@ -2582,6 +2615,9 @@
         // Staff permissions: the caller's effective caps, the catalog, and (owner
         // only) the editable role + assignment config.
         let CAPS=new Set(), CAP_CATALOG=[], STAFF_ROLES=[], STAFF_ASSIGN=[], ME_LOADED=false;
+        // v20. The jobs this airline is advertising, this session's own login
+        // name, and the hiring queue. See the Hiring tab.
+        let STAFF_OPENINGS=[], ME_USERNAME='', STAFF_APPS=[], STAFF_APPS_LOADED=false, TEAM_VIEW='people';
         // In preview (no session) show everything; owners have everything; else
         // check the resolved capability set.
         function can(cap){ return !sessionToken() || IS_OWNER || CAPS.has(cap); }
@@ -9285,6 +9321,11 @@
                 // the one that refuses — the screen is a courtesy, not the gate.
                 GRANTABLE = Array.isArray(d.grantable)?new Set(d.grantable):null;
                 STAFF_ASSIGN = Array.isArray(d.staffAssignments)?d.staffAssignments:[];
+                STAFF_OPENINGS = Array.isArray(d.staffOpenings)?d.staffOpenings:[];
+                // Whose session this is, so the team list never offers to stand
+                // this person down. The backend refuses it too; this stops the
+                // button being there to press in the first place.
+                ME_USERNAME = d.username || '';
                 // /me is the authoritative identity — it corrects a session
                 // stored before the name was known, or one that has gone stale.
                 renderAccount(d);
@@ -9360,10 +9401,15 @@
                 if(ownsSweep && RETENTION_PREFS===null) loadRetention();
             }
             if(ME_LOADED){
-                renderRolePresets(); renderStaffRoles(); renderAccounts(); renderAssignments(); renderPromote();
+                renderRolePresets(); renderStaffRoles(); renderAccounts(); renderAssignments(); renderPromote(); renderOpenings();
                 // Only for someone who may actually see the team editor — this
                 // returns colleagues' login names and is gated the same way.
                 if(vis.team && !ACCOUNTS_LOADED) loadStaffAccounts();
+                // The hiring badge, fetched with the accounts rather than when
+                // the tab is opened: nobody knew there were people waiting
+                // until they went looking, which is the failure the roster's
+                // applications badge was added to fix.
+                if(vis.team && !STAFF_APPS_LOADED) loadStaffApps();
             }
             // The tiles are gated on the same capabilities, and they are drawn
             // once before /me answers — when CAPS is still empty and everything
@@ -9662,9 +9708,46 @@
                 ? `${total} permission${total===1?'':'s'}${extras?` · ${extras} just for them`:''}`
                 : 'Nothing yet';
 
+            // WHAT THIS PERSON CAN ACTUALLY DO, on the row, in the airline's
+            // own words. Reading it used to mean opening Fine-tune and counting
+            // ticked boxes, which is why nobody did — and why "no role" was the
+            // most misread state on the screen. It is not the absence of
+            // access: an unassigned staff account keeps everything except the
+            // owner-level lines (see effectiveCaps), which is very nearly the
+            // owner's own reach. So that case gets a warning rather than a
+            // blank, with the fix attached.
+            const assigned = !!(asn && (asn.roleId || (asn.permissions||[]).length));
+            const canLines = [...new Set([...fromRole, ...own])]
+                .map(id=>(CAP_CATALOG.find(c=>c.id===id)||{}).label||id);
+            const canLine = !assigned
+                ? `<div class="mt-1 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                       <i data-lucide="alert-triangle" class="w-3.5 h-3.5 shrink-0 mt-px"></i>
+                       <span><b>No role — nearly everything.</b> Until you pick a job below they can do all of it bar the owner-level lines.</span>
+                   </div>`
+                : (canLines.length
+                    // The catalogue's own labels, not lowercased: they carry
+                    // proper nouns ("PIREPs", "Discord", "Infinite Flight") and
+                    // flattening them reads as a typo.
+                    ? `<div class="mt-1 text-xs muted">${escapeHtml(canLines.join(' · '))}</div>`
+                    : '<div class="mt-1 text-xs muted">Sees the crew center and changes nothing.</div>');
+
+            // Standing somebody down used to mean leaving the crew centre for
+            // the VA partnership portal, which most owners have never opened.
+            // Owner-only, and the backend is the gate; this only avoids
+            // offering a button that would answer 403.
+            const standDown = (IS_OWNER && uname !== String(ME_USERNAME||'').toLowerCase())
+                ? `<button data-standdown title="Stand down — takes away their staff access and gives their pilot login back" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="user-minus" class="w-4 h-4"></i></button>`
+                : '';
+
             return `<div class="surface hair rounded-xl px-3 py-2.5" data-acct="${escapeHtml(uname)}">
                 <div class="min-w-0">
-                    <div class="text-sm truncate">${label}${dead}</div>
+                    <div class="flex items-start gap-2">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-sm truncate">${label}${dead}</div>
+                            ${canLine}
+                        </div>
+                        ${standDown}
+                    </div>
                     <select data-acctrole class="mt-1.5 w-full surface hair rounded-md text-sm py-2 px-2 text-[var(--ink)]">${accountRoleOptionsHtml(asn?asn.roleId:'')}</select>
                 </div>
                 <!-- Collapsed by default: a role IS the answer for most people,
@@ -9685,7 +9768,13 @@
                     : '<p class="text-sm faint">Loading…</p>';
                 return;
             }
-            keepPlace(el,()=>{ el.innerHTML = STAFF_ACCOUNTS.map(accountRowHtml).join(''); });
+            // Icons, because a row now carries a no-role warning and a
+            // stand-down button. Without this the first paints as an empty gap
+            // and the second as an invisible button.
+            keepPlace(el,()=>{
+                el.innerHTML = STAFF_ACCOUNTS.map(accountRowHtml).join('');
+                if(window.lucide) lucide.createIcons();
+            });
         }
         function renderAssignments(){
             const el=document.getElementById('assignRows'); if(!el) return;
@@ -9701,7 +9790,363 @@
             });
         }
         function addAssignment(){ STAFF_ASSIGN.push({username:'',roleId:''}); renderAssignments(); focusNewRow('assignRows'); }
+
+        /* ====================================================================
+         * THE TEAM PANEL'S THREE TABS
+         *
+         * People, roles, hiring. Split because they are three different jobs on
+         * three different days: an owner opens this to see who is on the team
+         * far more often than to redesign what a role can do, and used to have
+         * to scroll past the whole permissions catalogue to get there.
+         * ================================================================= */
+        function updateTeamTabs(){
+            document.querySelectorAll('#teamViewTabs [data-teamview]').forEach(b=>{
+                const on=b.getAttribute('data-teamview')===TEAM_VIEW;
+                b.classList.toggle('accent-bg',on); b.classList.toggle('text-white',on);
+                b.style.opacity = on?'1':'.7';
+            });
+        }
+        function switchTeamView(v){
+            TEAM_VIEW=v; updateTeamTabs();
+            document.querySelectorAll('[data-teampane]').forEach(p=>{
+                p.classList.toggle('hidden', p.getAttribute('data-teampane')!==v);
+            });
+            // "Save team" covers the roles and the assignments. Hiring saves
+            // itself, and a second save button under a tab it does not apply to
+            // is exactly the sort of thing that makes a screen feel like a trap.
+            const save=document.querySelector('#settings [onclick^="saveTeam"]');
+            if(save) save.classList.toggle('cp-hidden', v==='hiring');
+            const note=document.getElementById('teamNote');
+            if(note && v==='hiring') note.classList.add('hidden');
+            if(v==='hiring'){
+                renderOpenings(); renderStaffApps();
+                if(!STAFF_APPS_LOADED) loadStaffApps();
+            }
+            if(window.lucide) lucide.createIcons();
+        }
+
+        /* ---- Jobs the airline is advertising ------------------------------
+         *
+         * An opening is a staff ROLE with a job advert wrapped round it, which
+         * is why the role picker is the first field and not an afterthought:
+         * accepting an application hands over exactly what that role carries,
+         * so choosing it IS choosing what you are giving away.
+         */
+        function openingRoleOptionsHtml(sel){
+            const roles=STAFF_ROLES.filter(r=>r.name&&r.id);
+            return '<option value="">— which role? —</option>'
+                + roles.map(r=>`<option value="${escapeHtml(r.id)}" ${sel===r.id?'selected':''}>${escapeHtml(r.name)}</option>`).join('');
+        }
+        function openingRowHtml(o,i){
+            const role=STAFF_ROLES.find(r=>r.id===o.roleId);
+            // A job pointing at a role that has been deleted cannot be honoured
+            // — the backend drops it on save rather than promoting somebody
+            // into nothing — so it is called out here instead of vanishing
+            // quietly the next time the owner presses Save.
+            const orphan=o.roleId && !role;
+            const gives=role ? (role.permissions||[])
+                .map(id=>(CAP_CATALOG.find(c=>c.id===id)||{}).label||id) : [];
+            return `<div class="surface hair rounded-xl p-3.5" data-opening="${i}">
+                <div class="flex items-center gap-2">
+                    <input data-of="title" value="${escapeHtml(o.title||'')}" placeholder="Job title (e.g. PIREP reviewer)" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <label class="inline-flex items-center gap-1.5 text-xs muted shrink-0 cursor-pointer" title="Untick to take the job down without deleting it or the applications against it">
+                        <input type="checkbox" data-of="open" ${o.open===false?'':'checked'} class="accent-[var(--accent)]"> Open
+                    </label>
+                    <button data-opendel title="Delete this job" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+                <div class="mt-2 flex items-center gap-2">
+                    <select data-of="roleId" class="flex-1 min-w-0 surface hair rounded-md text-sm py-2 px-2 text-[var(--ink)]">${openingRoleOptionsHtml(o.roleId)}</select>
+                    <input data-of="minHours" type="number" min="0" value="${Number(o.minHours)||0}" title="Least hours a pilot needs before they can apply. 0 means anyone." class="w-24 shrink-0 surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <span class="text-xs muted shrink-0">hrs min</span>
+                </div>
+                ${orphan
+                    ? '<p class="text-xs mt-1.5 text-red-500">That role has been deleted. Pick another, or this job goes when you save.</p>'
+                    : (gives.length
+                        ? `<p class="text-xs muted mt-1.5">Whoever gets this will be able to: ${escapeHtml(gives.join(' · '))}</p>`
+                        : (o.roleId ? '<p class="text-xs muted mt-1.5">This role can see the crew center and change nothing.</p>' : ''))}
+                <textarea data-of="blurb" rows="2" placeholder="What the job actually involves — a sentence or two." class="mt-2 w-full surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">${escapeHtml(o.blurb||'')}</textarea>
+                <div class="mt-2">
+                    <div class="text-[11px] uppercase tracking-wide faint mb-1">What to ask them</div>
+                    <div data-openq class="space-y-1.5">${(o.questions||[]).map((q,qi)=>`
+                        <div class="flex items-center gap-2" data-q="${qi}">
+                            <input data-qf value="${escapeHtml(q)}" placeholder="e.g. Why do you want this job?" class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                            <button data-qdel title="Remove" class="w-7 h-7 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+                        </div>`).join('')}</div>
+                    ${(o.questions||[]).length>=6 ? '<p class="text-xs faint mt-1.5">Six questions is the most — any more and people stop finishing the form.</p>'
+                        : '<button data-qadd class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1 mt-1.5"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a question</button>'}
+                </div>
+            </div>`;
+        }
+        function renderOpenings(){
+            const el=document.getElementById('openingRows'); if(!el) return;
+            keepPlace(el,()=>{
+                el.innerHTML = STAFF_OPENINGS.length
+                    ? STAFF_OPENINGS.map(openingRowHtml).join('')
+                    : (STAFF_ROLES.filter(r=>r.name&&r.id).length
+                        ? '<p class="text-sm faint">Nothing advertised. Add a job and your pilots can put their names forward for it.</p>'
+                        : '<p class="text-sm faint">Make a role on the <b>Roles</b> tab first — a job advert has to point at one.</p>');
+                if(window.lucide) lucide.createIcons();
+            });
+        }
+        function addOpening(){
+            if(!STAFF_ROLES.filter(r=>r.name&&r.id).length){
+                say('Make a role first — a job has to point at one.','bad'); return;
+            }
+            STAFF_OPENINGS.push({ id:'', roleId:'', title:'', blurb:'', questions:['Why do you want this job?'], minHours:0, open:true });
+            renderOpenings(); focusNewRow('openingRows');
+        }
+        async function saveOpenings(btn){
+            const note=document.getElementById('openingNote');
+            const tell=(msg,tone)=>{
+                note.textContent=msg;
+                note.className='text-sm mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',bad:'text-red-500'}[tone]||'muted');
+                note.classList.remove('hidden');
+            };
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ tell('Sign in to manage the team.','bad'); return; }
+            const openings=STAFF_OPENINGS
+                .map(o=>({ id:o.id||'', roleId:o.roleId||'', title:String(o.title||'').trim(),
+                    blurb:String(o.blurb||'').trim(),
+                    questions:(o.questions||[]).map(q=>String(q||'').trim()).filter(Boolean),
+                    minHours:Math.max(0,Number(o.minHours)||0), open:o.open!==false }))
+                .filter(o=>o.roleId&&o.title);
+            // A job with no title or no role cannot be advertised, and dropping
+            // it silently is how somebody saves, sees nothing change and
+            // decides the button is broken.
+            const dropped=STAFF_OPENINGS.length-openings.length;
+            if(dropped){
+                tell(dropped===STAFF_OPENINGS.length
+                    ? 'Give each job a title and a role first.'
+                    : `${dropped} job${dropped===1?'':'s'} still need${dropped===1?'s':''} a title and a role — the rest weren’t saved either.`, 'bad');
+                return;
+            }
+            const stop=busy(btn,'Saving…');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/staff-openings`,{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ openings }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ tell(d.error||'Could not save the jobs.','bad'); return; }
+                // The server's list wholesale, ids included. Those ids are
+                // minted there and an application row points at one, so a new
+                // job that kept its local blank id would be re-minted on the
+                // next save and orphan every application against it. This
+                // response carries roleId as well as the pilot-facing fields,
+                // which is why it can be taken as-is — and why a job the server
+                // dropped (its role has gone) disappears here rather than
+                // sitting on screen pretending to be saved.
+                if(Array.isArray(d.openings)){
+                    STAFF_OPENINGS = d.openings.map(o=>({
+                        id:o.id||'', roleId:o.roleId||'', title:o.title||'', blurb:o.blurb||'',
+                        questions:Array.isArray(o.questions)?o.questions:[],
+                        minHours:Number(o.minHours)||0, open:o.open!==false,
+                    }));
+                }
+                renderOpenings();
+                tell(`Saved — ${openings.length} job${openings.length===1?'':'s'} advertised.`,'ok');
+                say('Jobs saved.','ok');
+            }catch{ tell('Couldn’t reach the server.','bad'); }
+            finally{ stop(); }
+        }
+
+        /* ---- The hiring queue --------------------------------------------- */
+        function setStaffAppsBadge(n){
+            const b=document.getElementById('staffAppsBadge');
+            if(!b) return; b.textContent=n; b.classList.toggle('hidden', !n);
+        }
+        async function loadStaffApps(){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token){ STAFF_APPS=[]; STAFF_APPS_LOADED=true; renderStaffApps(); return; }
+            STAFF_APPS_LOADED=true;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/staff-applications?status=pending`,
+                    { headers:{ Accept:'application/json', Authorization:'Bearer '+token } });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){
+                    STAFF_APPS=[];
+                    const note=document.getElementById('staffAppNote');
+                    if(note){
+                        // A 404 is an older backend; a 409 is a project that has
+                        // not re-run the SQL. Both are "not yet", and neither is
+                        // the airline doing something wrong.
+                        note.textContent = res.status===404
+                            ? 'Your crew center backend is out of date, so staff applications aren’t available yet.'
+                            : (d.error||'Couldn’t load the staff applications.');
+                        note.className='text-sm muted mt-2'; note.classList.remove('hidden');
+                    }
+                }else{
+                    STAFF_APPS=Array.isArray(d.applications)?d.applications:[];
+                    const note=document.getElementById('staffAppNote');
+                    if(note) note.classList.add('hidden');
+                }
+            }catch{ STAFF_APPS=[]; }
+            setStaffAppsBadge(STAFF_APPS.filter(a=>a.status==='pending').length);
+            renderStaffApps();
+        }
+        function staffAppRowHtml(a){
+            const asked=(a.answers||[]).filter(x=>x&&x.q);
+            return `<div class="surface hair rounded-xl p-3.5" data-staffapp="${escapeHtml(a.id)}">
+                <div class="flex items-start gap-2">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm font-semibold truncate">${escapeHtml(a.pilotName||'A pilot')}</div>
+                        <div class="text-xs muted truncate">${escapeHtml(a.callsign||'')}${a.callsign?' · ':''}applied for <b>${escapeHtml(a.position||'a job')}</b></div>
+                    </div>
+                </div>
+                ${asked.length?`<div class="mt-2.5 space-y-2">${asked.map(x=>`
+                    <div>
+                        <div class="text-[11px] uppercase tracking-wide faint">${escapeHtml(x.q)}</div>
+                        <div class="text-sm whitespace-pre-wrap">${escapeHtml(x.a||'—')}</div>
+                    </div>`).join('')}</div>`:''}
+                <textarea data-appmsg rows="2" placeholder="A line back to them — sent either way, and worth writing for a no." class="mt-2.5 w-full surface hair rounded-md px-2.5 py-2 text-sm focus:outline-none focus:border-[var(--ink)]"></textarea>
+                <div class="mt-2 flex items-center gap-2">
+                    <button data-appaccept class="tap-target flex-1 accent-bg text-white rounded-md py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-50">Accept &amp; make staff</button>
+                    <button data-appdecline class="tap-target surface hair rounded-md px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition disabled:opacity-50">Decline</button>
+                </div>
+            </div>`;
+        }
+        function renderStaffApps(){
+            const el=document.getElementById('staffAppRows'); if(!el) return;
+            const open=STAFF_APPS.filter(a=>a.status==='pending');
+            keepPlace(el,()=>{
+                el.innerHTML = open.length ? open.map(staffAppRowHtml).join('')
+                    : (STAFF_APPS_LOADED
+                        ? '<p class="text-sm faint">Nobody waiting. Advertise a job below and your pilots can apply for it.</p>'
+                        : '<p class="text-sm faint">Loading…</p>');
+                if(window.lucide) lucide.createIcons();
+            });
+        }
+        async function decideStaffApp(id, action, row, btn){
+            const note=document.getElementById('staffAppNote');
+            const tell=(msg,tone)=>{
+                note.textContent=msg;
+                note.className='text-sm mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',bad:'text-red-500'}[tone]||'muted');
+                note.classList.remove('hidden');
+            };
+            const token=sessionToken(), slug=getSlug();
+            if(!token||!slug){ tell('Sign in to decide applications.','bad'); return; }
+            const box=row.querySelector('[data-appmsg]');
+            const prev=btn.textContent; btn.disabled=true; btn.textContent='Working…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/staff-applications/${encodeURIComponent(id)}`,{
+                    method:'PATCH',
+                    headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
+                    body:JSON.stringify({ action, message: box?box.value:'' }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ tell(d.error||'That didn’t work.','bad'); btn.disabled=false; btn.textContent=prev; return; }
+                STAFF_APPS=STAFF_APPS.filter(a=>a.id!==id);
+                setStaffAppsBadge(STAFF_APPS.filter(a=>a.status==='pending').length);
+                renderStaffApps();
+                if(action==='decline'){ tell('Declined, and they’ve been told.','ok'); return; }
+                // The recovery path: they already had the account — promoted by
+                // hand while this sat in the queue, or an earlier press that
+                // got half way. The row is closed either way and there is no
+                // new password to show, so say what happened rather than
+                // reading a username off a response that has none.
+                if(!d.account){ tell(d.note||'They were already staff — the application is closed.','ok'); return; }
+                // The password is shown ONCE, and only when one was issued — a
+                // pilot whose own login was taken over keeps the password they
+                // already use. The toast deliberately does not repeat it: it
+                // disappears after four seconds, and a password nobody had time
+                // to copy is worse than none.
+                tell(d.keptTheirLogin
+                    ? `Done — @${d.account.username} signs in with the password they already use, and is now staff.`
+                    : `Done — @${d.account.username}, password ${d.password}. Copy it now; it isn’t shown again.`, 'ok');
+                if(window.CrewPanels) CrewPanels.toast(d.keptTheirLogin
+                    ? `@${d.account.username} is now staff.`
+                    : `@${d.account.username} is now staff — their password is in the box above. Copy it before you close Settings.`, 'ok');
+                ACCOUNTS_LOADED=false;
+                await loadStaffAccounts();
+                await loadMe();
+                renderStaffRoles(); renderAssignments();
+                applyCapState();
+            }catch{
+                tell('Couldn’t reach the server.','bad');
+                btn.disabled=false; btn.textContent=prev;
+            }
+        }
+
+        /* ---- Standing somebody down --------------------------------------- */
+        async function standDownMember(uname, btn){
+            const who=(STAFF_ACCOUNTS.find(a=>String(a.username||'').toLowerCase()===uname)||{});
+            const name=who.displayName||('@'+uname);
+            if(!confirm(`Stand ${name} down?\n\nThey lose their staff access straight away. If they had a pilot login of their own before they became staff, they get it back with the same password.`)) return;
+            const token=sessionToken(), slug=getSlug();
+            const note=document.getElementById('accountsNote');
+            const tell=(msg,tone)=>{
+                if(!note) return;
+                note.textContent=msg;
+                note.className='text-xs mt-2 '+({ok:'text-emerald-600 dark:text-emerald-400',bad:'text-red-500'}[tone]||'muted');
+                note.classList.remove('hidden');
+            };
+            if(!token||!slug){ tell('Sign in as the owner to do that.','bad'); return; }
+            btn.disabled=true;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/staff-accounts/${encodeURIComponent(uname)}`,{
+                    method:'DELETE', headers:{ Accept:'application/json', Authorization:'Bearer '+token } });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ tell(d.error||'That didn’t work.','bad'); btn.disabled=false; return; }
+                tell(d.pilotRestored
+                    ? `${name} is no longer staff, and their pilot login is back.`
+                    : `${name} is no longer staff.`, 'ok');
+                if(window.CrewPanels) CrewPanels.toast(`${name} is no longer staff.`,'ok');
+                ACCOUNTS_LOADED=false;
+                await loadStaffAccounts();
+                await loadMe();
+                renderStaffRoles(); renderAssignments();
+                applyCapState();
+            }catch{ tell('Couldn’t reach the server.','bad'); btn.disabled=false; }
+        }
+
         function wireTeam(){
+            updateTeamTabs();
+            // Delegated: every one of these hosts is rebuilt on reload.
+            const openHost=document.getElementById('openingRows');
+            if(openHost){
+                const field=(e)=>{
+                    const row=e.target.closest('[data-opening]'); if(!row) return null;
+                    return { o:STAFF_OPENINGS[+row.getAttribute('data-opening')], row };
+                };
+                openHost.addEventListener('input', e=>{
+                    const hit=field(e); if(!hit||!hit.o) return;
+                    const f=e.target.getAttribute('data-of');
+                    if(f==='minHours'){ hit.o.minHours=Math.max(0,Number(e.target.value)||0); return; }
+                    if(f&&f!=='open'){ hit.o[f]=e.target.value; return; }
+                    if(e.target.hasAttribute('data-qf')){
+                        const qi=+e.target.closest('[data-q]').getAttribute('data-q');
+                        (hit.o.questions=hit.o.questions||[])[qi]=e.target.value;
+                    }
+                });
+                openHost.addEventListener('change', e=>{
+                    const hit=field(e); if(!hit||!hit.o) return;
+                    const f=e.target.getAttribute('data-of');
+                    if(f==='open'){ hit.o.open=e.target.checked; return; }
+                    if(f==='roleId'){ hit.o.roleId=e.target.value; renderOpenings(); }
+                });
+                openHost.addEventListener('click', e=>{
+                    const hit=field(e); if(!hit||!hit.o) return;
+                    if(e.target.closest('[data-opendel]')){
+                        STAFF_OPENINGS.splice(+hit.row.getAttribute('data-opening'),1); renderOpenings(); return;
+                    }
+                    if(e.target.closest('[data-qadd]')){
+                        (hit.o.questions=hit.o.questions||[]).push(''); renderOpenings(); return;
+                    }
+                    const del=e.target.closest('[data-qdel]');
+                    if(del){
+                        const qi=+del.closest('[data-q]').getAttribute('data-q');
+                        (hit.o.questions||[]).splice(qi,1); renderOpenings();
+                    }
+                });
+            }
+            const appHost=document.getElementById('staffAppRows');
+            if(appHost) appHost.addEventListener('click', e=>{
+                const row=e.target.closest('[data-staffapp]'); if(!row) return;
+                const id=row.getAttribute('data-staffapp');
+                const yes=e.target.closest('[data-appaccept]');
+                const no=e.target.closest('[data-appdecline]');
+                if(yes) decideStaffApp(id,'accept',row,yes);
+                else if(no) decideStaffApp(id,'decline',row,no);
+            });
             // Delegated: the promote rows are rebuilt on every reload.
             const promoteHost=document.getElementById('promoteRows');
             if(promoteHost) promoteHost.addEventListener('click', e=>{
@@ -9729,9 +10174,17 @@
                         const sum=row.querySelector('[data-rolesummary]');
                         if(sum) sum.textContent=roleSummary(STAFF_ROLES[i]);
                     } });
-                rolesHost.addEventListener('click', e=>{ const d=e.target.closest('[data-roledel]'); if(!d) return; STAFF_ROLES.splice(+d.closest('[data-role]').getAttribute('data-role'),1); renderStaffRoles(); renderAccounts(); renderAssignments(); });
+                // renderOpenings too: a job advertising a role that has just
+                // been deleted has to say so straight away, or the owner finds
+                // out when the save quietly shortens their list.
+                rolesHost.addEventListener('click', e=>{ const d=e.target.closest('[data-roledel]'); if(!d) return; STAFF_ROLES.splice(+d.closest('[data-role]').getAttribute('data-role'),1); renderStaffRoles(); renderAccounts(); renderAssignments(); renderOpenings(); });
             }
             const acctHost=document.getElementById('accountRows');
+            if(acctHost) acctHost.addEventListener('click', e=>{
+                const b=e.target.closest('[data-standdown]'); if(!b) return;
+                const row=b.closest('[data-acct]'); if(!row) return;
+                standDownMember(String(row.getAttribute('data-acct')||'').toLowerCase(), b);
+            });
             if(acctHost) acctHost.addEventListener('change', e=>{
                 const row=e.target.closest('[data-acct]'); if(!row) return;
                 const uname=String(row.getAttribute('data-acct')||'').toLowerCase();

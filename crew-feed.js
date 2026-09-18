@@ -459,10 +459,11 @@
                     return {
                         title: text(n.title),
                         body: text(n.body),
-                        // 'joined', 'promotion', 'checkride', 'event',
-                        // 'schedule' — whatever the crew center recorded. A site
-                        // that wants one sort of row asks for it by name; one
-                        // that wants an icon per sort keys off this.
+                        // 'join', 'promotion', 'checkride', 'event',
+                        // 'schedule', 'leave', 'staff' — whatever the crew
+                        // center recorded. A site that wants one sort of row
+                        // asks for it by name; one that wants an icon per sort
+                        // keys off this.
                         kind: text(n.kind),
                         createdAt: n.createdAt || null,
                     };
