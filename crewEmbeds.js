@@ -302,7 +302,7 @@
 <p><b data-crew-stat="pilots">—</b> pilots · <b data-crew-stat="hours">—</b> hours flown</p>
 
 <!-- Your route network, in your own template. {{fields}}: from, to, flight,
-     aircraft, distanceNm, notes, partner, minRank -->
+     aircraft, distanceNm, notes, partner, minRank, departureGate, arrivalGate -->
 <ul data-crew-list="routes" data-crew-limit="10">
   <template>
     <li><b>{{from}} → {{to}}</b> {{aircraft}}</li>

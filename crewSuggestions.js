@@ -448,6 +448,12 @@
         const tags = [];
         if (f.estimatedMin) tags.push(`<span class="sg-tag">${esc(durationText(f.estimatedMin))}</span>`);
         if (r.distanceNm) tags.push(`<span class="sg-tag">${Math.round(r.distanceNm).toLocaleString()} nm</span>`);
+        // The stands, when the airline publishes them. One tag for the pair
+        // rather than two, because "gate to gate" is a single fact about the
+        // leg — and a half-set pair still says the useful half.
+        if (r.departureGate || r.arrivalGate) {
+            tags.push(`<span class="sg-tag">Gate ${esc(r.departureGate || '—')} → ${esc(r.arrivalGate || '—')}</span>`);
+        }
         // Staff picked this one by hand. Worth saying — it is the difference
         // between the airline choosing a leg and a rotation landing on one.
         if (f.pinned) tags.push('<span class="sg-tag">Picked by your staff</span>');
@@ -483,6 +489,8 @@
         const r = s.route || {};
         const sub = [r.flightNumber, r.aircraft,
             r.distanceNm ? `${Math.round(r.distanceNm).toLocaleString()} nm` : '',
+            r.departureGate || r.arrivalGate
+                ? `Gate ${r.departureGate || '—'} → ${r.arrivalGate || '—'}` : '',
         ].filter(Boolean).join(' · ');
         const whys = (s.why || []).map((w) => `<span class="sg-why sg-why-${esc(w.tone || 'habit')}">
             <i data-lucide="${esc(WHY_ICON[w.tone] || 'circle-check')}"></i>${esc(w.text)}</span>`).join('');

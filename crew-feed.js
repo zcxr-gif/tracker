@@ -196,6 +196,11 @@
                         partner: text(r.partnerName),
                         partnerLogo: https(r.partnerLogo),
                         minRank: text(r.minRank),
+                        // The stands, where the airline publishes them. Empty on
+                        // most routes and on every VA that has not set any, so a
+                        // site draws them only when there is one to draw.
+                        departureGate: text(r.departureGate),
+                        arrivalGate: text(r.arrivalGate),
                         active: r.active !== false,
                         id: r.id != null ? String(r.id) : '',
                     };

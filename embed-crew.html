@@ -364,6 +364,11 @@
         '<div class="meta">' +
           (r.aircraft ? "<span>" + esc(r.aircraft) + "</span>" : "") +
           (isFinite(dist) && dist > 0 ? "<span>" + dist.toLocaleString() + " nm</span>" : "") +
+          // The stands, where the airline publishes them. In the meta line with
+          // the aircraft and the distance: the widget is a summary of the
+          // network, and the ports line above has to stay readable at 320px.
+          (r.departureGate || r.arrivalGate
+            ? "<span>Gate " + esc(r.departureGate || "—") + " → " + esc(r.arrivalGate || "—") + "</span>" : "") +
         "</div>" +
         (tags.length ? "<div>" + tags.join("") + "</div>" : "") +
         (r.notes ? '<p class="row-sub">' + esc(r.notes) + "</p>" : "") +
