@@ -14,6 +14,8 @@
     "test:route-map": "node tools/test-crew-route-map.js",
     "test:tile-map": "node tools/test-crew-tile-map.js",
     "test:route-library": "node tools/test-crew-route-library.js",
+    "test:route-gates": "node tools/test-crew-route-gates.js",
+    "test:event-image": "node tools/test-crew-event-image.js",
     "test:partners": "node tools/test-crew-partners.js",
     "test:favicon": "node tools/test-crew-favicon.js",
     "test:pilot-home": "node tools/test-crew-pilot-home.js",

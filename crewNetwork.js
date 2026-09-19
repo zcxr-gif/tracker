@@ -81,6 +81,13 @@
         .cn-row-flown{border-color:color-mix(in srgb, var(--accent,#1C1A16) 40%, var(--line,#e5e5e5))}
         .cn-main{flex:1;min-width:0;display:grid;gap:.15rem}
         .cn-leg{font-weight:650;letter-spacing:-.01em}
+        /* The stand, riding with its airport code. Lighter and smaller than the
+           code so the leg still reads as a leg at a glance, and pill-shaped so
+           "A12" beside "CYYZ" cannot be mistaken for part of the ICAO. */
+        .cn-gate{font-weight:600;font-size:.7rem;letter-spacing:.03em;
+            padding:.05rem .3rem;border-radius:.3rem;vertical-align:.08em;
+            color:var(--muted,#736E64);
+            background:color-mix(in srgb, var(--ink,#1C1A16) 7%, transparent)}
         .cn-sub{font-size:.75rem;color:var(--muted,#736E64);overflow:hidden;
             text-overflow:ellipsis;white-space:nowrap}
         .cn-tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.1rem}
@@ -123,7 +130,8 @@
             if (S.filter === 'locked' && !r.locked) return false;
             if (S.filter === 'codeshare' && r.kind !== 'codeshare') return false;
             if (!q) return true;
-            return [r.flightNumber, r.origin, r.destination, r.aircraft, r.partnerName]
+            return [r.flightNumber, r.origin, r.destination, r.aircraft, r.partnerName,
+                r.departureGate, r.arrivalGate]
                 .some((v) => String(v || '').toLowerCase().includes(q));
         });
     }
@@ -200,9 +208,14 @@
                 ? `${h}h to ${esc(r.minRank || 'unlock')}`
                 : esc(r.minRank ? `${r.minRank} only` : 'Locked')}</span>`);
         }
+        // Gate to gate, where the airline publishes stands. Appended to the leg
+        // itself rather than dropped into the sub-line with the aircraft and the
+        // notes, because "CYYZ A12 → EGLL 231" is the flight; the rest is about
+        // the flight. Silent on the routes — and the airlines — with no stands.
+        const stand = (g) => (g ? ` <span class="cn-gate">${esc(g)}</span>` : '');
         return `<li class="cn-row${r.locked ? ' cn-row-locked' : ''}${flown ? ' cn-row-flown' : ''}">
             <span class="cn-main">
-                <span class="cn-leg">${esc(r.flightNumber || '')}${r.flightNumber ? ' · ' : ''}${esc(r.origin || '???')} → ${esc(r.destination || '???')}</span>
+                <span class="cn-leg">${esc(r.flightNumber || '')}${r.flightNumber ? ' · ' : ''}${esc(r.origin || '???')}${stand(r.departureGate)} → ${esc(r.destination || '???')}${stand(r.arrivalGate)}</span>
                 <span class="cn-sub">${esc(sub) || '&nbsp;'}</span>
                 ${tags.length ? `<span class="cn-tags">${tags.join('')}</span>` : ''}
             </span>

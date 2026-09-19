@@ -166,7 +166,7 @@ browser tab to see exactly what a site will get.
 
 | Endpoint | Returns |
 |---|---|
-| `/api/crew/<slug>/routes` | `{ routes: [{ id, flightNumber, origin, destination, aircraft, distanceNm, notes, active, kind, partnerName, minRank }], partners, ranks }` |
+| `/api/crew/<slug>/routes` | `{ routes: [{ id, flightNumber, origin, destination, aircraft, distanceNm, notes, active, kind, partnerName, minRank, departureGate, arrivalGate }], partners, ranks }` |
 | `/api/crew/<slug>/route-map` | `{ routes: [{ …, o: [lat,lon], d: [lat,lon], mapped }], airports: [{ icao, lat, lon, dep, arr, routes }], stats: { unmapped } }` |
 | `/api/crew/<slug>/stats` | `{ connected, stats: { pilots, pilotsActive, hours, flightHours, pirepsApproved, pirepsPending, flights30d, flightHours30d, landings, destinations, routesActive, lastFlightAt } }` |
 | `/api/crew/<slug>/events` | `{ events: [{ title, description, origin, destination, aircraft, server, startsAt, slots, going, seatsLeft, bannerUrl, gateIcao, status }] }` |
