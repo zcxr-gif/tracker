@@ -98,13 +98,20 @@ const head = (s) => console.log(`\n${s}`);
     ok('Alerts is a tab of its own', tabs.includes('Alerts'), tabs.join('/'));
     ok('Storage is no longer a separate tab', !tabs.includes('Storage'), tabs.join('/'));
 
-    await page.evaluate(() => window.setCat('recruit'));
-    await page.waitForTimeout(150);
-    const webhookUnderRecruit = await page.evaluate(() => {
-        const el = document.getElementById('hookUrl');
-        return !!(el && el.offsetParent !== null);
+    // Recruit is no longer a settings tab at all — joining moved out to its
+    // own drawer when the quizzes arrived. Both halves are checked: it is gone
+    // from here, and the join form is reachable where it went.
+    ok('Recruit is no longer a settings tab', !tabs.includes('Recruit'), tabs.join('/'));
+    const joinInSettings = await page.evaluate(() => {
+        const el = document.getElementById('joinDiscord');
+        return !!(el && el.closest('#settings'));
     });
-    ok('the Discord webhook is not under Recruit any more', !webhookUnderRecruit);
+    ok('…and the join form is not in the settings drawer', !joinInSettings);
+    const joinInRecruit = await page.evaluate(() => {
+        const el = document.getElementById('joinDiscord');
+        return !!(el && el.closest('#recruit'));
+    });
+    ok('…it is in the Recruitment drawer', joinInRecruit);
 
     await page.evaluate(() => window.setCat('alerts'));
     await page.waitForTimeout(150);

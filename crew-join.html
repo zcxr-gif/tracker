@@ -102,6 +102,12 @@
     <div id="wrap" class="min-h-screen flex items-center justify-center p-4 sm:p-6">
         <div class="w-full max-w-md">
             <!-- Header -->
+            <!-- The airline's own picture over its join form, where it has set
+                 one (Crew centre → Recruitment → Quizzes → Your pictures).
+                 Above the mark rather than behind it: this form is usually
+                 framed inside the VA's own website, and a photograph with text
+                 laid over it reads as somebody else's template. -->
+            <img id="joinBanner" alt="" class="hidden w-full rounded-xl mb-4 object-cover" style="aspect-ratio:3/1">
             <div class="text-center mb-5">
                 <img id="logo" alt="" class="hidden mx-auto mb-3 max-h-14 w-auto object-contain">
                 <div id="mono" class="accent-bg w-14 h-14 rounded-2xl grid place-items-center text-white text-xl font-black mx-auto mb-3">VA</div>
@@ -753,6 +759,13 @@
                         reservedMax:(typeof cs.reservedMax==='number'&&cs.reservedMax>=0)?cs.reservedMax:10,
                     },
                     form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[], emailEnabled:!!b.join.emailEnabled };
+            }
+            // Same safety check as the logo above it: a link the VA pasted is
+            // still a link somebody typed, and this page is embedded on other
+            // people's sites.
+            if(b.join && b.join.banner && isSafeImageUrl(b.join.banner)){
+                const bn=document.getElementById('joinBanner');
+                if(bn){ bn.src=b.join.banner; bn.classList.remove('hidden'); bn.addEventListener('load', postHeight, { once:true }); }
             }
             DATA.prefix = (airlines()[0] && airlines()[0].base) || CFG.callsignPrefix || VA.code || '';
             document.getElementById('joinSub').textContent = CFG.mode==='free' ? 'Instant access' : 'Applications reviewed by staff';

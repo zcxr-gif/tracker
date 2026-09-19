@@ -127,6 +127,9 @@
     <!-- Applying for a job on the staff team. Until this existed, volunteering
          meant saying so in Discord and hoping somebody remembered. -->
     <script src="/crewStaffApply.js"></script>
+    <!-- A quiz the airline set, and — where it has switched that on — the door
+         in front of the whole crew centre until this pilot has passed one. -->
+    <script src="/crewQuiz.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* `hidden` is Tailwind's, and Tailwind is a CDN script — when it is
@@ -903,6 +906,11 @@
             // mean the one tile that answers "how do I get involved?" only
             // appears to people who have already worked out the answer.
             {icon:'briefcase',label:'Join the team',desc:'Staff jobs you can apply for',action:'staffjobs'},
+            // Shown to everybody, like the two above it. A pilot who has been
+            // sent a quiz gets a link and a message in their inbox, so this
+            // tile is for the second visit — the one where the link has
+            // scrolled away and they want to know what they were asked to do.
+            {icon:'file-pen-line',label:'Quizzes',desc:'What your airline asked you to know',action:'quizzes'},
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
@@ -934,6 +942,7 @@
                 if(act==='network') el.addEventListener('click', openNetwork);
                 if(act==='suggest') el.addEventListener('click', openSuggestions);
                 if(act==='staffjobs') el.addEventListener('click', openStaffJobs);
+                if(act==='quizzes') el.addEventListener('click', ()=>openQuizzes());
             });
             // Both hosts only exist once the tiles have been drawn, so they are
             // handed over here rather than at mount. Each module keeps painting
@@ -1471,6 +1480,7 @@
         function openAwards(){ if(window.CrewAwards) CrewAwards.open({ api: crewApi() }); }
         function openLeave(){ if(window.CrewLeave) CrewLeave.open({ api: crewApi(), view:'me' }); }
         function openStaffJobs(){ if(window.CrewStaffApply) CrewStaffApply.open({ api: crewApi() }); }
+        function openQuizzes(token){ if(window.CrewQuiz) CrewQuiz.open({ api: crewApi(), token: token || '' }); }
 
         // ---- The search box, and the bell ----
         //
@@ -1839,6 +1849,18 @@
                 // notice on top of it would hide the thing they have to do.
                 TERMS = Object.assign({ applies:false, accepted:true, version:'', url:'/crew-terms.html' }, d.terms || {});
                 if(!d.mustChangePassword) maybeAskTerms();
+                /* THE QUIZ DOOR.
+                   Some airlines hold the crew centre shut until a pilot has
+                   passed the quiz their staff sent them. The answer is the
+                   database's, re-read here on every load, which is what makes
+                   it survive a reload — exactly like the password nag above.
+                   Drawn last of the three, and only once the password gate is
+                   clear, so two things never cover each other. */
+                if(window.CrewQuiz){
+                    CrewQuiz.mount({ api: crewApi() });
+                    if(!d.mustChangePassword) CrewQuiz.applyGate(d.quizGate);
+                    openQuizLink();
+                }
             }catch{ /* offline: leave whatever the session said */ }
         }
         /* ---- The pilot notice -------------------------------------------
@@ -1877,6 +1899,29 @@
 
         function closeTerms(){ document.getElementById('termsGate').classList.add('hidden'); }
 
+        /* ---- Opening the link staff sent -------------------------------
+         *
+         * A quiz goes out as a link to this page with the paper's token on it.
+         * It is taken off the address bar once used, so a reload does not
+         * reopen a paper the pilot has already handed in — and so the token is
+         * not left sitting in a URL that gets pasted around. Done once per
+         * load, after /me, because the panel needs a session to read anything.
+         */
+        let QUIZ_LINK_DONE=false;
+        function openQuizLink(){
+            if(QUIZ_LINK_DONE) return;
+            let token='';
+            try{ token=new URLSearchParams(location.search).get('quiz')||''; }catch{}
+            if(!token) return;
+            QUIZ_LINK_DONE=true;
+            try{
+                const url=new URL(location.href);
+                url.searchParams.delete('quiz');
+                history.replaceState(null,'',url.toString());
+            }catch{}
+            openQuizzes(token);
+        }
+
         /* ---- The walk around, for a pilot's first sign-in -----------------
          *
          * Six sentences about the page they are already looking at, in the
@@ -1891,6 +1936,10 @@
          * something to guess at.
          */
         function gatesUp(){
+            // The quiz door is not one of this page's own elements — it is
+            // drawn by crewQuiz.js over everything — so it is checked by class
+            // rather than by id.
+            if(document.querySelector('.qz-lock')) return true;
             return ['pwGate','termsGate'].some(id=>{
                 const el=document.getElementById(id);
                 return el && !el.classList.contains('hidden');

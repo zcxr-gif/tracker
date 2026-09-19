@@ -63,6 +63,10 @@
     function styles() {
         P.baseStyles();
         P.style('crew-staff-apply', `
+        /* THE AIRLINE'S OWN PICTURE, where it has set one. At the shape it
+           was chosen at — a banner is a crop, and a square thumbnail of one
+           answers a question nobody asked. */
+        .sa-banner{ width:100%; aspect-ratio:3/1; object-fit:cover; border-radius:.8rem; margin-bottom:.8rem; }
         .sa-sec{ display:grid; gap:.55rem; }
         .sa-h{ font-size:.72rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase;
             color:var(--faint,#A8A296); }
@@ -265,7 +269,9 @@
                </div>`
             : '';
 
-        return jobsHtml + mineSection;
+        const banner = S.data.banner
+            ? `<img class="sa-banner" src="${esc(S.data.banner)}" alt="">` : '';
+        return banner + jobsHtml + mineSection;
     }
 
     /* =====================================================================
