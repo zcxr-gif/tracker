@@ -137,6 +137,11 @@
     <script src="/crewAlerts.js"></script>
     <!-- The ladder, and the check-rides that move a pilot up it. -->
     <script src="/crewTraining.js"></script>
+    <!-- The airline's side of the quizzes: what they ask, who has been sent
+         one, whether the crew centre is shut until somebody passes, and who
+         gets reminded that people are waiting. Drawn inside the Recruitment
+         drawer rather than as a panel of its own — see that drawer's note. -->
+    <script src="/crewQuizAdmin.js"></script>
     <!-- One pilot's flying, opened by their staff: every report they have
          filed, the arithmetic underneath it, and the two things that did not
          exist before — correcting a flight's hours, and filing one by hand
@@ -511,6 +516,13 @@
         .lyt-opt[aria-checked="true"] .dot{ background:var(--accent); border-color:var(--accent); }
         .settings-tab{ color:var(--muted); }
         .settings-tab.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+        /* The recruitment drawer's tabs are the settings drawer's, which is
+           deliberate: it is the same kind of control doing the same job, and a
+           second visual language for it would only make the move feel like a
+           different product. */
+        .recruit-tab{ color:var(--muted); }
+        .recruit-tab.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+        #recruitTabs .recruit-tab{ min-height:2.5rem; }
         /* THE AIRCRAFT PICKER, POSITIONED HERE RATHER THAN BY THE CDN.
            Same reasoning as the .hidden rule above, and the same failure it
            prevents: a results list that depends on Tailwind's `absolute` for
@@ -787,7 +799,6 @@
                 <div id="settingsTabs" class="flex gap-1 p-1 rounded-lg" style="background:color-mix(in srgb, var(--ink) 6%, transparent);">
                     <button data-cat="appearance" onclick="setCat('appearance')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Appearance</button>
                     <button data-cat="crew" onclick="setCat('crew')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Crew</button>
-                    <button data-cat="recruit" onclick="setCat('recruit')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Recruit</button>
                     <button id="alertsTab" data-cat="alerts" onclick="setCat('alerts')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Alerts</button>
                     <button id="teamTab" data-cat="team" onclick="setCat('team')" class="settings-tab hidden flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Team</button>
                     <button id="dataTab" data-cat="data" onclick="setCat('data')" class="settings-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Data</button>
@@ -1209,64 +1220,6 @@
 
               </div><!-- /crew -->
 
-              <div data-panel="recruit" class="space-y-6 hidden">
-                <!-- Joining: how pilots apply -->
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Joining</h3>
-                    <div id="joinModeOpts" class="space-y-2.5"></div>
-                    <div class="grid grid-cols-2 gap-2.5 mt-3">
-                        <label class="text-xs muted">Min IF grade
-                            <select id="minGrade" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
-                                <option value="0">No requirement</option>
-                                <option value="1">Grade 1+</option><option value="2">Grade 2+</option><option value="3">Grade 3+</option><option value="4">Grade 4+</option><option value="5">Grade 5</option>
-                            </select>
-                        </label>
-                        <label class="text-xs muted">Callsign prefix
-                            <input id="callsignPrefix" placeholder="ACA" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
-                        </label>
-                        <label class="text-xs muted">Reserved callsign numbers
-                            <input id="callsignReservedMax" type="number" min="0" max="999" placeholder="10" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
-                            <span id="reservedHint" class="block text-[11px] faint mt-1">1–10 are kept for you to assign. Applicants can’t pick them. 0 to allow any number.</span>
-                        </label>
-                    </div>
-                    <div class="mt-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-semibold">Application questions</span>
-                            <button onclick="addQuestion()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
-                        </div>
-                        <p class="text-xs muted mb-2">Shown to applicants (in Application mode). Free pass skips the review.</p>
-                        <div id="qRows" class="space-y-2"></div>
-                    </div>
-                    <div class="mt-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-semibold">Join requirements</span>
-                            <button onclick="addRequirement()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
-                        </div>
-                        <p class="text-xs muted mb-2">Auto-checked against each applicant’s <b>real Infinite Flight stats</b> when they join — or a custom agreement they must accept. Grade is set above.</p>
-                        <div id="reqRows" class="space-y-2"></div>
-                    </div>
-                    <div class="mt-4">
-                        <span class="text-sm font-semibold">Discord invite</span>
-                        <p class="text-xs muted mt-1 mb-2">Offered to every pilot you accept, alongside their sign-in. The accept dialog pre-fills this and you can override it for a one-off invite. Must be a <b>discord.gg</b> or <b>discord.com/invite</b> link.</p>
-                        <input id="joinDiscord" type="url" placeholder="https://discord.gg/…" autocomplete="off" spellcheck="false"
-                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
-                    </div>
-                    <button onclick="saveRecruitment(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
-                    <p id="recruitNote" class="hidden text-sm mt-2"></p>
-                </div>
-
-                <!-- Your join page: share / embed -->
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Your join page</h3>
-                    <p class="text-xs muted mb-2.5">Embed the join form on your own site (auto-resizes), or share the link.</p>
-                    <div class="flex gap-2">
-                        <button onclick="copyJoinEmbed()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="code-xml" class="w-4 h-4"></i> Copy embed code</button>
-                        <a id="joinLink" target="_blank" rel="noopener" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold text-center hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open join page</a>
-                    </div>
-                    <p id="embedNote" class="hidden text-sm mt-2"></p>
-                </div>
-
-              </div><!-- /recruit -->
 
               <!-- Alerts.
                    These were filed under Recruit, which is where they were
@@ -1791,6 +1744,108 @@
               </div><!-- /datamanage -->
 
                 <p id="settingsNote" class="hidden text-sm mt-4"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- =====================================================================
+         RECRUITMENT — everything about how somebody gets in here.
+
+         This was three rooms. How pilots apply was a TAB IN SETTINGS, filed
+         between the colour scheme and the Supabase connection; the applications
+         themselves are a tab in Roster; and there was nowhere at all for a
+         quiz. So "set up how people join" meant a settings drawer, and "deal
+         with somebody joining" meant a different drawer entirely, and the
+         answer to "where do I do X" was a guess every time.
+
+         One place, four screens, in the order an airline uses them: how they
+         apply, what they have to know, who has been sent what, and who gets
+         chased about it. Settings keeps what settings is actually for —
+         appearance, the crew, alerts, the team and the data store.
+         ===================================================================== -->
+    <div id="recruit" data-topic="recruit" class="hidden fixed inset-0 z-50">
+        <div class="absolute inset-0 bg-black/40" onclick="closeRecruit()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-md surface border-l hair overflow-y-auto translate-x-full">
+            <div class="sticky top-0 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
+                <div class="flex items-center gap-2"><i data-lucide="user-plus" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Recruitment</span></div>
+                <button onclick="closeRecruit()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="px-5 pt-4 sticky top-16 z-10" style="background:var(--surface);">
+                <div id="recruitTabs" class="flex gap-1 p-1 rounded-lg" style="background:color-mix(in srgb, var(--ink) 6%, transparent);">
+                    <button data-rcat="joining" onclick="setRecruitCat('joining')" class="recruit-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Joining</button>
+                    <button data-rcat="quizzes" onclick="setRecruitCat('quizzes')" class="recruit-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Quizzes</button>
+                    <button data-rcat="sent" onclick="setRecruitCat('sent')" class="recruit-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Sent</button>
+                    <button data-rcat="nudges" onclick="setRecruitCat('nudges')" class="recruit-tab flex-1 py-1.5 rounded-md text-[13px] font-semibold transition">Nudges</button>
+                </div>
+            </div>
+            <div class="p-5">
+              <div data-rpanel="joining" class="space-y-6">
+                <!-- Joining: how pilots apply -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Joining</h3>
+                    <div id="joinModeOpts" class="space-y-2.5"></div>
+                    <div class="grid grid-cols-2 gap-2.5 mt-3">
+                        <label class="text-xs muted">Min IF grade
+                            <select id="minGrade" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
+                                <option value="0">No requirement</option>
+                                <option value="1">Grade 1+</option><option value="2">Grade 2+</option><option value="3">Grade 3+</option><option value="4">Grade 4+</option><option value="5">Grade 5</option>
+                            </select>
+                        </label>
+                        <label class="text-xs muted">Callsign prefix
+                            <input id="callsignPrefix" placeholder="ACA" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                        </label>
+                        <label class="text-xs muted">Reserved callsign numbers
+                            <input id="callsignReservedMax" type="number" min="0" max="999" placeholder="10" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                            <span id="reservedHint" class="block text-[11px] faint mt-1">1–10 are kept for you to assign. Applicants can’t pick them. 0 to allow any number.</span>
+                        </label>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Application questions</span>
+                            <button onclick="addQuestion()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <p class="text-xs muted mb-2">Shown to applicants (in Application mode). Free pass skips the review.</p>
+                        <div id="qRows" class="space-y-2"></div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-semibold">Join requirements</span>
+                            <button onclick="addRequirement()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
+                        </div>
+                        <p class="text-xs muted mb-2">Auto-checked against each applicant’s <b>real Infinite Flight stats</b> when they join — or a custom agreement they must accept. Grade is set above.</p>
+                        <div id="reqRows" class="space-y-2"></div>
+                    </div>
+                    <div class="mt-4">
+                        <span class="text-sm font-semibold">Discord invite</span>
+                        <p class="text-xs muted mt-1 mb-2">Offered to every pilot you accept, alongside their sign-in. The accept dialog pre-fills this and you can override it for a one-off invite. Must be a <b>discord.gg</b> or <b>discord.com/invite</b> link.</p>
+                        <input id="joinDiscord" type="url" placeholder="https://discord.gg/…" autocomplete="off" spellcheck="false"
+                            class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    </div>
+                    <button onclick="saveRecruitment(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
+                    <p id="recruitNote" class="hidden text-sm mt-2"></p>
+                </div>
+
+                <!-- Your join page: share / embed -->
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Your join page</h3>
+                    <p class="text-xs muted mb-2.5">Embed the join form on your own site (auto-resizes), or share the link.</p>
+                    <div class="flex gap-2">
+                        <button onclick="copyJoinEmbed()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="code-xml" class="w-4 h-4"></i> Copy embed code</button>
+                        <a id="joinLink" target="_blank" rel="noopener" class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold text-center hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open join page</a>
+                    </div>
+                    <p id="embedNote" class="hidden text-sm mt-2"></p>
+                </div>
+
+              </div><!-- /joining -->
+
+              <!-- The three quiz screens are drawn by crewQuizAdmin.js into
+                   these hosts. They are one module rather than three because
+                   they are one fetch: the quizzes, the door and the reminder
+                   settings all come back from GET /quizzes together, and three
+                   modules would be three copies of the same request. -->
+              <div data-rpanel="quizzes" class="hidden"><div id="quizBuildHost"></div></div>
+              <div data-rpanel="sent" class="hidden"><div id="quizSentHost"></div></div>
+              <div data-rpanel="nudges" class="hidden"><div id="quizNudgeHost"></div></div>
             </div>
         </div>
     </div>
@@ -2697,6 +2752,7 @@
             {icon:'heart-pulse',label:'Crew health',desc:'Who’s slipping away',action:'leave'},
             {icon:'store',label:'Shop',desc:'What a flight is worth',action:'shop'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
+            {icon:'user-plus',label:'Recruitment',desc:'Joining, quizzes & who is waiting',action:'recruit'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
         // What each tool tile needs before it is worth offering. Keyed by the
@@ -2737,7 +2793,7 @@
         function canReachAnySettings(){
             return IS_OWNER || !sessionToken()
                 || can('settings.branding') || can('schedules.manage')
-                || can('settings.recruitment') || can('settings.notifications');
+                || can('settings.notifications');
         }
         function renderTiles(){
             const tools=TOOLS.filter(t=>{
@@ -2769,6 +2825,14 @@
                 // their own staff controls.
                 const need=TILE_CAP[t.action];
                 if(need && !can(need)) return false;
+                // Recruitment is two powers, not one: setting up how people
+                // join and what they are asked is `settings.recruitment`, and
+                // sending somebody a quiz and reading what came back is
+                // `applications.review` — the same capability that reviews an
+                // application, because handing a pilot a paper is deciding
+                // about a person rather than config. Either one opens the
+                // drawer; the tabs inside gate themselves.
+                if(t.action==='recruit' && !can('settings.recruitment') && !can('applications.review')) return false;
                 // Settings is not one capability but several. Anybody with at
                 // least one settings tab gets the tile; somebody with none
                 // would otherwise open an empty drawer.
@@ -2825,6 +2889,7 @@
         // topic has been opened once.
         const TOPIC_ROOT={
             roster:'#roster', routes:'#routes', fleet:'#fleet', partners:'#partners', pireps:'#pireps', settings:'#settings',
+            recruit:'#recruit',
             schedule:'#csPanel', events:'#cevPanel', notices:'#cnPanel',
             embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
             documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
@@ -2832,7 +2897,7 @@
         };
         const TOPIC_CLOSE={
             roster:()=>closeRoster(), routes:()=>closeRoutes(), fleet:()=>closeFleet(), partners:()=>closePartners(), pireps:()=>closePireps(),
-            settings:()=>closeSettings(),
+            settings:()=>closeSettings(), recruit:()=>closeRecruit(),
             schedule:()=>{ if(window.CrewSchedule) CrewSchedule.close(); },
             events:()=>{ if(window.CrewEvents) CrewEvents.close(); },
             notices:()=>{ if(window.CrewNotices) CrewNotices.close(); },
@@ -2847,7 +2912,8 @@
         const TOPIC_OPEN={
             roster:()=>openRoster(), routes:()=>openRoutes(), fleet:()=>openFleet(), partners:()=>openPartners(), pireps:()=>openPireps(), shop:()=>openShop(),
             training:()=>openTraining(), awards:()=>openAwards(), leave:()=>openLeave(),
-            settings:()=>openSettings(), schedule:()=>openSchedule(), events:()=>openEvents(),
+            settings:()=>openSettings(), recruit:()=>openRecruit(),
+            schedule:()=>openSchedule(), events:()=>openEvents(),
             notices:()=>openNotices(), embeds:()=>openEmbeds(),
             partnership:()=>openPartnership(), insights:()=>openInsights(),
             documents:()=>openDocuments(), inbox:()=>openInbox(), links:()=>openLinks(),
@@ -3698,7 +3764,7 @@
         // one missing feature): the Supabase connection, how much room it is
         // using, and getting rid of what is no longer wanted.
         const TAB_PANELS={
-            appearance:['appearance'], crew:['crew'], recruit:['recruit'],
+            appearance:['appearance'], crew:['crew'],
             alerts:['alerts'], team:['team'],
             data:['data','storage','datamanage'],
         };
@@ -3917,6 +3983,60 @@
             if(window.lucide) lucide.createIcons();
         }
         function closeSettings(){ closeDrawer('settings'); }
+
+        /* ---- Recruitment ------------------------------------------------
+         *
+         * Its own drawer since the quizzes arrived, and the move is the point:
+         * "how do people join" sat in Settings between the colour scheme and
+         * the database connection, which is where it was added rather than
+         * where anybody would look for it. See the drawer's own note.
+         *
+         * `cat` lets a caller land on a screen — the roster's empty
+         * applications list points here, and it means the tab about joining
+         * rather than the one about quizzes.
+         */
+        function setRecruitCat(cat){
+            let tab=document.querySelector(`.recruit-tab[data-rcat="${cat}"]`);
+            if(!tab || tab.classList.contains('hidden')){
+                const first=document.querySelector('.recruit-tab:not(.hidden)');
+                if(first) cat=first.getAttribute('data-rcat');
+            }
+            document.querySelectorAll('.recruit-tab').forEach(b=>b.classList.toggle('active', b.getAttribute('data-rcat')===cat));
+            document.querySelectorAll('[data-rpanel]').forEach(p=>p.classList.toggle('hidden', p.getAttribute('data-rpanel')!==cat));
+            // The quiz screens read the VA's own project, so they are fetched
+            // when a tab is opened rather than on every dashboard load.
+            if(cat!=='joining' && window.CrewQuizAdmin) CrewQuizAdmin.show(cat);
+            const panel=drawerPanel('recruit');
+            if(panel) panel.scrollTop=0;
+            if(window.lucide) lucide.createIcons();
+        }
+        function openRecruit(cat){
+            // Each tab is its own power. Somebody who may send quizzes but not
+            // rewrite the join form gets the screens they can actually use,
+            // rather than a form that answers 403 on save.
+            const vis={ joining:can('settings.recruitment'), quizzes:can('settings.recruitment'),
+                        sent:can('applications.review'), nudges:can('settings.recruitment') };
+            document.querySelectorAll('.recruit-tab').forEach(t=>{
+                const c=t.getAttribute('data-rcat');
+                if(c in vis) t.classList.toggle('hidden', !(vis[c]||IS_OWNER||!sessionToken()));
+            });
+            mountQuizAdmin();
+            setRecruitCat(cat || (document.querySelector('.recruit-tab.active')||{}).getAttribute?.('data-rcat') || 'joining');
+            openDrawer('recruit');
+            if(window.lucide) lucide.createIcons();
+        }
+        function closeRecruit(){ closeDrawer('recruit'); }
+        // Mounted once, and only when somebody opens the drawer: a VA that
+        // never touches quizzes never asks their database about them.
+        let QUIZ_ADMIN_MOUNTED=false;
+        function mountQuizAdmin(){
+            if(QUIZ_ADMIN_MOUNTED || !window.CrewQuizAdmin) return;
+            QUIZ_ADMIN_MOUNTED=true;
+            CrewQuizAdmin.mount({
+                backend: BACKEND, slug: getSlug(), token: sessionToken(),
+                hosts: { quizzes:'quizBuildHost', sent:'quizSentHost', nudges:'quizNudgeHost' },
+            });
+        }
         function sessionToken(){ try{ return (JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null')||{}).token||''; }catch{ return ''; } }
         /**
          * Write a patch to the crew's settings.
@@ -8201,7 +8321,7 @@
                     <div>
                         <input data-invite type="url" value="${escapeHtml(JOIN.discordInvite||'')}" placeholder="https://discord.gg/…"
                             class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                        <div class="text-xs muted mt-1">Discord invite sent with the welcome. ${JOIN.discordInvite?'Pre-filled from your settings — override for a one-off invite.':'Set a default in Settings → Recruitment.'}</div>
+                        <div class="text-xs muted mt-1">Discord invite sent with the welcome. ${JOIN.discordInvite?'Pre-filled from your settings — override for a one-off invite.':'Set a default in Recruitment → Joining.'}</div>
                     </div>
                 </div>
 
@@ -9409,9 +9529,6 @@
                 // which are separate powers — a schedule manager who cannot
                 // rebrand the crew center still has to reach their own settings.
                 crew:can('settings.branding')||can('schedules.manage'),
-                // Recruit is now only about joining — the Discord webhook moved
-                // to Alerts, so this no longer needs the notifications power.
-                recruit:can('settings.recruitment'),
                 alerts:can('settings.notifications'),
                 // Gated on team.manage, which an owner holds implicitly. A
                 // chief of staff builds the team; the no-escalation rule on the
