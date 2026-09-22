@@ -1,409 +1,448 @@
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>InFlight Gallery | Infinite Flight Aviation Photography</title>
 
-    <meta name="description" content="InFlight Gallery — browse community aircraft photography from Infinite Flight. Search by registration, aircraft type, livery, airport or photographer.">
+    <meta name="description" content="InFlight Gallery — community aircraft photography from Infinite Flight. Search by registration, aircraft type, airline, airport or photographer.">
     <link rel="canonical" href="https://inflight.info/gallery.html">
-    <meta name="theme-color" content="#020617">
+    <meta name="theme-color" content="#16181d">
     <link rel="icon" href="Images/inflight.png">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="InFlight">
     <meta property="og:title" content="InFlight Gallery">
-    <meta property="og:description" content="Community aircraft photography from Infinite Flight — search by registration, type, livery, airport or photographer.">
+    <meta property="og:description" content="Community aircraft photography from Infinite Flight — search by registration, type, airline, airport or photographer.">
     <meta property="og:url" content="https://inflight.info/gallery.html">
     <meta property="og:image" content="https://inflight.info/Images/og-banner.png">
     <meta name="twitter:card" content="summary_large_image">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
-                    },
-                    colors: {
-                        background: '#020617',
-                        surface: '#0b1220',
-                        surfaceLight: '#111c31',
-                        primary: '#6366f1',
-                        accent: '#38bdf8',
-                    }
-                }
-            }
-        }
-    </script>
 
     <style>
-        :root { color-scheme: dark; }
+        /* ==================================================================
+           InFlight Gallery — a light, print-like spotter layout: gray page,
+           white panels with gray title bars, one black masthead.
+           ================================================================== */
+        :root {
+            color-scheme: light;
+            --page:   #e7e9ec;
+            --card:   #ffffff;
+            --panel-head: #f2f4f6;
+            --strip:  #23272e;   /* dark caption bar under each photo */
+            --head:   #16181d;   /* masthead */
+            --ink:    #15181d;
+            --ink2:   #4d5561;
+            --muted:  #858d99;
+            --line:   #d3d8de;
+            --link:   #0b63ce;
+            --link-dk:#0a58b5;
+            --mat:    #1b1e24;   /* matting behind a photo */
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
         body {
-            background-color: #020617;
-            color: #e2e8f0;
-            overflow-x: hidden;
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            background: var(--page);
+            color: var(--ink);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            -webkit-font-smoothing: antialiased;
         }
         body.no-scroll { overflow: hidden; }
+        img { display: block; max-width: 100%; }
+        button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+        a { color: inherit; text-decoration: none; }
+        input, select { font: inherit; }
 
-        .nav-blur {
-            background: rgba(2, 6, 23, 0.86);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        .wrap { width: 100%; max-width: 1360px; margin: 0 auto; padding: 0 16px; }
+
+        /* ---------------- Masthead ---------------- */
+        .masthead { background: var(--head); color: #fff; }
+        .masthead-inner { display: flex; align-items: center; gap: 18px; height: 72px; }
+
+        .brand { display: inline-flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+        .brand-mark {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            border: 2px solid #fff; border-radius: 10px;
+            padding: 5px 14px 6px; line-height: 1;
+        }
+        .brand-word {
+            font-size: 1.1rem; font-weight: 900; letter-spacing: .2em;
+            text-transform: uppercase; white-space: nowrap;
+        }
+        .brand-sub {
+            display: flex; align-items: center; gap: 5px;
+            margin-top: 4px; font-size: .53rem; font-weight: 600; letter-spacing: .14em;
+            text-transform: uppercase; color: #b9c0cb; white-space: nowrap;
         }
 
-        /* ------------------------------------------------------------------
-           Panels — the boxed, titled sections both reference sites lean on.
-           ------------------------------------------------------------------ */
-        .panel {
-            background: rgba(11, 18, 32, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 1rem;
-            overflow: hidden;
+        .mast-nav { display: none; align-items: center; gap: 4px; margin-left: 10px; }
+        .mast-link {
+            padding: 8px 12px; border-radius: 7px;
+            font-size: .82rem; font-weight: 600; color: #c3cad4;
+            transition: background .15s ease, color .15s ease;
         }
+        .mast-link:hover { color: #fff; background: rgba(255,255,255,.08); }
+        .mast-link.active { color: #fff; background: rgba(255,255,255,.14); }
+
+        .mast-search { position: relative; flex: 1 1 auto; max-width: 340px; display: none; }
+        .mast-search input {
+            width: 100%; height: 38px;
+            background: #ffffff; color: var(--ink);
+            border: 1px solid #3a4049; border-radius: 6px;
+            padding: 0 12px 0 34px; font-size: .86rem;
+        }
+        .mast-search input::placeholder { color: #98a0ac; }
+        .mast-search input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+        .mast-search .ic { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #7c8492; }
+
+        .icon-btn {
+            width: 38px; height: 38px; border-radius: 7px;
+            display: inline-flex; align-items: center; justify-content: center;
+            color: #dfe3e9;
+        }
+        .icon-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            height: 38px; padding: 0 16px; border-radius: 6px;
+            background: var(--link); color: #fff;
+            font-size: .84rem; font-weight: 700; white-space: nowrap;
+            transition: background .15s ease;
+        }
+        .btn:hover { background: var(--link-dk); }
+        .btn-lg { height: 42px; width: 100%; font-size: .9rem; }
+
+        .mobile-search { display: none; padding: 0 0 12px; }
+        .mobile-search.show { display: block; }
+        .mobile-search .mast-search { display: block; max-width: none; }
+
+        /* ---------------- Tab bar ---------------- */
+        .tabbar { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 30; }
+        .tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+        .tabs::-webkit-scrollbar { display: none; }
+        .tab {
+            position: relative; flex: 0 0 auto;
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 13px 14px;
+            font-size: .82rem; font-weight: 700; color: var(--ink2);
+            white-space: nowrap;
+        }
+        .tab:hover { color: var(--ink); }
+        .tab.active { color: var(--link); }
+        .tab.active::after {
+            content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px;
+            height: 3px; background: var(--link); border-radius: 3px 3px 0 0;
+        }
+
+        /* ---------------- Panels ---------------- */
+        .panel { background: var(--card); border: 1px solid var(--line); border-radius: 4px; margin-bottom: 16px; }
         .panel-head {
-            display: flex; align-items: center; justify-content: space-between;
-            gap: 0.75rem;
-            padding: 0.75rem 1rem;
-            background: rgba(255, 255, 255, 0.03);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-            font-size: 0.65rem;
-            font-weight: 700;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-            color: #94a3b8;
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 9px 12px;
+            background: var(--panel-head);
+            border-bottom: 1px solid var(--line);
+            font-size: .66rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase;
+            color: var(--ink2);
         }
+        .panel-head .more { font-size: .64rem; font-weight: 700; color: var(--link); letter-spacing: .06em; }
+        .panel-head .more:hover { text-decoration: underline; }
+        .panel-body { padding: 12px; }
 
-        /* ------------------------------------------------------------------
-           Photo tile — the unit of this page is a PHOTO, not an aircraft.
-           Caption bar mirrors a spotter site: photographer left, reg right.
-           ------------------------------------------------------------------ */
+        /* ---------------- Photo tiles ---------------- */
+        .grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        @media (min-width: 720px)  { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1100px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1500px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
         .tile {
-            position: relative;
-            display: block;
-            background: #0b1220;
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 0.9rem;
-            overflow: hidden;
-            cursor: pointer;
-            transition: transform .35s cubic-bezier(.16,1,.3,1), border-color .3s ease, box-shadow .35s ease;
+            position: relative; display: block; width: 100%; text-align: left;
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 4px; overflow: hidden;
+            transition: box-shadow .18s ease, border-color .18s ease;
         }
-        .tile:hover {
-            transform: translateY(-4px);
-            border-color: rgba(56, 189, 248, 0.45);
-            box-shadow: 0 22px 44px -18px rgba(0,0,0,0.9);
-        }
-        .tile-frame {
-            position: relative;
-            aspect-ratio: 3 / 2;
-            background: #05080f;
-            overflow: hidden;
-        }
-        .tile-frame img {
-            width: 100%; height: 100%;
-            object-fit: cover;
-            transition: transform .7s cubic-bezier(.16,1,.3,1);
-        }
-        .tile:hover .tile-frame img { transform: scale(1.06); }
+        .tile:hover { border-color: #9fb3c8; box-shadow: 0 6px 18px rgba(21, 24, 29, .16); }
+        .tile-frame { display: block; position: relative; aspect-ratio: 3 / 2; background: var(--mat); overflow: hidden; }
+        .tile-frame img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s ease; }
+        .tile:hover .tile-frame img { transform: scale(1.04); }
         .tile-badge {
-            position: absolute; top: .55rem; left: .55rem;
-            display: inline-flex; align-items: center; gap: .3rem;
-            background: rgba(2, 6, 23, 0.75);
-            backdrop-filter: blur(6px);
-            border: 1px solid rgba(255,255,255,0.12);
-            color: #e2e8f0;
-            font-size: .6rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-            padding: .25rem .5rem; border-radius: 999px;
+            position: absolute; top: 8px; left: 8px;
+            display: inline-flex; align-items: center; gap: 4px;
+            background: rgba(22, 24, 29, .82); color: #fff;
+            font-size: .6rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+            padding: 3px 7px; border-radius: 3px;
         }
-        .tile-watermark {
-            position: absolute; bottom: .4rem; right: .5rem;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: .55rem; letter-spacing: .18em;
-            color: rgba(255,255,255,0.55);
-            text-shadow: 0 1px 4px rgba(0,0,0,.9);
-            pointer-events: none;
-        }
-        .tile-meta { padding: .55rem .7rem .65rem; }
-        .tile-row {
-            display: flex; align-items: baseline; justify-content: space-between; gap: .6rem;
-        }
-        .tile-shooter {
-            font-size: .78rem; font-weight: 600; color: #e2e8f0;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .tile-reg {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: .72rem; font-weight: 600; color: #38bdf8;
-            white-space: nowrap;
-        }
-        .tile-sub {
-            display: flex; align-items: baseline; justify-content: space-between; gap: .6rem;
-            margin-top: .2rem;
-            font-size: .68rem; color: #94a3b8;
-        }
-        .tile-sub span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tile-meta { display: block; background: var(--strip); color: #fff; padding: 7px 9px 8px; }
+        .tile-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+        .tile-shooter { font-size: .78rem; font-weight: 600; color: #f0f2f5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tile-reg { font-family: 'JetBrains Mono', monospace; font-size: .74rem; font-weight: 600; color: #ffffff; white-space: nowrap; }
+        .tile-sub { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 3px; font-size: .68rem; color: #a7aeba; }
+        .tile-sub span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tile-sub .right { color: #8d95a2; }
 
-        /* Masthead mosaic (top photos) */
-        .mosaic-item { position: relative; overflow: hidden; border-radius: .9rem; cursor: pointer; background: #05080f; }
-        .mosaic-item img { width: 100%; height: 100%; object-fit: cover; transition: transform .8s cubic-bezier(.16,1,.3,1); }
-        .mosaic-item:hover img { transform: scale(1.07); }
-        .mosaic-caption {
-            position: absolute; inset: auto 0 0 0;
-            padding: .6rem .75rem;
-            background: linear-gradient(to top, rgba(2,6,23,.95), rgba(2,6,23,0) 100%);
-            font-size: .7rem; color: #cbd5e1;
+        /* ---------------- Newest mosaic ---------------- */
+        .mosaic { display: grid; gap: 8px; grid-template-columns: repeat(2, 1fr); padding: 8px; }
+        @media (min-width: 720px) { .mosaic { grid-template-columns: repeat(4, 1fr); } }
+        .shot { position: relative; overflow: hidden; border-radius: 3px; background: var(--mat); display: block; width: 100%; text-align: left; }
+        .shot img { width: 100%; height: 100%; object-fit: cover; transition: transform .6s ease; }
+        .shot:hover img { transform: scale(1.05); }
+        .shot-cap {
+            display: block;
+            position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 10px 8px;
+            background: linear-gradient(to top, rgba(10,12,16,.92), rgba(10,12,16,0));
+            color: #fff;
+        }
+        .shot-cap .t { font-size: .8rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .shot-cap .s { font-size: .68rem; color: #c3cad4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .shot.lead { grid-column: span 2; aspect-ratio: 16 / 10; }
+        /* The lead photo fills both rows of smalls rather than keeping its own
+           ratio, so the mosaic has no empty corner. */
+        @media (min-width: 720px) { .shot { aspect-ratio: 4 / 3; } .shot.lead { grid-row: span 2; aspect-ratio: auto; height: 100%; } }
+        @media (max-width: 719px) { .shot { aspect-ratio: 4 / 3; } .shot.d-none-sm { display: none; } }
+
+        /* ---------------- Toolbar ---------------- */
+        .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; }
+        .count { font-size: .78rem; color: var(--ink2); font-weight: 600; }
+        .spacer { flex: 1 1 auto; }
+        .sort-label { font-size: .62rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); }
+        select.sort {
+            height: 32px; border: 1px solid var(--line); border-radius: 4px;
+            background: #fff; padding: 0 8px; font-size: .8rem; color: var(--ink);
         }
 
-        /* Tab rail — horizontally scrollable on phones, like JetPhotos */
-        .tab-rail {
-            display: flex; gap: .25rem;
-            overflow-x: auto;
-            scrollbar-width: none;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-        }
-        .tab-rail::-webkit-scrollbar { display: none; }
-        .tab-btn {
-            position: relative;
-            flex: 0 0 auto;
-            padding: .8rem 1rem;
-            font-size: .8rem; font-weight: 700; letter-spacing: .02em;
-            color: #94a3b8;
-            white-space: nowrap;
-            transition: color .25s ease;
-            display: inline-flex; align-items: center; gap: .45rem;
-        }
-        .tab-btn:hover { color: #e2e8f0; }
-        .tab-btn.active { color: #ffffff; }
-        .tab-btn.active::after {
-            content: ''; position: absolute; left: .7rem; right: .7rem; bottom: -1px; height: 2px;
-            background: #38bdf8; border-radius: 2px;
-        }
-
-        /* Chips */
         .chip {
-            display: inline-flex; align-items: center; gap: .35rem;
-            padding: .35rem .7rem;
-            border-radius: 999px;
-            border: 1px solid rgba(255,255,255,0.1);
-            background: rgba(255,255,255,0.03);
-            font-size: .72rem; color: #cbd5e1;
-            transition: all .2s ease;
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 10px; border-radius: 999px;
+            border: 1px solid var(--line); background: #fff;
+            font-size: .74rem; font-weight: 600; color: var(--ink2);
+            transition: all .15s ease;
         }
-        .chip:hover { border-color: rgba(56,189,248,.5); color: #fff; background: rgba(56,189,248,.1); }
-        .chip.active { border-color: rgba(56,189,248,.6); background: rgba(56,189,248,.14); color: #e0f2fe; }
+        .chip:hover { border-color: var(--link); color: var(--link); background: #f3f8ff; }
+        .chip.on { background: var(--link); border-color: var(--link); color: #fff; }
+        .chip.on:hover { background: var(--link-dk); color: #fff; }
 
-        /* Data rows (latest additions) */
-        .data-row {
-            display: grid;
-            grid-template-columns: 5.5rem minmax(0,1fr) auto;
-            gap: .6rem; align-items: center;
-            padding: .55rem 1rem;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            font-size: .74rem;
-            cursor: pointer;
-            transition: background .2s ease;
-        }
-        .data-row:hover { background: rgba(56,189,248,0.06); }
-        .data-row:last-child { border-bottom: 0; }
+        /* ---------------- Sidebar bits ---------------- */
+        .layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; padding: 16px 0 28px; }
+        @media (min-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr) 320px; } }
 
-        /* ------------------------------------------------------------------
-           Lightbox — the photo "page": big image plus an aircraft data sheet.
-           ------------------------------------------------------------------ */
-        #lightbox {
-            position: fixed; inset: 0; z-index: 100;
-            background: rgba(2, 6, 23, 0.96);
-            backdrop-filter: blur(10px);
-            display: none;
-            overflow-y: auto;
-            overscroll-behavior: contain;
+        .person { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border-radius: 4px; text-align: left; }
+        .person:hover { background: #f2f5f9; }
+        .person .rank { width: 14px; font-family: 'JetBrains Mono', monospace; font-size: .7rem; color: var(--muted); }
+        .person img { width: 32px; height: 32px; border-radius: 999px; border: 1px solid var(--line); }
+        .person .n { font-size: .83rem; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .person .c { font-size: .7rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+        .row {
+            display: grid; grid-template-columns: 5.4rem minmax(0, 1fr) auto; gap: 8px; align-items: center;
+            width: 100%; text-align: left;
+            padding: 8px 12px; border-bottom: 1px solid #edeff2; font-size: .76rem;
         }
+        .row:last-child { border-bottom: 0; }
+        .row:hover { background: #f2f5f9; }
+        .row .reg { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--link); }
+        .row .ac { color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .row .dt { color: var(--muted); font-size: .7rem; white-space: nowrap; }
+
+        .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; }
+        .nums dt { font-size: .62rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+        .nums dd { margin: 2px 0 0; font-size: 1.15rem; font-weight: 800; color: var(--ink); }
+
+        .muted { color: var(--muted); }
+        .note { font-size: .72rem; color: var(--muted); line-height: 1.5; }
+        .empty { grid-column: 1 / -1; padding: 56px 16px; text-align: center; color: var(--muted); font-size: .9rem; }
+        .skel { background: linear-gradient(90deg, #dfe3e8 25%, #eef1f4 50%, #dfe3e8 75%); background-size: 200% 100%; animation: sh 1.3s infinite; border-radius: 4px; }
+        @keyframes sh { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+        /* ---------------- Photo page (lightbox) ---------------- */
+        #lightbox { position: fixed; inset: 0; z-index: 100; background: rgba(16, 18, 22, .88); display: none; overflow-y: auto; overscroll-behavior: contain; }
         #lightbox.open { display: block; }
-        .lb-shell { max-width: 1100px; margin: 0 auto; padding: 4.5rem 1rem 3rem; }
-        .lb-stage {
-            position: relative;
-            background: #05080f;
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 1rem;
-            overflow: hidden;
-        }
-        .lb-stage img { width: 100%; max-height: 74vh; object-fit: contain; display: block; background: #05080f; }
+        .lb-wrap { max-width: 1100px; margin: 0 auto; padding: 56px 12px 40px; }
+        .lb-card { background: var(--card); border-radius: 5px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.45); }
+        .lb-stage { position: relative; background: var(--mat); }
+        .lb-stage img { width: 100%; max-height: 76vh; object-fit: contain; margin: 0 auto; }
         .lb-nav {
             position: absolute; top: 50%; transform: translateY(-50%);
-            width: 2.75rem; height: 2.75rem;
+            width: 42px; height: 42px; border-radius: 999px;
             display: flex; align-items: center; justify-content: center;
-            border-radius: 999px;
-            background: rgba(2,6,23,.7);
-            border: 1px solid rgba(255,255,255,.14);
-            color: #fff;
-            transition: all .2s ease;
+            background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.28);
+            backdrop-filter: blur(4px);
         }
-        .lb-nav:hover { background: #38bdf8; color: #04141d; border-color: #38bdf8; }
-        .lb-strip {
-            display: grid; grid-template-columns: repeat(5, 1fr);
-            border-top: 1px solid rgba(255,255,255,0.08);
-            background: rgba(255,255,255,0.02);
-        }
-        .lb-stat { padding: .7rem .5rem; text-align: center; border-right: 1px solid rgba(255,255,255,0.06); }
-        .lb-stat:last-child { border-right: 0; }
-        .lb-stat-label { font-size: .55rem; letter-spacing: .16em; text-transform: uppercase; color: #64748b; }
-        .lb-stat-value { font-size: .95rem; font-weight: 700; color: #fff; margin-top: .15rem; }
-        .lb-row {
-            display: grid; grid-template-columns: 7.5rem minmax(0,1fr);
-            gap: .75rem; padding: .55rem 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            font-size: .85rem;
-        }
-        .lb-row dt { color: #64748b; }
-        .lb-row dd { margin: 0; color: #e2e8f0; }
-        .lb-link { color: #38bdf8; }
+        .lb-nav:hover { background: #fff; color: var(--ink); }
+        .lb-nav.prev { left: 12px; } .lb-nav.next { right: 12px; }
+        .lb-bar { display: grid; grid-template-columns: repeat(5, 1fr); background: var(--strip); color: #fff; }
+        .lb-bar > * { padding: 9px 4px; text-align: center; border-right: 1px solid rgba(255,255,255,.1); }
+        .lb-bar > *:last-child { border-right: 0; }
+        .lb-bar .k { font-size: .55rem; letter-spacing: .14em; text-transform: uppercase; color: #a7aeba; }
+        .lb-bar .v { font-size: .92rem; font-weight: 800; margin-top: 2px; }
+        .lb-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 16px; }
+        @media (min-width: 860px) { .lb-body { grid-template-columns: minmax(0, 1fr) 260px; } }
+        .lb-title { margin: 0 0 12px; font-size: 1.35rem; font-weight: 800; letter-spacing: -.01em; }
+        .lb-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 10px; padding: 7px 0; border-bottom: 1px solid #edeff2; font-size: .86rem; }
+        .lb-row dt { color: var(--muted); }
+        .lb-row dd { margin: 0; color: var(--ink); }
+        .lb-link { color: var(--link); font-weight: 600; }
         .lb-link:hover { text-decoration: underline; }
+        .shooter-card { border: 1px solid var(--line); border-radius: 4px; }
+        .strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px; }
+        @media (min-width: 720px) { .strip { grid-template-columns: repeat(5, 1fr); } }
+        .strip .shot { aspect-ratio: 4 / 3; border-radius: 3px; }
 
-        /* Scrollbars */
-        .thin-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
-        .thin-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 10px; }
-        .thin-scroll::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.35); border-radius: 10px; }
-        .thin-scroll::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,0.7); }
+        /* ---------------- Footer ---------------- */
+        .foot { margin-top: auto; background: var(--head); color: #aeb6c2; }
+        .foot-cols { display: grid; grid-template-columns: repeat(2, 1fr); gap: 26px; padding: 32px 0; }
+        @media (min-width: 720px) { .foot-cols { grid-template-columns: repeat(4, 1fr); } }
+        .foot h4 { margin: 0 0 10px; font-size: .62rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #7d8695; }
+        .foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+        .foot li button, .foot li a { font-size: .84rem; color: #ccd2da; text-align: left; }
+        .foot li button:hover, .foot li a:hover { color: #fff; }
+        .foot-base { border-top: 1px solid rgba(255,255,255,.08); padding: 14px 0; text-align: center; font-size: .68rem; color: #79828f; letter-spacing: .06em; }
 
-        .skel { background: linear-gradient(90deg, #0b1220 25%, #16233b 50%, #0b1220 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
-        @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-
-        @media (max-width: 640px) {
-            .lb-shell { padding: 3.75rem .5rem 2rem; }
-            .lb-row { grid-template-columns: 6rem minmax(0,1fr); font-size: .8rem; }
+        /* Phones: the wordmark keeps the row, so the upload button goes to its
+           icon and the brand loses a little weight. */
+        @media (max-width: 480px) {
+            .masthead-inner { gap: 10px; }
+            .brand-word { font-size: .95rem; letter-spacing: .16em; }
+            .brand-sub { font-size: .48rem; letter-spacing: .1em; }
+            .brand-mark { padding: 4px 10px 5px; }
+            .upload-label { display: none; }
+            .btn { padding: 0 12px; }
         }
+
+        @media (min-width: 1024px) { .mast-nav { display: flex; } }
+        @media (min-width: 640px)  { .mast-search { display: block; } .m-only { display: none !important; } }
     </style>
 </head>
-<body class="antialiased selection:bg-accent/30">
+<body>
 
-    <!-- ================= Header ================= -->
-    <nav class="fixed top-0 w-full z-50 nav-blur">
-        <div class="max-w-[1500px] mx-auto px-4 sm:px-6 h-16 flex items-center gap-4">
-            <a href="home.html" class="flex items-center gap-2.5 group shrink-0">
-                <img src="Images/inflight.png" alt="InFlight" class="size-9 rounded-full object-cover ring-2 ring-accent/25 transition-transform duration-300 group-hover:scale-110"
-                     onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=In+Flight&background=38bdf8&color=fff';">
-                <span class="font-black tracking-tight text-white leading-none">
-                    <span class="text-base sm:text-lg">InFlight</span>
-                    <span class="block text-[9px] font-mono font-semibold tracking-[0.28em] text-accent uppercase">Gallery</span>
-                </span>
-            </a>
+    <!-- ===================== Masthead ===================== -->
+    <header class="masthead">
+        <div class="wrap">
+            <div class="masthead-inner">
+                <a class="brand" href="home.html" aria-label="InFlight Gallery — home">
+                    <span class="brand-mark">
+                        <span class="brand-word">InFlight</span>
+                        <span class="brand-sub"><i data-lucide="plane" style="width:11px;height:11px"></i> <span id="brand-count">Gallery</span></span>
+                    </span>
+                </a>
 
-            <div class="hidden lg:flex items-center gap-1 ml-4">
-                <button class="tab-btn !py-2 !px-3" data-navtab="photos">Photos</button>
-                <button class="tab-btn !py-2 !px-3" data-navtab="aircraft">Aircraft</button>
-                <button class="tab-btn !py-2 !px-3" data-navtab="liveries">Airlines</button>
-                <button class="tab-btn !py-2 !px-3" data-navtab="airports">Airports</button>
-                <button class="tab-btn !py-2 !px-3" data-navtab="contributors">Photographers</button>
+                <nav class="mast-nav">
+                    <button class="mast-link" data-navtab="photos">Photos</button>
+                    <button class="mast-link" data-navtab="aircraft">Aircraft</button>
+                    <button class="mast-link" data-navtab="liveries">Airlines</button>
+                    <button class="mast-link" data-navtab="airports">Airports</button>
+                    <button class="mast-link" data-navtab="contributors">Photographers</button>
+                </nav>
+
+                <div class="spacer"></div>
+
+                <div class="mast-search">
+                    <i data-lucide="search" class="ic" style="width:16px;height:16px"></i>
+                    <input id="search-input" type="search" autocomplete="off" placeholder="Registration, type, airline, photographer…">
+                </div>
+
+                <button id="mobile-search-btn" class="icon-btn m-only" aria-label="Search">
+                    <i data-lucide="search" style="width:18px;height:18px"></i>
+                </button>
+
+                <button id="upload-btn" class="btn">
+                    <i data-lucide="upload" style="width:16px;height:16px"></i>
+                    <span class="upload-label">Upload</span>
+                </button>
             </div>
 
-            <div class="flex-1"></div>
-
-            <div class="relative hidden sm:block w-56 lg:w-72">
-                <i data-lucide="search" class="size-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-                <input id="search-input" type="search" autocomplete="off" placeholder="Reg, type, airline, photographer…"
-                       class="w-full bg-black/40 border border-white/10 rounded-full py-2 pl-9 pr-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50 transition-all">
-            </div>
-            <button id="mobile-search-btn" class="sm:hidden p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/5">
-                <i data-lucide="search" class="size-5"></i>
-            </button>
-
-            <button id="upload-btn" class="shrink-0 inline-flex items-center gap-2 bg-accent text-[#04141d] font-bold text-xs sm:text-sm px-3 sm:px-4 py-2 rounded-full hover:brightness-110 transition-all">
-                <i data-lucide="upload-cloud" class="size-4"></i>
-                <span class="hidden sm:inline">Upload</span>
-            </button>
-        </div>
-
-        <!-- Phone search drawer -->
-        <div id="mobile-search" class="sm:hidden hidden px-4 pb-3">
-            <div class="relative">
-                <i data-lucide="search" class="size-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-                <input id="search-input-mobile" type="search" autocomplete="off" placeholder="Reg, type, airline, photographer…"
-                       class="w-full bg-black/50 border border-white/10 rounded-full py-2.5 pl-9 pr-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/50">
+            <div id="mobile-search" class="mobile-search">
+                <div class="mast-search">
+                    <i data-lucide="search" class="ic" style="width:16px;height:16px"></i>
+                    <input id="search-input-mobile" type="search" autocomplete="off" placeholder="Registration, type, airline, photographer…">
+                </div>
             </div>
         </div>
-    </nav>
+    </header>
 
-    <main class="flex-1 w-full max-w-[1500px] mx-auto px-4 sm:px-6 pt-20 sm:pt-24 pb-16">
+    <!-- ===================== Tabs ===================== -->
+    <div class="tabbar">
+        <div class="wrap">
+            <div class="tabs">
+                <button class="tab" data-tab="photos"><i data-lucide="image" style="width:15px;height:15px"></i> Latest photos</button>
+                <button class="tab" data-tab="aircraft"><i data-lucide="plane" style="width:15px;height:15px"></i> Aircraft types</button>
+                <button class="tab" data-tab="liveries"><i data-lucide="paint-bucket" style="width:15px;height:15px"></i> Airlines &amp; liveries</button>
+                <button class="tab" data-tab="airports"><i data-lucide="building-2" style="width:15px;height:15px"></i> Airports</button>
+                <button class="tab" data-tab="contributors"><i data-lucide="camera" style="width:15px;height:15px"></i> Photographers</button>
+            </div>
+        </div>
+    </div>
 
-        <!-- ================= Masthead: newest uploads ================= -->
-        <section id="masthead" class="panel mb-6">
+    <main class="wrap">
+        <!-- Newest uploads -->
+        <section class="panel" style="margin-top:16px">
             <div class="panel-head">
-                <span class="flex items-center gap-2"><i data-lucide="sparkles" class="size-3.5 text-accent"></i> Newest in the gallery</span>
-                <button class="text-[10px] text-accent hover:underline tracking-[0.16em]" data-action="view-latest">View all photos</button>
+                <span>Newest in the gallery</span>
+                <button class="more" data-action="view-latest">View all photos</button>
             </div>
-            <div id="masthead-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2">
-                <div class="skel col-span-2 sm:col-span-2 sm:row-span-2 rounded-xl aspect-[16/10]"></div>
-                <div class="skel rounded-xl aspect-[4/3]"></div>
-                <div class="skel rounded-xl aspect-[4/3]"></div>
-                <div class="skel rounded-xl aspect-[4/3] hidden sm:block"></div>
-                <div class="skel rounded-xl aspect-[4/3] hidden sm:block"></div>
+            <div id="masthead-grid" class="mosaic">
+                <div class="skel shot lead"></div>
+                <div class="skel shot"></div>
+                <div class="skel shot"></div>
+                <div class="skel shot d-none-sm"></div>
+                <div class="skel shot d-none-sm"></div>
             </div>
         </section>
 
-        <!-- ================= Tabs + toolbar ================= -->
-        <div class="panel mb-6">
-            <div class="tab-rail px-2">
-                <button class="tab-btn" data-tab="photos"><i data-lucide="image" class="size-4"></i> Latest photos</button>
-                <button class="tab-btn" data-tab="aircraft"><i data-lucide="plane" class="size-4"></i> Aircraft types</button>
-                <button class="tab-btn" data-tab="liveries"><i data-lucide="paint-bucket" class="size-4"></i> Airlines &amp; liveries</button>
-                <button class="tab-btn" data-tab="airports"><i data-lucide="building-2" class="size-4"></i> Airports</button>
-                <button class="tab-btn" data-tab="contributors"><i data-lucide="camera" class="size-4"></i> Photographers</button>
-            </div>
-
-            <div class="flex flex-col sm:flex-row sm:items-center gap-3 p-3">
-                <div id="active-filter" class="hidden flex-wrap items-center gap-2 text-xs"></div>
-                <div id="result-count" class="text-xs text-slate-400 font-mono"></div>
-                <div class="flex-1"></div>
-                <div class="flex items-center gap-2">
-                    <label for="sort-select" class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500">Sort</label>
-                    <select id="sort-select" class="bg-black/40 border border-white/10 rounded-lg text-xs text-slate-200 py-1.5 px-2 focus:outline-none focus:ring-2 focus:ring-accent/40">
-                        <option value="newest">Newest first</option>
-                        <option value="oldest">Oldest first</option>
-                        <option value="type">Aircraft type A–Z</option>
-                        <option value="reg">Registration A–Z</option>
-                        <option value="photographer">Photographer A–Z</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-
-        <!-- ================= Body: feed + sidebar ================= -->
-        <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_330px] gap-6">
-
+        <div class="layout">
+            <!-- Feed -->
             <div>
-                <div id="content-grid" class="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4"></div>
-                <div id="sentinel" class="h-16"></div>
-                <div id="load-more-wrap" class="hidden justify-center pt-4">
-                    <button id="load-more" class="chip !px-5 !py-2.5 !text-sm">Load more photos</button>
+                <div class="panel" style="margin-bottom:12px">
+                    <div class="toolbar">
+                        <div id="active-filter" style="display:none; gap:8px; align-items:center; flex-wrap:wrap"></div>
+                        <div id="result-count" class="count"></div>
+                        <div class="spacer"></div>
+                        <label for="sort-select" class="sort-label">Sort</label>
+                        <select id="sort-select" class="sort">
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="type">Aircraft type A–Z</option>
+                            <option value="reg">Registration A–Z</option>
+                            <option value="photographer">Photographer A–Z</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="content-grid" class="grid"></div>
+                <div id="sentinel" style="height:60px"></div>
+                <div id="load-more-wrap" style="display:none; justify-content:center; padding-top:8px">
+                    <button id="load-more" class="chip" style="padding:9px 18px; font-size:.84rem">Load more photos</button>
                 </div>
             </div>
 
-            <aside class="space-y-5">
+            <!-- Sidebar -->
+            <aside>
                 <section class="panel">
                     <div class="panel-head"><span>Photo updates</span></div>
-                    <div class="p-4 space-y-3">
-                        <p class="text-sm text-slate-300"><span id="recent-count" class="font-bold text-white">—</span> photos added in the last 30 days</p>
-                        <button id="upload-btn-side" class="w-full inline-flex items-center justify-center gap-2 bg-accent text-[#04141d] font-bold text-sm px-4 py-2.5 rounded-lg hover:brightness-110 transition-all">
-                            <i data-lucide="upload-cloud" class="size-4"></i> Upload your photos
+                    <div class="panel-body">
+                        <p style="margin:0 0 10px; font-size:.86rem; color:var(--ink2)">
+                            <strong id="recent-count" style="color:var(--ink)">—</strong> photos added in the last 30 days
+                        </p>
+                        <button id="upload-btn-side" class="btn btn-lg">
+                            <i data-lucide="upload" style="width:16px;height:16px"></i> Upload your photos
                         </button>
-                        <p class="text-[11px] text-slate-500 leading-relaxed">Every submission is screened by staff on Discord before it appears here.</p>
+                        <p class="note" style="margin:10px 0 0">Every submission is screened by staff on Discord before it appears here.</p>
                     </div>
                 </section>
 
                 <section class="panel">
                     <div class="panel-head"><span>Top photographers</span></div>
-                    <div id="contributors-panel" class="p-2 space-y-1">
-                        <div class="skel h-12 rounded-lg"></div>
-                        <div class="skel h-12 rounded-lg"></div>
-                        <div class="skel h-12 rounded-lg"></div>
+                    <div id="contributors-panel" style="padding:6px">
+                        <div class="skel" style="height:46px; margin:4px"></div>
+                        <div class="skel" style="height:46px; margin:4px"></div>
+                        <div class="skel" style="height:46px; margin:4px"></div>
                     </div>
                 </section>
 
@@ -414,92 +453,90 @@
 
                 <section class="panel">
                     <div class="panel-head"><span>The gallery in numbers</span></div>
-                    <dl id="numbers-panel" class="p-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm"></dl>
+                    <dl id="numbers-panel" class="nums panel-body" style="margin:0"></dl>
                 </section>
 
                 <section class="panel">
                     <div class="panel-head"><span>Popular searches</span></div>
-                    <div id="popular-searches" class="p-3 flex flex-wrap gap-2"></div>
+                    <div id="popular-searches" class="panel-body" style="display:flex; flex-wrap:wrap; gap:6px"></div>
                 </section>
             </aside>
         </div>
     </main>
 
-    <!-- ================= Photo page (lightbox) ================= -->
+    <!-- ===================== Photo page ===================== -->
     <div id="lightbox" role="dialog" aria-modal="true" aria-label="Photo details">
-        <button id="lb-close" class="fixed top-4 right-4 z-[110] size-10 rounded-full bg-black/60 border border-white/15 text-white flex items-center justify-center hover:bg-accent hover:text-[#04141d] transition-all">
-            <i data-lucide="x" class="size-5"></i>
+        <button id="lb-close" class="icon-btn" style="position:fixed; top:12px; right:12px; z-index:110; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.28)">
+            <i data-lucide="x" style="width:18px;height:18px"></i>
         </button>
-        <div class="lb-shell">
-            <div class="lb-stage">
-                <img id="lb-image" src="" alt="">
-                <button class="lb-nav left-3" id="lb-prev" aria-label="Previous photo"><i data-lucide="chevron-left" class="size-5"></i></button>
-                <button class="lb-nav right-3" id="lb-next" aria-label="Next photo"><i data-lucide="chevron-right" class="size-5"></i></button>
-                <div class="lb-strip">
-                    <div class="lb-stat"><div class="lb-stat-label">Photo</div><div class="lb-stat-value" id="lb-index">—</div></div>
-                    <div class="lb-stat"><div class="lb-stat-label">Of reg</div><div class="lb-stat-value" id="lb-regcount">—</div></div>
-                    <div class="lb-stat"><div class="lb-stat-label">Of type</div><div class="lb-stat-value" id="lb-typecount">—</div></div>
-                    <div class="lb-stat"><button id="lb-share" class="w-full"><div class="lb-stat-label">Share</div><div class="lb-stat-value"><i data-lucide="link" class="size-4 inline"></i></div></button></div>
-                    <div class="lb-stat"><a id="lb-open" href="#" target="_blank" rel="noopener" class="block"><div class="lb-stat-label">Full size</div><div class="lb-stat-value"><i data-lucide="external-link" class="size-4 inline"></i></div></a></div>
+        <div class="lb-wrap">
+            <div class="lb-card">
+                <div class="lb-stage">
+                    <img id="lb-image" src="" alt="">
+                    <button class="lb-nav prev" id="lb-prev" aria-label="Previous photo"><i data-lucide="chevron-left" style="width:20px;height:20px"></i></button>
+                    <button class="lb-nav next" id="lb-next" aria-label="Next photo"><i data-lucide="chevron-right" style="width:20px;height:20px"></i></button>
                 </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_280px] gap-6 mt-6">
-                <div>
-                    <h2 id="lb-title" class="text-2xl font-black text-white tracking-tight mb-4"></h2>
-                    <dl id="lb-details" class="text-sm"></dl>
+                <div class="lb-bar">
+                    <div><div class="k">Photo</div><div class="v" id="lb-index">—</div></div>
+                    <div><div class="k">Of reg</div><div class="v" id="lb-regcount">—</div></div>
+                    <div><div class="k">Of type</div><div class="v" id="lb-typecount">—</div></div>
+                    <button id="lb-share"><div class="k">Share</div><div class="v"><i data-lucide="link" style="width:16px;height:16px;display:inline"></i></div></button>
+                    <a id="lb-open" href="#" target="_blank" rel="noopener"><div class="k">Full size</div><div class="v"><i data-lucide="external-link" style="width:16px;height:16px;display:inline"></i></div></a>
                 </div>
-                <div class="panel h-fit">
-                    <div class="panel-head"><span>Photographer</span></div>
-                    <div class="p-4" id="lb-photographer"></div>
+                <div class="lb-body">
+                    <div>
+                        <h2 class="lb-title" id="lb-title"></h2>
+                        <dl id="lb-details" style="margin:0"></dl>
+                    </div>
+                    <div class="shooter-card">
+                        <div class="panel-head"><span>Photographer</span></div>
+                        <div class="panel-body" id="lb-photographer"></div>
+                    </div>
                 </div>
-            </div>
-
-            <div class="mt-8">
-                <div class="panel-head rounded-t-xl border border-white/7 border-b-0"><span id="lb-more-title">More of this aircraft</span></div>
-                <div id="lb-more" class="grid grid-cols-3 sm:grid-cols-5 gap-2 p-2 panel rounded-t-none"></div>
+                <div class="panel-head" id="lb-more-head"><span id="lb-more-title">More of this aircraft</span></div>
+                <div id="lb-more" class="strip"></div>
             </div>
         </div>
     </div>
 
-    <!-- ================= Footer ================= -->
-    <footer class="border-t border-white/7 bg-[#05080f] mt-auto">
-        <div class="max-w-[1500px] mx-auto px-6 py-10 grid grid-cols-2 md:grid-cols-4 gap-8 text-sm">
-            <div>
-                <h4 class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500 mb-3">Gallery</h4>
-                <ul class="space-y-2 text-slate-400">
-                    <li><button class="hover:text-white transition-colors" data-tab-link="photos">Latest photos</button></li>
-                    <li><button class="hover:text-white transition-colors" data-tab-link="aircraft">Aircraft types</button></li>
-                    <li><button class="hover:text-white transition-colors" data-tab-link="liveries">Airlines &amp; liveries</button></li>
-                </ul>
-            </div>
-            <div>
-                <h4 class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500 mb-3">Spotting</h4>
-                <ul class="space-y-2 text-slate-400">
-                    <li><button class="hover:text-white transition-colors" data-tab-link="airports">Airports</button></li>
-                    <li><button class="hover:text-white transition-colors" data-tab-link="contributors">Photographers</button></li>
-                    <li><a href="submit-aircraft.html" class="hover:text-white transition-colors">Upload your photos</a></li>
-                </ul>
-            </div>
-            <div>
-                <h4 class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500 mb-3">InFlight</h4>
-                <ul class="space-y-2 text-slate-400">
-                    <li><a href="home.html" class="hover:text-white transition-colors">Home</a></li>
-                    <li><a href="index.html" class="hover:text-white transition-colors">Live tracker</a></li>
-                    <li><a href="home.html#features" class="hover:text-white transition-colors">Capabilities</a></li>
-                </ul>
-            </div>
-            <div>
-                <h4 class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500 mb-3">Community</h4>
-                <ul class="space-y-2 text-slate-400">
-                    <li><a href="https://discord.gg/cNSkZtdJ" class="hover:text-white transition-colors">Discord</a></li>
-                    <li><a href="crew-website.html" class="hover:text-white transition-colors">Crew centre</a></li>
-                </ul>
+    <!-- ===================== Footer ===================== -->
+    <footer class="foot">
+        <div class="wrap">
+            <div class="foot-cols">
+                <div>
+                    <h4>Gallery</h4>
+                    <ul>
+                        <li><button data-tab-link="photos">Latest photos</button></li>
+                        <li><button data-tab-link="aircraft">Aircraft types</button></li>
+                        <li><button data-tab-link="liveries">Airlines &amp; liveries</button></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Spotting</h4>
+                    <ul>
+                        <li><button data-tab-link="airports">Airports</button></li>
+                        <li><button data-tab-link="contributors">Photographers</button></li>
+                        <li><a href="submit-aircraft.html">Upload your photos</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>InFlight</h4>
+                    <ul>
+                        <li><a href="home.html">Home</a></li>
+                        <li><a href="index.html">Live tracker</a></li>
+                        <li><a href="home.html#features">Capabilities</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Community</h4>
+                    <ul>
+                        <li><a href="https://discord.gg/cNSkZtdJ">Discord</a></li>
+                        <li><a href="crew-website.html">Crew centre</a></li>
+                    </ul>
+                </div>
             </div>
         </div>
-        <div class="border-t border-white/5 py-5 text-center">
-            <p class="text-[10px] font-mono text-slate-600 tracking-[0.18em] uppercase">© 2026 InFlight Gallery — photos © their contributors</p>
-        </div>
+        <div class="foot-base">© 2026 InFlight Gallery — every photo © its contributor</div>
     </footer>
 
     <script src="communityHub.js"></script>
@@ -508,7 +545,7 @@
 
         const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
         const FALLBACK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200"><rect width="300" height="200" fill="#0b1220"/><text x="150" y="105" font-family="monospace" font-size="13" fill="#475569" text-anchor="middle">IMAGE UNAVAILABLE</text></svg>'
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200"><rect width="300" height="200" fill="#1b1e24"/><text x="150" y="105" font-family="monospace" font-size="12" fill="#6b7280" text-anchor="middle">IMAGE UNAVAILABLE</text></svg>'
         );
         const PAGE_SIZE = 40;
 
@@ -523,13 +560,13 @@
             sort: 'newest',
             filter: null,      // { kind: 'type'|'livery'|'reg'|'contributor', value }
             shown: PAGE_SIZE,
-            photoId: null,     // open lightbox photo
+            photoId: null,     // open photo page
         };
 
         let photos = [];       // flattened aircraft photos
         let airports = [];     // airport photos
         let viewList = [];     // photo list currently rendered/navigable
-        let moreList = [];     // the lightbox's sibling strip (same reg, else same type)
+        let moreList = [];     // the photo page's sibling strip (same reg, else same type)
 
         const els = {
             grid: document.getElementById('content-grid'),
@@ -549,13 +586,13 @@
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         const norm = (s) => String(s || '').trim().toLowerCase();
+        const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : (many || one + 's')}`;
         const fmtDate = (d) => {
             const date = d ? new Date(d) : null;
             if (!date || isNaN(date)) return 'Unknown';
             return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
         };
-        const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + 's')}`;
-        const avatar = (name) => `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'IF')}&background=111c31&color=e2e8f0&bold=true`;
+        const avatar = (name) => `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'IF')}&background=e7e9ec&color=4d5561&bold=true`;
 
         // ------------------------------------------------------------------
         // Load + flatten
@@ -567,23 +604,20 @@
                 fetch(`${API_BASE_URL}/api/airports`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
             ]);
 
-            if (acRes.status === 'fulfilled' && Array.isArray(acRes.value)) {
-                photos = flattenAircraft(acRes.value);
-            }
-            if (apRes.status === 'fulfilled' && Array.isArray(apRes.value)) {
-                airports = apRes.value.filter(a => a && a.imageUrl);
-            }
+            if (acRes.status === 'fulfilled' && Array.isArray(acRes.value)) photos = flattenAircraft(acRes.value);
+            if (apRes.status === 'fulfilled' && Array.isArray(apRes.value)) airports = apRes.value.filter(a => a && a.imageUrl);
 
             if (!photos.length && !airports.length) {
-                els.grid.innerHTML = `
-                    <div class="col-span-full py-20 text-center text-red-300 border border-red-500/15 bg-red-500/5 rounded-2xl">
-                        <i data-lucide="server-crash" class="size-9 mx-auto mb-3 opacity-80"></i>
-                        <p class="font-mono text-xs tracking-[0.18em] uppercase">Could not reach the photo database</p>
+                els.masthead.innerHTML = '';
+                els.grid.innerHTML = `<div class="empty">
+                        <i data-lucide="server-crash" style="width:30px;height:30px;margin:0 auto 10px"></i>
+                        <p>Could not reach the photo database. Please try again shortly.</p>
                     </div>`;
                 lucide.createIcons();
                 return;
             }
 
+            document.getElementById('brand-count').textContent = `${photos.length.toLocaleString()} photos · all screened`;
             renderMasthead();
             renderSidebar();
             applyHash();
@@ -670,51 +704,48 @@
         // ------------------------------------------------------------------
         // Rendering
         // ------------------------------------------------------------------
-        function renderSkeletons(n = 12) {
+        function renderSkeletons(n = 9) {
             els.grid.innerHTML = Array(n).fill(0)
-                .map(() => '<div class="skel rounded-xl aspect-[3/2]"></div>').join('');
+                .map(() => '<div class="skel" style="aspect-ratio:3/2"></div>').join('');
         }
 
-        function photoTile(p, idx) {
+        function photoTile(p) {
             const multi = p.slots > 1
-                ? `<span class="tile-badge"><i data-lucide="layers" class="size-3"></i>${p.slot}/${p.slots}</span>` : '';
+                ? `<span class="tile-badge"><i data-lucide="layers" style="width:11px;height:11px"></i>${p.slot}/${p.slots}</span>` : '';
             return `
-                <article class="tile" data-photo="${esc(p.id)}" data-idx="${idx}" role="button" tabindex="0"
-                         aria-label="${esc(p.type)} ${esc(p.reg)} by ${esc(p.photographer)}">
-                    <div class="tile-frame">
+                <button class="tile" data-photo="${esc(p.id)}"
+                        aria-label="${esc(p.type)} ${esc(p.reg)} photographed by ${esc(p.photographer)}">
+                    <span class="tile-frame">
                         <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.type)} — ${esc(p.livery)}"
                              onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
                         ${multi}
-                        <span class="tile-watermark">INFLIGHT</span>
-                    </div>
-                    <div class="tile-meta">
-                        <div class="tile-row">
+                    </span>
+                    <span class="tile-meta">
+                        <span class="tile-row">
                             <span class="tile-shooter">${esc(p.photographer)}</span>
                             <span class="tile-reg">${esc(p.reg || '—')}</span>
-                        </div>
-                        <div class="tile-sub">
+                        </span>
+                        <span class="tile-sub">
                             <span>${esc(p.type)}</span>
-                            <span class="text-slate-500">${esc(p.livery)}</span>
-                        </div>
-                    </div>
-                </article>`;
+                            <span class="right">${esc(p.livery)}</span>
+                        </span>
+                    </span>
+                </button>`;
         }
 
         function groupCard(title, subtitle, cover, count, kind, value) {
             return `
-                <article class="tile" data-group="${esc(kind)}" data-value="${esc(value)}" role="button" tabindex="0">
-                    <div class="tile-frame">
+                <button class="tile" data-group="${esc(kind)}" data-value="${esc(value)}">
+                    <span class="tile-frame">
                         <img loading="lazy" decoding="async" src="${esc(cover)}" alt="${esc(title)}"
                              onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
-                        <span class="tile-badge"><i data-lucide="image" class="size-3"></i>${plural(count, 'photo')}</span>
-                    </div>
-                    <div class="tile-meta">
-                        <div class="tile-row">
-                            <span class="tile-shooter">${esc(title)}</span>
-                        </div>
-                        <div class="tile-sub"><span>${esc(subtitle)}</span></div>
-                    </div>
-                </article>`;
+                        <span class="tile-badge"><i data-lucide="image" style="width:11px;height:11px"></i>${plural(count, 'photo')}</span>
+                    </span>
+                    <span class="tile-meta">
+                        <span class="tile-row"><span class="tile-shooter">${esc(title)}</span></span>
+                        <span class="tile-sub"><span>${esc(subtitle)}</span></span>
+                    </span>
+                </button>`;
         }
 
         function render() {
@@ -728,11 +759,10 @@
             if (state.tab === 'contributors') return renderContributors();
         }
 
-        function emptyState(msg) {
-            return `<div class="col-span-full py-20 text-center text-slate-500">
-                        <i data-lucide="search-x" class="size-9 mx-auto mb-3 opacity-60"></i>
-                        <p class="text-sm">${esc(msg)}</p>
-                    </div>`;
+        const emptyState = (msg) => `<div class="empty">${esc(msg)}</div>`;
+
+        function showLoadMore(show) {
+            els.loadMoreWrap.style.display = show ? 'flex' : 'none';
         }
 
         function renderPhotoFeed() {
@@ -741,15 +771,12 @@
 
             if (!viewList.length) {
                 els.grid.innerHTML = emptyState('No photos match this search yet.');
-                els.loadMoreWrap.classList.add('hidden');
-                lucide.createIcons();
+                showLoadMore(false);
                 return;
             }
 
-            const slice = viewList.slice(0, state.shown);
-            els.grid.innerHTML = slice.map((p, i) => photoTile(p, i)).join('');
-            els.loadMoreWrap.classList.toggle('hidden', state.shown >= viewList.length);
-            els.loadMoreWrap.classList.toggle('flex', state.shown < viewList.length);
+            els.grid.innerHTML = viewList.slice(0, state.shown).map(photoTile).join('');
+            showLoadMore(state.shown < viewList.length);
             lucide.createIcons();
         }
 
@@ -759,35 +786,33 @@
             let groups = Array.from(map.entries());
 
             if (q) groups = groups.filter(([name, list]) => norm(name).includes(q) || list.some(p => matchesQuery(p, q)));
-            groups.sort((a, b) => state.sort === 'type' || state.sort === 'reg'
+            groups.sort((a, b) => (state.sort === 'type' || state.sort === 'reg')
                 ? a[0].localeCompare(b[0])
                 : b[1].length - a[1].length);
 
             els.count.textContent = kind === 'type'
                 ? plural(groups.length, 'aircraft type')
                 : plural(groups.length, 'livery', 'liveries');
-            els.loadMoreWrap.classList.add('hidden');
+            showLoadMore(false);
 
             if (!groups.length) {
                 els.grid.innerHTML = emptyState('Nothing matches this search yet.');
-                lucide.createIcons();
                 return;
             }
 
             els.grid.innerHTML = groups.map(([name, list]) => {
-                const cover = list[0].url;
                 const regs = plural(new Set(list.map(p => p.reg).filter(Boolean)).size, 'registration');
                 const subtitle = kind === 'type'
                     ? `${plural(new Set(list.map(p => p.livery)).size, 'livery', 'liveries')} · ${regs}`
                     : `${plural(new Set(list.map(p => p.type)).size, 'type')} · ${regs}`;
-                return groupCard(name, subtitle, cover, list.length, kind, name);
+                return groupCard(name, subtitle, list[0].url, list.length, kind, name);
             }).join('');
             lucide.createIcons();
         }
 
         function renderAirports() {
             const q = norm(state.query);
-            let list = airports.filter(a => !q || norm(a.icao).includes(q));
+            const list = airports.filter(a => !q || norm(a.icao).includes(q));
             list.sort((a, b) => state.sort === 'oldest'
                 ? new Date(a.lastUpdated || 0) - new Date(b.lastUpdated || 0)
                 : (state.sort === 'type' || state.sort === 'reg')
@@ -795,17 +820,16 @@
                     : new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
 
             els.count.textContent = plural(list.length, 'airport');
-            els.loadMoreWrap.classList.add('hidden');
+            showLoadMore(false);
 
             if (!list.length) {
                 els.grid.innerHTML = emptyState('No airports match this search yet.');
-                lucide.createIcons();
                 return;
             }
 
-            // Airports share the lightbox, so they are mapped onto the same
-            // photo shape the viewer navigates.
-            viewList = list.map((a, i) => ({
+            // Airports share the photo page, so they are mapped onto the same
+            // shape the viewer navigates.
+            viewList = list.map(a => ({
                 id: `apt-${a.icao}`,
                 type: a.icao,
                 livery: 'Airport scenery',
@@ -817,78 +841,69 @@
                 isAirport: true,
             }));
 
-            els.grid.innerHTML = viewList.map((p, i) => `
-                <article class="tile" data-photo="${esc(p.id)}" data-idx="${i}" role="button" tabindex="0">
-                    <div class="tile-frame">
+            els.grid.innerHTML = viewList.map(p => `
+                <button class="tile" data-photo="${esc(p.id)}" aria-label="${esc(p.reg)} airport imagery">
+                    <span class="tile-frame">
                         <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.reg)}"
                              onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
-                        <span class="tile-badge"><i data-lucide="building-2" class="size-3"></i>Airport</span>
-                        <span class="tile-watermark">INFLIGHT</span>
-                    </div>
-                    <div class="tile-meta">
-                        <div class="tile-row">
-                            <span class="tile-shooter font-mono tracking-widest">${esc(p.reg)}</span>
-                            <span class="tile-reg text-slate-400 !text-[.65rem]">${esc(fmtDate(p.uploadedAt))}</span>
-                        </div>
-                        <div class="tile-sub"><span>Terminal &amp; ramp imagery</span></div>
-                    </div>
-                </article>`).join('');
+                        <span class="tile-badge"><i data-lucide="building-2" style="width:11px;height:11px"></i>Airport</span>
+                    </span>
+                    <span class="tile-meta">
+                        <span class="tile-row">
+                            <span class="tile-shooter" style="font-family:'JetBrains Mono',monospace; letter-spacing:.08em">${esc(p.reg)}</span>
+                            <span class="tile-reg" style="font-family:Inter,sans-serif; font-size:.68rem; color:#a7aeba">${esc(fmtDate(p.uploadedAt))}</span>
+                        </span>
+                        <span class="tile-sub"><span>Terminal &amp; ramp imagery</span></span>
+                    </span>
+                </button>`).join('');
             lucide.createIcons();
         }
 
         function renderContributors() {
             const q = norm(state.query);
-            let people = Array.from(byPhotographer().entries())
+            const people = Array.from(byPhotographer().entries())
                 .filter(([name]) => !q || norm(name).includes(q))
                 .sort((a, b) => b[1].length - a[1].length);
 
             els.count.textContent = plural(people.length, 'photographer');
-            els.loadMoreWrap.classList.add('hidden');
+            showLoadMore(false);
 
             if (!people.length) {
                 els.grid.innerHTML = emptyState('No photographers match this search.');
-                lucide.createIcons();
                 return;
             }
 
-            els.grid.innerHTML = people.map(([name, list], i) => {
+            els.grid.innerHTML = people.map(([name, list]) => {
                 const types = new Set(list.map(p => p.type)).size;
-                const rank = i === 0 ? 'ring-yellow-400/60' : i === 1 ? 'ring-slate-300/50' : i === 2 ? 'ring-amber-700/60' : 'ring-white/10';
                 return `
-                <article class="tile" data-group="contributor" data-value="${esc(name)}" role="button" tabindex="0">
-                    <div class="tile-frame !aspect-[3/2]">
+                <button class="tile" data-group="contributor" data-value="${esc(name)}">
+                    <span class="tile-frame">
                         <img loading="lazy" decoding="async" src="${esc(list[0].url)}" alt="${esc(name)}"
                              onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent"></div>
-                        <div class="absolute bottom-2 left-2 right-2 flex items-center gap-2">
-                            <img src="${avatar(name)}" alt="" class="size-8 rounded-full ring-2 ${rank}">
-                            <div class="min-w-0">
-                                <div class="text-sm font-bold text-white truncate">${esc(name)}</div>
-                                <div class="text-[10px] font-mono text-slate-300">${plural(list.length, 'photo')} · ${plural(types, 'type')}</div>
-                            </div>
-                        </div>
-                    </div>
-                </article>`;
+                    </span>
+                    <span class="tile-meta" style="display:flex; align-items:center; gap:9px">
+                        <img src="${avatar(name)}" alt="" style="width:30px;height:30px;border-radius:999px">
+                        <span style="min-width:0">
+                            <span class="tile-shooter" style="display:block">${esc(name)}</span>
+                            <span class="tile-sub" style="margin:0"><span>${plural(list.length, 'photo')} · ${plural(types, 'type')}</span></span>
+                        </span>
+                    </span>
+                </button>`;
             }).join('');
-            lucide.createIcons();
         }
 
         function renderMasthead() {
             const top = photos.slice(0, 5);
             if (!top.length) { els.masthead.innerHTML = ''; return; }
-            els.masthead.innerHTML = top.map((p, i) => {
-                const big = i === 0;
-                return `
-                <div class="mosaic-item ${big ? 'col-span-2 sm:row-span-2 aspect-[16/10]' : 'aspect-[4/3]'} ${i > 2 ? 'hidden sm:block' : ''}"
-                     data-photo="${esc(p.id)}" data-scope="masthead" role="button" tabindex="0">
+            els.masthead.innerHTML = top.map((p, i) => `
+                <button class="shot ${i === 0 ? 'lead' : ''} ${i > 2 ? 'd-none-sm' : ''}" data-photo="${esc(p.id)}" data-scope="masthead">
                     <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.type)}"
                          onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
-                    <div class="mosaic-caption">
-                        <div class="font-semibold text-white truncate ${big ? 'text-sm' : 'text-xs'}">${esc(p.type)}</div>
-                        <div class="truncate text-[11px] text-slate-400">${esc(p.livery)} · © ${esc(p.photographer)}</div>
-                    </div>
-                </div>`;
-            }).join('');
+                    <span class="shot-cap">
+                        <span class="t" style="display:block">${esc(p.type)}</span>
+                        <span class="s" style="display:block">${esc(p.livery)} · © ${esc(p.photographer)}</span>
+                    </span>
+                </button>`).join('');
         }
 
         function renderSidebar() {
@@ -899,28 +914,24 @@
 
             // Top photographers
             const people = Array.from(byPhotographer().entries()).sort((a, b) => b[1].length - a[1].length).slice(0, 6);
-            document.getElementById('contributors-panel').innerHTML = people.map(([name, list], i) => {
-                const ring = i === 0 ? 'ring-yellow-400/60' : i === 1 ? 'ring-slate-300/50' : i === 2 ? 'ring-amber-700/60' : 'ring-white/10';
-                return `
-                <button class="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors text-left"
-                        data-group="contributor" data-value="${esc(name)}">
-                    <span class="w-4 text-[10px] font-mono text-slate-500">${i + 1}</span>
-                    <img src="${avatar(name)}" alt="" class="size-8 rounded-full ring-2 ${ring}">
-                    <span class="min-w-0 flex-1">
-                        <span class="block text-sm font-semibold text-white truncate">${esc(name)}</span>
-                        <span class="block text-[11px] text-slate-500 font-mono">${plural(list.length, 'photo')}</span>
+            document.getElementById('contributors-panel').innerHTML = people.map(([name, list], i) => `
+                <button class="person" data-group="contributor" data-value="${esc(name)}">
+                    <span class="rank">${i + 1}</span>
+                    <img src="${avatar(name)}" alt="">
+                    <span style="min-width:0; flex:1">
+                        <span class="n" style="display:block">${esc(name)}</span>
+                        <span class="c" style="display:block">${plural(list.length, 'photo')}</span>
                     </span>
-                    <i data-lucide="chevron-right" class="size-4 text-slate-600"></i>
-                </button>`;
-            }).join('') || '<p class="p-3 text-sm text-slate-500">No photographers yet.</p>';
+                    <i data-lucide="chevron-right" style="width:15px;height:15px;color:var(--muted)"></i>
+                </button>`).join('') || '<p class="note" style="padding:8px">No photographers yet.</p>';
 
             // Latest additions
             document.getElementById('latest-rows').innerHTML = photos.slice(0, 6).map(p => `
-                <div class="data-row" data-photo="${esc(p.id)}" data-scope="latest" role="button" tabindex="0">
-                    <span class="font-mono text-accent truncate">${esc(p.reg || '—')}</span>
-                    <span class="truncate text-slate-300">${esc(p.type)}<span class="text-slate-600"> · ${esc(p.livery)}</span></span>
-                    <span class="text-slate-500 text-[11px] whitespace-nowrap">${esc(fmtDate(p.uploadedAt))}</span>
-                </div>`).join('') || '<p class="p-3 text-sm text-slate-500">Nothing here yet.</p>';
+                <button class="row" data-photo="${esc(p.id)}" data-scope="latest">
+                    <span class="reg">${esc(p.reg || '—')}</span>
+                    <span class="ac">${esc(p.type)} <span class="muted">· ${esc(p.livery)}</span></span>
+                    <span class="dt">${esc(fmtDate(p.uploadedAt))}</span>
+                </button>`).join('') || '<p class="note" style="padding:8px">Nothing here yet.</p>';
 
             // The gallery in numbers
             const numbers = [
@@ -931,11 +942,8 @@
                 ['Photographers', byPhotographer().size],
                 ['Airports', airports.length],
             ];
-            document.getElementById('numbers-panel').innerHTML = numbers.map(([label, value]) => `
-                <div>
-                    <dt class="text-[10px] font-mono uppercase tracking-[0.14em] text-slate-500">${label}</dt>
-                    <dd class="text-lg font-bold text-white">${value.toLocaleString()}</dd>
-                </div>`).join('');
+            document.getElementById('numbers-panel').innerHTML = numbers.map(([label, value]) =>
+                `<div><dt>${label}</dt><dd>${value.toLocaleString()}</dd></div>`).join('');
 
             // Popular searches — the best represented types and liveries
             const popular = [
@@ -949,16 +957,15 @@
         }
 
         function renderFilterBar() {
-            if (!state.filter) { els.filterBar.classList.add('hidden'); els.filterBar.classList.remove('flex'); return; }
+            if (!state.filter) { els.filterBar.style.display = 'none'; return; }
             const labels = { type: 'Aircraft type', livery: 'Livery', reg: 'Registration', contributor: 'Photographer' };
-            els.filterBar.classList.remove('hidden');
-            els.filterBar.classList.add('flex');
+            els.filterBar.style.display = 'flex';
             els.filterBar.innerHTML = `
-                <span class="text-[10px] font-mono uppercase tracking-[0.14em] text-slate-500">${labels[state.filter.kind]}</span>
-                <span class="chip active">
+                <span class="sort-label">${labels[state.filter.kind]}</span>
+                <span class="chip on">
                     ${esc(state.filter.value)}
-                    <button id="clear-filter" class="ml-1 text-slate-400 hover:text-white" aria-label="Clear filter">
-                        <i data-lucide="x" class="size-3"></i>
+                    <button id="clear-filter" aria-label="Clear filter" style="display:inline-flex">
+                        <i data-lucide="x" style="width:13px;height:13px"></i>
                     </button>
                 </span>`;
             lucide.createIcons();
@@ -970,11 +977,9 @@
         }
 
         // ------------------------------------------------------------------
-        // Lightbox — the photo "page"
+        // Photo page
         // ------------------------------------------------------------------
-        function findPhoto(id) {
-            return viewList.find(p => p.id === id) || photos.find(p => p.id === id) || null;
-        }
+        const findPhoto = (id) => viewList.find(p => p.id === id) || photos.find(p => p.id === id) || null;
 
         function openPhoto(id, list) {
             const source = list && list.length ? list : viewList;
@@ -983,21 +988,22 @@
             if (!photo) return;
             if (idx >= 0) viewList = source;
             state.photoId = photo.id;
-            paintLightbox(photo);
+            paintPhotoPage(photo);
             els.lightbox.classList.add('open');
             document.body.classList.add('no-scroll');
             els.lightbox.scrollTop = 0;
             writeHash();
         }
 
-        function paintLightbox(p) {
+        function paintPhotoPage(p) {
             const regList = p.reg && !p.isAirport ? (byReg().get(p.reg) || []) : [];
             const typeList = p.isAirport ? [] : (byType().get(p.type) || []);
             const idx = viewList.findIndex(x => x.id === p.id);
+            const image = document.getElementById('lb-image');
 
-            document.getElementById('lb-image').src = p.url;
-            document.getElementById('lb-image').alt = `${p.type} — ${p.livery}`;
-            document.getElementById('lb-image').onerror = function () { this.onerror = null; this.src = FALLBACK_IMG; };
+            image.src = p.url;
+            image.alt = `${p.type} — ${p.livery}`;
+            image.onerror = function () { this.onerror = null; this.src = FALLBACK_IMG; };
             document.getElementById('lb-open').href = p.url;
             document.getElementById('lb-index').textContent = idx >= 0 ? `${idx + 1}/${viewList.length}` : '1';
             document.getElementById('lb-regcount').textContent = regList.length || '—';
@@ -1006,16 +1012,16 @@
 
             const rows = p.isAirport
                 ? [
-                    ['Airport', `<span class="font-mono tracking-widest">${esc(p.reg)}</span>`],
+                    ['Airport', `<span style="font-family:'JetBrains Mono',monospace; letter-spacing:.08em">${esc(p.reg)}</span>`],
                     ['Content', 'Terminal &amp; ramp imagery'],
                     ['Updated', esc(fmtDate(p.uploadedAt))],
                 ]
                 : [
                     ['Aircraft', `<button class="lb-link" data-group="type" data-value="${esc(p.type)}">${esc(p.type)}</button>`],
                     ['Reg', p.reg
-                        ? `<button class="lb-link font-mono" data-group="reg" data-value="${esc(p.reg)}">${esc(p.reg)}</button> <span class="text-slate-500">· ${plural(regList.length, 'photo')}</span>`
-                        : '<span class="text-slate-500">Not recorded</span>'],
-                    ['Livery', `<button class="lb-link" data-group="livery" data-value="${esc(p.livery)}">${esc(p.livery)}</button>`],
+                        ? `<button class="lb-link" data-group="reg" data-value="${esc(p.reg)}" style="font-family:'JetBrains Mono',monospace">${esc(p.reg)}</button> <span class="muted">· ${plural(regList.length, 'photo')}</span>`
+                        : '<span class="muted">Not recorded</span>'],
+                    ['Airline', `<button class="lb-link" data-group="livery" data-value="${esc(p.livery)}">${esc(p.livery)}</button>`],
                     ['Uploaded', esc(fmtDate(p.uploadedAt))],
                     ['Slot', `${p.slot} of ${p.slots} in this aircraft's gallery`],
                 ];
@@ -1023,15 +1029,15 @@
                 `<div class="lb-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 
             document.getElementById('lb-photographer').innerHTML = `
-                <div class="flex items-center gap-3">
-                    <img src="${avatar(p.photographer)}" alt="" class="size-11 rounded-full ring-2 ring-white/10">
-                    <div class="min-w-0">
-                        <div class="text-sm font-bold text-white truncate">${esc(p.photographer)}</div>
-                        <div class="text-[11px] text-slate-500">Photo © ${esc(p.photographer)}</div>
+                <div style="display:flex; align-items:center; gap:10px">
+                    <img src="${avatar(p.photographer)}" alt="" style="width:42px;height:42px;border-radius:999px;border:1px solid var(--line)">
+                    <div style="min-width:0">
+                        <div style="font-size:.88rem; font-weight:700">${esc(p.photographer)}</div>
+                        <div class="note">Photo © ${esc(p.photographer)}</div>
                     </div>
                 </div>
-                ${p.isAirport ? '' : `<button class="chip mt-3 w-full justify-center" data-group="contributor" data-value="${esc(p.photographer)}">
-                    <i data-lucide="images" class="size-3.5"></i> All photos by this spotter
+                ${p.isAirport ? '' : `<button class="chip" data-group="contributor" data-value="${esc(p.photographer)}" style="margin-top:10px; width:100%; justify-content:center">
+                    <i data-lucide="images" style="width:14px;height:14px"></i> All photos by this spotter
                 </button>`}`;
 
             // "More of this aircraft" — same registration, falling back to same type
@@ -1043,11 +1049,11 @@
             moreList = strip.length ? [p, ...strip] : [];
             document.getElementById('lb-more').innerHTML = strip.length
                 ? strip.map(m => `
-                    <button class="mosaic-item aspect-[4/3]" data-photo="${esc(m.id)}" data-scope="lightbox">
+                    <button class="shot" data-photo="${esc(m.id)}" data-scope="lightbox">
                         <img loading="lazy" src="${esc(m.url)}" alt="${esc(m.type)}"
                              onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
                     </button>`).join('')
-                : '<p class="col-span-full p-4 text-center text-sm text-slate-500">This is the only photo we hold.</p>';
+                : '<p class="note" style="grid-column:1/-1; padding:14px; text-align:center">This is the only photo we hold.</p>';
 
             lucide.createIcons();
         }
@@ -1058,7 +1064,7 @@
             if (idx < 0) return;
             const next = (idx + delta + viewList.length) % viewList.length;
             state.photoId = viewList[next].id;
-            paintLightbox(viewList[next]);
+            paintPhotoPage(viewList[next]);
             els.lightbox.scrollTop = 0;
             writeHash();
         }
@@ -1099,9 +1105,8 @@
                 const v = params.get(kind);
                 if (v && !state.filter) state.filter = { kind, value: v };
             });
-            // A filter only means something in the photo feed, so a
-            // hand-written link that pairs one with a grouped tab lands on the
-            // photos it describes.
+            // A filter only means something in the photo feed, so a hand-written
+            // link pairing one with a grouped tab lands on the photos it names.
             if (state.filter) state.tab = 'photos';
             state.shown = PAGE_SIZE;
 
@@ -1112,8 +1117,7 @@
 
             const photoId = params.get('photo');
             if (photoId) {
-                const p = findPhoto(photoId);
-                if (p) openPhoto(photoId);
+                if (findPhoto(photoId)) openPhoto(photoId);
             } else if (els.lightbox.classList.contains('open')) {
                 closeLightbox();
             }
@@ -1160,8 +1164,8 @@
 
         document.getElementById('mobile-search-btn').addEventListener('click', () => {
             const box = document.getElementById('mobile-search');
-            box.classList.toggle('hidden');
-            if (!box.classList.contains('hidden')) els.searchMobile.focus();
+            box.classList.toggle('show');
+            if (box.classList.contains('show')) els.searchMobile.focus();
         });
 
         els.sort.addEventListener('change', e => {
@@ -1177,7 +1181,7 @@
         });
 
         // Endless scroll: extend the feed as the sentinel comes into view, with
-        // the button above as the manual fallback.
+        // the button above it as the manual fallback.
         new IntersectionObserver((entries) => {
             if (!entries.some(e => e.isIntersecting)) return;
             if (state.tab !== 'photos') return;
@@ -1186,17 +1190,11 @@
             renderPhotoFeed();
         }, { rootMargin: '600px' }).observe(els.sentinel);
 
-        // One delegated click handler for tiles, chips, tabs and lightbox links.
+        // One delegated click handler for tiles, chips, tabs and photo-sheet links.
         document.addEventListener('click', (e) => {
             const tabBtn = e.target.closest('[data-tab], [data-navtab], [data-tab-link]');
             if (tabBtn) {
                 setTab(tabBtn.dataset.tab || tabBtn.dataset.navtab || tabBtn.dataset.tabLink);
-                return;
-            }
-
-            const group = e.target.closest('[data-group]');
-            if (group) {
-                setFilter(group.dataset.group, group.dataset.value);
                 return;
             }
 
@@ -1205,6 +1203,12 @@
                 state.shown = PAGE_SIZE;
                 render();
                 writeHash();
+                return;
+            }
+
+            const group = e.target.closest('[data-group]');
+            if (group) {
+                setFilter(group.dataset.group, group.dataset.value);
                 return;
             }
 
@@ -1218,26 +1222,20 @@
             const tile = e.target.closest('[data-photo]');
             if (tile) {
                 const scope = tile.dataset.scope;
-                // The masthead and the sidebar browse the full photo list; the
-                // grid and the lightbox strip browse whatever is on screen.
+                // The masthead and the sidebar browse the whole collection; the
+                // grid browses what is on screen, the strip its own siblings.
                 const list = (scope === 'masthead' || scope === 'latest') ? photos
                     : (scope === 'lightbox' ? moreList : null);
                 openPhoto(tile.dataset.photo, list);
-                return;
             }
         });
 
-        // Keyboard: tiles behave like buttons, lightbox takes arrows + escape.
         document.addEventListener('keydown', (e) => {
             if (els.lightbox.classList.contains('open')) {
                 if (e.key === 'Escape') closeLightbox();
                 if (e.key === 'ArrowRight') stepPhoto(1);
                 if (e.key === 'ArrowLeft') stepPhoto(-1);
                 return;
-            }
-            if ((e.key === 'Enter' || e.key === ' ') && document.activeElement && document.activeElement.matches('.tile, .mosaic-item, .data-row')) {
-                e.preventDefault();
-                document.activeElement.click();
             }
             if (e.key === '/' && !/input|textarea|select/i.test((document.activeElement || {}).tagName || '')) {
                 e.preventDefault();
@@ -1254,19 +1252,19 @@
             const url = location.href;
             try {
                 if (navigator.share) await navigator.share({ url, title: 'InFlight Gallery' });
-                else { await navigator.clipboard.writeText(url); flashShare('Link copied'); }
+                else { await navigator.clipboard.writeText(url); flashShare('Copied'); }
             } catch (_) { /* dismissed share sheet — nothing to do */ }
         });
 
         function flashShare(msg) {
-            const el = document.getElementById('lb-share').querySelector('.lb-stat-value');
+            const el = document.getElementById('lb-share').querySelector('.v');
             const original = el.innerHTML;
             el.textContent = msg;
             setTimeout(() => { el.innerHTML = original; lucide.createIcons(); }, 1400);
         }
 
-        // Upload buttons hand off to the community hub's submit flow, which is
-        // the same reviewed pipeline the rest of the site uses.
+        // Upload buttons hand off to the community hub's submit flow — the same
+        // reviewed pipeline the rest of the site uses.
         function openSubmit() {
             if (window.InflightCommunity && window.InflightCommunity.open) window.InflightCommunity.open('submit');
             else window.location.href = 'submit-aircraft.html';
