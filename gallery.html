@@ -134,7 +134,14 @@
         .mobile-search .mast-search { display: block; max-width: none; }
 
         /* ---------------- Tab bar ---------------- */
+        /* The tab rail and the search belong to the feed. On a photo, the
+           upload form or the account they are chrome for a page you are not on,
+           so they go rather than sit there being tappable. */
         .tabbar { position: sticky; top: 8px; z-index: 30; padding: 10px 0 0; }
+        body:not(.browsing) .tabbar,
+        body:not(.browsing) .mast-search,
+        body:not(.browsing) #mobile-search-btn,
+        body:not(.browsing) #mobile-search { display: none; }
         .tabs {
             display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
             background: var(--card);
@@ -189,6 +196,7 @@
         .tile-frame { display: block; position: relative; aspect-ratio: 3 / 2; background: var(--mat); overflow: hidden; }
         .tile-frame img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s ease; }
         .tile:hover .tile-frame img { transform: scale(1.04); }
+        .tile-likes { left: auto; right: 8px; }
         .tile-badge {
             position: absolute; top: 8px; left: 8px;
             display: inline-flex; align-items: center; gap: 4px;
@@ -379,7 +387,9 @@
         .crumb-nav button:hover { border-color: var(--link); color: var(--link); }
         .lb-stage { position: relative; background: var(--mat); }
         .lb-stage img { width: 100%; max-height: 76vh; object-fit: contain; margin: 0 auto; }
-        .lb-bar { display: grid; grid-template-columns: repeat(5, 1fr); background: var(--strip); color: #fff; }
+        .lb-bar { display: grid; grid-template-columns: repeat(6, 1fr); background: var(--strip); color: #fff; }
+        @media (max-width: 560px) { .lb-bar { grid-template-columns: repeat(3, 1fr); } }
+        .lb-bar button:hover, .lb-bar a:hover { background: rgba(255,255,255,.08); }
         .lb-bar > * { padding: 9px 4px; text-align: center; border-right: 1px solid rgba(255,255,255,.1); }
         .lb-bar > *:last-child { border-right: 0; }
         .lb-bar .k { font-size: .55rem; letter-spacing: .14em; text-transform: uppercase; color: #a7aeba; }
@@ -508,7 +518,7 @@
     <header class="masthead">
         <div class="wrap">
             <div class="masthead-inner">
-                <a class="brand" href="home.html" aria-label="InFlight Spotters — home">
+                <a class="brand" href="gallery.html" id="brand-home" aria-label="InFlight Spotters — home">
                     <img class="brand-logo" src="Images/inflight-mark.png" alt=""
                          onerror="this.onerror=null;this.style.display='none';">
                     <span class="brand-mark">
@@ -611,6 +621,7 @@
                             <option value="oldest">Oldest first</option>
                             <option value="type">Aircraft type A–Z</option>
                             <option value="reg">Registration A–Z</option>
+                            <option value="likes">Most liked</option>
                             <option value="photographer">Photographer A–Z</option>
                         </select>
                     </div>
@@ -716,10 +727,11 @@
                     <img id="lb-image" src="" alt="">
                 </div>
                 <div class="lb-bar">
+                    <button id="lb-like" aria-pressed="false"><div class="k">Likes</div><div class="v">—</div></button>
                     <div><div class="k">Photo</div><div class="v" id="lb-index">—</div></div>
                     <div><div class="k">Of reg</div><div class="v" id="lb-regcount">—</div></div>
                     <div><div class="k">Of type</div><div class="v" id="lb-typecount">—</div></div>
-                    <button id="lb-share"><div class="k">Share</div><div class="v"><i data-lucide="link" style="width:16px;height:16px;display:inline"></i></div></button>
+                    <button id="lb-share"><div class="k">Share</div><div class="v"><i data-lucide="share-2" style="width:16px;height:16px;display:inline"></i></div></button>
                     <a id="lb-open" href="#" target="_blank" rel="noopener"><div class="k">Full size</div><div class="v"><i data-lucide="external-link" style="width:16px;height:16px;display:inline"></i></div></a>
                 </div>
                 <div class="lb-body">
@@ -980,6 +992,9 @@
             photoId: null,     // open photo page
         };
 
+        let likeCounts = {};   // photoId -> how many people liked it
+        let myLikes = new Set();
+
         let photos = [];       // flattened aircraft photos
         let airports = [];     // airport photos
         let viewList = [];     // photo list currently rendered/navigable
@@ -1015,12 +1030,15 @@
         // Three in-page views — browse, one photo, upload. Nothing overlays the
         // page, so back/forward move between them like any other page.
         let currentView = 'browse';
+        document.body.classList.add('browsing');
         function showView(name) {
             currentView = name;
             els.browseView.classList.toggle('on', name === 'browse');
             els.photoView.classList.toggle('on', name === 'photo');
             els.uploadView.classList.toggle('on', name === 'upload');
             els.accountView.classList.toggle('on', name === 'account');
+            document.body.classList.toggle('browsing', name === 'browse');
+            document.getElementById('mobile-search').classList.remove('show');
             window.scrollTo({ top: 0, behavior: 'auto' });
         }
         const advFields = { type: 'adv-type', airline: 'adv-airline', reg: 'adv-reg', shooter: 'adv-shooter', from: 'adv-from', to: 'adv-to' };
@@ -1060,6 +1078,7 @@
                 return;
             }
 
+            await loadLikes();
             renderMasthead();
             renderSidebar();
             applyHash();
@@ -1123,6 +1142,73 @@
             : p.photographer);
         const photographerLabel = (list) => (list && list[0] ? list[0].photographer : '');
         const isLinked = (list) => !!(list && list[0] && list[0].pilotId);
+
+        const likesOf = (id) => likeCounts[id] || 0;
+
+        async function loadLikes() {
+            try {
+                const token = await accessToken();
+                const res = await fetch(`${API_BASE_URL}/api/gallery/likes`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                likeCounts = data.counts || {};
+                myLikes = new Set(data.mine || []);
+            } catch (_) { /* likes are decoration on a page that still works */ }
+        }
+
+        // Liking needs an account: without one there is nothing to count but an
+        // IP address, which is not a person.
+        async function toggleLike(photoId) {
+            if (!account) {
+                showView('account');
+                writeHash();
+                const status = document.getElementById('signin-status');
+                status.textContent = 'Sign in to like photos.';
+                status.className = 'status';
+                return;
+            }
+            const token = await accessToken();
+            if (!token) return;
+
+            // Optimistic, because a like should feel instant; the server's count
+            // replaces the guess a moment later either way.
+            const liked = myLikes.has(photoId);
+            if (liked) { myLikes.delete(photoId); likeCounts[photoId] = Math.max(0, likesOf(photoId) - 1); }
+            else { myLikes.add(photoId); likeCounts[photoId] = likesOf(photoId) + 1; }
+            paintLikeButton(photoId);
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/gallery/likes/${encodeURIComponent(photoId)}`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    likeCounts[photoId] = data.count;
+                    if (data.liked) myLikes.add(photoId); else myLikes.delete(photoId);
+                } else {
+                    // Put it back the way it was.
+                    if (liked) { myLikes.add(photoId); likeCounts[photoId] = likesOf(photoId) + 1; }
+                    else { myLikes.delete(photoId); likeCounts[photoId] = Math.max(0, likesOf(photoId) - 1); }
+                }
+            } catch (_) {
+                if (liked) { myLikes.add(photoId); likeCounts[photoId] = likesOf(photoId) + 1; }
+                else { myLikes.delete(photoId); likeCounts[photoId] = Math.max(0, likesOf(photoId) - 1); }
+            }
+            paintLikeButton(photoId);
+        }
+
+        function paintLikeButton(photoId) {
+            const btn = document.getElementById('lb-like');
+            if (!btn || btn.dataset.like !== photoId) return;
+            const liked = myLikes.has(photoId);
+            btn.querySelector('.v').innerHTML =
+                `<i data-lucide="heart" style="width:15px;height:15px;display:inline;${liked ? 'fill:#e0245e;color:#e0245e' : ''}"></i> ${likesOf(photoId)}`;
+            btn.setAttribute('aria-pressed', liked ? 'true' : 'false');
+            lucide.createIcons();
+        }
 
         const byType = () => groupBy(photos, p => p.type);
         const byLivery = () => groupBy(photos, p => p.livery);
@@ -1191,6 +1277,8 @@
                 case 'oldest': return copy.sort((a, b) => new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0));
                 case 'type': return copy.sort((a, b) => a.type.localeCompare(b.type) || a.livery.localeCompare(b.livery));
                 case 'reg': return copy.sort((a, b) => a.reg.localeCompare(b.reg));
+                case 'likes': return copy.sort((a, b) => (likesOf(b.id) - likesOf(a.id))
+                    || (new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0)));
                 case 'photographer': return copy.sort((a, b) => a.photographer.localeCompare(b.photographer));
                 default: return copy.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
             }
@@ -1207,6 +1295,8 @@
         function photoTile(p) {
             const multi = p.slots > 1
                 ? `<span class="tile-badge"><i data-lucide="layers" style="width:11px;height:11px"></i>${p.slot}/${p.slots}</span>` : '';
+            const likes = likesOf(p.id)
+                ? `<span class="tile-badge tile-likes"><i data-lucide="heart" style="width:11px;height:11px"></i>${likesOf(p.id)}</span>` : '';
             return `
                 <button class="tile" data-photo="${esc(p.id)}"
                         aria-label="${esc(p.type)} ${esc(p.reg)} photographed by ${esc(p.photographer)}">
@@ -1214,6 +1304,7 @@
                         <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.type)} — ${esc(p.livery)}"
                              onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
                         ${multi}
+                        ${likes}
                     </span>
                     <span class="tile-meta">
                         <span class="tile-row">
@@ -1642,6 +1733,9 @@
             image.alt = `${p.type} — ${p.livery}`;
             image.onerror = function () { this.onerror = null; this.src = FALLBACK_IMG; };
             document.getElementById('lb-open').href = p.url;
+            const likeBtn = document.getElementById('lb-like');
+            likeBtn.dataset.like = p.id;
+            paintLikeButton(p.id);
             document.getElementById('lb-index').textContent = idx >= 0 ? `${idx + 1}/${viewList.length}` : '1';
             document.getElementById('lb-regcount').textContent = regList.length || '—';
             document.getElementById('lb-typecount').textContent = typeList.length || '—';
@@ -2009,20 +2103,147 @@
         document.getElementById('lb-prev-top').addEventListener('click', () => stepPhoto(-1));
         document.getElementById('lb-next-top').addEventListener('click', () => stepPhoto(1));
 
-        document.getElementById('lb-share').addEventListener('click', async () => {
-            const url = location.href;
+        // ------------------------------------------------------------------
+        // Share — a picture, not a link.
+        //
+        // A pasted URL says nothing about whose photo it is. What gets shared
+        // here is the photo itself with a strip along the bottom carrying the
+        // mark, the aircraft and the photographer's name, so the credit travels
+        // with the image into places that will never link back.
+        //
+        // It shares in place: the native sheet when the browser has one, a
+        // download otherwise. Nothing navigates.
+        // ------------------------------------------------------------------
+        const SHARE_W = 1400;
+
+        const loadImage = (src, cors) => new Promise((resolve, reject) => {
+            const img = new Image();
+            if (cors) img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = src;
+        });
+
+        async function buildShareImage(p) {
+            // The photo is served from another origin, so it has to arrive with
+            // CORS for the canvas to stay readable. Without it toBlob throws and
+            // we fall back to sharing the link.
+            const photo = await loadImage(p.url, true);
+            const scale = SHARE_W / photo.naturalWidth;
+            const imgH = Math.round(photo.naturalHeight * scale);
+            const barH = 104;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = SHARE_W;
+            canvas.height = imgH + barH;
+            const ctx = canvas.getContext('2d');
+
+            ctx.drawImage(photo, 0, 0, SHARE_W, imgH);
+
+            // Credit strip
+            ctx.fillStyle = '#16181d';
+            ctx.fillRect(0, imgH, SHARE_W, barH);
+
+            let textLeft = 34;
             try {
-                if (navigator.share) await navigator.share({ url, title: 'InFlight Spotters' });
-                else { await navigator.clipboard.writeText(url); flashShare('Copied'); }
-            } catch (_) { /* dismissed share sheet — nothing to do */ }
+                const mark = await loadImage('Images/inflight-mark.png', false);
+                const markH = 52;
+                const markW = Math.round(mark.naturalWidth * (markH / mark.naturalHeight));
+                ctx.drawImage(mark, 34, imgH + (barH - markH) / 2, markW, markH);
+                textLeft = 34 + markW + 16;
+            } catch (_) { /* the wordmark alone still says where it came from */ }
+
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '800 27px Inter, system-ui, sans-serif';
+            ctx.fillText('INFLIGHT', textLeft, imgH + barH / 2 - 13);
+            ctx.fillStyle = '#b9c0cb';
+            ctx.font = '700 14px Inter, system-ui, sans-serif';
+            ctx.fillText('S P O T T E R S', textLeft + 2, imgH + barH / 2 + 15);
+
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '700 24px Inter, system-ui, sans-serif';
+            ctx.fillText(`Photo © ${p.photographer}`, SHARE_W - 34, imgH + barH / 2 - 13);
+            ctx.fillStyle = '#b9c0cb';
+            ctx.font = '500 18px Inter, system-ui, sans-serif';
+            const line = [p.livery, p.type, p.reg].filter(Boolean).join(' · ');
+            ctx.fillText(line, SHARE_W - 34, imgH + barH / 2 + 15);
+
+            // And a watermark on the photo itself, for the crop that cuts the
+            // strip off.
+            ctx.textAlign = 'right';
+            ctx.font = '800 20px Inter, system-ui, sans-serif';
+            ctx.fillStyle = 'rgba(0,0,0,.35)';
+            ctx.fillText('INFLIGHT SPOTTERS', SHARE_W - 21, imgH - 25);
+            ctx.fillStyle = 'rgba(255,255,255,.82)';
+            ctx.fillText('INFLIGHT SPOTTERS', SHARE_W - 22, imgH - 26);
+
+            return new Promise((resolve, reject) => {
+                canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('no blob'))), 'image/jpeg', 0.92);
+            });
+        }
+
+        const shareFileName = (p) => `inflight-spotters-${(p.reg || p.type || 'photo')
+            .toLowerCase().replace(/[^a-z0-9]+/g, '-')}.jpg`;
+
+        document.getElementById('lb-share').addEventListener('click', async () => {
+            const p = findPhoto(state.photoId);
+            if (!p) return;
+            const url = location.href;
+            flashShare('…');
+
+            try {
+                const blob = await buildShareImage(p);
+                const file = new File([blob], shareFileName(p), { type: 'image/jpeg' });
+
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        files: [file],
+                        title: `${p.livery} ${p.type}`,
+                        text: `${p.livery} ${p.type}${p.reg ? ' · ' + p.reg : ''} — photo © ${p.photographer} · InFlight Spotters`,
+                    });
+                    flashShare('Shared');
+                    return;
+                }
+
+                // No share sheet: hand them the file and the link instead.
+                const href = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = href;
+                a.download = shareFileName(p);
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(href), 10000);
+                try { await navigator.clipboard.writeText(url); } catch (_) {}
+                flashShare('Saved');
+            } catch (err) {
+                // AbortError is the person closing the sheet, not a failure.
+                if (err && err.name === 'AbortError') { flashShare('Share'); return; }
+                // A photo the bucket serves without CORS taints the canvas, so
+                // there is no image to share — the link still works.
+                try {
+                    if (navigator.share) await navigator.share({ url, title: 'InFlight Spotters' });
+                    else await navigator.clipboard.writeText(url);
+                    flashShare('Link');
+                } catch (_) { flashShare('Failed'); }
+            }
         });
 
         function flashShare(msg) {
             const el = document.getElementById('lb-share').querySelector('.v');
-            const original = el.innerHTML;
+            if (el.dataset.original === undefined) el.dataset.original = el.innerHTML;
             el.textContent = msg;
-            setTimeout(() => { el.innerHTML = original; lucide.createIcons(); }, 1400);
+            clearTimeout(flashShare._t);
+            flashShare._t = setTimeout(() => {
+                el.innerHTML = el.dataset.original;
+                lucide.createIcons();
+            }, 1600);
         }
+
+        document.getElementById('lb-like').addEventListener('click', () => {
+            const btn = document.getElementById('lb-like');
+            if (btn.dataset.like) toggleLike(btn.dataset.like);
+        });
 
         // ------------------------------------------------------------------
         // Account — the tracker sign-in, and the photos it owns.
@@ -2061,6 +2282,7 @@
                 account = null;
             }
             paintAccount();
+            if (photos.length) { await loadLikes(); render(); }
             if (account) claimOnce();
         }
 
@@ -2193,6 +2415,20 @@
             writeHash();
             if (!account) document.getElementById('signin-email').focus();
         }
+
+        document.getElementById('brand-home').addEventListener('click', (e) => {
+            e.preventDefault();
+            state.filter = null;
+            state.query = '';
+            state.letter = null;
+            state.adv = null;
+            state.photoId = null;
+            els.search.value = '';
+            els.searchMobile.value = '';
+            syncControls();
+            showView('browse');
+            setTab('photos');
+        });
 
         document.getElementById('account-btn').addEventListener('click', openAccount);
         document.getElementById('my-photos-btn').addEventListener('click', openAccount);
