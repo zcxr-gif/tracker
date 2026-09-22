@@ -196,7 +196,23 @@
         .tile-frame { display: block; position: relative; aspect-ratio: 3 / 2; background: var(--mat); overflow: hidden; }
         .tile-frame img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s ease; }
         .tile:hover .tile-frame img { transform: scale(1.04); }
-        .tile-likes { left: auto; right: 8px; }
+        .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+        .badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 10px; border-radius: 999px;
+            border: 1px solid var(--line); background: #fff;
+            font-size: .73rem; font-weight: 700; color: var(--ink2);
+            cursor: default;
+        }
+        .badge .ic { display: inline-flex; color: var(--link); }
+        .badge.gold { background: #fff8e6; border-color: #f0d08a; color: #7a5600; }
+        .badge.gold .ic { color: #c08a00; }
+        .badge.silver { background: #f3f5f8; border-color: #cdd4dd; color: #46505e; }
+        .badge.silver .ic { color: #6b7686; }
+        .badge.rose { background: #fff0f4; border-color: #f5c2d1; color: #8c1d3c; }
+        .badge.rose .ic { color: #e0245e; }
+        .badge.green { background: #eefaf1; border-color: #b6e3c4; color: #14612f; }
+        .badge.green .ic { color: #0a7d32; }
         .tile-badge {
             position: absolute; top: 8px; left: 8px;
             display: inline-flex; align-items: center; gap: 4px;
@@ -204,6 +220,19 @@
             font-size: .6rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
             padding: 3px 7px; border-radius: 3px;
         }
+
+        /* Likes ride on the photo itself so they are readable while scrolling,
+           and they are a button: liking should not need a detour through the
+           photo page. */
+        .tile-likes {
+            left: 8px; right: auto; top: auto; bottom: 8px;
+            gap: 5px; padding: 4px 9px; font-size: .7rem; letter-spacing: 0;
+            text-transform: none; cursor: pointer;
+        }
+        .tile-likes:hover { background: rgba(2, 6, 23, .92); border-color: rgba(255,255,255,.3); }
+        .tile-likes.on { background: #e0245e; border-color: #e0245e; color: #fff; }
+        .tile-likes .heart { display: inline-flex; }
+
         .tile-meta { display: block; background: var(--strip); color: #fff; padding: 7px 9px 8px; }
         .tile-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
         .tile-shooter { font-size: .78rem; font-weight: 600; color: #f0f2f5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -423,7 +452,9 @@
             font-size: .66rem; font-weight: 800; letter-spacing: .02em;
         }
         .acct-wrap { max-width: 900px; margin: 0 auto; padding: 16px 0 28px; }
-        .acct-card { display: flex; gap: 16px; align-items: center; padding: 16px; flex-wrap: wrap; }
+        .acct-card { display: flex; gap: 16px 24px; align-items: center; padding: 16px; flex-wrap: wrap; }
+        .acct-id { flex: 1 1 320px; min-width: 0; }
+        .acct-figures { flex: 0 1 auto; }
         .acct-avatar {
             width: 68px; height: 68px; border-radius: 999px; object-fit: cover;
             border: 1px solid var(--line); background: #e7e9ec;
@@ -798,6 +829,12 @@
                         <button class="more" id="signout-btn">Sign out</button>
                     </div>
                     <div class="acct-card" id="account-card"></div>
+                    <div class="panel-body" style="border-top:1px solid var(--line)" id="account-badges"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head"><span>Your most liked photo</span></div>
+                    <div id="account-best"></div>
                 </div>
 
                 <div class="panel">
@@ -1144,6 +1181,30 @@
         const isLinked = (list) => !!(list && list[0] && list[0].pilotId);
 
         const likesOf = (id) => likeCounts[id] || 0;
+        const likedByMe = (id) => myLikes.has(id);
+
+        // The pill on a tile. Rendered for every photo, zero included, so the
+        // count is part of scrolling the gallery rather than something you have
+        // to open a photo to find.
+        function likePill(id) {
+            const n = likesOf(id);
+            const mine = likedByMe(id);
+            return `<span class="tile-badge tile-likes${mine ? ' on' : ''}" data-like-photo="${esc(id)}"
+                          role="button" tabindex="-1" aria-pressed="${mine}"
+                          aria-label="${mine ? 'Unlike' : 'Like'} this photo (${n})">
+                        <span class="heart"><i data-lucide="heart" style="width:12px;height:12px${mine ? ';fill:currentColor' : ''}"></i></span>${n}
+                    </span>`;
+        }
+
+        // Repaint just the pills for one photo rather than the whole feed: a
+        // like should not cost a re-render of forty tiles.
+        function refreshLikeViews(id) {
+            document.querySelectorAll(`[data-like-photo="${CSS.escape(id)}"]`).forEach((el) => {
+                el.outerHTML = likePill(id);
+            });
+            paintLikeButton(id);
+            lucide.createIcons();
+        }
 
         async function loadLikes() {
             try {
@@ -1177,7 +1238,7 @@
             const liked = myLikes.has(photoId);
             if (liked) { myLikes.delete(photoId); likeCounts[photoId] = Math.max(0, likesOf(photoId) - 1); }
             else { myLikes.add(photoId); likeCounts[photoId] = likesOf(photoId) + 1; }
-            paintLikeButton(photoId);
+            refreshLikeViews(photoId);
 
             try {
                 const res = await fetch(`${API_BASE_URL}/api/gallery/likes/${encodeURIComponent(photoId)}`, {
@@ -1197,7 +1258,8 @@
                 if (liked) { myLikes.add(photoId); likeCounts[photoId] = likesOf(photoId) + 1; }
                 else { myLikes.delete(photoId); likeCounts[photoId] = Math.max(0, likesOf(photoId) - 1); }
             }
-            paintLikeButton(photoId);
+            refreshLikeViews(photoId);
+            if (account) paintAccount();
         }
 
         function paintLikeButton(photoId) {
@@ -1209,6 +1271,101 @@
             btn.setAttribute('aria-pressed', liked ? 'true' : 'false');
             lucide.createIcons();
         }
+
+        /* ==================================================================
+           What a photographer has done, and what they have earned for it.
+
+           Everything here is derived from photos the page already holds plus
+           the like counts, so a badge can never say something the gallery
+           cannot show you. Nothing is awarded by hand.
+           ================================================================== */
+
+        const likesReceived = (list) => list.reduce((n, p) => n + likesOf(p.id), 0);
+
+        // Photos where this person got there first: the earliest photo of a
+        // registration in the gallery.
+        function firstsOf(list) {
+            const regs = byReg();
+            return list.filter((p) => {
+                if (!p.reg) return false;
+                const all = regs.get(p.reg) || [];
+                const earliest = all.slice().sort((a, b) => new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0))[0];
+                return earliest && earliest.id === p.id;
+            }).length;
+        }
+
+        function spotterStats(list) {
+            const dates = list.map((p) => p.uploadedAt).filter(Boolean).sort();
+            const top = list.slice().sort((a, b) => likesOf(b.id) - likesOf(a.id))[0] || null;
+            return {
+                photos: list.length,
+                likes: likesReceived(list),
+                types: new Set(list.map((p) => p.type)).size,
+                airlines: new Set(list.map((p) => p.livery)).size,
+                regs: new Set(list.map((p) => p.reg).filter(Boolean)).size,
+                firsts: firstsOf(list),
+                since: dates[0] || null,
+                latest: dates[dates.length - 1] || null,
+                topPhoto: top && likesOf(top.id) > 0 ? top : null,
+                linked: isLinked(list),
+            };
+        }
+
+        // Tiers are read highest-first, so only the one that has been reached
+        // is shown — five "photos" badges in a row says nothing.
+        const BADGE_TIERS = [
+            { key: 'photos', icon: 'camera', tone: 'gold', steps: [
+                [100, 'Century of photos', '100 photos in the gallery'],
+                [50, '50 photos', '50 photos in the gallery'],
+                [25, '25 photos', '25 photos in the gallery'],
+                [10, '10 photos', '10 photos in the gallery'],
+                [1, 'First upload', 'Their first photo is in the gallery'],
+            ] },
+            { key: 'likes', icon: 'heart', tone: 'rose', steps: [
+                [500, '500 likes', '500 likes received'],
+                [100, '100 likes', '100 likes received'],
+                [50, '50 likes', '50 likes received'],
+                [10, '10 likes', '10 likes received'],
+                [1, 'First like', 'Somebody liked one of their photos'],
+            ] },
+            { key: 'firsts', icon: 'award', tone: 'gold', steps: [
+                [25, 'Pioneer · 25', 'First photo of 25 registrations'],
+                [10, 'Pioneer · 10', 'First photo of 10 registrations'],
+                [1, 'Pioneer', 'First to photograph a registration'],
+            ] },
+            { key: 'types', icon: 'plane', tone: 'silver', steps: [
+                [25, 'Fleet spotter · 25', '25 different aircraft types'],
+                [10, 'Fleet spotter', '10 different aircraft types'],
+            ] },
+            { key: 'airlines', icon: 'paint-bucket', tone: 'silver', steps: [
+                [25, 'Livery hunter · 25', '25 different airlines'],
+                [10, 'Livery hunter', '10 different airlines'],
+            ] },
+        ];
+
+        function badgesFor(list) {
+            const stats = spotterStats(list);
+            const earned = [];
+
+            BADGE_TIERS.forEach((group) => {
+                const step = group.steps.find(([need]) => stats[group.key] >= need);
+                if (step) earned.push({ icon: group.icon, tone: group.tone, label: step[1], title: step[2] });
+            });
+
+            const potd = photoOfTheDay();
+            if (potd && list.some((p) => p.id === potd.id)) {
+                earned.push({ icon: 'star', tone: 'gold', label: 'Photo of the day', title: "Their photo is today's pick" });
+            }
+            if (stats.linked) {
+                earned.push({ icon: 'badge-check', tone: 'green', label: 'Linked account', title: 'Signed in with their InFlight account' });
+            }
+            return earned;
+        }
+
+        const renderBadges = (list) => badgesFor(list).map((b) => `
+            <span class="badge ${b.tone}" title="${esc(b.title)}">
+                <span class="ic"><i data-lucide="${b.icon}" style="width:13px;height:13px"></i></span>${esc(b.label)}
+            </span>`).join('');
 
         const byType = () => groupBy(photos, p => p.type);
         const byLivery = () => groupBy(photos, p => p.livery);
@@ -1295,8 +1452,7 @@
         function photoTile(p) {
             const multi = p.slots > 1
                 ? `<span class="tile-badge"><i data-lucide="layers" style="width:11px;height:11px"></i>${p.slot}/${p.slots}</span>` : '';
-            const likes = likesOf(p.id)
-                ? `<span class="tile-badge tile-likes"><i data-lucide="heart" style="width:11px;height:11px"></i>${likesOf(p.id)}</span>` : '';
+            const likes = likePill(p.id);
             return `
                 <button class="tile" data-photo="${esc(p.id)}"
                         aria-label="${esc(p.type)} ${esc(p.reg)} photographed by ${esc(p.photographer)}">
@@ -1505,7 +1661,7 @@
                         <img src="${avatar(name)}" alt="" style="width:30px;height:30px;border-radius:999px">
                         <span style="min-width:0">
                             <span class="tile-shooter" style="display:block">${linked}${esc(name)}</span>
-                            <span class="tile-sub" style="margin:0"><span>${plural(list.length, 'photo')} · ${plural(types, 'type')}</span></span>
+                            <span class="tile-sub" style="margin:0"><span>${plural(list.length, 'photo')} · ${plural(likesReceived(list), 'like')} · ${plural(types, 'type')}</span></span>
                         </span>
                     </span>
                 </button>`;
@@ -1556,7 +1712,11 @@
             if (state.filter.kind === 'contributor') {
                 const rank = Array.from(byPhotographer().entries()).sort((a, b) => b[1].length - a[1].length)
                     .findIndex(([k]) => norm(k) === norm(state.filter.value)) + 1;
-                stats.push(['Types', uniq(p => p.type)], ['Airlines', uniq(p => p.livery)], ['Registrations', uniq(p => p.reg)], ['Rank', `#${rank}`]);
+                const sp = spotterStats(set);
+                stats.push(['Likes', sp.likes], ['Types', sp.types], ['Airlines', sp.airlines],
+                           ['Registrations', sp.regs], ['Firsts', sp.firsts], ['Rank', `#${rank}`]);
+            } else {
+                stats.push(['Likes', likesReceived(set)]);
             }
             if (dates.length) stats.push(['Latest', fmtDate(dates[dates.length - 1])]);
 
@@ -1581,6 +1741,8 @@
                         <dl class="profile-stats">
                             ${stats.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${typeof v === 'number' ? v.toLocaleString() : esc(v)}</dd></div>`).join('')}
                         </dl>
+                        ${state.filter.kind === 'contributor'
+                            ? `<div class="badges" style="margin-top:10px">${renderBadges(set)}</div>` : ''}
                     </div>
                 </div>`;
         }
@@ -1636,7 +1798,7 @@
                     <img src="${avatar(name)}" alt="">
                     <span style="min-width:0; flex:1">
                         <span class="n" style="display:block">${esc(name)}</span>
-                        <span class="c" style="display:block">${plural(list.length, 'photo')}</span>
+                        <span class="c" style="display:block">${plural(list.length, 'photo')} · ${plural(likesReceived(list), 'like')}</span>
                     </span>
                     <i data-lucide="chevron-right" style="width:15px;height:15px;color:var(--muted)"></i>
                 </button>`;
@@ -2075,13 +2237,23 @@
                 return;
             }
 
+            const pill = e.target.closest('[data-like-photo]');
+            if (pill) {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleLike(pill.dataset.likePhoto);
+                return;
+            }
+
             const tile = e.target.closest('[data-photo]');
             if (tile) {
                 const scope = tile.dataset.scope;
                 // The masthead and the sidebar browse the whole collection; the
                 // grid browses what is on screen, the strip its own siblings.
                 const list = (scope === 'masthead' || scope === 'latest') ? photos
-                    : (scope === 'lightbox' ? moreList : null);
+                    : scope === 'lightbox' ? moreList
+                    : scope === 'mine' ? myPhotos()
+                    : null;
                 openPhoto(tile.dataset.photo, list);
             }
         });
@@ -2356,11 +2528,12 @@
             document.getElementById('acct-crumb').textContent = credit;
 
             const mine = myPhotos();
+            const sp = spotterStats(mine);
             document.getElementById('account-card').innerHTML = `
                 ${account.avatarUrl
                     ? `<img class="acct-avatar" src="${esc(account.avatarUrl)}" alt="">`
                     : `<span class="acct-avatar">${esc(initials(credit))}</span>`}
-                <div style="min-width:0; flex:1">
+                <div class="acct-id">
                     <div class="acct-name">${esc(account.displayName || credit)}</div>
                     ${account.ifUsername
                         ? `<div class="acct-if">
@@ -2381,11 +2554,30 @@
                         ? `<div class="status err" style="margin-top:8px">Uploads are restricted on your account${account.blocked.reason ? `: ${esc(account.blocked.reason)}` : '.'}</div>`
                         : ''}
                 </div>
-                <div style="text-align:right">
-                    <div class="nums" style="grid-template-columns:1fr">
-                        <div><dt>Photos</dt><dd>${(photos.length ? mine.length : (account.photos || 0)).toLocaleString()}</dd></div>
-                    </div>
+                <div class="acct-figures">
+                    <dl class="profile-stats">
+                        <div><dt>Photos</dt><dd>${(photos.length ? sp.photos : (account.photos || 0)).toLocaleString()}</dd></div>
+                        <div><dt>Likes received</dt><dd>${sp.likes.toLocaleString()}</dd></div>
+                        <div><dt>Likes given</dt><dd>${myLikes.size.toLocaleString()}</dd></div>
+                        <div><dt>Types</dt><dd>${sp.types.toLocaleString()}</dd></div>
+                        <div><dt>Airlines</dt><dd>${sp.airlines.toLocaleString()}</dd></div>
+                        <div><dt>Firsts</dt><dd>${sp.firsts.toLocaleString()}</dd></div>
+                    </dl>
                 </div>`;
+
+            const badges = renderBadges(mine);
+            document.getElementById('account-badges').innerHTML = badges
+                ? `<div class="badges">${badges}</div>`
+                : `<p class="note" style="margin:0">Upload a photo to start earning badges — the first one is waiting.</p>`;
+
+            const best = document.getElementById('account-best');
+            best.innerHTML = sp.topPhoto
+                ? `<button class="row" data-photo="${esc(sp.topPhoto.id)}" data-scope="mine" style="grid-template-columns:5.4rem minmax(0,1fr) auto">
+                       <span class="reg">${esc(sp.topPhoto.reg || '—')}</span>
+                       <span class="ac">${esc(sp.topPhoto.type)} <span class="muted">· ${esc(sp.topPhoto.livery)}</span></span>
+                       <span class="dt">${plural(likesOf(sp.topPhoto.id), 'like')}</span>
+                   </button>`
+                : `<p class="note" style="padding:10px 12px; margin:0">No likes yet — they show up here as your photos collect them.</p>`;
 
             document.getElementById('account-photo-count').textContent = plural(mine.length, 'photo');
             document.getElementById('account-photos').innerHTML = mine.length
