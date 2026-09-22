@@ -118,6 +118,7 @@
             transition: background .15s ease;
         }
         .btn:hover { background: var(--link-dk); }
+        .btn:disabled { background: #a9bdd8; cursor: not-allowed; }
         .btn-lg { height: 42px; width: 100%; font-size: .9rem; }
 
         .mobile-search { display: none; padding: 0 0 12px; }
@@ -340,11 +341,27 @@
         .skel { background: linear-gradient(90deg, #dfe3e8 25%, #eef1f4 50%, #dfe3e8 75%); background-size: 200% 100%; animation: sh 1.3s infinite; border-radius: 4px; }
         @keyframes sh { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
-        /* ---------------- Photo page (lightbox) ---------------- */
-        #lightbox { position: fixed; inset: 0; z-index: 100; background: rgba(16, 18, 22, .88); display: none; overflow-y: auto; overscroll-behavior: contain; }
-        #lightbox.open { display: block; }
-        .lb-wrap { max-width: 1100px; margin: 0 auto; padding: 56px 12px 40px; }
-        .lb-card { background: var(--card); border-radius: 5px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.45); }
+        /* ---------------- Photo page ----------------
+           A page in the flow, not an overlay: opening a photo swaps the browse
+           view out, so the browser's own back button returns to the feed. */
+        .view { display: none; }
+        .view.on { display: block; }
+        .lb-wrap { max-width: 1100px; margin: 0 auto; padding: 16px 0 28px; }
+        .lb-card { background: var(--card); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+        .crumb {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+            padding: 10px 0 12px;
+        }
+        .crumb-back { display: inline-flex; align-items: center; gap: 6px; font-size: .82rem; font-weight: 700; color: var(--link); }
+        .crumb-back:hover { text-decoration: underline; }
+        .crumb-title { font-size: .8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .crumb-nav { display: inline-flex; gap: 6px; }
+        .crumb-nav button {
+            display: inline-flex; align-items: center; gap: 5px;
+            height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 4px;
+            background: #fff; font-size: .78rem; font-weight: 600; color: var(--ink2);
+        }
+        .crumb-nav button:hover { border-color: var(--link); color: var(--link); }
         .lb-stage { position: relative; background: var(--mat); }
         .lb-stage img { width: 100%; max-height: 76vh; object-fit: contain; margin: 0 auto; }
         .lb-nav {
@@ -373,6 +390,48 @@
         .strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px; }
         @media (min-width: 720px) { .strip { grid-template-columns: repeat(5, 1fr); } }
         .strip .shot { aspect-ratio: 4 / 3; border-radius: 3px; }
+
+        /* ---------------- Upload page ----------------
+           The gallery's own submission form — it posts straight to the review
+           endpoint and depends on nothing else on the site. */
+        .up-wrap { max-width: 900px; margin: 0 auto; padding: 16px 0 28px; }
+        .up-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+        @media (min-width: 900px) { .up-grid { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; } }
+        .drop {
+            display: block; border: 2px dashed var(--line); border-radius: 6px;
+            padding: 26px 16px; text-align: center; background: #fafbfc; cursor: pointer;
+            transition: border-color .15s ease, background .15s ease;
+        }
+        .drop:hover, .drop.over { border-color: var(--link); background: #f3f8ff; }
+        .drop input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+        .drop-title { font-size: .92rem; font-weight: 700; }
+        .drop-sub { font-size: .76rem; color: var(--muted); margin-top: 3px; }
+        .previews { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+        .preview { position: relative; aspect-ratio: 3/2; border-radius: 4px; overflow: hidden; background: var(--mat); border: 1px solid var(--line); }
+        .preview img { width: 100%; height: 100%; object-fit: cover; }
+        .preview button {
+            position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 999px;
+            background: rgba(16,18,22,.8); color: #fff; font-size: .8rem; line-height: 1;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .field { margin-top: 12px; }
+        .field label { display: block; font-size: .64rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+        .field label .opt { font-weight: 600; letter-spacing: 0; text-transform: none; color: #a3aab4; }
+        .field input {
+            width: 100%; height: 38px; padding: 0 10px;
+            border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: .88rem;
+        }
+        .field input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+        .rules { font-size: .82rem; color: var(--ink2); }
+        .rules li { margin-bottom: 9px; line-height: 1.45; }
+        .rules b { color: var(--ink); }
+        .rules-must { margin-top: 12px; padding: 10px 12px; border-radius: 4px; background: #fff7ed; border: 1px solid #f3d9b0; font-size: .8rem; }
+        .rules-must .h { font-weight: 800; font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: #92500c; margin-bottom: 6px; }
+        .ack { display: flex; gap: 9px; align-items: flex-start; margin-top: 14px; font-size: .84rem; }
+        .ack input { margin-top: 3px; }
+        .status { margin-top: 12px; font-size: .85rem; font-weight: 600; min-height: 20px; }
+        .status.ok { color: #10692f; }
+        .status.err { color: #b3261e; }
 
         /* ---------------- Footer ---------------- */
         .foot { margin-top: auto; background: var(--head); color: #aeb6c2; }
@@ -464,7 +523,9 @@
     </div>
 
     <main class="wrap">
-        <!-- Newest uploads -->
+      <!-- ===================== Browse ===================== -->
+      <div id="browse-view" class="view on">
+        <!-- Photo of the day + newest uploads -->
         <section class="panel" style="margin-top:16px">
             <div class="panel-head">
                 <span>Photo of the day &amp; newest uploads</span>
@@ -580,14 +641,22 @@
                 </section>
             </aside>
         </div>
-    </main>
+      </div>
 
-    <!-- ===================== Photo page ===================== -->
-    <div id="lightbox" role="dialog" aria-modal="true" aria-label="Photo details">
-        <button id="lb-close" class="icon-btn" style="position:fixed; top:12px; right:12px; z-index:110; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.28)">
-            <i data-lucide="x" style="width:18px;height:18px"></i>
-        </button>
+      <!-- ===================== Photo page ===================== -->
+      <section id="photo-view" class="view" aria-label="Photo details">
         <div class="lb-wrap">
+            <div class="crumb">
+                <button id="lb-close" class="crumb-back">
+                    <i data-lucide="arrow-left" style="width:15px;height:15px"></i> Back to the gallery
+                </button>
+                <span class="crumb-title" id="crumb-title"></span>
+                <div class="spacer"></div>
+                <div class="crumb-nav">
+                    <button id="lb-prev-top"><i data-lucide="chevron-left" style="width:14px;height:14px"></i> Previous</button>
+                    <button id="lb-next-top">Next <i data-lucide="chevron-right" style="width:14px;height:14px"></i></button>
+                </div>
+            </div>
             <div class="lb-card">
                 <div class="lb-stage">
                     <img id="lb-image" src="" alt="">
@@ -616,7 +685,88 @@
                 <div id="lb-more" class="strip"></div>
             </div>
         </div>
-    </div>
+      </section>
+
+      <!-- ===================== Upload ===================== -->
+      <section id="upload-view" class="view" aria-label="Submit a photo">
+        <div class="up-wrap">
+            <div class="crumb">
+                <button id="up-back" class="crumb-back">
+                    <i data-lucide="arrow-left" style="width:15px;height:15px"></i> Back to the gallery
+                </button>
+                <span class="crumb-title">Submit your Infinite Flight photos</span>
+            </div>
+
+            <form id="up-form" class="up-grid" enctype="multipart/form-data" novalidate>
+                <div class="panel" style="margin:0">
+                    <div class="panel-head"><span>Your photos</span></div>
+                    <div class="panel-body">
+                        <label class="drop" id="up-drop">
+                            <input type="file" id="up-files" name="images" accept="image/*" multiple>
+                            <i data-lucide="upload-cloud" style="width:26px;height:26px;margin:0 auto 8px;color:var(--link)"></i>
+                            <div class="drop-title">Drop photos here or <span style="color:var(--link)">browse</span></div>
+                            <div class="drop-sub">Up to 3 images · JPG, PNG or WEBP</div>
+                        </label>
+                        <div class="previews" id="up-previews"></div>
+
+                        <div class="field">
+                            <label for="up-type">Aircraft type</label>
+                            <input id="up-type" name="aircraftType" placeholder="e.g. Airbus A320neo" required>
+                        </div>
+                        <div class="field">
+                            <label for="up-livery">Livery / airline</label>
+                            <input id="up-livery" name="liveryName" placeholder="e.g. IndiGo" required>
+                        </div>
+                        <div class="field">
+                            <label for="up-tail">Tail number <span class="opt">— optional, we'll match it if you leave it blank</span></label>
+                            <input id="up-tail" name="tailNumber" placeholder="e.g. VT-IZA">
+                        </div>
+                        <div class="field">
+                            <label for="up-credit">Your name <span class="opt">— shown as the photographer</span></label>
+                            <input id="up-credit" name="collaboratorName" placeholder="How you want to be credited">
+                        </div>
+                        <input type="hidden" id="up-id" name="collaboratorId">
+
+                        <label class="ack">
+                            <input type="checkbox" id="up-ack">
+                            <span>I've read the rules and my photos follow them.</span>
+                        </label>
+
+                        <div class="status" id="up-status" role="status" aria-live="polite"></div>
+
+                        <button type="submit" class="btn btn-lg" id="up-submit" style="margin-top:6px" disabled>
+                            <i data-lucide="send" style="width:16px;height:16px"></i> Submit for review
+                        </button>
+                    </div>
+                </div>
+
+                <aside class="panel" style="margin:0">
+                    <div class="panel-head"><span>Submission rules</span></div>
+                    <div class="panel-body">
+                        <p class="note" style="margin:0 0 10px">Every photo is screened by staff on Discord before it appears in the gallery. Submissions that break these rules are rejected.</p>
+                        <ul class="rules" style="margin:0; padding-left:18px">
+                            <li><b>Hide the UI.</b> No menus, widgets or overlays — the plane, not your battery indicator.</li>
+                            <li><b>Keep it natural.</b> Original, unedited photos only: no filters or colour grading.</li>
+                            <li><b>The whole picture.</b> Don't crop — submit the full frame.</li>
+                            <li><b>Centre the aircraft.</b></li>
+                            <li><b>Good lighting.</b> No backlit shots; the side you're showing should be lit.</li>
+                            <li><b>Spotter-style shots.</b> Mid-air shots are likely to be rejected.</li>
+                            <li><b>Tell us what it is.</b> Aircraft type and livery, e.g. British Airways Airbus A380.</li>
+                        </ul>
+                        <div class="rules-must">
+                            <div class="h">Required</div>
+                            <ul style="margin:0; padding-left:18px">
+                                <li>Taken with Infinite Flight's built-in HD screenshot in replay mode.</li>
+                                <li>Taken in the beta app — 25.1 renders are no longer accepted.</li>
+                                <li>Cropped, edited or UI-obstructed photos will not be accepted.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </aside>
+            </form>
+        </div>
+      </section>
+    </main>
 
     <!-- ===================== Footer ===================== -->
     <footer class="foot">
@@ -635,7 +785,7 @@
                     <ul>
                         <li><button data-tab-link="airports">Airports</button></li>
                         <li><button data-tab-link="contributors">Photographers</button></li>
-                        <li><a href="submit-aircraft.html">Upload your photos</a></li>
+                        <li><button data-action="upload">Upload your photos</button></li>
                     </ul>
                 </div>
                 <div>
@@ -658,7 +808,6 @@
         <div class="foot-base">© 2026 InFlight Gallery — every photo © its contributor</div>
     </footer>
 
-    <script src="communityHub.js"></script>
     <script>
         lucide.createIcons();
 
@@ -702,7 +851,9 @@
             sentinel: document.getElementById('sentinel'),
             loadMoreWrap: document.getElementById('load-more-wrap'),
             loadMore: document.getElementById('load-more'),
-            lightbox: document.getElementById('lightbox'),
+            browseView: document.getElementById('browse-view'),
+            photoView: document.getElementById('photo-view'),
+            uploadView: document.getElementById('upload-view'),
             profile: document.getElementById('profile-panel'),
             letters: document.getElementById('letters'),
             windowRow: document.getElementById('window-row'),
@@ -712,6 +863,19 @@
         };
 
         const WINDOWS = { '48h': 2, week: 7, month: 30, year: 365 };
+        const MAX_UPLOAD_IMAGES = 3;
+        const CREDIT_KEY = 'inflight_contributor_name';
+
+        // Three in-page views — browse, one photo, upload. Nothing overlays the
+        // page, so back/forward move between them like any other page.
+        let currentView = 'browse';
+        function showView(name) {
+            currentView = name;
+            els.browseView.classList.toggle('on', name === 'browse');
+            els.photoView.classList.toggle('on', name === 'photo');
+            els.uploadView.classList.toggle('on', name === 'upload');
+            window.scrollTo({ top: 0, behavior: 'auto' });
+        }
         const advFields = { type: 'adv-type', airline: 'adv-airline', reg: 'adv-reg', shooter: 'adv-shooter', from: 'adv-from', to: 'adv-to' };
 
         const esc = (s) => String(s == null ? '' : s)
@@ -1277,9 +1441,7 @@
             if (idx >= 0) viewList = source;
             state.photoId = photo.id;
             paintPhotoPage(photo);
-            els.lightbox.classList.add('open');
-            document.body.classList.add('no-scroll');
-            els.lightbox.scrollTop = 0;
+            showView('photo');
             writeHash();
         }
 
@@ -1296,7 +1458,9 @@
             document.getElementById('lb-index').textContent = idx >= 0 ? `${idx + 1}/${viewList.length}` : '1';
             document.getElementById('lb-regcount').textContent = regList.length || '—';
             document.getElementById('lb-typecount').textContent = typeList.length || '—';
-            document.getElementById('lb-title').textContent = p.isAirport ? `${p.reg} — airport imagery` : `${p.livery} ${p.type}`;
+            const heading = p.isAirport ? `${p.reg} — airport imagery` : `${p.livery} ${p.type}`;
+            document.getElementById('lb-title').textContent = heading;
+            document.getElementById('crumb-title').textContent = p.reg ? `${heading} · ${p.reg}` : heading;
 
             const rows = p.isAirport
                 ? [
@@ -1365,14 +1529,13 @@
             const next = (idx + delta + viewList.length) % viewList.length;
             state.photoId = viewList[next].id;
             paintPhotoPage(viewList[next]);
-            els.lightbox.scrollTop = 0;
+            window.scrollTo({ top: 0, behavior: 'auto' });
             writeHash();
         }
 
-        function closeLightbox() {
-            els.lightbox.classList.remove('open');
-            document.body.classList.remove('no-scroll');
+        function closePhoto() {
             state.photoId = null;
+            showView('browse');
             writeHash();
         }
 
@@ -1392,6 +1555,7 @@
             if (state.letter) params.set('l', state.letter);
             if (state.adv) Object.entries(state.adv).forEach(([k, v]) => { if (v) params.set('a' + k, v); });
             if (state.photoId) params.set('photo', state.photoId);
+            if (currentView === 'upload') params.set('view', 'upload');
             const hash = params.toString();
             suppressHash = true;
             history.replaceState(null, '', hash ? `#${hash}` : location.pathname + location.search);
@@ -1426,11 +1590,13 @@
             syncControls();
             render();
 
+            if (params.get('view') === 'upload') { showView('upload'); return; }
+
             const photoId = params.get('photo');
             if (photoId) {
                 if (findPhoto(photoId)) openPhoto(photoId);
-            } else if (els.lightbox.classList.contains('open')) {
-                closeLightbox();
+            } else if (currentView === 'photo') {
+                showView('browse');
             }
         }
 
@@ -1438,6 +1604,8 @@
         // Interaction
         // ------------------------------------------------------------------
         function setTab(tab) {
+            // A tab click from the photo or upload view returns to the feed.
+            if (currentView !== 'browse') { state.photoId = null; showView('browse'); }
             state.tab = tab;
             state.shown = PAGE_SIZE;
             state.letter = null;
@@ -1457,7 +1625,7 @@
             els.search.value = '';
             els.searchMobile.value = '';
             state.shown = PAGE_SIZE;
-            if (els.lightbox.classList.contains('open')) closeLightbox();
+            if (currentView === 'photo') { state.photoId = null; showView('browse'); }
             render();
             writeHash();
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1607,6 +1775,11 @@
                 return;
             }
 
+            if (e.target.closest('[data-action="upload"]')) {
+                openSubmit();
+                return;
+            }
+
             if (e.target.closest('[data-action="view-latest"]')) {
                 state.filter = null; state.query = '';
                 els.search.value = ''; els.searchMobile.value = '';
@@ -1626,8 +1799,8 @@
         });
 
         document.addEventListener('keydown', (e) => {
-            if (els.lightbox.classList.contains('open')) {
-                if (e.key === 'Escape') closeLightbox();
+            if (currentView === 'photo') {
+                if (e.key === 'Escape') closePhoto();
                 if (e.key === 'ArrowRight') stepPhoto(1);
                 if (e.key === 'ArrowLeft') stepPhoto(-1);
                 return;
@@ -1638,10 +1811,9 @@
             }
         });
 
-        document.getElementById('lb-close').addEventListener('click', closeLightbox);
-        document.getElementById('lb-prev').addEventListener('click', () => stepPhoto(-1));
-        document.getElementById('lb-next').addEventListener('click', () => stepPhoto(1));
-        els.lightbox.addEventListener('click', (e) => { if (e.target === els.lightbox) closeLightbox(); });
+        document.getElementById('lb-close').addEventListener('click', closePhoto);
+        ['lb-prev', 'lb-prev-top'].forEach(id => document.getElementById(id).addEventListener('click', () => stepPhoto(-1)));
+        ['lb-next', 'lb-next-top'].forEach(id => document.getElementById(id).addEventListener('click', () => stepPhoto(1)));
 
         document.getElementById('lb-share').addEventListener('click', async () => {
             const url = location.href;
@@ -1658,14 +1830,162 @@
             setTimeout(() => { el.innerHTML = original; lucide.createIcons(); }, 1400);
         }
 
-        // Upload buttons hand off to the community hub's submit flow — the same
-        // reviewed pipeline the rest of the site uses.
+        // ------------------------------------------------------------------
+        // Upload — the gallery's own form. It posts multipart straight to the
+        // community review endpoint (staff approve on Discord before anything
+        // is written), so this page carries no dependency on the shared hub.
+        // ------------------------------------------------------------------
+        const up = {
+            form: document.getElementById('up-form'),
+            files: document.getElementById('up-files'),
+            drop: document.getElementById('up-drop'),
+            previews: document.getElementById('up-previews'),
+            ack: document.getElementById('up-ack'),
+            submit: document.getElementById('up-submit'),
+            status: document.getElementById('up-status'),
+            credit: document.getElementById('up-credit'),
+            id: document.getElementById('up-id'),
+        };
+
+        const readCredit = () => { try { return localStorage.getItem(CREDIT_KEY) || ''; } catch (_) { return ''; } };
+        const writeCredit = (v) => { try { v ? localStorage.setItem(CREDIT_KEY, v) : localStorage.removeItem(CREDIT_KEY); } catch (_) {} };
+
         function openSubmit() {
-            if (window.InflightCommunity && window.InflightCommunity.open) window.InflightCommunity.open('submit');
-            else window.location.href = 'submit-aircraft.html';
+            up.credit.value = up.credit.value || readCredit();
+            showView('upload');
+            writeHash();
         }
         document.getElementById('upload-btn').addEventListener('click', openSubmit);
         document.getElementById('upload-btn-side').addEventListener('click', openSubmit);
+        document.getElementById('up-back').addEventListener('click', () => { showView('browse'); writeHash(); });
+
+        const upSay = (msg, kind) => {
+            up.status.textContent = msg || '';
+            up.status.className = 'status' + (kind ? ' ' + kind : '');
+        };
+
+        function upSyncSubmit() {
+            const ready = up.ack.checked && (up.files.files || []).length > 0;
+            up.submit.disabled = !ready;
+        }
+
+        // Object URLs are built and revoked here rather than in markup: an
+        // inline onload resolves `URL` against the document (a string), not the
+        // global, so the revoke never fires.
+        let previewUrls = [];
+        function upRenderPreviews() {
+            previewUrls.forEach(u => URL.revokeObjectURL(u));
+            previewUrls = [];
+            up.previews.innerHTML = '';
+
+            const files = Array.from(up.files.files || []).slice(0, MAX_UPLOAD_IMAGES);
+            files.forEach((file, i) => {
+                const url = URL.createObjectURL(file);
+                previewUrls.push(url);
+
+                const cell = document.createElement('div');
+                cell.className = 'preview';
+
+                const img = document.createElement('img');
+                img.src = url;
+                img.alt = file.name;
+
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.dataset.remove = String(i);
+                remove.setAttribute('aria-label', `Remove ${file.name}`);
+                remove.innerHTML = '&times;';
+
+                cell.append(img, remove);
+                up.previews.appendChild(cell);
+            });
+
+            if ((up.files.files || []).length > MAX_UPLOAD_IMAGES) {
+                upSay(`Only the first ${MAX_UPLOAD_IMAGES} photos will be sent.`, 'err');
+            } else if (up.status.classList.contains('err')) {
+                upSay('');
+            }
+            upSyncSubmit();
+        }
+
+        // Rebuild the FileList without one entry — the only way to drop a file
+        // from an <input type=file> and keep the rest.
+        function upRemoveAt(idx) {
+            const dt = new DataTransfer();
+            Array.from(up.files.files || []).forEach((f, i) => { if (i !== idx) dt.items.add(f); });
+            up.files.files = dt.files;
+            upRenderPreviews();
+        }
+
+        up.files.addEventListener('change', upRenderPreviews);
+        up.ack.addEventListener('change', upSyncSubmit);
+        up.previews.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-remove]');
+            if (btn) upRemoveAt(Number(btn.dataset.remove));
+        });
+
+        ['dragenter', 'dragover'].forEach(ev => up.drop.addEventListener(ev, (e) => {
+            e.preventDefault(); up.drop.classList.add('over');
+        }));
+        ['dragleave', 'drop'].forEach(ev => up.drop.addEventListener(ev, (e) => {
+            e.preventDefault(); up.drop.classList.remove('over');
+        }));
+        up.drop.addEventListener('drop', (e) => {
+            const dropped = Array.from((e.dataTransfer && e.dataTransfer.files) || []).filter(f => f.type.startsWith('image/'));
+            if (!dropped.length) return;
+            const dt = new DataTransfer();
+            dropped.slice(0, MAX_UPLOAD_IMAGES).forEach(f => dt.items.add(f));
+            up.files.files = dt.files;
+            upRenderPreviews();
+        });
+
+        up.form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const files = Array.from(up.files.files || []);
+            if (!files.length) return upSay('Please choose at least one photo.', 'err');
+            const type = document.getElementById('up-type').value.trim();
+            const livery = document.getElementById('up-livery').value.trim();
+            if (!type || !livery) return upSay('Aircraft type and livery are both required.', 'err');
+
+            const credit = up.credit.value.trim();
+            if (credit) writeCredit(credit);
+            // A linked Discord id, when another page on the site has set one.
+            if (!up.id.value && window.InflightUser && window.InflightUser.discordId) {
+                up.id.value = window.InflightUser.discordId;
+            }
+
+            const fd = new FormData();
+            files.slice(0, MAX_UPLOAD_IMAGES).forEach(f => fd.append('images', f));
+            fd.set('aircraftType', type);
+            fd.set('liveryName', livery);
+            fd.set('tailNumber', document.getElementById('up-tail').value.trim());
+            fd.set('collaboratorName', credit);
+            if (up.id.value) fd.set('collaboratorId', up.id.value);
+            fd.set('sourceSite', location.hostname);
+
+            up.submit.disabled = true;
+            upSay('Uploading…');
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/community/aircraft/submit`, { method: 'POST', body: fd });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    upSay('Submitted. Staff will review it on Discord shortly.', 'ok');
+                    up.form.reset();
+                    upRenderPreviews();
+                    up.credit.value = readCredit();
+                } else if (res.status === 403) {
+                    upSay('This site is not allowed to submit (origin check).', 'err');
+                } else if (res.status === 503) {
+                    upSay('The review service is waking up — please try again in a moment.', 'err');
+                } else {
+                    upSay(data.message || `Upload failed (${res.status}).`, 'err');
+                }
+            } catch (_) {
+                upSay('Network error — please try again.', 'err');
+            } finally {
+                upSyncSubmit();
+            }
+        });
 
         window.addEventListener('hashchange', () => { if (!suppressHash) applyHash(); });
 
