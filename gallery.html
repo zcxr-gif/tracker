@@ -391,6 +391,37 @@
         @media (min-width: 720px) { .strip { grid-template-columns: repeat(5, 1fr); } }
         .strip .shot { aspect-ratio: 4 / 3; border-radius: 3px; }
 
+        /* ---------------- Account ----------------
+           The signed-in pilot, their photos, and the sign-in form. */
+        .acct-btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            height: 38px; padding: 0 10px 0 6px; border-radius: 999px;
+            border: 1px solid rgba(255,255,255,.22); color: #e7eaef;
+            font-size: .82rem; font-weight: 600; white-space: nowrap;
+        }
+        .acct-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+        .acct-btn img, .acct-btn .ini {
+            width: 26px; height: 26px; border-radius: 999px; object-fit: cover;
+            background: #39404a; color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: .66rem; font-weight: 800; letter-spacing: .02em;
+        }
+        .acct-wrap { max-width: 900px; margin: 0 auto; padding: 16px 0 28px; }
+        .acct-card { display: flex; gap: 16px; align-items: center; padding: 16px; flex-wrap: wrap; }
+        .acct-avatar {
+            width: 68px; height: 68px; border-radius: 999px; object-fit: cover;
+            border: 1px solid var(--line); background: #e7e9ec;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem; font-weight: 800; color: var(--ink2); flex: 0 0 auto;
+        }
+        .acct-name { font-size: 1.25rem; font-weight: 800; letter-spacing: -.01em; }
+        .acct-if { display: inline-flex; align-items: center; gap: 5px; font-size: .84rem; color: var(--ink2); margin-top: 2px; }
+        .verified { display: inline-flex; align-items: center; gap: 4px; color: #0a7d32; font-weight: 700; font-size: .72rem; }
+        .unverified { font-size: .72rem; color: var(--muted); }
+        .signin-form { max-width: 380px; }
+        .link-btn { color: var(--link); font-weight: 600; font-size: .82rem; }
+        .link-btn:hover { text-decoration: underline; }
+
         /* ---------------- Upload page ----------------
            The gallery's own submission form — it posts straight to the review
            endpoint and depends on nothing else on the site. */
@@ -492,6 +523,11 @@
 
                 <button id="mobile-search-btn" class="icon-btn m-only" aria-label="Search">
                     <i data-lucide="search" style="width:18px;height:18px"></i>
+                </button>
+
+                <button id="account-btn" class="acct-btn">
+                    <span class="ini" id="account-ini"><i data-lucide="user" style="width:14px;height:14px"></i></span>
+                    <span id="account-label">Sign in</span>
                 </button>
 
                 <button id="upload-btn" class="btn">
@@ -613,6 +649,9 @@
                             <i data-lucide="upload" style="width:16px;height:16px"></i> Upload your photos
                         </button>
                         <p class="note" style="margin:10px 0 0">Every submission is screened by staff on Discord before it appears here.</p>
+                        <button id="my-photos-btn" class="chip" style="width:100%; justify-content:center; margin-top:10px">
+                            <i data-lucide="user" style="width:13px;height:13px"></i> Your photos
+                        </button>
                     </div>
                 </section>
 
@@ -687,6 +726,66 @@
         </div>
       </section>
 
+      <!-- ===================== Account ===================== -->
+      <section id="account-view" class="view" aria-label="Your gallery account">
+        <div class="acct-wrap">
+            <div class="crumb">
+                <button id="acct-back" class="crumb-back">
+                    <i data-lucide="arrow-left" style="width:15px;height:15px"></i> Back to the gallery
+                </button>
+                <span class="crumb-title" id="acct-crumb">Your account</span>
+            </div>
+
+            <!-- Signed out -->
+            <div id="signin-panel" class="panel">
+                <div class="panel-head"><span>Sign in</span></div>
+                <div class="panel-body">
+                    <p class="note" style="margin:0 0 14px; max-width:520px">
+                        The gallery uses your InFlight tracker account, so your Infinite Flight username
+                        travels with every photo you upload and your old uploads come back to you.
+                    </p>
+                    <form id="signin-form" class="signin-form">
+                        <div class="field" style="margin-top:0">
+                            <label for="signin-email">Email</label>
+                            <input id="signin-email" type="email" autocomplete="email" required>
+                        </div>
+                        <div class="field">
+                            <label for="signin-password">Password</label>
+                            <input id="signin-password" type="password" autocomplete="current-password" required>
+                        </div>
+                        <div class="status" id="signin-status" role="status" aria-live="polite"></div>
+                        <button type="submit" class="btn btn-lg" id="signin-submit" style="margin-top:4px">
+                            <i data-lucide="log-in" style="width:16px;height:16px"></i> Sign in
+                        </button>
+                    </form>
+                    <p class="note" style="margin:14px 0 0">
+                        No account yet, or forgotten your password?
+                        <a class="link-btn" href="index.html">Open the tracker</a> — the gallery uses the same sign-in.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Signed in -->
+            <div id="account-panel" style="display:none">
+                <div class="panel">
+                    <div class="panel-head">
+                        <span>Your pilot account</span>
+                        <button class="more" id="signout-btn">Sign out</button>
+                    </div>
+                    <div class="acct-card" id="account-card"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <span>Your photos</span>
+                        <span id="account-photo-count" style="letter-spacing:0; text-transform:none; font-weight:600"></span>
+                    </div>
+                    <div id="account-photos" class="grid" style="padding:12px"></div>
+                </div>
+            </div>
+        </div>
+      </section>
+
       <!-- ===================== Upload ===================== -->
       <section id="upload-view" class="view" aria-label="Submit a photo">
         <div class="up-wrap">
@@ -721,9 +820,19 @@
                             <label for="up-tail">Tail number <span class="opt">— optional, we'll match it if you leave it blank</span></label>
                             <input id="up-tail" name="tailNumber" placeholder="e.g. VT-IZA">
                         </div>
-                        <div class="field">
+                        <div class="field" id="up-credit-field">
                             <label for="up-credit">Your name <span class="opt">— shown as the photographer</span></label>
                             <input id="up-credit" name="collaboratorName" placeholder="How you want to be credited">
+                        </div>
+                        <div class="field" id="up-signed-in" style="display:none">
+                            <label>Credited to</label>
+                            <div style="display:flex; align-items:center; gap:9px; padding:8px 10px; border:1px solid var(--line); border-radius:4px; background:#fafbfc">
+                                <span class="acct-avatar" id="up-avatar" style="width:30px;height:30px;font-size:.72rem"></span>
+                                <span style="min-width:0">
+                                    <span style="display:block; font-size:.86rem; font-weight:700" id="up-credit-name"></span>
+                                    <span class="note" id="up-credit-sub"></span>
+                                </span>
+                            </div>
                         </div>
                         <input type="hidden" id="up-id" name="collaboratorId">
 
@@ -808,6 +917,29 @@
         <div class="foot-base">© 2026 InFlight Gallery — every photo © its contributor</div>
     </footer>
 
+    <!-- The tracker's own sign-in. Same project and same storage key, so a
+         pilot already signed in on the tracker is already signed in here. -->
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+        const SUPABASE_URL = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
+
+        try {
+            const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            window.InflightGalleryAuth = client;
+            client.auth.onAuthStateChange(() => {
+                window.dispatchEvent(new CustomEvent('inflight-auth-changed'));
+            });
+        } catch (err) {
+            // A blocked CDN or a private-mode storage failure must not take the
+            // gallery down with it — browsing and anonymous uploads still work.
+            console.warn('[gallery] auth unavailable:', err && err.message);
+            window.InflightGalleryAuth = null;
+        }
+        window.dispatchEvent(new CustomEvent('inflight-auth-ready'));
+    </script>
+
     <script>
         lucide.createIcons();
 
@@ -854,6 +986,7 @@
             browseView: document.getElementById('browse-view'),
             photoView: document.getElementById('photo-view'),
             uploadView: document.getElementById('upload-view'),
+            accountView: document.getElementById('account-view'),
             profile: document.getElementById('profile-panel'),
             letters: document.getElementById('letters'),
             windowRow: document.getElementById('window-row'),
@@ -874,6 +1007,7 @@
             els.browseView.classList.toggle('on', name === 'browse');
             els.photoView.classList.toggle('on', name === 'photo');
             els.uploadView.classList.toggle('on', name === 'upload');
+            els.accountView.classList.toggle('on', name === 'account');
             window.scrollTo({ top: 0, behavior: 'auto' });
         }
         const advFields = { type: 'adv-type', airline: 'adv-airline', reg: 'adv-reg', shooter: 'adv-shooter', from: 'adv-from', to: 'adv-to' };
@@ -917,6 +1051,7 @@
             renderMasthead();
             renderSidebar();
             applyHash();
+            if (account) paintAccount();
         }
 
         function flattenAircraft(entries) {
@@ -931,6 +1066,10 @@
                     const credit = credits[i] || {};
                     out.push({
                         id: `${e._id || e.tailNumber || 'ac'}-${i}`,
+                        // The account behind the credit, when the photo has one.
+                        // Legacy records carry it only at the top level.
+                        pilotId: credit.pilotId || (i === 0 ? e.contributorPilotId : null) || null,
+                        ifUsername: credit.ifUsername || (i === 0 ? e.contributorIfUsername : null) || null,
                         type: e.aircraftType || 'Unknown type',
                         livery: e.liveryName || 'Unknown livery',
                         reg: (e.tailNumber || '').toUpperCase(),
@@ -962,10 +1101,21 @@
             return map;
         }
 
+        // Who took a photo. An account is the same person however they have
+        // written their name over the years, so it wins over the free-text
+        // credit; an unclaimed photo still groups by the name that is printed
+        // on it. The key doubles as the value in a shareable link, hence the
+        // readable `@ifusername` form.
+        const photographerKey = (p) => (p.ifUsername ? '@' + p.ifUsername
+            : p.pilotId ? 'id:' + p.pilotId
+            : p.photographer);
+        const photographerLabel = (list) => (list && list[0] ? list[0].photographer : '');
+        const isLinked = (list) => !!(list && list[0] && list[0].pilotId);
+
         const byType = () => groupBy(photos, p => p.type);
         const byLivery = () => groupBy(photos, p => p.livery);
         const byReg = () => groupBy(photos.filter(p => p.reg), p => p.reg);
-        const byPhotographer = () => groupBy(photos, p => p.photographer);
+        const byPhotographer = () => groupBy(photos, photographerKey);
 
         // ------------------------------------------------------------------
         // Filtering + sorting
@@ -981,8 +1131,12 @@
 
             if (state.filter) {
                 const val = norm(state.filter.value);
-                const key = { type: 'type', livery: 'livery', reg: 'reg', contributor: 'photographer' }[state.filter.kind];
-                list = list.filter(p => norm(p[key]) === val);
+                if (state.filter.kind === 'contributor') {
+                    list = list.filter(p => norm(photographerKey(p)) === val);
+                } else {
+                    const key = { type: 'type', livery: 'livery', reg: 'reg' }[state.filter.kind];
+                    list = list.filter(p => norm(p[key]) === val);
+                }
             }
 
             // Time window, the way Airplane-Pictures splits its feed into
@@ -1219,7 +1373,10 @@
             const q = norm(state.query);
             els.grid.className = 'grid';
             const people = Array.from(byPhotographer().entries())
-                .filter(([name]) => (!q || norm(name).includes(q)) && (!state.letter || letterOf(name) === state.letter))
+                .filter(([, list]) => {
+                    const label = photographerLabel(list);
+                    return (!q || norm(label).includes(q)) && (!state.letter || letterOf(label) === state.letter);
+                })
                 .sort((a, b) => b[1].length - a[1].length);
 
             els.count.textContent = plural(people.length, 'photographer');
@@ -1230,10 +1387,13 @@
                 return;
             }
 
-            els.grid.innerHTML = people.map(([name, list]) => {
+            els.grid.innerHTML = people.map(([key, list]) => {
+                const name = photographerLabel(list);
                 const types = new Set(list.map(p => p.type)).size;
+                const linked = isLinked(list)
+                    ? '<i data-lucide="badge-check" style="width:13px;height:13px;display:inline;vertical-align:-2px;color:#7fd6a0"></i> ' : '';
                 return `
-                <button class="tile" data-group="contributor" data-value="${esc(name)}">
+                <button class="tile" data-group="contributor" data-value="${esc(key)}">
                     <span class="tile-frame">
                         <img loading="lazy" decoding="async" src="${esc(list[0].url)}" alt="${esc(name)}"
                              onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
@@ -1241,12 +1401,13 @@
                     <span class="tile-meta" style="display:flex; align-items:center; gap:9px">
                         <img src="${avatar(name)}" alt="" style="width:30px;height:30px;border-radius:999px">
                         <span style="min-width:0">
-                            <span class="tile-shooter" style="display:block">${esc(name)}</span>
+                            <span class="tile-shooter" style="display:block">${linked}${esc(name)}</span>
                             <span class="tile-sub" style="margin:0"><span>${plural(list.length, 'photo')} · ${plural(types, 'type')}</span></span>
                         </span>
                     </span>
                 </button>`;
             }).join('');
+            lucide.createIcons();
         }
 
         // A–Z index rail over the grouped tabs, like the airline index pages
@@ -1258,7 +1419,9 @@
                 : null;
             if (!source) { els.letters.style.display = 'none'; return; }
 
-            const present = new Set(Array.from(source.keys()).map(letterOf));
+            const present = new Set(state.tab === 'contributors'
+                ? Array.from(source.values()).map(list => letterOf(photographerLabel(list)))
+                : Array.from(source.keys()).map(letterOf));
             const letters = ['#'].concat('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''));
             els.letters.style.display = 'flex';
             els.letters.innerHTML =
@@ -1271,8 +1434,12 @@
         function renderProfile() {
             if (!state.filter || state.tab !== 'photos') { els.profile.style.display = 'none'; return; }
 
-            const key = { type: 'type', livery: 'livery', reg: 'reg', contributor: 'photographer' }[state.filter.kind];
-            const set = photos.filter(p => norm(p[key]) === norm(state.filter.value));
+            const set = state.filter.kind === 'contributor'
+                ? photos.filter(p => norm(photographerKey(p)) === norm(state.filter.value))
+                : photos.filter(p => {
+                    const key = { type: 'type', livery: 'livery', reg: 'reg' }[state.filter.kind];
+                    return norm(p[key]) === norm(state.filter.value);
+                });
             if (!set.length) { els.profile.style.display = 'none'; return; }
 
             const uniq = (f) => new Set(set.map(f).filter(Boolean)).size;
@@ -1285,7 +1452,7 @@
             if (state.filter.kind === 'reg') stats.push(['Type', set[0].type], ['Airline', set[0].livery], ['Photographers', uniq(p => p.photographer)]);
             if (state.filter.kind === 'contributor') {
                 const rank = Array.from(byPhotographer().entries()).sort((a, b) => b[1].length - a[1].length)
-                    .findIndex(([n]) => norm(n) === norm(state.filter.value)) + 1;
+                    .findIndex(([k]) => norm(k) === norm(state.filter.value)) + 1;
                 stats.push(['Types', uniq(p => p.type)], ['Airlines', uniq(p => p.livery)], ['Registrations', uniq(p => p.reg)], ['Rank', `#${rank}`]);
             }
             if (dates.length) stats.push(['Latest', fmtDate(dates[dates.length - 1])]);
@@ -1302,7 +1469,12 @@
                     </div>
                     <div style="min-width:0">
                         <div class="profile-kind">${kindLabel}</div>
-                        <h2>${esc(state.filter.value)}</h2>
+                        <h2>${esc(state.filter.kind === 'contributor' ? photographerLabel(set) : state.filter.value)}</h2>
+                        ${state.filter.kind === 'contributor' && set[0].ifUsername ? `
+                            <div class="acct-if" style="margin:-4px 0 8px">
+                                <i data-lucide="badge-check" style="width:14px;height:14px;color:#0a7d32"></i>
+                                Infinite Flight: <strong>${esc(set[0].ifUsername)}</strong>
+                            </div>` : ''}
                         <dl class="profile-stats">
                             ${stats.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${typeof v === 'number' ? v.toLocaleString() : esc(v)}</dd></div>`).join('')}
                         </dl>
@@ -1353,8 +1525,10 @@
 
             // Top photographers
             const people = Array.from(byPhotographer().entries()).sort((a, b) => b[1].length - a[1].length).slice(0, 6);
-            document.getElementById('contributors-panel').innerHTML = people.map(([name, list], i) => `
-                <button class="person" data-group="contributor" data-value="${esc(name)}">
+            document.getElementById('contributors-panel').innerHTML = people.map(([key, list], i) => {
+                const name = photographerLabel(list);
+                return `
+                <button class="person" data-group="contributor" data-value="${esc(key)}">
                     <span class="rank">${i + 1}</span>
                     <img src="${avatar(name)}" alt="">
                     <span style="min-width:0; flex:1">
@@ -1362,7 +1536,8 @@
                         <span class="c" style="display:block">${plural(list.length, 'photo')}</span>
                     </span>
                     <i data-lucide="chevron-right" style="width:15px;height:15px;color:var(--muted)"></i>
-                </button>`).join('') || '<p class="note" style="padding:8px">No photographers yet.</p>';
+                </button>`;
+            }).join('') || '<p class="note" style="padding:8px">No photographers yet.</p>';
 
             // Latest additions
             document.getElementById('latest-rows').innerHTML = photos.slice(0, 6).map(p => `
@@ -1497,10 +1672,15 @@
                     <img src="${avatar(p.photographer)}" alt="" style="width:42px;height:42px;border-radius:999px;border:1px solid var(--line)">
                     <div style="min-width:0">
                         <div style="font-size:.88rem; font-weight:700">${esc(p.photographer)}</div>
-                        <div class="note">Photo © ${esc(p.photographer)}</div>
+                        ${p.ifUsername
+                            ? `<div class="acct-if" style="font-size:.76rem">
+                                   <i data-lucide="badge-check" style="width:13px;height:13px;color:#0a7d32"></i>
+                                   ${esc(p.ifUsername)} on Infinite Flight
+                               </div>`
+                            : `<div class="note">Photo © ${esc(p.photographer)}</div>`}
                     </div>
                 </div>
-                ${p.isAirport ? '' : `<button class="chip" data-group="contributor" data-value="${esc(p.photographer)}" style="margin-top:10px; width:100%; justify-content:center">
+                ${p.isAirport ? '' : `<button class="chip" data-group="contributor" data-value="${esc(photographerKey(p))}" style="margin-top:10px; width:100%; justify-content:center">
                     <i data-lucide="images" style="width:14px;height:14px"></i> All photos by this spotter
                 </button>`}`;
 
@@ -1556,6 +1736,7 @@
             if (state.adv) Object.entries(state.adv).forEach(([k, v]) => { if (v) params.set('a' + k, v); });
             if (state.photoId) params.set('photo', state.photoId);
             if (currentView === 'upload') params.set('view', 'upload');
+            if (currentView === 'account') params.set('view', 'account');
             const hash = params.toString();
             suppressHash = true;
             history.replaceState(null, '', hash ? `#${hash}` : location.pathname + location.search);
@@ -1591,6 +1772,7 @@
             render();
 
             if (params.get('view') === 'upload') { showView('upload'); return; }
+            if (params.get('view') === 'account') { showView('account'); return; }
 
             const photoId = params.get('photo');
             if (photoId) {
@@ -1831,6 +2013,223 @@
         }
 
         // ------------------------------------------------------------------
+        // Account — the tracker sign-in, and the photos it owns.
+        //
+        // The session is the tracker's: same Supabase project, same storage, so
+        // a pilot signed in on the tracker arrives here already signed in. The
+        // backend never takes the browser's word for who that is — the access
+        // token goes up and /api/gallery/me answers.
+        // ------------------------------------------------------------------
+        let account = null;          // what /api/gallery/me returned, or null
+        let claimedThisSession = false;
+
+        const authClient = () => window.InflightGalleryAuth || null;
+
+        async function accessToken() {
+            const client = authClient();
+            if (!client) return null;
+            try {
+                const { data } = await client.auth.getSession();
+                return (data && data.session && data.session.access_token) || null;
+            } catch (_) { return null; }
+        }
+
+        const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2)
+            .map(w => w.charAt(0).toUpperCase()).join('') || '?';
+
+        async function loadAccount() {
+            const token = await accessToken();
+            if (!token) { account = null; paintAccount(); return; }
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/gallery/me`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                account = res.ok ? await res.json() : null;
+            } catch (_) {
+                account = null;
+            }
+            paintAccount();
+            if (account) claimOnce();
+        }
+
+        // Auto-match on first sign-in: photos credited to a name this account
+        // answers to become theirs. The server decides what qualifies.
+        async function claimOnce() {
+            if (claimedThisSession || !account) return;
+            claimedThisSession = true;
+            const token = await accessToken();
+            if (!token) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/gallery/claim`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.claimed > 0) {
+                    // The photos in memory still carry the old credit, so refetch
+                    // rather than guess which ones moved — paintAccount then
+                    // counts the real list.
+                    await refreshPhotos();
+                    paintAccount();
+                }
+            } catch (_) { /* claiming is a convenience, never a blocker */ }
+        }
+
+        async function refreshPhotos() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/aircraft`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    photos = flattenAircraft(data);
+                    renderMasthead();
+                    renderSidebar();
+                    render();
+                }
+            } catch (_) { /* keep what we have */ }
+        }
+
+        function myPhotos() {
+            if (!account) return [];
+            return photos.filter(p => p.pilotId && p.pilotId === account.pilotId);
+        }
+
+        function paintAccount() {
+            const label = document.getElementById('account-label');
+            const ini = document.getElementById('account-ini');
+
+            if (!account) {
+                label.textContent = 'Sign in';
+                ini.innerHTML = '<i data-lucide="user" style="width:14px;height:14px"></i>';
+                document.getElementById('signin-panel').style.display = '';
+                document.getElementById('account-panel').style.display = 'none';
+                document.getElementById('acct-crumb').textContent = 'Sign in to the gallery';
+                document.getElementById('up-credit-field').style.display = '';
+                document.getElementById('up-signed-in').style.display = 'none';
+                lucide.createIcons();
+                return;
+            }
+
+            const credit = account.credit || account.displayName || account.handle || 'Pilot';
+            label.textContent = credit;
+            ini.innerHTML = account.avatarUrl
+                ? `<img src="${esc(account.avatarUrl)}" alt="">`
+                : esc(initials(credit));
+
+            document.getElementById('signin-panel').style.display = 'none';
+            document.getElementById('account-panel').style.display = '';
+            document.getElementById('acct-crumb').textContent = credit;
+
+            const mine = myPhotos();
+            document.getElementById('account-card').innerHTML = `
+                ${account.avatarUrl
+                    ? `<img class="acct-avatar" src="${esc(account.avatarUrl)}" alt="">`
+                    : `<span class="acct-avatar">${esc(initials(credit))}</span>`}
+                <div style="min-width:0; flex:1">
+                    <div class="acct-name">${esc(account.displayName || credit)}</div>
+                    ${account.ifUsername
+                        ? `<div class="acct-if">
+                               <i data-lucide="plane" style="width:14px;height:14px"></i>
+                               Infinite Flight: <strong>${esc(account.ifUsername)}</strong>
+                               ${account.ifVerified
+                                    ? '<span class="verified"><i data-lucide="badge-check" style="width:13px;height:13px"></i> Verified</span>'
+                                    : '<span class="unverified">— not verified yet</span>'}
+                           </div>`
+                        : `<div class="note" style="margin-top:4px">
+                               No Infinite Flight username on your pilot profile yet —
+                               <a class="link-btn" href="index.html">add one in the tracker</a> and your photos will carry it.
+                           </div>`}
+                    ${account.handle
+                        ? `<div style="margin-top:8px"><a class="link-btn" href="${API_BASE_URL}/pilot/${encodeURIComponent(account.handle)}" target="_blank" rel="noopener">View your pilot profile</a></div>`
+                        : ''}
+                    ${account.blocked
+                        ? `<div class="status err" style="margin-top:8px">Uploads are restricted on your account${account.blocked.reason ? `: ${esc(account.blocked.reason)}` : '.'}</div>`
+                        : ''}
+                </div>
+                <div style="text-align:right">
+                    <div class="nums" style="grid-template-columns:1fr">
+                        <div><dt>Photos</dt><dd>${(photos.length ? mine.length : (account.photos || 0)).toLocaleString()}</dd></div>
+                    </div>
+                </div>`;
+
+            document.getElementById('account-photo-count').textContent = plural(mine.length, 'photo');
+            document.getElementById('account-photos').innerHTML = mine.length
+                ? mine.map(photoTile).join('')
+                : `<p class="note" style="grid-column:1/-1; padding:12px">
+                       No photos are linked to your account yet. Anything you upload while signed in lands here,
+                       and older photos credited to your name are matched automatically.
+                   </p>`;
+
+            // Upload credits the account instead of asking for a name.
+            document.getElementById('up-credit-field').style.display = 'none';
+            const signed = document.getElementById('up-signed-in');
+            signed.style.display = '';
+            document.getElementById('up-avatar').innerHTML = account.avatarUrl
+                ? `<img src="${esc(account.avatarUrl)}" alt="" style="width:100%;height:100%;border-radius:999px;object-fit:cover">`
+                : esc(initials(credit));
+            document.getElementById('up-credit-name').textContent = credit;
+            document.getElementById('up-credit-sub').textContent = account.ifUsername
+                ? `Infinite Flight · ${account.ifUsername}`
+                : 'Your tracker account';
+
+            lucide.createIcons();
+        }
+
+        function openAccount() {
+            showView('account');
+            writeHash();
+            if (!account) document.getElementById('signin-email').focus();
+        }
+
+        document.getElementById('account-btn').addEventListener('click', openAccount);
+        document.getElementById('my-photos-btn').addEventListener('click', openAccount);
+        document.getElementById('acct-back').addEventListener('click', () => { showView('browse'); writeHash(); });
+
+        document.getElementById('signin-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const client = authClient();
+            const status = document.getElementById('signin-status');
+            const setStatus = (msg, kind) => { status.textContent = msg; status.className = 'status' + (kind ? ' ' + kind : ''); };
+
+            if (!client) return setStatus('Sign-in is unavailable right now. Please try again shortly.', 'err');
+
+            const email = document.getElementById('signin-email').value.trim();
+            const password = document.getElementById('signin-password').value;
+            if (!email || !password) return setStatus('Enter your email and password.', 'err');
+
+            document.getElementById('signin-submit').disabled = true;
+            setStatus('Signing in…');
+            try {
+                const { error } = await client.auth.signInWithPassword({ email, password });
+                if (error) {
+                    setStatus(error.message || 'Could not sign you in.', 'err');
+                } else {
+                    setStatus('');
+                    document.getElementById('signin-password').value = '';
+                    await loadAccount();
+                }
+            } catch (_) {
+                setStatus('Network error — please try again.', 'err');
+            } finally {
+                document.getElementById('signin-submit').disabled = false;
+            }
+        });
+
+        document.getElementById('signout-btn').addEventListener('click', async () => {
+            const client = authClient();
+            if (client) await client.auth.signOut().catch(() => {});
+            account = null;
+            claimedThisSession = false;
+            paintAccount();
+        });
+
+        // Another tab signing in or out — or the tracker itself — moves this page too.
+        window.addEventListener('inflight-auth-changed', () => { claimedThisSession = false; loadAccount(); });
+        window.addEventListener('inflight-auth-ready', loadAccount);
+        if (window.InflightGalleryAuth !== undefined) loadAccount();
+
+        // ------------------------------------------------------------------
         // Upload — the gallery's own form. It posts multipart straight to the
         // community review endpoint (staff approve on Discord before anything
         // is written), so this page carries no dependency on the shared hub.
@@ -1947,10 +2346,13 @@
             const livery = document.getElementById('up-livery').value.trim();
             if (!type || !livery) return upSay('Aircraft type and livery are both required.', 'err');
 
-            const credit = up.credit.value.trim();
+            // Signed in, the account is the credit and the server takes it from
+            // the token — the name field is not even sent.
+            const token = await accessToken();
+            const credit = account ? '' : up.credit.value.trim();
             if (credit) writeCredit(credit);
             // A linked Discord id, when another page on the site has set one.
-            if (!up.id.value && window.InflightUser && window.InflightUser.discordId) {
+            if (!account && !up.id.value && window.InflightUser && window.InflightUser.discordId) {
                 up.id.value = window.InflightUser.discordId;
             }
 
@@ -1966,15 +2368,25 @@
             up.submit.disabled = true;
             upSay('Uploading…');
             try {
-                const res = await fetch(`${API_BASE_URL}/api/community/aircraft/submit`, { method: 'POST', body: fd });
+                const res = await fetch(`${API_BASE_URL}/api/community/aircraft/submit`, {
+                    method: 'POST',
+                    body: fd,
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok) {
-                    upSay('Submitted. Staff will review it on Discord shortly.', 'ok');
+                    upSay(data.creditedTo
+                        ? `Submitted as ${data.creditedTo}. Staff will review it on Discord shortly.`
+                        : 'Submitted. Staff will review it on Discord shortly.', 'ok');
                     up.form.reset();
                     upRenderPreviews();
                     up.credit.value = readCredit();
                 } else if (res.status === 403) {
-                    upSay('This site is not allowed to submit (origin check).', 'err');
+                    // A restriction on the account reads differently from an
+                    // origin the backend will not accept at all.
+                    upSay(data.blocked
+                        ? (data.message || 'Uploads are restricted on your account.')
+                        : 'This site is not allowed to submit (origin check).', 'err');
                 } else if (res.status === 503) {
                     upSay('The review service is waking up — please try again in a moment.', 'err');
                 } else {
