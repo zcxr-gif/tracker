@@ -2,13 +2,25 @@
 <html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InFlight | Aviation Gallery</title>
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>InFlight Gallery | Infinite Flight Aviation Photography</title>
+
+    <meta name="description" content="InFlight Gallery — browse community aircraft photography from Infinite Flight. Search by registration, aircraft type, livery, airport or photographer.">
+    <link rel="canonical" href="https://inflight.info/gallery.html">
+    <meta name="theme-color" content="#020617">
+    <link rel="icon" href="Images/inflight.png">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="InFlight">
+    <meta property="og:title" content="InFlight Gallery">
+    <meta property="og:description" content="Community aircraft photography from Infinite Flight — search by registration, type, livery, airport or photographer.">
+    <meta property="og:url" content="https://inflight.info/gallery.html">
+    <meta property="og:image" content="https://inflight.info/Images/og-banner.png">
+    <meta name="twitter:card" content="summary_large_image">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -20,9 +32,9 @@
                         mono: ['JetBrains Mono', 'monospace'],
                     },
                     colors: {
-                        background: '#020617', 
-                        surface: '#0f172a',
-                        surfaceLight: '#1e293b',
+                        background: '#020617',
+                        surface: '#0b1220',
+                        surfaceLight: '#111c31',
                         primary: '#6366f1',
                         accent: '#38bdf8',
                     }
@@ -32,634 +44,1239 @@
     </script>
 
     <style>
+        :root { color-scheme: dark; }
         body {
             background-color: #020617;
-            color: #f8fafc;
+            color: #e2e8f0;
             overflow-x: hidden;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
         }
+        body.no-scroll { overflow: hidden; }
 
         .nav-blur {
-            background: rgba(2, 6, 23, 0.75);
+            background: rgba(2, 6, 23, 0.86);
             backdrop-filter: blur(16px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
         }
 
-        .text-gradient {
-            background: linear-gradient(to bottom, #fff 30%, rgba(255, 255, 255, 0.4));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        /* Cinematic Cards */
-        .glow-card {
-            position: relative;
-            background: rgba(15, 23, 42, 0.4);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        /* ------------------------------------------------------------------
+           Panels — the boxed, titled sections both reference sites lean on.
+           ------------------------------------------------------------------ */
+        .panel {
+            background: rgba(11, 18, 32, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 1rem;
             overflow: hidden;
         }
-
-        .glow-card::before {
-            content: "";
-            position: absolute;
-            inset: -1px;
-            background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(99, 102, 241, 0.4) 0%, transparent 60%);
-            border-radius: inherit;
-            z-index: 1;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s ease;
-        }
-
-        .glow-card:hover::before { opacity: 1; }
-        .glow-card:hover {
-            border-color: rgba(99, 102, 241, 0.4);
-            transform: translateY(-4px);
-            box-shadow: 0 30px 60px -15px rgba(0,0,0,0.8);
-        }
-
-        /* Upgraded Image & Overlay Handling */
-        .glow-card img.main-img {
-            transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-            will-change: transform;
-        }
-        .glow-card:hover img.main-img {
-            transform: scale(1.08);
-        }
-        
-        .card-gradient-overlay {
-            background: linear-gradient(to top, rgba(2,6,23,0.95) 0%, rgba(2,6,23,0.5) 40%, transparent 100%);
-            opacity: 0.85;
-            transition: opacity 0.5s ease;
-        }
-        .glow-card:hover .card-gradient-overlay {
-            opacity: 1;
-        }
-
-        /* Stacked Card Effect for Groups */
-        .stack-effect::after {
-            content: '';
-            position: absolute;
-            top: 6px; left: 12px; right: 12px; bottom: -6px;
-            background: rgba(30, 41, 59, 0.4);
-            border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 1.5rem;
-            z-index: -1;
-            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .stack-effect::before {
-            content: '';
-            position: absolute;
-            top: 12px; left: 24px; right: 24px; bottom: -12px;
-            background: rgba(15, 23, 42, 0.4);
-            border: 1px solid rgba(255,255,255,0.02);
-            border-radius: 1.5rem;
-            z-index: -2;
-            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .glow-card:hover.stack-effect::after { transform: translateY(6px) scale(0.97); }
-        .glow-card:hover.stack-effect::before { transform: translateY(12px) scale(0.94); }
-
-        /* Premium Folder Expansion */
-        .folder-expansion {
-            grid-column: 1 / -1;
-            background: rgba(10, 15, 30, 0.7);
-            backdrop-filter: blur(24px);
-            border: 1px solid rgba(99, 102, 241, 0.2);
-            border-radius: 2rem;
-            padding: 2.5rem;
-            margin-top: 1rem;
-            margin-bottom: 2rem;
-            box-shadow: inset 0 2px 20px rgba(255,255,255,0.02), 0 30px 60px -10px rgba(0,0,0,0.8);
-            position: relative;
-            transform-origin: top;
-            animation: expandIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            overflow: hidden;
-        }
-
-        .folder-expansion::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 10%; right: 10%; height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.8), transparent);
-        }
-
-        @keyframes expandIn {
-            from { opacity: 0; transform: scaleY(0.95); height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; border-width: 0; }
-            to { opacity: 1; transform: scaleY(1); height: auto; }
-        }
-
-        .folder-expansion.closing {
-            animation: collapseOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-
-        @keyframes collapseOut {
-            from { opacity: 1; transform: scaleY(1); height: auto; }
-            to { opacity: 0; transform: scaleY(0.95); height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; border-width: 0; }
-        }
-
-        .variant-card {
-            background: rgba(2, 6, 23, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 1.5rem;
-            overflow: hidden;
-            position: relative;
-            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .variant-card:hover {
-            border-color: rgba(99, 102, 241, 0.4);
-            transform: translateY(-6px);
-            box-shadow: 0 20px 40px -10px rgba(0,0,0,0.8);
-        }
-
-        /* Custom Scrollbar */
-        .horizontal-scroll::-webkit-scrollbar {
-            height: 6px;
-        }
-        .horizontal-scroll::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 10px;
-            margin: 0 2rem;
-        }
-        .horizontal-scroll::-webkit-scrollbar-thumb {
-            background: rgba(99, 102, 241, 0.4);
-            border-radius: 10px;
-        }
-        .horizontal-scroll::-webkit-scrollbar-thumb:hover {
-            background: rgba(99, 102, 241, 0.8);
-        }
-
-        /* Segmented Control */
-        .segmented-control {
-            position: relative;
-            display: inline-flex;
+        .panel-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
             background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            padding: 6px;
-            border-radius: 9999px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .segment-btn {
-            position: relative;
-            z-index: 10;
-            padding: 0.75rem 2.5rem;
-            border-radius: 9999px;
-            font-size: 0.875rem;
-            font-weight: 600;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
             color: #94a3b8;
-            transition: color 0.4s ease;
-            display: flex; align-items: center; gap: 0.5rem;
-        }
-        .segment-btn.active { color: #ffffff; }
-        #tab-indicator {
-            position: absolute;
-            top: 6px; bottom: 6px; width: calc(50% - 6px);
-            background: rgba(99, 102, 241, 0.15);
-            border: 1px solid rgba(99, 102, 241, 0.3);
-            border-radius: 9999px;
-            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 5;
         }
 
-        .grid-container { transition: opacity 0.3s ease; }
-        .grid-container.loading { opacity: 0.5; pointer-events: none; }
+        /* ------------------------------------------------------------------
+           Photo tile — the unit of this page is a PHOTO, not an aircraft.
+           Caption bar mirrors a spotter site: photographer left, reg right.
+           ------------------------------------------------------------------ */
+        .tile {
+            position: relative;
+            display: block;
+            background: #0b1220;
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 0.9rem;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform .35s cubic-bezier(.16,1,.3,1), border-color .3s ease, box-shadow .35s ease;
+        }
+        .tile:hover {
+            transform: translateY(-4px);
+            border-color: rgba(56, 189, 248, 0.45);
+            box-shadow: 0 22px 44px -18px rgba(0,0,0,0.9);
+        }
+        .tile-frame {
+            position: relative;
+            aspect-ratio: 3 / 2;
+            background: #05080f;
+            overflow: hidden;
+        }
+        .tile-frame img {
+            width: 100%; height: 100%;
+            object-fit: cover;
+            transition: transform .7s cubic-bezier(.16,1,.3,1);
+        }
+        .tile:hover .tile-frame img { transform: scale(1.06); }
+        .tile-badge {
+            position: absolute; top: .55rem; left: .55rem;
+            display: inline-flex; align-items: center; gap: .3rem;
+            background: rgba(2, 6, 23, 0.75);
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.12);
+            color: #e2e8f0;
+            font-size: .6rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+            padding: .25rem .5rem; border-radius: 999px;
+        }
+        .tile-watermark {
+            position: absolute; bottom: .4rem; right: .5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: .55rem; letter-spacing: .18em;
+            color: rgba(255,255,255,0.55);
+            text-shadow: 0 1px 4px rgba(0,0,0,.9);
+            pointer-events: none;
+        }
+        .tile-meta { padding: .55rem .7rem .65rem; }
+        .tile-row {
+            display: flex; align-items: baseline; justify-content: space-between; gap: .6rem;
+        }
+        .tile-shooter {
+            font-size: .78rem; font-weight: 600; color: #e2e8f0;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .tile-reg {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: .72rem; font-weight: 600; color: #38bdf8;
+            white-space: nowrap;
+        }
+        .tile-sub {
+            display: flex; align-items: baseline; justify-content: space-between; gap: .6rem;
+            margin-top: .2rem;
+            font-size: .68rem; color: #94a3b8;
+        }
+        .tile-sub span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Masthead mosaic (top photos) */
+        .mosaic-item { position: relative; overflow: hidden; border-radius: .9rem; cursor: pointer; background: #05080f; }
+        .mosaic-item img { width: 100%; height: 100%; object-fit: cover; transition: transform .8s cubic-bezier(.16,1,.3,1); }
+        .mosaic-item:hover img { transform: scale(1.07); }
+        .mosaic-caption {
+            position: absolute; inset: auto 0 0 0;
+            padding: .6rem .75rem;
+            background: linear-gradient(to top, rgba(2,6,23,.95), rgba(2,6,23,0) 100%);
+            font-size: .7rem; color: #cbd5e1;
+        }
+
+        /* Tab rail — horizontally scrollable on phones, like JetPhotos */
+        .tab-rail {
+            display: flex; gap: .25rem;
+            overflow-x: auto;
+            scrollbar-width: none;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .tab-rail::-webkit-scrollbar { display: none; }
+        .tab-btn {
+            position: relative;
+            flex: 0 0 auto;
+            padding: .8rem 1rem;
+            font-size: .8rem; font-weight: 700; letter-spacing: .02em;
+            color: #94a3b8;
+            white-space: nowrap;
+            transition: color .25s ease;
+            display: inline-flex; align-items: center; gap: .45rem;
+        }
+        .tab-btn:hover { color: #e2e8f0; }
+        .tab-btn.active { color: #ffffff; }
+        .tab-btn.active::after {
+            content: ''; position: absolute; left: .7rem; right: .7rem; bottom: -1px; height: 2px;
+            background: #38bdf8; border-radius: 2px;
+        }
+
+        /* Chips */
+        .chip {
+            display: inline-flex; align-items: center; gap: .35rem;
+            padding: .35rem .7rem;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.03);
+            font-size: .72rem; color: #cbd5e1;
+            transition: all .2s ease;
+        }
+        .chip:hover { border-color: rgba(56,189,248,.5); color: #fff; background: rgba(56,189,248,.1); }
+        .chip.active { border-color: rgba(56,189,248,.6); background: rgba(56,189,248,.14); color: #e0f2fe; }
+
+        /* Data rows (latest additions) */
+        .data-row {
+            display: grid;
+            grid-template-columns: 5.5rem minmax(0,1fr) auto;
+            gap: .6rem; align-items: center;
+            padding: .55rem 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: .74rem;
+            cursor: pointer;
+            transition: background .2s ease;
+        }
+        .data-row:hover { background: rgba(56,189,248,0.06); }
+        .data-row:last-child { border-bottom: 0; }
+
+        /* ------------------------------------------------------------------
+           Lightbox — the photo "page": big image plus an aircraft data sheet.
+           ------------------------------------------------------------------ */
+        #lightbox {
+            position: fixed; inset: 0; z-index: 100;
+            background: rgba(2, 6, 23, 0.96);
+            backdrop-filter: blur(10px);
+            display: none;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
+        #lightbox.open { display: block; }
+        .lb-shell { max-width: 1100px; margin: 0 auto; padding: 4.5rem 1rem 3rem; }
+        .lb-stage {
+            position: relative;
+            background: #05080f;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 1rem;
+            overflow: hidden;
+        }
+        .lb-stage img { width: 100%; max-height: 74vh; object-fit: contain; display: block; background: #05080f; }
+        .lb-nav {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 2.75rem; height: 2.75rem;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 999px;
+            background: rgba(2,6,23,.7);
+            border: 1px solid rgba(255,255,255,.14);
+            color: #fff;
+            transition: all .2s ease;
+        }
+        .lb-nav:hover { background: #38bdf8; color: #04141d; border-color: #38bdf8; }
+        .lb-strip {
+            display: grid; grid-template-columns: repeat(5, 1fr);
+            border-top: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.02);
+        }
+        .lb-stat { padding: .7rem .5rem; text-align: center; border-right: 1px solid rgba(255,255,255,0.06); }
+        .lb-stat:last-child { border-right: 0; }
+        .lb-stat-label { font-size: .55rem; letter-spacing: .16em; text-transform: uppercase; color: #64748b; }
+        .lb-stat-value { font-size: .95rem; font-weight: 700; color: #fff; margin-top: .15rem; }
+        .lb-row {
+            display: grid; grid-template-columns: 7.5rem minmax(0,1fr);
+            gap: .75rem; padding: .55rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: .85rem;
+        }
+        .lb-row dt { color: #64748b; }
+        .lb-row dd { margin: 0; color: #e2e8f0; }
+        .lb-link { color: #38bdf8; }
+        .lb-link:hover { text-decoration: underline; }
+
+        /* Scrollbars */
+        .thin-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
+        .thin-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 10px; }
+        .thin-scroll::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.35); border-radius: 10px; }
+        .thin-scroll::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,0.7); }
+
+        .skel { background: linear-gradient(90deg, #0b1220 25%, #16233b 50%, #0b1220 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+        @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+        @media (max-width: 640px) {
+            .lb-shell { padding: 3.75rem .5rem 2rem; }
+            .lb-row { grid-template-columns: 6rem minmax(0,1fr); font-size: .8rem; }
+        }
     </style>
 </head>
-<body class="antialiased selection:bg-primary/30">
+<body class="antialiased selection:bg-accent/30">
 
+    <!-- ================= Header ================= -->
     <nav class="fixed top-0 w-full z-50 nav-blur">
-        <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-            <a href="home.html" class="flex items-center gap-3 group">
-                <img src="Images/inflight.png" alt="InFlight Logo" class="size-10 rounded-full object-cover transition-all duration-300 group-hover:scale-110 ring-2 ring-primary/20 shadow-lg shadow-primary/10" onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=In+Flight&background=6366f1&color=fff';">
-                <span class="text-xl font-bold tracking-tight text-white">InFlight</span>
+        <div class="max-w-[1500px] mx-auto px-4 sm:px-6 h-16 flex items-center gap-4">
+            <a href="home.html" class="flex items-center gap-2.5 group shrink-0">
+                <img src="Images/inflight.png" alt="InFlight" class="size-9 rounded-full object-cover ring-2 ring-accent/25 transition-transform duration-300 group-hover:scale-110"
+                     onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=In+Flight&background=38bdf8&color=fff';">
+                <span class="font-black tracking-tight text-white leading-none">
+                    <span class="text-base sm:text-lg">InFlight</span>
+                    <span class="block text-[9px] font-mono font-semibold tracking-[0.28em] text-accent uppercase">Gallery</span>
+                </span>
             </a>
-            <div class="hidden md:flex items-center gap-10">
-                <a href="home.html#features" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Capabilities</a>
-                <a href="gallery.html" class="text-sm font-medium text-white transition-colors">Gallery</a>
-                <a href="https://discord.gg/cNSkZtdJ" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Discord</a>
+
+            <div class="hidden lg:flex items-center gap-1 ml-4">
+                <button class="tab-btn !py-2 !px-3" data-navtab="photos">Photos</button>
+                <button class="tab-btn !py-2 !px-3" data-navtab="aircraft">Aircraft</button>
+                <button class="tab-btn !py-2 !px-3" data-navtab="liveries">Airlines</button>
+                <button class="tab-btn !py-2 !px-3" data-navtab="airports">Airports</button>
+                <button class="tab-btn !py-2 !px-3" data-navtab="contributors">Photographers</button>
+            </div>
+
+            <div class="flex-1"></div>
+
+            <div class="relative hidden sm:block w-56 lg:w-72">
+                <i data-lucide="search" class="size-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                <input id="search-input" type="search" autocomplete="off" placeholder="Reg, type, airline, photographer…"
+                       class="w-full bg-black/40 border border-white/10 rounded-full py-2 pl-9 pr-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50 transition-all">
+            </div>
+            <button id="mobile-search-btn" class="sm:hidden p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/5">
+                <i data-lucide="search" class="size-5"></i>
+            </button>
+
+            <button id="upload-btn" class="shrink-0 inline-flex items-center gap-2 bg-accent text-[#04141d] font-bold text-xs sm:text-sm px-3 sm:px-4 py-2 rounded-full hover:brightness-110 transition-all">
+                <i data-lucide="upload-cloud" class="size-4"></i>
+                <span class="hidden sm:inline">Upload</span>
+            </button>
+        </div>
+
+        <!-- Phone search drawer -->
+        <div id="mobile-search" class="sm:hidden hidden px-4 pb-3">
+            <div class="relative">
+                <i data-lucide="search" class="size-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                <input id="search-input-mobile" type="search" autocomplete="off" placeholder="Reg, type, airline, photographer…"
+                       class="w-full bg-black/50 border border-white/10 rounded-full py-2.5 pl-9 pr-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/50">
             </div>
         </div>
     </nav>
 
-    <main class="flex-1 flex flex-col pt-32 pb-20 max-w-[1600px] mx-auto px-6 w-full">
-        
-        <header class="text-center mb-12 max-w-4xl mx-auto space-y-8">
-            <h1 class="text-4xl md:text-6xl font-black tracking-tighter text-gradient leading-tight">
-                Aviation Gallery
-            </h1>
-            
-            <div class="flex justify-center">
-                <div class="segmented-control">
-                    <div id="tab-indicator"></div>
-                    <button class="segment-btn active" id="btn-aircraft" onclick="setTab('aircraft')">
-                        <i data-lucide="plane" class="size-4"></i> Directory
-                    </button>
-                    <button class="segment-btn" id="btn-airports" onclick="setTab('airports')">
-                        <i data-lucide="building-2" class="size-4"></i> Terminals
-                    </button>
-                </div>
-            </div>
-        </header>
+    <main class="flex-1 w-full max-w-[1500px] mx-auto px-4 sm:px-6 pt-20 sm:pt-24 pb-16">
 
-        <div class="mb-10 bg-surface/40 border border-white/5 rounded-3xl p-6 backdrop-blur-md shadow-2xl flex flex-col lg:flex-row gap-8 justify-between items-center z-20 relative">
-            
-            <div class="flex-1 w-full">
-                <h3 class="text-xs font-mono text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <i data-lucide="award" class="size-3.5 text-accent"></i> Top Contributors
-                </h3>
-                <div id="contributors-container" class="flex flex-wrap gap-4 items-center">
-                    <div class="animate-pulse h-10 w-32 bg-white/5 rounded-full"></div>
-                </div>
+        <!-- ================= Masthead: newest uploads ================= -->
+        <section id="masthead" class="panel mb-6">
+            <div class="panel-head">
+                <span class="flex items-center gap-2"><i data-lucide="sparkles" class="size-3.5 text-accent"></i> Newest in the gallery</span>
+                <button class="text-[10px] text-accent hover:underline tracking-[0.16em]" data-action="view-latest">View all photos</button>
+            </div>
+            <div id="masthead-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2">
+                <div class="skel col-span-2 sm:col-span-2 sm:row-span-2 rounded-xl aspect-[16/10]"></div>
+                <div class="skel rounded-xl aspect-[4/3]"></div>
+                <div class="skel rounded-xl aspect-[4/3]"></div>
+                <div class="skel rounded-xl aspect-[4/3] hidden sm:block"></div>
+                <div class="skel rounded-xl aspect-[4/3] hidden sm:block"></div>
+            </div>
+        </section>
+
+        <!-- ================= Tabs + toolbar ================= -->
+        <div class="panel mb-6">
+            <div class="tab-rail px-2">
+                <button class="tab-btn" data-tab="photos"><i data-lucide="image" class="size-4"></i> Latest photos</button>
+                <button class="tab-btn" data-tab="aircraft"><i data-lucide="plane" class="size-4"></i> Aircraft types</button>
+                <button class="tab-btn" data-tab="liveries"><i data-lucide="paint-bucket" class="size-4"></i> Airlines &amp; liveries</button>
+                <button class="tab-btn" data-tab="airports"><i data-lucide="building-2" class="size-4"></i> Airports</button>
+                <button class="tab-btn" data-tab="contributors"><i data-lucide="camera" class="size-4"></i> Photographers</button>
             </div>
 
-            <div class="hidden lg:block w-px h-16 bg-white/10"></div>
-
-            <div class="w-full lg:w-auto flex flex-col sm:flex-row gap-4 items-center shrink-0">
-                <div class="relative w-full sm:w-64">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i data-lucide="search" class="size-4 text-slate-400"></i>
-                    </div>
-                    <input type="text" id="search-input" placeholder="Filter by type or livery..." 
-                        class="w-full bg-black/50 border border-white/10 rounded-full py-2.5 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all">
-                </div>
-                <div class="text-right w-full sm:w-auto">
-                    <div class="text-2xl font-bold text-white" id="stat-total">--</div>
-                    <div class="text-[10px] font-mono text-slate-500 uppercase tracking-widest" id="stat-label">Total Assets</div>
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3 p-3">
+                <div id="active-filter" class="hidden flex-wrap items-center gap-2 text-xs"></div>
+                <div id="result-count" class="text-xs text-slate-400 font-mono"></div>
+                <div class="flex-1"></div>
+                <div class="flex items-center gap-2">
+                    <label for="sort-select" class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500">Sort</label>
+                    <select id="sort-select" class="bg-black/40 border border-white/10 rounded-lg text-xs text-slate-200 py-1.5 px-2 focus:outline-none focus:ring-2 focus:ring-accent/40">
+                        <option value="newest">Newest first</option>
+                        <option value="oldest">Oldest first</option>
+                        <option value="type">Aircraft type A–Z</option>
+                        <option value="reg">Registration A–Z</option>
+                        <option value="photographer">Photographer A–Z</option>
+                    </select>
                 </div>
             </div>
         </div>
 
-        <div id="gallery-grid" class="grid-container grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-8 md:gap-10">
+        <!-- ================= Body: feed + sidebar ================= -->
+        <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_330px] gap-6">
+
+            <div>
+                <div id="content-grid" class="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4"></div>
+                <div id="sentinel" class="h-16"></div>
+                <div id="load-more-wrap" class="hidden justify-center pt-4">
+                    <button id="load-more" class="chip !px-5 !py-2.5 !text-sm">Load more photos</button>
+                </div>
             </div>
 
+            <aside class="space-y-5">
+                <section class="panel">
+                    <div class="panel-head"><span>Photo updates</span></div>
+                    <div class="p-4 space-y-3">
+                        <p class="text-sm text-slate-300"><span id="recent-count" class="font-bold text-white">—</span> photos added in the last 30 days</p>
+                        <button id="upload-btn-side" class="w-full inline-flex items-center justify-center gap-2 bg-accent text-[#04141d] font-bold text-sm px-4 py-2.5 rounded-lg hover:brightness-110 transition-all">
+                            <i data-lucide="upload-cloud" class="size-4"></i> Upload your photos
+                        </button>
+                        <p class="text-[11px] text-slate-500 leading-relaxed">Every submission is screened by staff on Discord before it appears here.</p>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head"><span>Top photographers</span></div>
+                    <div id="contributors-panel" class="p-2 space-y-1">
+                        <div class="skel h-12 rounded-lg"></div>
+                        <div class="skel h-12 rounded-lg"></div>
+                        <div class="skel h-12 rounded-lg"></div>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head"><span>Latest additions</span></div>
+                    <div id="latest-rows"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head"><span>The gallery in numbers</span></div>
+                    <dl id="numbers-panel" class="p-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm"></dl>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head"><span>Popular searches</span></div>
+                    <div id="popular-searches" class="p-3 flex flex-wrap gap-2"></div>
+                </section>
+            </aside>
+        </div>
     </main>
 
-    <footer class="py-10 border-t border-white/5 bg-background text-center mt-auto">
-        <div class="text-[10px] font-mono text-slate-700 tracking-widest uppercase">
-            <span>© 2026 InFlight Tracker</span>
+    <!-- ================= Photo page (lightbox) ================= -->
+    <div id="lightbox" role="dialog" aria-modal="true" aria-label="Photo details">
+        <button id="lb-close" class="fixed top-4 right-4 z-[110] size-10 rounded-full bg-black/60 border border-white/15 text-white flex items-center justify-center hover:bg-accent hover:text-[#04141d] transition-all">
+            <i data-lucide="x" class="size-5"></i>
+        </button>
+        <div class="lb-shell">
+            <div class="lb-stage">
+                <img id="lb-image" src="" alt="">
+                <button class="lb-nav left-3" id="lb-prev" aria-label="Previous photo"><i data-lucide="chevron-left" class="size-5"></i></button>
+                <button class="lb-nav right-3" id="lb-next" aria-label="Next photo"><i data-lucide="chevron-right" class="size-5"></i></button>
+                <div class="lb-strip">
+                    <div class="lb-stat"><div class="lb-stat-label">Photo</div><div class="lb-stat-value" id="lb-index">—</div></div>
+                    <div class="lb-stat"><div class="lb-stat-label">Of reg</div><div class="lb-stat-value" id="lb-regcount">—</div></div>
+                    <div class="lb-stat"><div class="lb-stat-label">Of type</div><div class="lb-stat-value" id="lb-typecount">—</div></div>
+                    <div class="lb-stat"><button id="lb-share" class="w-full"><div class="lb-stat-label">Share</div><div class="lb-stat-value"><i data-lucide="link" class="size-4 inline"></i></div></button></div>
+                    <div class="lb-stat"><a id="lb-open" href="#" target="_blank" rel="noopener" class="block"><div class="lb-stat-label">Full size</div><div class="lb-stat-value"><i data-lucide="external-link" class="size-4 inline"></i></div></a></div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_280px] gap-6 mt-6">
+                <div>
+                    <h2 id="lb-title" class="text-2xl font-black text-white tracking-tight mb-4"></h2>
+                    <dl id="lb-details" class="text-sm"></dl>
+                </div>
+                <div class="panel h-fit">
+                    <div class="panel-head"><span>Photographer</span></div>
+                    <div class="p-4" id="lb-photographer"></div>
+                </div>
+            </div>
+
+            <div class="mt-8">
+                <div class="panel-head rounded-t-xl border border-white/7 border-b-0"><span id="lb-more-title">More of this aircraft</span></div>
+                <div id="lb-more" class="grid grid-cols-3 sm:grid-cols-5 gap-2 p-2 panel rounded-t-none"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= Footer ================= -->
+    <footer class="border-t border-white/7 bg-[#05080f] mt-auto">
+        <div class="max-w-[1500px] mx-auto px-6 py-10 grid grid-cols-2 md:grid-cols-4 gap-8 text-sm">
+            <div>
+                <h4 class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500 mb-3">Gallery</h4>
+                <ul class="space-y-2 text-slate-400">
+                    <li><button class="hover:text-white transition-colors" data-tab-link="photos">Latest photos</button></li>
+                    <li><button class="hover:text-white transition-colors" data-tab-link="aircraft">Aircraft types</button></li>
+                    <li><button class="hover:text-white transition-colors" data-tab-link="liveries">Airlines &amp; liveries</button></li>
+                </ul>
+            </div>
+            <div>
+                <h4 class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500 mb-3">Spotting</h4>
+                <ul class="space-y-2 text-slate-400">
+                    <li><button class="hover:text-white transition-colors" data-tab-link="airports">Airports</button></li>
+                    <li><button class="hover:text-white transition-colors" data-tab-link="contributors">Photographers</button></li>
+                    <li><a href="submit-aircraft.html" class="hover:text-white transition-colors">Upload your photos</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4 class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500 mb-3">InFlight</h4>
+                <ul class="space-y-2 text-slate-400">
+                    <li><a href="home.html" class="hover:text-white transition-colors">Home</a></li>
+                    <li><a href="index.html" class="hover:text-white transition-colors">Live tracker</a></li>
+                    <li><a href="home.html#features" class="hover:text-white transition-colors">Capabilities</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4 class="text-[10px] font-mono uppercase tracking-[0.16em] text-slate-500 mb-3">Community</h4>
+                <ul class="space-y-2 text-slate-400">
+                    <li><a href="https://discord.gg/cNSkZtdJ" class="hover:text-white transition-colors">Discord</a></li>
+                    <li><a href="crew-website.html" class="hover:text-white transition-colors">Crew centre</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="border-t border-white/5 py-5 text-center">
+            <p class="text-[10px] font-mono text-slate-600 tracking-[0.18em] uppercase">© 2026 InFlight Gallery — photos © their contributors</p>
         </div>
     </footer>
 
+    <script src="communityHub.js"></script>
     <script>
         lucide.createIcons();
 
-        const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run'; 
-        
-        // State Management
-        let currentMode = 'aircraft';
-        let rawAircraftData = [];
-        let rawAirportData = [];
-        let groupedAircraft = {};
+        const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        const FALLBACK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200"><rect width="300" height="200" fill="#0b1220"/><text x="150" y="105" font-family="monospace" font-size="13" fill="#475569" text-anchor="middle">IMAGE UNAVAILABLE</text></svg>'
+        );
+        const PAGE_SIZE = 40;
 
-        // DOM Elements
-        const galleryGrid = document.getElementById('gallery-grid');
-        const searchInput = document.getElementById('search-input');
-        const tabIndicator = document.getElementById('tab-indicator');
-        const btnAircraft = document.getElementById('btn-aircraft');
-        const btnAirports = document.getElementById('btn-airports');
+        // ------------------------------------------------------------------
+        // State. A photo — not an aircraft record — is the unit of this page,
+        // so a record carrying three images contributes three entries with
+        // their own photographer credit (imageContributors is index-aligned).
+        // ------------------------------------------------------------------
+        const state = {
+            tab: 'photos',
+            query: '',
+            sort: 'newest',
+            filter: null,      // { kind: 'type'|'livery'|'reg'|'contributor', value }
+            shown: PAGE_SIZE,
+            photoId: null,     // open lightbox photo
+        };
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadData();
-        });
+        let photos = [];       // flattened aircraft photos
+        let airports = [];     // airport photos
+        let viewList = [];     // photo list currently rendered/navigable
+        let moreList = [];     // the lightbox's sibling strip (same reg, else same type)
 
-        // Mouse glow effect delegation
-        galleryGrid.addEventListener('mousemove', e => {
-            const card = e.target.closest('.glow-card');
-            if (!card) return;
-            const rect = card.getBoundingClientRect();
-            card.style.setProperty('--x', `${e.clientX - rect.left}px`);
-            card.style.setProperty('--y', `${e.clientY - rect.top}px`);
-        });
+        const els = {
+            grid: document.getElementById('content-grid'),
+            masthead: document.getElementById('masthead-grid'),
+            count: document.getElementById('result-count'),
+            filterBar: document.getElementById('active-filter'),
+            sort: document.getElementById('sort-select'),
+            search: document.getElementById('search-input'),
+            searchMobile: document.getElementById('search-input-mobile'),
+            sentinel: document.getElementById('sentinel'),
+            loadMoreWrap: document.getElementById('load-more-wrap'),
+            loadMore: document.getElementById('load-more'),
+            lightbox: document.getElementById('lightbox'),
+        };
 
-        // Search Filter Engine
-        searchInput.addEventListener('input', (e) => {
-            const term = e.target.value.toLowerCase();
-            if (currentMode === 'aircraft') {
-                renderAircraftGroups(term);
-            } else {
-                renderAirports(term);
-            }
-        });
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        const norm = (s) => String(s || '').trim().toLowerCase();
+        const fmtDate = (d) => {
+            const date = d ? new Date(d) : null;
+            if (!date || isNaN(date)) return 'Unknown';
+            return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        };
+        const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + 's')}`;
+        const avatar = (name) => `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'IF')}&background=111c31&color=e2e8f0&bold=true`;
 
-        function setTab(type) {
-            currentMode = type;
-            searchInput.value = ''; // clear search on switch
-            
-            if (type === 'aircraft') {
-                tabIndicator.style.transform = 'translateX(0)';
-                btnAircraft.classList.add('active');
-                btnAirports.classList.remove('active');
-                document.getElementById('stat-label').innerText = 'Aircraft Fleets';
-                renderAircraftGroups();
-                updateLeaderboard(rawAircraftData);
-            } else {
-                tabIndicator.style.transform = 'translateX(100%)';
-                btnAirports.classList.add('active');
-                btnAircraft.classList.remove('active');
-                document.getElementById('stat-label').innerText = 'Terminals';
-                renderAirports();
-                updateLeaderboard(rawAirportData);
-            }
-        }
-
+        // ------------------------------------------------------------------
+        // Load + flatten
+        // ------------------------------------------------------------------
         async function loadData() {
-            galleryGrid.classList.add('loading');
-            galleryGrid.innerHTML = Array(6).fill(0).map(() => `
-                <div class="animate-pulse bg-surfaceLight rounded-3xl aspect-[16/10] border border-white/5"></div>
-            `).join('');
+            renderSkeletons();
+            const [acRes, apRes] = await Promise.allSettled([
+                fetch(`${API_BASE_URL}/api/aircraft`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
+                fetch(`${API_BASE_URL}/api/airports`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
+            ]);
 
-            try {
-                const [acRes, apRes] = await Promise.all([
-                    fetch(`${API_BASE_URL}/api/aircraft`),
-                    fetch(`${API_BASE_URL}/api/airports`)
-                ]);
+            if (acRes.status === 'fulfilled' && Array.isArray(acRes.value)) {
+                photos = flattenAircraft(acRes.value);
+            }
+            if (apRes.status === 'fulfilled' && Array.isArray(apRes.value)) {
+                airports = apRes.value.filter(a => a && a.imageUrl);
+            }
 
-                const acData = await acRes.json();
-                const apData = await apRes.json();
-
-                // Filter out entries without images
-                rawAircraftData = acData.filter(item => item.imageUrl && item.imageUrl !== null);
-                rawAirportData = apData.filter(item => item.imageUrl && item.imageUrl !== null);
-
-                // Build Fleet Groups
-                groupedAircraft = {};
-                rawAircraftData.forEach(ac => {
-                    const type = ac.aircraftType || 'Unknown Type';
-                    if (!groupedAircraft[type]) groupedAircraft[type] = [];
-                    groupedAircraft[type].push(ac);
-                });
-
-                // Initial Render
-                setTab('aircraft');
-
-            } catch (error) {
-                console.error("API Error:", error);
-                galleryGrid.innerHTML = `
-                    <div class="col-span-full py-20 text-center text-red-400 border border-red-500/10 bg-red-500/5 rounded-3xl">
-                        <i data-lucide="server-crash" class="size-10 mx-auto mb-4 opacity-80"></i>
-                        <p class="font-mono text-sm tracking-widest uppercase">Telemetry Sync Failed</p>
-                    </div>
-                `;
+            if (!photos.length && !airports.length) {
+                els.grid.innerHTML = `
+                    <div class="col-span-full py-20 text-center text-red-300 border border-red-500/15 bg-red-500/5 rounded-2xl">
+                        <i data-lucide="server-crash" class="size-9 mx-auto mb-3 opacity-80"></i>
+                        <p class="font-mono text-xs tracking-[0.18em] uppercase">Could not reach the photo database</p>
+                    </div>`;
                 lucide.createIcons();
-            } finally {
-                galleryGrid.classList.remove('loading');
-            }
-        }
-
-        function updateLeaderboard(dataset) {
-            const container = document.getElementById('contributors-container');
-            if (!dataset || dataset.length === 0) {
-                container.innerHTML = `<span class="text-sm text-slate-500">No data available</span>`;
                 return;
             }
 
-            const counts = {};
-            dataset.forEach(item => {
-                const name = item.contributorName || 'Anonymous';
-                counts[name] = (counts[name] || 0) + 1;
-            });
-
-            const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 4);
-
-            container.innerHTML = sorted.map(([name, count], index) => {
-                const badgeColor = index === 0 ? 'ring-yellow-500/50 text-yellow-500' : 'ring-white/10 text-slate-300';
-                const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=1e293b&color=fff`;
-                
-                return `
-                <div class="flex items-center gap-3 bg-black/40 pr-4 pl-1.5 py-1.5 rounded-full border border-white/5 transition-all hover:bg-black/60">
-                    <img src="${avatarUrl}" class="size-8 rounded-full ring-2 ${badgeColor}" alt="${name}">
-                    <div class="flex flex-col">
-                        <span class="text-xs font-bold text-white leading-none">${name}</span>
-                        <span class="text-[10px] text-slate-400 font-mono mt-0.5">${count} Uploads</span>
-                    </div>
-                </div>
-                `;
-            }).join('');
+            renderMasthead();
+            renderSidebar();
+            applyHash();
         }
 
-        // Render the main grid of grouped Aircraft
-        function renderAircraftGroups(searchTerm = '') {
-            let groupsToRender = Object.keys(groupedAircraft);
-            
-            if (searchTerm) {
-                groupsToRender = groupsToRender.filter(type => {
-                    const typeMatch = type.toLowerCase().includes(searchTerm);
-                    const liveryMatch = groupedAircraft[type].some(ac => 
-                        (ac.liveryName || '').toLowerCase().includes(searchTerm)
-                    );
-                    return typeMatch || liveryMatch;
+        function flattenAircraft(entries) {
+            const out = [];
+            entries.forEach((e) => {
+                const urls = (Array.isArray(e.imageUrls) && e.imageUrls.length)
+                    ? e.imageUrls.filter(Boolean)
+                    : (e.imageUrl ? [e.imageUrl] : []);
+                if (!urls.length) return;
+                const credits = Array.isArray(e.imageContributors) ? e.imageContributors : [];
+                urls.forEach((url, i) => {
+                    const credit = credits[i] || {};
+                    out.push({
+                        id: `${e._id || e.tailNumber || 'ac'}-${i}`,
+                        type: e.aircraftType || 'Unknown type',
+                        livery: e.liveryName || 'Unknown livery',
+                        reg: (e.tailNumber || '').toUpperCase(),
+                        url,
+                        slot: i + 1,
+                        slots: urls.length,
+                        photographer: credit.name || e.contributorName || 'IF Community',
+                        photographerId: credit.id || e.contributorId || null,
+                        uploadedAt: e.uploadedAt || null,
+                    });
                 });
+            });
+            // Newest first is the gallery's natural order; every other sort
+            // derives from this list.
+            return out.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+        }
+
+        // ------------------------------------------------------------------
+        // Derived indexes
+        // ------------------------------------------------------------------
+        function groupBy(list, keyFn) {
+            const map = new Map();
+            list.forEach(item => {
+                const key = keyFn(item);
+                if (!key) return;
+                if (!map.has(key)) map.set(key, []);
+                map.get(key).push(item);
+            });
+            return map;
+        }
+
+        const byType = () => groupBy(photos, p => p.type);
+        const byLivery = () => groupBy(photos, p => p.livery);
+        const byReg = () => groupBy(photos.filter(p => p.reg), p => p.reg);
+        const byPhotographer = () => groupBy(photos, p => p.photographer);
+
+        // ------------------------------------------------------------------
+        // Filtering + sorting
+        // ------------------------------------------------------------------
+        function matchesQuery(p, q) {
+            if (!q) return true;
+            return [p.reg, p.type, p.livery, p.photographer].some(v => norm(v).includes(q));
+        }
+
+        function filteredPhotos() {
+            const q = norm(state.query);
+            let list = photos.filter(p => matchesQuery(p, q));
+            if (state.filter) {
+                const val = norm(state.filter.value);
+                const key = { type: 'type', livery: 'livery', reg: 'reg', contributor: 'photographer' }[state.filter.kind];
+                list = list.filter(p => norm(p[key]) === val);
             }
+            return sortPhotos(list);
+        }
 
-            document.getElementById('stat-total').innerText = groupsToRender.length;
+        function sortPhotos(list) {
+            const copy = list.slice();
+            switch (state.sort) {
+                case 'oldest': return copy.sort((a, b) => new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0));
+                case 'type': return copy.sort((a, b) => a.type.localeCompare(b.type) || a.livery.localeCompare(b.livery));
+                case 'reg': return copy.sort((a, b) => a.reg.localeCompare(b.reg));
+                case 'photographer': return copy.sort((a, b) => a.photographer.localeCompare(b.photographer));
+                default: return copy.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+            }
+        }
 
-            if (groupsToRender.length === 0) {
-                galleryGrid.innerHTML = `<div class="col-span-full py-20 text-center text-slate-500">No fleets match your filters.</div>`;
+        // ------------------------------------------------------------------
+        // Rendering
+        // ------------------------------------------------------------------
+        function renderSkeletons(n = 12) {
+            els.grid.innerHTML = Array(n).fill(0)
+                .map(() => '<div class="skel rounded-xl aspect-[3/2]"></div>').join('');
+        }
+
+        function photoTile(p, idx) {
+            const multi = p.slots > 1
+                ? `<span class="tile-badge"><i data-lucide="layers" class="size-3"></i>${p.slot}/${p.slots}</span>` : '';
+            return `
+                <article class="tile" data-photo="${esc(p.id)}" data-idx="${idx}" role="button" tabindex="0"
+                         aria-label="${esc(p.type)} ${esc(p.reg)} by ${esc(p.photographer)}">
+                    <div class="tile-frame">
+                        <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.type)} — ${esc(p.livery)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                        ${multi}
+                        <span class="tile-watermark">INFLIGHT</span>
+                    </div>
+                    <div class="tile-meta">
+                        <div class="tile-row">
+                            <span class="tile-shooter">${esc(p.photographer)}</span>
+                            <span class="tile-reg">${esc(p.reg || '—')}</span>
+                        </div>
+                        <div class="tile-sub">
+                            <span>${esc(p.type)}</span>
+                            <span class="text-slate-500">${esc(p.livery)}</span>
+                        </div>
+                    </div>
+                </article>`;
+        }
+
+        function groupCard(title, subtitle, cover, count, kind, value) {
+            return `
+                <article class="tile" data-group="${esc(kind)}" data-value="${esc(value)}" role="button" tabindex="0">
+                    <div class="tile-frame">
+                        <img loading="lazy" decoding="async" src="${esc(cover)}" alt="${esc(title)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                        <span class="tile-badge"><i data-lucide="image" class="size-3"></i>${plural(count, 'photo')}</span>
+                    </div>
+                    <div class="tile-meta">
+                        <div class="tile-row">
+                            <span class="tile-shooter">${esc(title)}</span>
+                        </div>
+                        <div class="tile-sub"><span>${esc(subtitle)}</span></div>
+                    </div>
+                </article>`;
+        }
+
+        function render() {
+            syncTabs();
+            renderFilterBar();
+
+            if (state.tab === 'photos') return renderPhotoFeed();
+            if (state.tab === 'aircraft') return renderGroups('type');
+            if (state.tab === 'liveries') return renderGroups('livery');
+            if (state.tab === 'airports') return renderAirports();
+            if (state.tab === 'contributors') return renderContributors();
+        }
+
+        function emptyState(msg) {
+            return `<div class="col-span-full py-20 text-center text-slate-500">
+                        <i data-lucide="search-x" class="size-9 mx-auto mb-3 opacity-60"></i>
+                        <p class="text-sm">${esc(msg)}</p>
+                    </div>`;
+        }
+
+        function renderPhotoFeed() {
+            viewList = filteredPhotos();
+            els.count.textContent = plural(viewList.length, 'photo');
+
+            if (!viewList.length) {
+                els.grid.innerHTML = emptyState('No photos match this search yet.');
+                els.loadMoreWrap.classList.add('hidden');
+                lucide.createIcons();
                 return;
             }
 
-            const cardsHtml = groupsToRender.map(type => {
-                const fleet = groupedAircraft[type];
-                let coverAc = fleet.find(ac => ac.liveryName && (ac.liveryName.toLowerCase().includes('generic') || ac.liveryName.toLowerCase().includes('default')));
-                if (!coverAc) coverAc = fleet[0];
-                
-                const safeId = type.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-
-                return `
-                <div id="card-${safeId}" onclick="toggleFolder('${type}', this)" class="glow-card stack-effect group rounded-[2rem] aspect-[16/10] cursor-pointer bg-surface overflow-hidden relative z-10">
-                    <img src="${coverAc.imageUrl}" class="absolute inset-0 w-full h-full object-cover opacity-10 blur-2xl scale-125 z-0 pointer-events-none" alt="">
-                    
-                    <div class="absolute inset-0 z-10 p-4 sm:p-8 flex items-center justify-center">
-                        <img src="${coverAc.imageUrl}" alt="${type}" loading="lazy" 
-                            class="main-img w-full h-full object-contain drop-shadow-[0_20px_40px_rgba(0,0,0,0.9)]">
-                    </div>
-                    
-                    <div class="card-gradient-overlay absolute inset-0 z-20 pointer-events-none"></div>
-                    
-                    <div class="absolute bottom-0 left-0 right-0 z-30 p-6 sm:p-8 flex justify-between items-end transform translate-y-2 group-hover:translate-y-0 transition-transform duration-500">
-                        <div class="flex flex-col gap-2">
-                            <h3 class="text-3xl font-black text-white tracking-tight leading-none drop-shadow-lg">${type}</h3>
-                            <span class="text-sm text-slate-300 font-medium flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100">
-                                <i data-lucide="image" class="size-3.5 text-accent"></i> ${coverAc.liveryName}
-                            </span>
-                        </div>
-                        
-                        <div class="flex flex-col items-end gap-2">
-                            <div class="flex items-center gap-2 bg-white/10 backdrop-blur-md text-white px-4 py-2 rounded-full border border-white/20 shadow-lg group-hover:bg-primary group-hover:border-primary transition-all duration-300">
-                                <i data-lucide="layers" class="size-4"></i>
-                                <span class="text-xs font-bold uppercase tracking-widest">${fleet.length} Variants</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                `;
-            }).join('');
-
-            galleryGrid.innerHTML = cardsHtml;
+            const slice = viewList.slice(0, state.shown);
+            els.grid.innerHTML = slice.map((p, i) => photoTile(p, i)).join('');
+            els.loadMoreWrap.classList.toggle('hidden', state.shown >= viewList.length);
+            els.loadMoreWrap.classList.toggle('flex', state.shown < viewList.length);
             lucide.createIcons();
         }
 
-        // Render Airports
-        function renderAirports(searchTerm = '') {
-            let dataToRender = rawAirportData;
-            
-            if (searchTerm) {
-                dataToRender = dataToRender.filter(ap => 
-                    (ap.icao || '').toLowerCase().includes(searchTerm)
-                );
-            }
+        function renderGroups(kind) {
+            const q = norm(state.query);
+            const map = kind === 'type' ? byType() : byLivery();
+            let groups = Array.from(map.entries());
 
-            document.getElementById('stat-total').innerText = dataToRender.length;
+            if (q) groups = groups.filter(([name, list]) => norm(name).includes(q) || list.some(p => matchesQuery(p, q)));
+            groups.sort((a, b) => state.sort === 'type' || state.sort === 'reg'
+                ? a[0].localeCompare(b[0])
+                : b[1].length - a[1].length);
 
-            if (dataToRender.length === 0) {
-                galleryGrid.innerHTML = `<div class="col-span-full py-20 text-center text-slate-500">No terminals match your filters.</div>`;
+            els.count.textContent = kind === 'type'
+                ? plural(groups.length, 'aircraft type')
+                : plural(groups.length, 'livery', 'liveries');
+            els.loadMoreWrap.classList.add('hidden');
+
+            if (!groups.length) {
+                els.grid.innerHTML = emptyState('Nothing matches this search yet.');
+                lucide.createIcons();
                 return;
             }
 
-            const cardsHtml = dataToRender.map(ap => {
-                const dateObj = new Date(ap.lastUpdated);
-                const formattedDate = dateObj.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-                
-                return `
-                <div class="glow-card group rounded-[2rem] aspect-[16/10] cursor-pointer bg-surface overflow-hidden relative z-10">
-                    <img src="${ap.imageUrl}" class="absolute inset-0 w-full h-full object-cover opacity-10 blur-2xl scale-125 z-0 pointer-events-none" alt="">
-                    
-                    <div class="absolute inset-0 z-10 p-4 sm:p-8 flex items-center justify-center">
-                        <img src="${ap.imageUrl}" alt="${ap.icao}" loading="lazy" 
-                            class="main-img w-full h-full object-contain drop-shadow-[0_20px_40px_rgba(0,0,0,0.9)]">
-                    </div>
-                    
-                    <div class="card-gradient-overlay absolute inset-0 z-20 pointer-events-none"></div>
-                    
-                    <div class="absolute bottom-0 left-0 right-0 z-30 p-6 sm:p-8 flex justify-between items-end transform translate-y-2 group-hover:translate-y-0 transition-transform duration-500">
-                        <div class="flex flex-col gap-2">
-                            <h3 class="text-4xl font-black text-white tracking-widest leading-none drop-shadow-lg">${ap.icao}</h3>
-                            <div class="flex items-center gap-2 text-sm text-slate-300 font-mono opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100">
-                                <i data-lucide="clock" class="size-3.5 text-accent"></i>
-                                <span>Updated: ${formattedDate}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                `;
+            els.grid.innerHTML = groups.map(([name, list]) => {
+                const cover = list[0].url;
+                const regs = plural(new Set(list.map(p => p.reg).filter(Boolean)).size, 'registration');
+                const subtitle = kind === 'type'
+                    ? `${plural(new Set(list.map(p => p.livery)).size, 'livery', 'liveries')} · ${regs}`
+                    : `${plural(new Set(list.map(p => p.type)).size, 'type')} · ${regs}`;
+                return groupCard(name, subtitle, cover, list.length, kind, name);
             }).join('');
-
-            galleryGrid.innerHTML = cardsHtml;
             lucide.createIcons();
         }
 
-        // Inline Folder Expansion Logic
-        function toggleFolder(aircraftType, cardElement) {
-            const safeId = aircraftType.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-            const folderId = `folder-${safeId}`;
-            const existingFolder = document.getElementById(folderId);
+        function renderAirports() {
+            const q = norm(state.query);
+            let list = airports.filter(a => !q || norm(a.icao).includes(q));
+            list.sort((a, b) => state.sort === 'oldest'
+                ? new Date(a.lastUpdated || 0) - new Date(b.lastUpdated || 0)
+                : (state.sort === 'type' || state.sort === 'reg')
+                    ? String(a.icao).localeCompare(String(b.icao))
+                    : new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
 
-            // Close any currently open folders smoothly
-            document.querySelectorAll('.folder-expansion').forEach(el => {
-                if (el.id !== folderId) {
-                    el.classList.add('closing');
-                    setTimeout(() => el.remove(), 400);
-                }
-            });
+            els.count.textContent = plural(list.length, 'airport');
+            els.loadMoreWrap.classList.add('hidden');
 
-            // Handle dimming/highlighting main cards
-            document.querySelectorAll('.glow-card').forEach(el => {
-                if (el !== cardElement) {
-                    el.classList.remove('ring-2', 'ring-primary', 'ring-offset-4', 'ring-offset-background');
-                    el.style.opacity = existingFolder ? '1' : '0.4';
-                    el.style.filter = existingFolder ? 'none' : 'grayscale(30%)';
-                }
-            });
-
-            if (existingFolder) {
-                // If clicking the active folder, just close it and restore standard view
-                existingFolder.classList.add('closing');
-                setTimeout(() => existingFolder.remove(), 400);
-                cardElement.classList.remove('ring-2', 'ring-primary', 'ring-offset-4', 'ring-offset-background');
-                document.querySelectorAll('.glow-card').forEach(el => {
-                    el.style.opacity = '1';
-                    el.style.filter = 'none';
-                });
+            if (!list.length) {
+                els.grid.innerHTML = emptyState('No airports match this search yet.');
+                lucide.createIcons();
                 return;
             }
 
-            // Highlight the clicked card
-            cardElement.style.opacity = '1';
-            cardElement.style.filter = 'none';
-            cardElement.classList.add('ring-2', 'ring-primary', 'ring-offset-4', 'ring-offset-background');
-            
-            const fleet = groupedAircraft[aircraftType];
-            
-            // Build the massive, high-quality showcase cards for the variants
-            const folderHtml = `
-                <div id="${folderId}" class="folder-expansion">
-                    <div class="flex justify-between items-end mb-8 px-2">
-                        <div>
-                            <div class="flex items-center gap-3 mb-2">
-                                <h4 class="text-3xl font-black text-white tracking-tight">${aircraftType}</h4>
-                                <span class="bg-primary/20 text-primary border border-primary/30 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest">Directory</span>
-                            </div>
-                            <p class="text-sm text-slate-400 font-mono">Viewing ${fleet.length} active high-res configurations</p>
-                        </div>
-                        <button onclick="toggleFolder('${aircraftType}', document.getElementById('card-${safeId}'))" class="p-3 rounded-full bg-white/5 hover:bg-white/10 hover:text-red-400 text-white transition-all border border-white/10 hover:border-red-400/30">
-                            <i data-lucide="x" class="size-5"></i>
-                        </button>
-                    </div>
-                    
-                    <div class="flex gap-8 overflow-x-auto horizontal-scroll pb-6 pt-2 px-2 snap-x snap-mandatory">
-                        ${fleet.map(ac => `
-                            <div class="variant-card shrink-0 w-[85vw] sm:w-[600px] aspect-[16/10] snap-center group">
-                                <div class="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent z-10 pointer-events-none"></div>
-                                <img src="${ac.imageUrl}" class="absolute inset-0 w-full h-full object-cover opacity-10 blur-xl z-0 pointer-events-none" alt="">
-                                
-                                <div class="absolute inset-0 z-10 p-6 flex items-center justify-center">
-                                    <img src="${ac.imageUrl}" alt="${ac.liveryName}" class="w-full h-full object-contain drop-shadow-[0_25px_35px_rgba(0,0,0,0.9)] transition-transform duration-700 ease-out group-hover:scale-105 group-hover:-translate-y-2">
-                                </div>
+            // Airports share the lightbox, so they are mapped onto the same
+            // photo shape the viewer navigates.
+            viewList = list.map((a, i) => ({
+                id: `apt-${a.icao}`,
+                type: a.icao,
+                livery: 'Airport scenery',
+                reg: a.icao,
+                url: a.imageUrl,
+                slot: 1, slots: 1,
+                photographer: a.contributorName || 'IF Community',
+                uploadedAt: a.lastUpdated,
+                isAirport: true,
+            }));
 
-                                <div class="absolute bottom-0 left-0 w-full p-8 z-20 flex justify-between items-end">
-                                    <div class="flex flex-col gap-2">
-                                        <h5 class="text-4xl font-black text-white leading-none drop-shadow-xl">${ac.tailNumber || 'No Tail Data'}</h5>
-                                        <div class="flex items-center gap-2 text-accent bg-black/50 w-fit px-3 py-1.5 rounded-lg backdrop-blur-md border border-white/10">
-                                            <i data-lucide="paint-bucket" class="size-4"></i>
-                                            <span class="text-sm font-bold tracking-wide">${ac.liveryName}</span>
-                                        </div>
-                                    </div>
-                                    <div class="flex flex-col items-end gap-1.5">
-                                        <span class="text-[10px] text-slate-400 font-mono uppercase tracking-widest">Spotted By</span>
-                                        <div class="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-full border border-white/10 backdrop-blur-md">
-                                            <i data-lucide="camera" class="size-3.5 text-white"></i>
-                                            <span class="text-sm font-bold text-white">@${ac.contributorName || 'System'}</span>
-                                        </div>
-                                    </div>
-                                </div>
+            els.grid.innerHTML = viewList.map((p, i) => `
+                <article class="tile" data-photo="${esc(p.id)}" data-idx="${i}" role="button" tabindex="0">
+                    <div class="tile-frame">
+                        <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.reg)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                        <span class="tile-badge"><i data-lucide="building-2" class="size-3"></i>Airport</span>
+                        <span class="tile-watermark">INFLIGHT</span>
+                    </div>
+                    <div class="tile-meta">
+                        <div class="tile-row">
+                            <span class="tile-shooter font-mono tracking-widest">${esc(p.reg)}</span>
+                            <span class="tile-reg text-slate-400 !text-[.65rem]">${esc(fmtDate(p.uploadedAt))}</span>
+                        </div>
+                        <div class="tile-sub"><span>Terminal &amp; ramp imagery</span></div>
+                    </div>
+                </article>`).join('');
+            lucide.createIcons();
+        }
+
+        function renderContributors() {
+            const q = norm(state.query);
+            let people = Array.from(byPhotographer().entries())
+                .filter(([name]) => !q || norm(name).includes(q))
+                .sort((a, b) => b[1].length - a[1].length);
+
+            els.count.textContent = plural(people.length, 'photographer');
+            els.loadMoreWrap.classList.add('hidden');
+
+            if (!people.length) {
+                els.grid.innerHTML = emptyState('No photographers match this search.');
+                lucide.createIcons();
+                return;
+            }
+
+            els.grid.innerHTML = people.map(([name, list], i) => {
+                const types = new Set(list.map(p => p.type)).size;
+                const rank = i === 0 ? 'ring-yellow-400/60' : i === 1 ? 'ring-slate-300/50' : i === 2 ? 'ring-amber-700/60' : 'ring-white/10';
+                return `
+                <article class="tile" data-group="contributor" data-value="${esc(name)}" role="button" tabindex="0">
+                    <div class="tile-frame !aspect-[3/2]">
+                        <img loading="lazy" decoding="async" src="${esc(list[0].url)}" alt="${esc(name)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent"></div>
+                        <div class="absolute bottom-2 left-2 right-2 flex items-center gap-2">
+                            <img src="${avatar(name)}" alt="" class="size-8 rounded-full ring-2 ${rank}">
+                            <div class="min-w-0">
+                                <div class="text-sm font-bold text-white truncate">${esc(name)}</div>
+                                <div class="text-[10px] font-mono text-slate-300">${plural(list.length, 'photo')} · ${plural(types, 'type')}</div>
                             </div>
-                        `).join('')}
+                        </div>
+                    </div>
+                </article>`;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function renderMasthead() {
+            const top = photos.slice(0, 5);
+            if (!top.length) { els.masthead.innerHTML = ''; return; }
+            els.masthead.innerHTML = top.map((p, i) => {
+                const big = i === 0;
+                return `
+                <div class="mosaic-item ${big ? 'col-span-2 sm:row-span-2 aspect-[16/10]' : 'aspect-[4/3]'} ${i > 2 ? 'hidden sm:block' : ''}"
+                     data-photo="${esc(p.id)}" data-scope="masthead" role="button" tabindex="0">
+                    <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.type)}"
+                         onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                    <div class="mosaic-caption">
+                        <div class="font-semibold text-white truncate ${big ? 'text-sm' : 'text-xs'}">${esc(p.type)}</div>
+                        <div class="truncate text-[11px] text-slate-400">${esc(p.livery)} · © ${esc(p.photographer)}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderSidebar() {
+            // Photo updates
+            const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+            const recent = photos.filter(p => p.uploadedAt && new Date(p.uploadedAt).getTime() >= cutoff).length;
+            document.getElementById('recent-count').textContent = recent.toLocaleString();
+
+            // Top photographers
+            const people = Array.from(byPhotographer().entries()).sort((a, b) => b[1].length - a[1].length).slice(0, 6);
+            document.getElementById('contributors-panel').innerHTML = people.map(([name, list], i) => {
+                const ring = i === 0 ? 'ring-yellow-400/60' : i === 1 ? 'ring-slate-300/50' : i === 2 ? 'ring-amber-700/60' : 'ring-white/10';
+                return `
+                <button class="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors text-left"
+                        data-group="contributor" data-value="${esc(name)}">
+                    <span class="w-4 text-[10px] font-mono text-slate-500">${i + 1}</span>
+                    <img src="${avatar(name)}" alt="" class="size-8 rounded-full ring-2 ${ring}">
+                    <span class="min-w-0 flex-1">
+                        <span class="block text-sm font-semibold text-white truncate">${esc(name)}</span>
+                        <span class="block text-[11px] text-slate-500 font-mono">${plural(list.length, 'photo')}</span>
+                    </span>
+                    <i data-lucide="chevron-right" class="size-4 text-slate-600"></i>
+                </button>`;
+            }).join('') || '<p class="p-3 text-sm text-slate-500">No photographers yet.</p>';
+
+            // Latest additions
+            document.getElementById('latest-rows').innerHTML = photos.slice(0, 6).map(p => `
+                <div class="data-row" data-photo="${esc(p.id)}" data-scope="latest" role="button" tabindex="0">
+                    <span class="font-mono text-accent truncate">${esc(p.reg || '—')}</span>
+                    <span class="truncate text-slate-300">${esc(p.type)}<span class="text-slate-600"> · ${esc(p.livery)}</span></span>
+                    <span class="text-slate-500 text-[11px] whitespace-nowrap">${esc(fmtDate(p.uploadedAt))}</span>
+                </div>`).join('') || '<p class="p-3 text-sm text-slate-500">Nothing here yet.</p>';
+
+            // The gallery in numbers
+            const numbers = [
+                ['Photos', photos.length],
+                ['Aircraft types', byType().size],
+                ['Liveries', byLivery().size],
+                ['Registrations', byReg().size],
+                ['Photographers', byPhotographer().size],
+                ['Airports', airports.length],
+            ];
+            document.getElementById('numbers-panel').innerHTML = numbers.map(([label, value]) => `
+                <div>
+                    <dt class="text-[10px] font-mono uppercase tracking-[0.14em] text-slate-500">${label}</dt>
+                    <dd class="text-lg font-bold text-white">${value.toLocaleString()}</dd>
+                </div>`).join('');
+
+            // Popular searches — the best represented types and liveries
+            const popular = [
+                ...Array.from(byType().entries()).sort((a, b) => b[1].length - a[1].length).slice(0, 8).map(([n]) => ({ kind: 'type', value: n })),
+                ...Array.from(byLivery().entries()).sort((a, b) => b[1].length - a[1].length).slice(0, 6).map(([n]) => ({ kind: 'livery', value: n })),
+            ];
+            document.getElementById('popular-searches').innerHTML = popular.map(item =>
+                `<button class="chip" data-group="${item.kind}" data-value="${esc(item.value)}">${esc(item.value)}</button>`).join('');
+
+            lucide.createIcons();
+        }
+
+        function renderFilterBar() {
+            if (!state.filter) { els.filterBar.classList.add('hidden'); els.filterBar.classList.remove('flex'); return; }
+            const labels = { type: 'Aircraft type', livery: 'Livery', reg: 'Registration', contributor: 'Photographer' };
+            els.filterBar.classList.remove('hidden');
+            els.filterBar.classList.add('flex');
+            els.filterBar.innerHTML = `
+                <span class="text-[10px] font-mono uppercase tracking-[0.14em] text-slate-500">${labels[state.filter.kind]}</span>
+                <span class="chip active">
+                    ${esc(state.filter.value)}
+                    <button id="clear-filter" class="ml-1 text-slate-400 hover:text-white" aria-label="Clear filter">
+                        <i data-lucide="x" class="size-3"></i>
+                    </button>
+                </span>`;
+            lucide.createIcons();
+        }
+
+        function syncTabs() {
+            document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === state.tab));
+            document.querySelectorAll('[data-navtab]').forEach(b => b.classList.toggle('active', b.dataset.navtab === state.tab));
+        }
+
+        // ------------------------------------------------------------------
+        // Lightbox — the photo "page"
+        // ------------------------------------------------------------------
+        function findPhoto(id) {
+            return viewList.find(p => p.id === id) || photos.find(p => p.id === id) || null;
+        }
+
+        function openPhoto(id, list) {
+            const source = list && list.length ? list : viewList;
+            const idx = source.findIndex(p => p.id === id);
+            const photo = idx >= 0 ? source[idx] : findPhoto(id);
+            if (!photo) return;
+            if (idx >= 0) viewList = source;
+            state.photoId = photo.id;
+            paintLightbox(photo);
+            els.lightbox.classList.add('open');
+            document.body.classList.add('no-scroll');
+            els.lightbox.scrollTop = 0;
+            writeHash();
+        }
+
+        function paintLightbox(p) {
+            const regList = p.reg && !p.isAirport ? (byReg().get(p.reg) || []) : [];
+            const typeList = p.isAirport ? [] : (byType().get(p.type) || []);
+            const idx = viewList.findIndex(x => x.id === p.id);
+
+            document.getElementById('lb-image').src = p.url;
+            document.getElementById('lb-image').alt = `${p.type} — ${p.livery}`;
+            document.getElementById('lb-image').onerror = function () { this.onerror = null; this.src = FALLBACK_IMG; };
+            document.getElementById('lb-open').href = p.url;
+            document.getElementById('lb-index').textContent = idx >= 0 ? `${idx + 1}/${viewList.length}` : '1';
+            document.getElementById('lb-regcount').textContent = regList.length || '—';
+            document.getElementById('lb-typecount').textContent = typeList.length || '—';
+            document.getElementById('lb-title').textContent = p.isAirport ? `${p.reg} — airport imagery` : `${p.livery} ${p.type}`;
+
+            const rows = p.isAirport
+                ? [
+                    ['Airport', `<span class="font-mono tracking-widest">${esc(p.reg)}</span>`],
+                    ['Content', 'Terminal &amp; ramp imagery'],
+                    ['Updated', esc(fmtDate(p.uploadedAt))],
+                ]
+                : [
+                    ['Aircraft', `<button class="lb-link" data-group="type" data-value="${esc(p.type)}">${esc(p.type)}</button>`],
+                    ['Reg', p.reg
+                        ? `<button class="lb-link font-mono" data-group="reg" data-value="${esc(p.reg)}">${esc(p.reg)}</button> <span class="text-slate-500">· ${plural(regList.length, 'photo')}</span>`
+                        : '<span class="text-slate-500">Not recorded</span>'],
+                    ['Livery', `<button class="lb-link" data-group="livery" data-value="${esc(p.livery)}">${esc(p.livery)}</button>`],
+                    ['Uploaded', esc(fmtDate(p.uploadedAt))],
+                    ['Slot', `${p.slot} of ${p.slots} in this aircraft's gallery`],
+                ];
+            document.getElementById('lb-details').innerHTML = rows.map(([k, v]) =>
+                `<div class="lb-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+
+            document.getElementById('lb-photographer').innerHTML = `
+                <div class="flex items-center gap-3">
+                    <img src="${avatar(p.photographer)}" alt="" class="size-11 rounded-full ring-2 ring-white/10">
+                    <div class="min-w-0">
+                        <div class="text-sm font-bold text-white truncate">${esc(p.photographer)}</div>
+                        <div class="text-[11px] text-slate-500">Photo © ${esc(p.photographer)}</div>
                     </div>
                 </div>
-            `;
+                ${p.isAirport ? '' : `<button class="chip mt-3 w-full justify-center" data-group="contributor" data-value="${esc(p.photographer)}">
+                    <i data-lucide="images" class="size-3.5"></i> All photos by this spotter
+                </button>`}`;
 
-            // Insert directly after the clicked card
-            cardElement.insertAdjacentHTML('afterend', folderHtml);
+            // "More of this aircraft" — same registration, falling back to same type
+            const siblings = (regList.length > 1 ? regList : typeList);
+            const more = siblings.filter(x => x.id !== p.id).slice(0, 10);
+            document.getElementById('lb-more-title').textContent = regList.length > 1
+                ? `More photos of ${p.reg}` : (p.isAirport ? 'More airports' : `More ${p.type} photos`);
+            const strip = more.length ? more : (p.isAirport ? viewList.filter(x => x.id !== p.id).slice(0, 10) : []);
+            moreList = strip.length ? [p, ...strip] : [];
+            document.getElementById('lb-more').innerHTML = strip.length
+                ? strip.map(m => `
+                    <button class="mosaic-item aspect-[4/3]" data-photo="${esc(m.id)}" data-scope="lightbox">
+                        <img loading="lazy" src="${esc(m.url)}" alt="${esc(m.type)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                    </button>`).join('')
+                : '<p class="col-span-full p-4 text-center text-sm text-slate-500">This is the only photo we hold.</p>';
+
             lucide.createIcons();
-            
-            // Smooth scroll so the newly opened folder is nicely centered in the user's view
-            setTimeout(() => {
-                const newFolder = document.getElementById(folderId);
-                const offset = 100; // Account for the sticky navbar
-                const bodyRect = document.body.getBoundingClientRect().top;
-                const elementRect = newFolder.getBoundingClientRect().top;
-                const elementPosition = elementRect - bodyRect;
-                const offsetPosition = elementPosition - offset;
-
-                window.scrollTo({
-                    top: offsetPosition,
-                    behavior: 'smooth'
-                });
-            }, 50);
         }
+
+        function stepPhoto(delta) {
+            if (!viewList.length) return;
+            const idx = viewList.findIndex(p => p.id === state.photoId);
+            if (idx < 0) return;
+            const next = (idx + delta + viewList.length) % viewList.length;
+            state.photoId = viewList[next].id;
+            paintLightbox(viewList[next]);
+            els.lightbox.scrollTop = 0;
+            writeHash();
+        }
+
+        function closeLightbox() {
+            els.lightbox.classList.remove('open');
+            document.body.classList.remove('no-scroll');
+            state.photoId = null;
+            writeHash();
+        }
+
+        // ------------------------------------------------------------------
+        // Shareable state in the URL hash
+        // ------------------------------------------------------------------
+        let suppressHash = false;
+
+        function writeHash() {
+            const params = new URLSearchParams();
+            if (state.tab !== 'photos') params.set('tab', state.tab);
+            if (state.query) params.set('q', state.query);
+            if (state.filter) params.set(state.filter.kind, state.filter.value);
+            if (state.sort !== 'newest') params.set('sort', state.sort);
+            if (state.photoId) params.set('photo', state.photoId);
+            const hash = params.toString();
+            suppressHash = true;
+            history.replaceState(null, '', hash ? `#${hash}` : location.pathname + location.search);
+            setTimeout(() => { suppressHash = false; }, 0);
+        }
+
+        function applyHash() {
+            const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+            const tab = params.get('tab');
+            if (['photos', 'aircraft', 'liveries', 'airports', 'contributors'].includes(tab)) state.tab = tab;
+            state.query = params.get('q') || '';
+            state.sort = params.get('sort') || 'newest';
+            state.filter = null;
+            ['type', 'livery', 'reg', 'contributor'].forEach(kind => {
+                const v = params.get(kind);
+                if (v && !state.filter) state.filter = { kind, value: v };
+            });
+            // A filter only means something in the photo feed, so a
+            // hand-written link that pairs one with a grouped tab lands on the
+            // photos it describes.
+            if (state.filter) state.tab = 'photos';
+            state.shown = PAGE_SIZE;
+
+            els.search.value = state.query;
+            els.searchMobile.value = state.query;
+            els.sort.value = state.sort;
+            render();
+
+            const photoId = params.get('photo');
+            if (photoId) {
+                const p = findPhoto(photoId);
+                if (p) openPhoto(photoId);
+            } else if (els.lightbox.classList.contains('open')) {
+                closeLightbox();
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Interaction
+        // ------------------------------------------------------------------
+        function setTab(tab) {
+            state.tab = tab;
+            state.shown = PAGE_SIZE;
+            if (tab !== 'photos') state.filter = null;
+            render();
+            writeHash();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function setFilter(kind, value) {
+            state.filter = { kind, value };
+            state.tab = 'photos';
+            state.query = '';
+            els.search.value = '';
+            els.searchMobile.value = '';
+            state.shown = PAGE_SIZE;
+            if (els.lightbox.classList.contains('open')) closeLightbox();
+            render();
+            writeHash();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        let searchTimer = null;
+        function onSearch(value) {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                state.query = value;
+                state.shown = PAGE_SIZE;
+                render();
+                writeHash();
+            }, 180);
+        }
+
+        els.search.addEventListener('input', e => { els.searchMobile.value = e.target.value; onSearch(e.target.value); });
+        els.searchMobile.addEventListener('input', e => { els.search.value = e.target.value; onSearch(e.target.value); });
+
+        document.getElementById('mobile-search-btn').addEventListener('click', () => {
+            const box = document.getElementById('mobile-search');
+            box.classList.toggle('hidden');
+            if (!box.classList.contains('hidden')) els.searchMobile.focus();
+        });
+
+        els.sort.addEventListener('change', e => {
+            state.sort = e.target.value;
+            state.shown = PAGE_SIZE;
+            render();
+            writeHash();
+        });
+
+        els.loadMore.addEventListener('click', () => {
+            state.shown += PAGE_SIZE;
+            renderPhotoFeed();
+        });
+
+        // Endless scroll: extend the feed as the sentinel comes into view, with
+        // the button above as the manual fallback.
+        new IntersectionObserver((entries) => {
+            if (!entries.some(e => e.isIntersecting)) return;
+            if (state.tab !== 'photos') return;
+            if (state.shown >= viewList.length) return;
+            state.shown += PAGE_SIZE;
+            renderPhotoFeed();
+        }, { rootMargin: '600px' }).observe(els.sentinel);
+
+        // One delegated click handler for tiles, chips, tabs and lightbox links.
+        document.addEventListener('click', (e) => {
+            const tabBtn = e.target.closest('[data-tab], [data-navtab], [data-tab-link]');
+            if (tabBtn) {
+                setTab(tabBtn.dataset.tab || tabBtn.dataset.navtab || tabBtn.dataset.tabLink);
+                return;
+            }
+
+            const group = e.target.closest('[data-group]');
+            if (group) {
+                setFilter(group.dataset.group, group.dataset.value);
+                return;
+            }
+
+            if (e.target.closest('#clear-filter')) {
+                state.filter = null;
+                state.shown = PAGE_SIZE;
+                render();
+                writeHash();
+                return;
+            }
+
+            if (e.target.closest('[data-action="view-latest"]')) {
+                state.filter = null; state.query = '';
+                els.search.value = ''; els.searchMobile.value = '';
+                setTab('photos');
+                return;
+            }
+
+            const tile = e.target.closest('[data-photo]');
+            if (tile) {
+                const scope = tile.dataset.scope;
+                // The masthead and the sidebar browse the full photo list; the
+                // grid and the lightbox strip browse whatever is on screen.
+                const list = (scope === 'masthead' || scope === 'latest') ? photos
+                    : (scope === 'lightbox' ? moreList : null);
+                openPhoto(tile.dataset.photo, list);
+                return;
+            }
+        });
+
+        // Keyboard: tiles behave like buttons, lightbox takes arrows + escape.
+        document.addEventListener('keydown', (e) => {
+            if (els.lightbox.classList.contains('open')) {
+                if (e.key === 'Escape') closeLightbox();
+                if (e.key === 'ArrowRight') stepPhoto(1);
+                if (e.key === 'ArrowLeft') stepPhoto(-1);
+                return;
+            }
+            if ((e.key === 'Enter' || e.key === ' ') && document.activeElement && document.activeElement.matches('.tile, .mosaic-item, .data-row')) {
+                e.preventDefault();
+                document.activeElement.click();
+            }
+            if (e.key === '/' && !/input|textarea|select/i.test((document.activeElement || {}).tagName || '')) {
+                e.preventDefault();
+                els.search.focus();
+            }
+        });
+
+        document.getElementById('lb-close').addEventListener('click', closeLightbox);
+        document.getElementById('lb-prev').addEventListener('click', () => stepPhoto(-1));
+        document.getElementById('lb-next').addEventListener('click', () => stepPhoto(1));
+        els.lightbox.addEventListener('click', (e) => { if (e.target === els.lightbox) closeLightbox(); });
+
+        document.getElementById('lb-share').addEventListener('click', async () => {
+            const url = location.href;
+            try {
+                if (navigator.share) await navigator.share({ url, title: 'InFlight Gallery' });
+                else { await navigator.clipboard.writeText(url); flashShare('Link copied'); }
+            } catch (_) { /* dismissed share sheet — nothing to do */ }
+        });
+
+        function flashShare(msg) {
+            const el = document.getElementById('lb-share').querySelector('.lb-stat-value');
+            const original = el.innerHTML;
+            el.textContent = msg;
+            setTimeout(() => { el.innerHTML = original; lucide.createIcons(); }, 1400);
+        }
+
+        // Upload buttons hand off to the community hub's submit flow, which is
+        // the same reviewed pipeline the rest of the site uses.
+        function openSubmit() {
+            if (window.InflightCommunity && window.InflightCommunity.open) window.InflightCommunity.open('submit');
+            else window.location.href = 'submit-aircraft.html';
+        }
+        document.getElementById('upload-btn').addEventListener('click', openSubmit);
+        document.getElementById('upload-btn-side').addEventListener('click', openSubmit);
+
+        window.addEventListener('hashchange', () => { if (!suppressHash) applyHash(); });
+
+        loadData();
     </script>
 </body>
 </html>
