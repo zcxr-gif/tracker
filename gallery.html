@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>InFlight Gallery | Infinite Flight Aviation Photography</title>
+    <title>InFlight Spotters | Infinite Flight Aviation Photography</title>
 
-    <meta name="description" content="InFlight Gallery — community aircraft photography from Infinite Flight. Search by registration, aircraft type, airline, airport or photographer.">
+    <meta name="description" content="InFlight Spotters — community aircraft photography from Infinite Flight. Search by registration, aircraft type, airline, airport or photographer.">
     <link rel="canonical" href="https://inflight.info/gallery.html">
     <meta name="theme-color" content="#16181d">
     <link rel="icon" href="Images/inflight.png">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="InFlight">
-    <meta property="og:title" content="InFlight Gallery">
+    <meta property="og:title" content="InFlight Spotters">
     <meta property="og:description" content="Community aircraft photography from Infinite Flight — search by registration, type, airline, airport or photographer.">
     <meta property="og:url" content="https://inflight.info/gallery.html">
     <meta property="og:image" content="https://inflight.info/Images/og-banner.png">
@@ -25,7 +25,7 @@
 
     <style>
         /* ==================================================================
-           InFlight Gallery — a light, print-like spotter layout: gray page,
+           InFlight Spotters — a light, print-like spotter layout: gray page,
            white panels with gray title bars, one black masthead.
            ================================================================== */
         :root {
@@ -63,23 +63,31 @@
 
         .wrap { width: 100%; max-width: 1360px; margin: 0 auto; padding: 0 16px; }
 
-        /* ---------------- Masthead ---------------- */
-        .masthead { background: var(--head); color: #fff; }
-        .masthead-inner { display: flex; align-items: center; gap: 18px; height: 72px; }
-
-        .brand { display: inline-flex; align-items: center; gap: 12px; flex: 0 0 auto; }
-        .brand-mark {
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            border: 2px solid #fff; border-radius: 10px;
-            padding: 5px 14px 6px; line-height: 1;
+        /* ---------------- Masthead ----------------
+           An island: the bar floats on the gray page rather than spanning it. */
+        .masthead { background: transparent; color: #fff; padding: 12px 0 0; }
+        .masthead-inner {
+            display: flex; align-items: center; gap: 16px;
+            height: 66px; padding: 0 16px;
+            background: var(--head);
+            border-radius: 16px;
+            box-shadow: 0 6px 20px rgba(21, 24, 29, .18);
         }
+        .masthead .mobile-search { padding: 8px 16px 0; }
+
+        .brand { display: inline-flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+        .brand-logo {
+            width: 34px; height: 34px; object-fit: contain;
+            flex: 0 0 auto;
+        }
+        .brand-mark { display: flex; flex-direction: column; justify-content: center; line-height: 1; }
         .brand-word {
-            font-size: 1.1rem; font-weight: 900; letter-spacing: .2em;
+            font-size: 1.05rem; font-weight: 900; letter-spacing: .16em;
             text-transform: uppercase; white-space: nowrap;
         }
+        /* SPOTTERS sits under INFLIGHT, small, and tracks out to the same width. */
         .brand-sub {
-            display: flex; align-items: center; gap: 5px;
-            margin-top: 4px; font-size: .53rem; font-weight: 600; letter-spacing: .14em;
+            margin-top: 3px; font-size: .55rem; font-weight: 700; letter-spacing: .43em;
             text-transform: uppercase; color: #b9c0cb; white-space: nowrap;
         }
 
@@ -126,8 +134,15 @@
         .mobile-search .mast-search { display: block; max-width: none; }
 
         /* ---------------- Tab bar ---------------- */
-        .tabbar { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 30; }
-        .tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+        .tabbar { position: sticky; top: 8px; z-index: 30; padding: 10px 0 0; }
+        .tabs {
+            display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 0 6px;
+            box-shadow: 0 4px 14px rgba(21, 24, 29, .08);
+        }
         .tabs::-webkit-scrollbar { display: none; }
         .tab {
             position: relative; flex: 0 0 auto;
@@ -139,8 +154,8 @@
         .tab:hover { color: var(--ink); }
         .tab.active { color: var(--link); }
         .tab.active::after {
-            content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px;
-            height: 3px; background: var(--link); border-radius: 3px 3px 0 0;
+            content: ''; position: absolute; left: 10px; right: 10px; bottom: 6px;
+            height: 3px; background: var(--link); border-radius: 3px;
         }
 
         /* ---------------- Panels ---------------- */
@@ -364,15 +379,6 @@
         .crumb-nav button:hover { border-color: var(--link); color: var(--link); }
         .lb-stage { position: relative; background: var(--mat); }
         .lb-stage img { width: 100%; max-height: 76vh; object-fit: contain; margin: 0 auto; }
-        .lb-nav {
-            position: absolute; top: 50%; transform: translateY(-50%);
-            width: 42px; height: 42px; border-radius: 999px;
-            display: flex; align-items: center; justify-content: center;
-            background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.28);
-            backdrop-filter: blur(4px);
-        }
-        .lb-nav:hover { background: #fff; color: var(--ink); }
-        .lb-nav.prev { left: 12px; } .lb-nav.next { right: 12px; }
         .lb-bar { display: grid; grid-template-columns: repeat(5, 1fr); background: var(--strip); color: #fff; }
         .lb-bar > * { padding: 9px 4px; text-align: center; border-right: 1px solid rgba(255,255,255,.1); }
         .lb-bar > *:last-child { border-right: 0; }
@@ -476,13 +482,20 @@
 
         /* Phones: the wordmark keeps the row, so the upload button goes to its
            icon and the brand loses a little weight. */
+        /* The time window has to fit a 360px screen without clipping. */
+        @media (max-width: 460px) {
+            .seg button { padding: 5px 7px; font-size: .68rem; }
+        }
+
         @media (max-width: 480px) {
-            .masthead-inner { gap: 10px; }
-            .brand-word { font-size: .95rem; letter-spacing: .16em; }
-            .brand-sub { font-size: .48rem; letter-spacing: .1em; }
-            .brand-mark { padding: 4px 10px 5px; }
+            .masthead-inner { gap: 10px; padding: 0 12px; }
+            .brand-logo { width: 30px; height: 30px; }
+            .brand-word { font-size: .92rem; letter-spacing: .12em; }
+            .brand-sub { font-size: .48rem; letter-spacing: .35em; }
             .upload-label { display: none; }
             .btn { padding: 0 12px; }
+            .acct-btn span:not(.ini) { display: none; }
+            .acct-btn { padding: 0 6px; }
         }
 
         @media (min-width: 1024px) { .mast-nav { display: flex; } }
@@ -495,10 +508,12 @@
     <header class="masthead">
         <div class="wrap">
             <div class="masthead-inner">
-                <a class="brand" href="home.html" aria-label="InFlight Gallery — home">
+                <a class="brand" href="home.html" aria-label="InFlight Spotters — home">
+                    <img class="brand-logo" src="Images/inflight-mark.png" alt=""
+                         onerror="this.onerror=null;this.style.display='none';">
                     <span class="brand-mark">
                         <span class="brand-word">InFlight</span>
-                        <span class="brand-sub"><i data-lucide="plane" style="width:11px;height:11px"></i> <span id="brand-count">Gallery</span></span>
+                        <span class="brand-sub">Spotters</span>
                     </span>
                 </a>
 
@@ -699,8 +714,6 @@
             <div class="lb-card">
                 <div class="lb-stage">
                     <img id="lb-image" src="" alt="">
-                    <button class="lb-nav prev" id="lb-prev" aria-label="Previous photo"><i data-lucide="chevron-left" style="width:20px;height:20px"></i></button>
-                    <button class="lb-nav next" id="lb-next" aria-label="Next photo"><i data-lucide="chevron-right" style="width:20px;height:20px"></i></button>
                 </div>
                 <div class="lb-bar">
                     <div><div class="k">Photo</div><div class="v" id="lb-index">—</div></div>
@@ -914,7 +927,7 @@
                 </div>
             </div>
         </div>
-        <div class="foot-base">© 2026 InFlight Gallery — every photo © its contributor</div>
+        <div class="foot-base">© 2026 InFlight Spotters — every photo © its contributor</div>
     </footer>
 
     <!-- The tracker's own sign-in. Same project and same storage key, so a
@@ -1047,7 +1060,6 @@
                 return;
             }
 
-            document.getElementById('brand-count').textContent = `${photos.length.toLocaleString()} photos · all screened`;
             renderMasthead();
             renderSidebar();
             applyHash();
@@ -1994,13 +2006,13 @@
         });
 
         document.getElementById('lb-close').addEventListener('click', closePhoto);
-        ['lb-prev', 'lb-prev-top'].forEach(id => document.getElementById(id).addEventListener('click', () => stepPhoto(-1)));
-        ['lb-next', 'lb-next-top'].forEach(id => document.getElementById(id).addEventListener('click', () => stepPhoto(1)));
+        document.getElementById('lb-prev-top').addEventListener('click', () => stepPhoto(-1));
+        document.getElementById('lb-next-top').addEventListener('click', () => stepPhoto(1));
 
         document.getElementById('lb-share').addEventListener('click', async () => {
             const url = location.href;
             try {
-                if (navigator.share) await navigator.share({ url, title: 'InFlight Gallery' });
+                if (navigator.share) await navigator.share({ url, title: 'InFlight Spotters' });
                 else { await navigator.clipboard.writeText(url); flashShare('Copied'); }
             } catch (_) { /* dismissed share sheet — nothing to do */ }
         });
