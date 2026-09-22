@@ -196,6 +196,32 @@
         .tile-frame { display: block; position: relative; aspect-ratio: 3 / 2; background: var(--mat); overflow: hidden; }
         .tile-frame img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s ease; }
         .tile:hover .tile-frame img { transform: scale(1.04); }
+        /* Submissions — what happened to a photo you sent in. */
+        .sub { padding: 10px 12px; border-bottom: 1px solid #edeff2; }
+        .sub:last-child { border-bottom: 0; }
+        .sub-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .sub-ac { flex: 1 1 auto; min-width: 0; font-size: .84rem; font-weight: 600; }
+        .sub-ac .muted { font-weight: 500; }
+        .sub-date { font-size: .73rem; color: var(--muted); white-space: nowrap; }
+        .sub-reason {
+            margin: 7px 0 0; padding: 8px 10px; border-radius: 4px;
+            background: #fdf2f2; border: 1px solid #f3cfcf;
+            font-size: .8rem; color: #7c2020; line-height: 1.45;
+        }
+        .sub-link { margin-top: 6px; font-size: .78rem; }
+        .pill {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 9px; border-radius: 999px;
+            font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+            white-space: nowrap;
+        }
+        .pill.pending { background: #fff5e2; color: #8a5a00; border: 1px solid #f0d08a; }
+        .pill.approved { background: #eefaf1; color: #14612f; border: 1px solid #b6e3c4; }
+        .pill.rejected { background: #fdeceb; color: #9b1c16; border: 1px solid #f3c2bf; }
+        .sub-summary { display: flex; gap: 14px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--line); background: #fafbfc; }
+        .sub-summary div { font-size: .78rem; color: var(--ink2); }
+        .sub-summary b { color: var(--ink); }
+
         .badges { display: flex; flex-wrap: wrap; gap: 6px; }
         .badge {
             display: inline-flex; align-items: center; gap: 6px;
@@ -830,6 +856,14 @@
                     </div>
                     <div class="acct-card" id="account-card"></div>
                     <div class="panel-body" style="border-top:1px solid var(--line)" id="account-badges"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <span>Your submissions</span>
+                        <button class="more" id="subs-refresh">Refresh</button>
+                    </div>
+                    <div id="account-subs"></div>
                 </div>
 
                 <div class="panel">
@@ -2075,7 +2109,9 @@
             els.search.value = '';
             els.searchMobile.value = '';
             state.shown = PAGE_SIZE;
-            if (currentView === 'photo') { state.photoId = null; showView('browse'); }
+            // A filter is a thing to look at in the feed, wherever it was set
+            // from — the photo page, the account page, anywhere.
+            if (currentView !== 'browse') { state.photoId = null; showView('browse'); }
             render();
             writeHash();
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2426,6 +2462,7 @@
         // token goes up and /api/gallery/me answers.
         // ------------------------------------------------------------------
         let account = null;          // what /api/gallery/me returned, or null
+        let submissions = null;      // { submissions: [...], counts: {...} }
         let claimedThisSession = false;
 
         const authClient = () => window.InflightGalleryAuth || null;
@@ -2442,9 +2479,22 @@
         const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2)
             .map(w => w.charAt(0).toUpperCase()).join('') || '?';
 
+        // What happened to the photos you sent in. Staff decide on Discord; the
+        // decision — and the reason they typed with it — comes back here.
+        async function loadSubmissions() {
+            const token = await accessToken();
+            if (!token) { submissions = null; return; }
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/gallery/submissions`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                submissions = res.ok ? await res.json() : null;
+            } catch (_) { submissions = null; }
+        }
+
         async function loadAccount() {
             const token = await accessToken();
-            if (!token) { account = null; paintAccount(); return; }
+            if (!token) { account = null; submissions = null; paintAccount(); return; }
             try {
                 const res = await fetch(`${API_BASE_URL}/api/gallery/me`, {
                     headers: { Authorization: `Bearer ${token}` },
@@ -2454,6 +2504,7 @@
                 account = null;
             }
             paintAccount();
+            if (account) { await loadSubmissions(); paintSubmissions(); }
             if (photos.length) { await loadLikes(); render(); }
             if (account) claimOnce();
         }
@@ -2518,7 +2569,8 @@
             }
 
             const credit = account.credit || account.displayName || account.handle || 'Pilot';
-            label.textContent = credit;
+            const pending = (submissions && submissions.counts && submissions.counts.pending) || 0;
+            label.textContent = pending ? `${credit} · ${pending} in review` : credit;
             ini.innerHTML = account.avatarUrl
                 ? `<img src="${esc(account.avatarUrl)}" alt="">`
                 : esc(initials(credit));
@@ -2580,6 +2632,7 @@
                 : `<p class="note" style="padding:10px 12px; margin:0">No likes yet — they show up here as your photos collect them.</p>`;
 
             document.getElementById('account-photo-count').textContent = plural(mine.length, 'photo');
+            paintSubmissions();
             document.getElementById('account-photos').innerHTML = mine.length
                 ? mine.map(photoTile).join('')
                 : `<p class="note" style="grid-column:1/-1; padding:12px">
@@ -2601,6 +2654,79 @@
 
             lucide.createIcons();
         }
+
+        const SUB_STATES = {
+            pending: { label: 'In review', icon: 'clock' },
+            approved: { label: 'Accepted', icon: 'check-circle-2' },
+            rejected: { label: 'Not accepted', icon: 'x-circle' },
+        };
+
+        function paintSubmissions() {
+            const host = document.getElementById('account-subs');
+            if (!host) return;
+
+            if (!submissions || !submissions.submissions) {
+                host.innerHTML = '<p class="note" style="padding:12px; margin:0">Could not load your submissions just now.</p>';
+                return;
+            }
+
+            const rows = submissions.submissions;
+            if (!rows.length) {
+                host.innerHTML = `<p class="note" style="padding:12px; margin:0">
+                        Nothing submitted yet. Photos you upload appear here while staff review them,
+                        with the outcome and — if it is declined — the reason why.
+                    </p>`;
+                return;
+            }
+
+            const c = submissions.counts || {};
+            const summary = `
+                <div class="sub-summary">
+                    <div><b>${(c.pending || 0).toLocaleString()}</b> in review</div>
+                    <div><b>${(c.approved || 0).toLocaleString()}</b> accepted</div>
+                    <div><b>${(c.rejected || 0).toLocaleString()}</b> not accepted</div>
+                </div>`;
+
+            host.innerHTML = summary + rows.map((row) => {
+                const state = SUB_STATES[row.status] || SUB_STATES.pending;
+                const when = fmtDate(row.reviewedAt || row.createdAt);
+                // An approved photo is in the gallery, so link to it by its
+                // registration rather than leaving them to search for it.
+                const link = row.status === 'approved' && row.tailNumber
+                    ? `<div class="sub-link"><button class="lb-link" data-group="reg" data-value="${esc(row.tailNumber)}">See it in the gallery</button></div>`
+                    : '';
+                const reason = row.status === 'rejected' && row.reason
+                    ? `<p class="sub-reason"><strong>Why:</strong> ${esc(row.reason)}</p>`
+                    : row.status === 'rejected'
+                        ? '<p class="sub-reason">Declined without a reason recorded — ask on Discord if you would like the detail.</p>'
+                        : '';
+
+                return `
+                <div class="sub">
+                    <div class="sub-top">
+                        <span class="pill ${row.status}">
+                            <i data-lucide="${state.icon}" style="width:12px;height:12px"></i> ${state.label}
+                        </span>
+                        <span class="sub-ac">
+                            ${esc(row.aircraftType)}
+                            <span class="muted">· ${esc(row.liveryName)}${row.tailNumber ? ' · ' + esc(row.tailNumber) : ''}</span>
+                        </span>
+                        <span class="sub-date">${esc(when)}</span>
+                    </div>
+                    ${reason}
+                    ${link}
+                </div>`;
+            }).join('');
+
+            lucide.createIcons();
+        }
+
+        document.getElementById('subs-refresh').addEventListener('click', async () => {
+            document.getElementById('account-subs').innerHTML =
+                '<p class="note" style="padding:12px; margin:0">Checking…</p>';
+            await loadSubmissions();
+            paintSubmissions();
+        });
 
         function openAccount() {
             showView('account');
@@ -2815,12 +2941,15 @@
                 });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok) {
-                    upSay(data.creditedTo
-                        ? `Submitted as ${data.creditedTo}. Staff will review it on Discord shortly.`
-                        : 'Submitted. Staff will review it on Discord shortly.', 'ok');
+                    upSay(account
+                        ? `Submitted as ${data.creditedTo || 'you'}. It is in review — the outcome, and the reason if it is declined, appears under Your submissions.`
+                        : 'Submitted. Staff review every photo on Discord before it appears here.', 'ok');
                     up.form.reset();
                     upRenderPreviews();
                     up.credit.value = readCredit();
+                    // The new row is pending from this moment; fetch it so the
+                    // account page is right the next time they open it.
+                    if (account) { await loadSubmissions(); paintSubmissions(); }
                 } else if (res.status === 403) {
                     // A restriction on the account reads differently from an
                     // origin the backend will not accept at all.
