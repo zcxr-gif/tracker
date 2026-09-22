@@ -229,6 +229,85 @@
         .chip.on { background: var(--link); border-color: var(--link); color: #fff; }
         .chip.on:hover { background: var(--link-dk); color: #fff; }
 
+        /* ---------------- Browsing controls ----------------
+           Borrowed from the reference sites: a time window like
+           Airplane-Pictures' 48h/week/month/year switch, an A–Z index rail
+           like Planespotters' airline index, a grid/list density toggle like
+           Airliners' list view, and a field-by-field advanced search. */
+        .toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 12px 10px; }
+        .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+        .seg button {
+            padding: 5px 10px; font-size: .74rem; font-weight: 700; color: var(--ink2);
+            border-right: 1px solid var(--line); background: #fff; white-space: nowrap;
+        }
+        .seg button:last-child { border-right: 0; }
+        .seg button:hover { background: #f2f5f9; }
+        .seg button.on { background: var(--link); color: #fff; }
+
+        .letters { display: flex; flex-wrap: wrap; gap: 3px; padding: 8px 12px; border-top: 1px solid #edeff2; }
+        .letters button {
+            min-width: 25px; height: 25px; padding: 0 5px; border-radius: 4px;
+            font-size: .73rem; font-weight: 700; color: var(--ink2); border: 1px solid transparent;
+        }
+        .letters button:hover { background: #eef2f7; color: var(--link); }
+        .letters button.on { background: var(--link); color: #fff; }
+        .letters button:disabled { color: #c3c9d1; cursor: default; background: none; }
+
+        .adv { display: none; padding: 12px; border-top: 1px solid #edeff2; background: #fafbfc; }
+        .adv.show { display: block; }
+        .adv-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        @media (min-width: 860px) { .adv-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        .adv label { display: block; font-size: .62rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+        .adv input {
+            width: 100%; height: 34px; padding: 0 9px;
+            border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: .82rem;
+        }
+        .adv input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+        .adv-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+
+        /* Profile header — the airframe / airline / photographer page header
+           that Planespotters and JetPhotos put above a filtered result set. */
+        .profile { display: flex; gap: 14px; padding: 14px; align-items: center; }
+        .profile-art { width: 132px; aspect-ratio: 3/2; border-radius: 4px; overflow: hidden; background: var(--mat); flex: 0 0 auto; }
+        .profile-art img { width: 100%; height: 100%; object-fit: cover; }
+        .profile-kind { font-size: .62rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); }
+        .profile h2 { margin: 2px 0 8px; font-size: 1.3rem; font-weight: 800; letter-spacing: -.01em; }
+        .profile-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+        .profile-stats div { min-width: 74px; }
+        .profile-stats dt { font-size: .6rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+        .profile-stats dd { margin: 1px 0 0; font-size: .95rem; font-weight: 800; }
+        @media (max-width: 560px) { .profile-art { width: 92px; } .profile h2 { font-size: 1.05rem; } }
+
+        /* Photo of the day ribbon */
+        .ribbon {
+            position: absolute; top: 10px; left: 10px; z-index: 2;
+            display: inline-flex; align-items: center; gap: 5px;
+            background: #f0b429; color: #231a02;
+            font-size: .6rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase;
+            padding: 4px 9px; border-radius: 3px;
+        }
+
+        /* List view — one dense row per photo, Airliners-style */
+        .list { background: var(--card); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+        .lrow {
+            display: grid; align-items: center; gap: 10px; width: 100%; text-align: left;
+            grid-template-columns: 74px minmax(0,1fr);
+            padding: 7px 10px; border-bottom: 1px solid #edeff2;
+        }
+        @media (min-width: 720px) {
+            .lrow { grid-template-columns: 84px 7rem minmax(0,1fr) minmax(0,10rem) minmax(0,9rem) 6.5rem; }
+        }
+        .lrow:last-child { border-bottom: 0; }
+        .lrow:hover { background: #f2f5f9; }
+        .lrow img { width: 100%; aspect-ratio: 3/2; object-fit: cover; border-radius: 3px; background: var(--mat); }
+        .lrow .c-reg { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--link); font-size: .8rem; }
+        .lrow .c-type { font-size: .82rem; font-weight: 600; }
+        .lrow .c-air, .lrow .c-shooter { font-size: .78rem; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .lrow .c-date { font-size: .73rem; color: var(--muted); white-space: nowrap; }
+        .lrow .stack { display: grid; gap: 1px; }
+        @media (min-width: 720px) { .lrow .stack .c-sub { display: none; } }
+        .lrow .c-sub { font-size: .72rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
         /* ---------------- Sidebar bits ---------------- */
         .layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; padding: 16px 0 28px; }
         @media (min-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr) 320px; } }
@@ -348,6 +427,10 @@
                     <input id="search-input" type="search" autocomplete="off" placeholder="Registration, type, airline, photographer…">
                 </div>
 
+                <button id="random-btn" class="icon-btn" aria-label="Open a random photo" title="Random photo">
+                    <i data-lucide="shuffle" style="width:18px;height:18px"></i>
+                </button>
+
                 <button id="mobile-search-btn" class="icon-btn m-only" aria-label="Search">
                     <i data-lucide="search" style="width:18px;height:18px"></i>
                 </button>
@@ -384,7 +467,7 @@
         <!-- Newest uploads -->
         <section class="panel" style="margin-top:16px">
             <div class="panel-head">
-                <span>Newest in the gallery</span>
+                <span>Photo of the day &amp; newest uploads</span>
                 <button class="more" data-action="view-latest">View all photos</button>
             </div>
             <div id="masthead-grid" class="mosaic">
@@ -399,11 +482,17 @@
         <div class="layout">
             <!-- Feed -->
             <div>
+                <div id="profile-panel" class="panel" style="display:none; margin-bottom:12px"></div>
+
                 <div class="panel" style="margin-bottom:12px">
                     <div class="toolbar">
                         <div id="active-filter" style="display:none; gap:8px; align-items:center; flex-wrap:wrap"></div>
                         <div id="result-count" class="count"></div>
                         <div class="spacer"></div>
+                        <div class="seg" id="view-toggle">
+                            <button data-view="grid" class="on" title="Grid view"><i data-lucide="layout-grid" style="width:14px;height:14px"></i></button>
+                            <button data-view="list" title="List view"><i data-lucide="list" style="width:14px;height:14px"></i></button>
+                        </div>
                         <label for="sort-select" class="sort-label">Sort</label>
                         <select id="sort-select" class="sort">
                             <option value="newest">Newest first</option>
@@ -413,6 +502,35 @@
                             <option value="photographer">Photographer A–Z</option>
                         </select>
                     </div>
+
+                    <div class="toolbar-row" id="window-row">
+                        <div class="seg" id="window-seg">
+                            <button data-window="48h">48 hours</button>
+                            <button data-window="week">Week</button>
+                            <button data-window="month">Month</button>
+                            <button data-window="year">Year</button>
+                            <button data-window="all" class="on">All time</button>
+                        </div>
+                        <div class="spacer"></div>
+                        <button id="adv-toggle" class="chip"><i data-lucide="sliders-horizontal" style="width:13px;height:13px"></i> Advanced search</button>
+                    </div>
+
+                    <div id="letters" class="letters" style="display:none"></div>
+
+                    <form id="adv" class="adv" autocomplete="off">
+                        <div class="adv-grid">
+                            <div><label for="adv-type">Aircraft type</label><input id="adv-type" placeholder="e.g. Boeing 787-9"></div>
+                            <div><label for="adv-airline">Airline / livery</label><input id="adv-airline" placeholder="e.g. Air Canada"></div>
+                            <div><label for="adv-reg">Registration</label><input id="adv-reg" placeholder="e.g. G-DRAA"></div>
+                            <div><label for="adv-shooter">Photographer</label><input id="adv-shooter" placeholder="Name"></div>
+                            <div><label for="adv-from">Uploaded from</label><input id="adv-from" type="date"></div>
+                            <div><label for="adv-to">Uploaded to</label><input id="adv-to" type="date"></div>
+                        </div>
+                        <div class="adv-actions">
+                            <button type="button" id="adv-reset" class="chip">Reset</button>
+                            <button type="submit" class="btn" style="height:34px">Search photos</button>
+                        </div>
+                    </form>
                 </div>
 
                 <div id="content-grid" class="grid"></div>
@@ -486,6 +604,7 @@
                 <div class="lb-body">
                     <div>
                         <h2 class="lb-title" id="lb-title"></h2>
+                        <div id="lb-badges" style="display:flex; flex-wrap:wrap; gap:6px; margin:-6px 0 12px"></div>
                         <dl id="lb-details" style="margin:0"></dl>
                     </div>
                     <div class="shooter-card">
@@ -559,6 +678,10 @@
             query: '',
             sort: 'newest',
             filter: null,      // { kind: 'type'|'livery'|'reg'|'contributor', value }
+            window: 'all',     // 48h | week | month | year | all
+            letter: null,      // A–Z index on the grouped tabs
+            view: 'grid',      // grid | list
+            adv: null,         // { type, airline, reg, shooter, from, to }
             shown: PAGE_SIZE,
             photoId: null,     // open photo page
         };
@@ -580,7 +703,16 @@
             loadMoreWrap: document.getElementById('load-more-wrap'),
             loadMore: document.getElementById('load-more'),
             lightbox: document.getElementById('lightbox'),
+            profile: document.getElementById('profile-panel'),
+            letters: document.getElementById('letters'),
+            windowRow: document.getElementById('window-row'),
+            windowSeg: document.getElementById('window-seg'),
+            viewToggle: document.getElementById('view-toggle'),
+            adv: document.getElementById('adv'),
         };
+
+        const WINDOWS = { '48h': 2, week: 7, month: 30, year: 365 };
+        const advFields = { type: 'adv-type', airline: 'adv-airline', reg: 'adv-reg', shooter: 'adv-shooter', from: 'adv-from', to: 'adv-to' };
 
         const esc = (s) => String(s == null ? '' : s)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -682,13 +814,46 @@
         function filteredPhotos() {
             const q = norm(state.query);
             let list = photos.filter(p => matchesQuery(p, q));
+
             if (state.filter) {
                 const val = norm(state.filter.value);
                 const key = { type: 'type', livery: 'livery', reg: 'reg', contributor: 'photographer' }[state.filter.kind];
                 list = list.filter(p => norm(p[key]) === val);
             }
+
+            // Time window, the way Airplane-Pictures splits its feed into
+            // 48 hours / week / month / year.
+            const days = WINDOWS[state.window];
+            if (days) {
+                const cutoff = Date.now() - days * 864e5;
+                list = list.filter(p => p.uploadedAt && new Date(p.uploadedAt).getTime() >= cutoff);
+            }
+
+            // Advanced search: each field narrows independently, like the
+            // field-by-field search on Airliners and Planespotters.
+            const a = state.adv;
+            if (a) {
+                if (a.type) list = list.filter(p => norm(p.type).includes(norm(a.type)));
+                if (a.airline) list = list.filter(p => norm(p.livery).includes(norm(a.airline)));
+                if (a.reg) list = list.filter(p => norm(p.reg).includes(norm(a.reg)));
+                if (a.shooter) list = list.filter(p => norm(p.photographer).includes(norm(a.shooter)));
+                if (a.from) {
+                    const t = new Date(a.from).getTime();
+                    list = list.filter(p => p.uploadedAt && new Date(p.uploadedAt).getTime() >= t);
+                }
+                if (a.to) {
+                    const t = new Date(a.to).getTime() + 864e5;  // inclusive of the end day
+                    list = list.filter(p => p.uploadedAt && new Date(p.uploadedAt).getTime() < t);
+                }
+            }
+
             return sortPhotos(list);
         }
+
+        const letterOf = (name) => {
+            const c = String(name || '').trim().charAt(0).toUpperCase();
+            return /[A-Z]/.test(c) ? c : '#';
+        };
 
         function sortPhotos(list) {
             const copy = list.slice();
@@ -748,9 +913,29 @@
                 </button>`;
         }
 
+        function photoRow(p) {
+            return `
+                <button class="lrow" data-photo="${esc(p.id)}">
+                    <img loading="lazy" decoding="async" src="${esc(p.url)}" alt=""
+                         onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                    <span class="c-reg">${esc(p.reg || '—')}</span>
+                    <span class="stack">
+                        <span class="c-type">${esc(p.type)}</span>
+                        <span class="c-sub">${esc(p.livery)} · ${esc(p.photographer)} · ${esc(fmtDate(p.uploadedAt))}</span>
+                    </span>
+                    <span class="c-air">${esc(p.livery)}</span>
+                    <span class="c-shooter">${esc(p.photographer)}</span>
+                    <span class="c-date">${esc(fmtDate(p.uploadedAt))}</span>
+                </button>`;
+        }
+
         function render() {
             syncTabs();
             renderFilterBar();
+            renderProfile();
+            renderLetters();
+            els.windowRow.style.display = state.tab === 'photos' ? 'flex' : 'none';
+            els.viewToggle.style.display = state.tab === 'photos' ? 'inline-flex' : 'none';
 
             if (state.tab === 'photos') return renderPhotoFeed();
             if (state.tab === 'aircraft') return renderGroups('type');
@@ -769,23 +954,29 @@
             viewList = filteredPhotos();
             els.count.textContent = plural(viewList.length, 'photo');
 
+            els.grid.className = state.view === 'list' ? 'list' : 'grid';
+
             if (!viewList.length) {
+                els.grid.className = 'grid';
                 els.grid.innerHTML = emptyState('No photos match this search yet.');
                 showLoadMore(false);
                 return;
             }
 
-            els.grid.innerHTML = viewList.slice(0, state.shown).map(photoTile).join('');
+            const page = viewList.slice(0, state.shown);
+            els.grid.innerHTML = page.map(state.view === 'list' ? photoRow : photoTile).join('');
             showLoadMore(state.shown < viewList.length);
             lucide.createIcons();
         }
 
         function renderGroups(kind) {
             const q = norm(state.query);
+            els.grid.className = 'grid';
             const map = kind === 'type' ? byType() : byLivery();
             let groups = Array.from(map.entries());
 
             if (q) groups = groups.filter(([name, list]) => norm(name).includes(q) || list.some(p => matchesQuery(p, q)));
+            if (state.letter) groups = groups.filter(([name]) => letterOf(name) === state.letter);
             groups.sort((a, b) => (state.sort === 'type' || state.sort === 'reg')
                 ? a[0].localeCompare(b[0])
                 : b[1].length - a[1].length);
@@ -812,6 +1003,7 @@
 
         function renderAirports() {
             const q = norm(state.query);
+            els.grid.className = 'grid';
             const list = airports.filter(a => !q || norm(a.icao).includes(q));
             list.sort((a, b) => state.sort === 'oldest'
                 ? new Date(a.lastUpdated || 0) - new Date(b.lastUpdated || 0)
@@ -861,8 +1053,9 @@
 
         function renderContributors() {
             const q = norm(state.query);
+            els.grid.className = 'grid';
             const people = Array.from(byPhotographer().entries())
-                .filter(([name]) => !q || norm(name).includes(q))
+                .filter(([name]) => (!q || norm(name).includes(q)) && (!state.letter || letterOf(name) === state.letter))
                 .sort((a, b) => b[1].length - a[1].length);
 
             els.count.textContent = plural(people.length, 'photographer');
@@ -892,18 +1085,100 @@
             }).join('');
         }
 
+        // A–Z index rail over the grouped tabs, like the airline index pages
+        // on Planespotters and the browse-by lists on Airplane-Pictures.
+        function renderLetters() {
+            const source = state.tab === 'aircraft' ? byType()
+                : state.tab === 'liveries' ? byLivery()
+                : state.tab === 'contributors' ? byPhotographer()
+                : null;
+            if (!source) { els.letters.style.display = 'none'; return; }
+
+            const present = new Set(Array.from(source.keys()).map(letterOf));
+            const letters = ['#'].concat('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''));
+            els.letters.style.display = 'flex';
+            els.letters.innerHTML =
+                `<button data-letter="" class="${state.letter ? '' : 'on'}">All</button>` +
+                letters.map(l => `<button data-letter="${l}" class="${state.letter === l ? 'on' : ''}"${present.has(l) ? '' : ' disabled'}>${l}</button>`).join('');
+        }
+
+        // The header a spotter site puts above a filtered set: an airframe,
+        // airline or photographer page rather than a bare filter chip.
+        function renderProfile() {
+            if (!state.filter || state.tab !== 'photos') { els.profile.style.display = 'none'; return; }
+
+            const key = { type: 'type', livery: 'livery', reg: 'reg', contributor: 'photographer' }[state.filter.kind];
+            const set = photos.filter(p => norm(p[key]) === norm(state.filter.value));
+            if (!set.length) { els.profile.style.display = 'none'; return; }
+
+            const uniq = (f) => new Set(set.map(f).filter(Boolean)).size;
+            const dates = set.map(p => p.uploadedAt).filter(Boolean).sort();
+            const kindLabel = { type: 'Aircraft type', livery: 'Airline / livery', reg: 'Registration', contributor: 'Photographer' }[state.filter.kind];
+
+            let stats = [['Photos', set.length]];
+            if (state.filter.kind === 'type') stats.push(['Liveries', uniq(p => p.livery)], ['Registrations', uniq(p => p.reg)], ['Photographers', uniq(p => p.photographer)]);
+            if (state.filter.kind === 'livery') stats.push(['Types', uniq(p => p.type)], ['Registrations', uniq(p => p.reg)], ['Photographers', uniq(p => p.photographer)]);
+            if (state.filter.kind === 'reg') stats.push(['Type', set[0].type], ['Airline', set[0].livery], ['Photographers', uniq(p => p.photographer)]);
+            if (state.filter.kind === 'contributor') {
+                const rank = Array.from(byPhotographer().entries()).sort((a, b) => b[1].length - a[1].length)
+                    .findIndex(([n]) => norm(n) === norm(state.filter.value)) + 1;
+                stats.push(['Types', uniq(p => p.type)], ['Airlines', uniq(p => p.livery)], ['Registrations', uniq(p => p.reg)], ['Rank', `#${rank}`]);
+            }
+            if (dates.length) stats.push(['Latest', fmtDate(dates[dates.length - 1])]);
+
+            els.profile.style.display = 'block';
+            els.profile.innerHTML = `
+                <div class="panel-head">
+                    <span>${kindLabel}</span>
+                    <button class="more" id="clear-filter">Back to all photos</button>
+                </div>
+                <div class="profile">
+                    <div class="profile-art">
+                        <img src="${esc(set[0].url)}" alt="" onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                    </div>
+                    <div style="min-width:0">
+                        <div class="profile-kind">${kindLabel}</div>
+                        <h2>${esc(state.filter.value)}</h2>
+                        <dl class="profile-stats">
+                            ${stats.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${typeof v === 'number' ? v.toLocaleString() : esc(v)}</dd></div>`).join('')}
+                        </dl>
+                    </div>
+                </div>`;
+        }
+
+        // Photo of the day: a stable pick that changes once a day, in the
+        // spirit of JetPhotos' photo of the week and Planespotters' editor's
+        // choice — seeded by the date so everyone sees the same photo.
+        function photoOfTheDay() {
+            if (!photos.length) return null;
+            const day = Math.floor(Date.now() / 864e5);
+            let seed = day * 2654435761 % 4294967296;
+            const newest = photos.slice(0, 4).map(p => p.id);
+            for (let i = 0; i < 8; i++) {
+                const pick = photos[(seed + i) % photos.length];
+                if (!newest.includes(pick.id)) return pick;
+            }
+            return photos[0];
+        }
+
         function renderMasthead() {
-            const top = photos.slice(0, 5);
-            if (!top.length) { els.masthead.innerHTML = ''; return; }
-            els.masthead.innerHTML = top.map((p, i) => `
+            const potd = photoOfTheDay();
+            if (!potd) { els.masthead.innerHTML = ''; return; }
+            const rest = photos.filter(p => p.id !== potd.id).slice(0, 4);
+
+            const cell = (p, i) => `
                 <button class="shot ${i === 0 ? 'lead' : ''} ${i > 2 ? 'd-none-sm' : ''}" data-photo="${esc(p.id)}" data-scope="masthead">
+                    ${i === 0 ? '<span class="ribbon"><i data-lucide="star" style="width:11px;height:11px"></i> Photo of the day</span>' : ''}
                     <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.type)}"
                          onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
                     <span class="shot-cap">
                         <span class="t" style="display:block">${esc(p.type)}</span>
                         <span class="s" style="display:block">${esc(p.livery)} · © ${esc(p.photographer)}</span>
                     </span>
-                </button>`).join('');
+                </button>`;
+
+            els.masthead.innerHTML = [potd].concat(rest).map(cell).join('');
+            lucide.createIcons();
         }
 
         function renderSidebar() {
@@ -956,19 +1231,32 @@
             lucide.createIcons();
         }
 
+        // The active filter now has its own profile header, so this bar reports
+        // what the advanced search is narrowing by, one removable chip per field.
         function renderFilterBar() {
-            if (!state.filter) { els.filterBar.style.display = 'none'; return; }
-            const labels = { type: 'Aircraft type', livery: 'Livery', reg: 'Registration', contributor: 'Photographer' };
-            els.filterBar.style.display = 'flex';
-            els.filterBar.innerHTML = `
-                <span class="sort-label">${labels[state.filter.kind]}</span>
-                <span class="chip on">
-                    ${esc(state.filter.value)}
-                    <button id="clear-filter" aria-label="Clear filter" style="display:inline-flex">
-                        <i data-lucide="x" style="width:13px;height:13px"></i>
+            const a = state.adv || {};
+            const labels = { type: 'Type', airline: 'Airline', reg: 'Reg', shooter: 'Photographer', from: 'From', to: 'To' };
+            const chips = Object.keys(labels).filter(k => a[k]).map(k =>
+                `<span class="chip on">${labels[k]}: ${esc(a[k])}
+                    <button data-adv-clear="${k}" aria-label="Remove ${labels[k]} filter" style="display:inline-flex">
+                        <i data-lucide="x" style="width:12px;height:12px"></i>
                     </button>
-                </span>`;
+                 </span>`);
+
+            if (!chips.length) { els.filterBar.style.display = 'none'; return; }
+            els.filterBar.style.display = 'flex';
+            els.filterBar.innerHTML = chips.join('') + '<button class="chip" data-adv-clear="*">Clear all</button>';
             lucide.createIcons();
+        }
+
+        // Push state back into the controls (used when a link restores a view).
+        function syncControls() {
+            Array.from(els.windowSeg.children).forEach(b => b.classList.toggle('on', b.dataset.window === state.window));
+            Array.from(els.viewToggle.children).forEach(b => b.classList.toggle('on', b.dataset.view === state.view));
+            Object.entries(advFields).forEach(([key, id]) => {
+                document.getElementById(id).value = (state.adv && state.adv[key]) || '';
+            });
+            els.adv.classList.toggle('show', !!state.adv);
         }
 
         function syncTabs() {
@@ -1025,6 +1313,18 @@
                     ['Uploaded', esc(fmtDate(p.uploadedAt))],
                     ['Slot', `${p.slot} of ${p.slots} in this aircraft's gallery`],
                 ];
+            // Badges earned from the data itself — the first photo of a
+            // registration is the one JetPhotos hands out a badge for.
+            const badges = [];
+            if (!p.isAirport && regList.length) {
+                const earliest = regList.slice().sort((a, b) => new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0))[0];
+                if (earliest.id === p.id) badges.push(['award', `First photo of ${p.reg}`]);
+            }
+            if (!p.isAirport && typeList.length === 1) badges.push(['sparkles', `Only ${p.type} in the gallery`]);
+            badges.push(['shield-check', 'Screened by staff']);
+            document.getElementById('lb-badges').innerHTML = badges.map(([icon, text]) =>
+                `<span class="chip"><i data-lucide="${icon}" style="width:13px;height:13px"></i> ${esc(text)}</span>`).join('');
+
             document.getElementById('lb-details').innerHTML = rows.map(([k, v]) =>
                 `<div class="lb-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 
@@ -1087,6 +1387,10 @@
             if (state.query) params.set('q', state.query);
             if (state.filter) params.set(state.filter.kind, state.filter.value);
             if (state.sort !== 'newest') params.set('sort', state.sort);
+            if (state.window !== 'all') params.set('w', state.window);
+            if (state.view !== 'grid') params.set('v', state.view);
+            if (state.letter) params.set('l', state.letter);
+            if (state.adv) Object.entries(state.adv).forEach(([k, v]) => { if (v) params.set('a' + k, v); });
             if (state.photoId) params.set('photo', state.photoId);
             const hash = params.toString();
             suppressHash = true;
@@ -1100,6 +1404,12 @@
             if (['photos', 'aircraft', 'liveries', 'airports', 'contributors'].includes(tab)) state.tab = tab;
             state.query = params.get('q') || '';
             state.sort = params.get('sort') || 'newest';
+            state.window = WINDOWS[params.get('w')] ? params.get('w') : 'all';
+            state.view = params.get('v') === 'list' ? 'list' : 'grid';
+            state.letter = params.get('l') || null;
+            const adv = {};
+            Object.keys(advFields).forEach(k => { const v = params.get('a' + k); if (v) adv[k] = v; });
+            state.adv = Object.keys(adv).length ? adv : null;
             state.filter = null;
             ['type', 'livery', 'reg', 'contributor'].forEach(kind => {
                 const v = params.get(kind);
@@ -1113,6 +1423,7 @@
             els.search.value = state.query;
             els.searchMobile.value = state.query;
             els.sort.value = state.sort;
+            syncControls();
             render();
 
             const photoId = params.get('photo');
@@ -1129,6 +1440,7 @@
         function setTab(tab) {
             state.tab = tab;
             state.shown = PAGE_SIZE;
+            state.letter = null;
             if (tab !== 'photos') state.filter = null;
             render();
             writeHash();
@@ -1139,6 +1451,9 @@
             state.filter = { kind, value };
             state.tab = 'photos';
             state.query = '';
+            state.adv = null;
+            state.letter = null;
+            syncControls();
             els.search.value = '';
             els.searchMobile.value = '';
             state.shown = PAGE_SIZE;
@@ -1175,6 +1490,71 @@
             writeHash();
         });
 
+        // Time window (48h / week / month / year / all time)
+        els.windowSeg.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-window]');
+            if (!btn) return;
+            state.window = btn.dataset.window;
+            state.shown = PAGE_SIZE;
+            syncControls();
+            render();
+            writeHash();
+        });
+
+        // Grid / list density
+        els.viewToggle.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-view]');
+            if (!btn) return;
+            state.view = btn.dataset.view;
+            state.shown = PAGE_SIZE;
+            syncControls();
+            render();
+            writeHash();
+        });
+
+        // A–Z index rail
+        els.letters.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-letter]');
+            if (!btn || btn.disabled) return;
+            state.letter = btn.dataset.letter || null;
+            render();
+            writeHash();
+        });
+
+        // Advanced search
+        document.getElementById('adv-toggle').addEventListener('click', () => {
+            els.adv.classList.toggle('show');
+            if (els.adv.classList.contains('show')) document.getElementById('adv-type').focus();
+        });
+
+        els.adv.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const adv = {};
+            Object.entries(advFields).forEach(([key, id]) => {
+                const v = document.getElementById(id).value.trim();
+                if (v) adv[key] = v;
+            });
+            state.adv = Object.keys(adv).length ? adv : null;
+            state.tab = 'photos';
+            state.shown = PAGE_SIZE;
+            render();
+            writeHash();
+        });
+
+        document.getElementById('adv-reset').addEventListener('click', () => {
+            state.adv = null;
+            state.shown = PAGE_SIZE;
+            syncControls();
+            render();
+            writeHash();
+        });
+
+        // Random photo, the way Airliners offers a random pull from the archive
+        document.getElementById('random-btn').addEventListener('click', () => {
+            if (!photos.length) return;
+            openPhoto(photos[Math.floor(Math.random() * photos.length)].id, photos);
+        });
+
         els.loadMore.addEventListener('click', () => {
             state.shown += PAGE_SIZE;
             renderPhotoFeed();
@@ -1195,6 +1575,21 @@
             const tabBtn = e.target.closest('[data-tab], [data-navtab], [data-tab-link]');
             if (tabBtn) {
                 setTab(tabBtn.dataset.tab || tabBtn.dataset.navtab || tabBtn.dataset.tabLink);
+                return;
+            }
+
+            const advClear = e.target.closest('[data-adv-clear]');
+            if (advClear) {
+                const key = advClear.dataset.advClear;
+                if (key === '*' || !state.adv) state.adv = null;
+                else {
+                    delete state.adv[key];
+                    if (!Object.keys(state.adv).length) state.adv = null;
+                }
+                state.shown = PAGE_SIZE;
+                syncControls();
+                render();
+                writeHash();
                 return;
             }
 
