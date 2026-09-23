@@ -4994,6 +4994,37 @@ function injectCustomStyles() {
             }
             .ac-pilot-go i { font-size: 9px; }
             .ac-info-tab-btn.pilot-tab-btn:hover .ac-pilot-go { opacity: 1; }
+
+            /* One continuous surface from the photo down to the instruments:
+               the photo fades all the way into the route card's colour, and
+               the pilot row and instrument area lose their divider lines and
+               blend into each other instead of starting as new bands. */
+            #aircraft-info-window .ac-header-overlay {
+                background: linear-gradient(to bottom,
+                    rgba(58, 58, 58, 0) 0%,
+                    rgba(58, 58, 58, 0) 34%,
+                    rgba(58, 58, 58, 0.22) 55%,
+                    rgba(58, 58, 58, 0.66) 76%,
+                    rgba(58, 58, 58, 0.94) 92%,
+                    #3a3a3a 100%) !important;
+            }
+            #aircraft-info-window .ac-route-bar-backdrop {
+                box-shadow: 0 -40px 48px 8px rgba(58, 58, 58, 0.55) !important;
+            }
+            #aircraft-info-window .ac-info-window-tabs {
+                background: #3a3a3a !important;
+                border-top: 0 !important;
+                border-bottom: 0 !important;
+                padding-bottom: 16px !important;
+            }
+            #aircraft-info-window .unified-display-main-content {
+                border-top: 0 !important;
+                background: linear-gradient(180deg, #3a3a3a 0px, var(--bg-glass) 64px) !important;
+            }
+            /* The card's banner and picture fade in rather than pop. */
+            .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner { animation: ac-pilot-fade 0.45s ease; }
+            .ac-pilot-avatar img { animation: ac-pilot-fade 0.35s ease; }
+            @keyframes ac-pilot-fade { from { opacity: 0; } to { opacity: 1; } }
             .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner {
                 display: block;
                 position: absolute;

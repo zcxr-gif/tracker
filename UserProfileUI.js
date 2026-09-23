@@ -17,6 +17,7 @@
  */
 
 import { formatGrade } from './ifGrade.js';
+import { PilotProfiles } from './pilotProfiles.js';
 
 const ATC_RANK_MAP = {
     0: 'Observer', 1: 'Trainee', 2: 'Apprentice', 3: 'Specialist',
@@ -353,7 +354,7 @@ export const UserProfileUI = {
         // ── Header (always available: name + avatar + live state) ──
         const isLive = !!d.liveFeature;
         head.innerHTML = `
-            <span class="ups-avatar">${this._esc(this._initials(d.username))}</span>
+            <span class="ups-avatar" id="ups-avatar">${this._esc(this._initials(d.username))}</span>
             <span class="ups-head-text">
                 <span class="ups-head-name">${this._esc(d.username)}</span>
                 <span class="ups-status-pill ${isLive ? 'is-live' : 'is-offline'}">
@@ -361,6 +362,7 @@ export const UserProfileUI = {
                 </span>
             </span>
         `;
+        this._decorate(d.username);
 
         if (d.loading) {
             body.innerHTML = `
@@ -758,6 +760,55 @@ export const UserProfileUI = {
 
     /* ─────────────────────────── Shell + styles ─────────────────────────── */
 
+    // Picture and banner from the pilot's InFlight profile (made in the iOS
+    // app). Applied synchronously on a cache hit, since _render rebuilds the
+    // header on every load step and must not flash back to initials.
+    _decorate(username) {
+        const card = document.querySelector('#user-profile-sheet .ups-card');
+        const banner = document.getElementById('ups-banner');
+        if (!card || !banner) return;
+        const apply = (profile) => {
+            if (!this._data || this._data.username !== username) return; // a newer pilot is showing
+            card.classList.toggle('has-banner', !!profile);
+            if (!profile) { banner.classList.remove('is-shown'); banner.style.backgroundImage = ''; return; }
+            const bg = profile.bannerUrl ? `url("${profile.bannerUrl}"), ${profile.bannerGradient}` : profile.bannerGradient;
+            if (banner.dataset.bg !== bg) {
+                banner.dataset.bg = bg;
+                banner.classList.remove('is-shown');
+                banner.style.backgroundImage = bg;
+                // Fade in once the photograph has arrived, not before.
+                const reveal = () => requestAnimationFrame(() => banner.classList.add('is-shown'));
+                if (profile.bannerUrl) {
+                    const probe = new Image();
+                    probe.onload = probe.onerror = reveal;
+                    probe.src = profile.bannerUrl;
+                } else reveal();
+            }
+            const avatar = document.getElementById('ups-avatar');
+            if (avatar && profile.avatarUrl) {
+                const img = new Image();
+                img.alt = '';
+                img.className = 'ups-avatar-img';
+                img.onload = () => {
+                    if (!avatar.isConnected) return;
+                    avatar.textContent = '';
+                    avatar.classList.add('has-img');
+                    avatar.appendChild(img);
+                };
+                img.src = profile.avatarUrl;
+                if (img.complete && img.naturalWidth) img.onload();
+            }
+        };
+        const cached = PilotProfiles.peek(username);
+        if (cached !== undefined) apply(cached);
+        else {
+            card.classList.remove('has-banner');
+            banner.classList.remove('is-shown');
+            banner.dataset.bg = '';
+            PilotProfiles.byIfUsername(username).then(apply);
+        }
+    },
+
     _buildShell() {
         if (this._shellBuilt) return;
         this._shellBuilt = true;
@@ -768,6 +819,8 @@ export const UserProfileUI = {
         root.innerHTML = `
             <div class="ups-backdrop"></div>
             <div class="ups-card">
+                <!-- The pilot's InFlight profile banner, when they have one. -->
+                <div class="ups-banner" id="ups-banner" aria-hidden="true"></div>
                 <div class="ups-grip" id="ups-grip"></div>
                 <div class="ups-head" id="ups-head">
                     <div class="ups-head-identity" id="ups-head-identity"></div>
@@ -916,6 +969,41 @@ export const UserProfileUI = {
                 color: var(--ups-text);
             }
             .ups-root.is-open .ups-card { transform: translateY(0); }
+
+            /* Banner: sits behind the grip and header and fades into the card. */
+            .ups-banner {
+                position: absolute;
+                top: 0; left: 0; right: 0;
+                height: 170px;
+                background-size: cover, cover;
+                background-position: center, center;
+                opacity: 0;
+                transition: opacity 0.5s ease;
+                pointer-events: none;
+                -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent 100%);
+                mask-image: linear-gradient(to bottom, #000 45%, transparent 100%);
+            }
+            .ups-banner.is-shown { opacity: 1; }
+            .ups-card > .ups-grip,
+            .ups-card > .ups-head,
+            .ups-card > .ups-body { position: relative; z-index: 1; }
+            .ups-card > .ups-head { transition: padding-top 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+            .ups-card.has-banner .ups-head {
+                padding-top: 78px;
+                border-bottom-color: transparent;
+            }
+            .ups-card.has-banner .ups-head-name { text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45); }
+            .ups-card.has-banner .ups-avatar {
+                width: 64px; height: 64px;
+                border: 3px solid var(--ups-bg);
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+            }
+            .ups-avatar { overflow: hidden; transition: width 0.3s ease, height 0.3s ease; }
+            .ups-avatar-img {
+                width: 100%; height: 100%; object-fit: cover; display: block;
+                animation: ups-fade-in 0.35s ease;
+            }
+            @keyframes ups-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
             /* Desktop: centered dialog instead of a bottom sheet. */
             @media (min-width: 769px) {
