@@ -17949,17 +17949,30 @@ const SettingsUI = {
     // Mirrors the mobile settings sheet's tab structure (MobileSettingsUI):
     // Map / Aircraft / Labels / Overlays, plus the shared tactical filter
     // board under Filters and the desktop-only window Theme tab.
+    // Sidebar groups, top to bottom. Each page has a one-line description that
+    // heads it. The keys are stable ids: 'airspace' is deep-linked from the top
+    // nav's Filters button.
+    groups: [
+        { label: 'Map',       items: ['map', 'overlays', 'airspace'] },
+        { label: 'Aircraft',  items: ['aircraft', 'labels'] },
+        { label: 'Windows',   items: ['windows', 'theme'] },
+        { label: 'Community', items: ['va', 'sharing'] },
+        { label: 'You',       items: ['month', 'card', 'whatsnew'] },
+    ],
+
     categories: {
-        map: { label: "Map", icon: "fa-map" },
-        aircraft: { label: "Aircraft", icon: "fa-plane-up" },
-        labels: { label: "Labels", icon: "fa-tag" },
-        overlays: { label: "Overlays", icon: "fa-layer-group" },
-        airspace: { label: "Filters", icon: "fa-sliders" },
-        va: { label: "VA", icon: "fa-handshake-angle" },
-        theme: { label: "Theme", icon: "fa-palette" },
-        month: { label: "Your Month", icon: "fa-chart-pie" },
-        card: { label: "Profile Card", icon: "fa-id-card" },
-        whatsnew: { label: "What's New", icon: "fa-bullhorn" }
+        map:      { label: "Map",                      icon: "fa-map",             desc: "Map style, projection and how much of the base map is drawn." },
+        overlays: { label: "Overlays",                 icon: "fa-layer-group",     desc: "ATC, airports, terrain, routes and oceanic tracks drawn over the map." },
+        airspace: { label: "Traffic Filters",          icon: "fa-sliders",         desc: "Choose which live traffic is shown on the map." },
+        aircraft: { label: "Aircraft",                 icon: "fa-plane-up",        desc: "Your own aircraft, icon colours and how traffic is drawn." },
+        labels:   { label: "Labels",                   icon: "fa-tag",             desc: "What the tags next to aircraft say, and how they look." },
+        windows:  { label: "Flight & Airport Windows", icon: "fa-window-maximize", desc: "Which window opens when you tap a flight or an airport, and what it shows." },
+        theme:    { label: "Appearance",               icon: "fa-palette",         desc: "The colours and transparency of the flight and airport windows." },
+        va:       { label: "Virtual Airlines",         icon: "fa-handshake-angle", desc: "Partner VA hubs and events on the map." },
+        sharing:  { label: "Sharing",                  icon: "fa-share-nodes",     desc: "How a flight you share looks when the link is posted." },
+        month:    { label: "Your Month",               icon: "fa-chart-pie",       desc: "Your flying month, made to be shared." },
+        card:     { label: "Profile Card",             icon: "fa-id-card",         desc: "Your shareable pilot card." },
+        whatsnew: { label: "What's New",               icon: "fa-bullhorn",        desc: "Release notes for the tracker." }
     },
 
     _injectStyles() {
@@ -18585,7 +18598,326 @@ const SettingsUI = {
                 }
                 #global-settings-modal-overlay .nexus-item { flex-shrink: 0; }
             }
-        `;
+        
+
+            /* ================================================================
+               SETTINGS REDESIGN — grouped sidebar, a page header, and each
+               section drawn as one rounded group of rows. Everything below
+               overrides the older rules above on purpose.
+               ================================================================ */
+            #global-settings-modal-overlay {
+                --gs-bg: #16171a;
+                --gs-side: #111214;
+                --gs-card: #1d1f23;
+                --gs-line: rgba(255, 255, 255, 0.06);
+                --gs-line-strong: rgba(255, 255, 255, 0.10);
+                --gs-text: #eceef1;
+                --gs-dim: #8d929b;
+                --gs-faint: #5f6570;
+                --gs-accent: #38bdf8;
+                --gs-accent-soft: rgba(56, 189, 248, 0.13);
+            }
+            #global-settings-modal-overlay .filter-modal.settings-modal {
+                width: min(1060px, 94vw) !important;
+                max-width: none !important;
+                height: min(780px, 90vh) !important;
+                max-height: none !important;
+                padding: 0 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                background: var(--gs-bg) !important;
+                border: 1px solid var(--gs-line-strong) !important;
+                border-radius: 18px !important;
+                box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55) !important;
+                overflow: hidden !important;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                color: var(--gs-text);
+            }
+            #global-settings-modal-overlay .modal-body {
+                display: grid !important;
+                grid-template-columns: 250px minmax(0, 1fr) !important;
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                height: 100% !important;
+                padding: 0 !important;
+                gap: 0 !important;
+            }
+
+            /* ---- Sidebar ---- */
+            #global-settings-modal-overlay .gs-sidebar {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 0 !important;
+                padding: 20px 12px 16px !important;
+                background: var(--gs-side) !important;
+                border-right: 1px solid var(--gs-line) !important;
+                overflow-y: auto !important;
+                width: auto !important;
+                max-width: none !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar-title {
+                display: flex; align-items: center; gap: 10px;
+                padding: 2px 10px 6px;
+                font-size: 17px; font-weight: 700; letter-spacing: -0.2px; color: var(--gs-text);
+            }
+            #global-settings-modal-overlay .gs-sidebar-title i { font-size: 14px; color: var(--gs-dim); }
+            #global-settings-modal-overlay .gs-sidebar .filter-group-wrapper { display: block !important; gap: 0 !important; margin: 0 !important; }
+            #global-settings-modal-overlay .gs-sidebar .filter-group-header {
+                margin: 18px 10px 6px !important;
+                padding: 0 !important;
+                font-size: 10.5px !important; font-weight: 700 !important;
+                letter-spacing: 0.09em !important; text-transform: uppercase !important;
+                color: var(--gs-faint) !important;
+                border: 0 !important; background: none !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar .filter-options-list {
+                display: flex !important; flex-direction: column !important; gap: 2px !important;
+                padding: 0 !important; margin: 0 !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar .nexus-item {
+                display: flex !important; align-items: center !important; gap: 11px !important;
+                width: 100% !important; height: 38px !important; min-height: 0 !important;
+                padding: 0 10px !important; margin: 0 !important;
+                border: 0 !important; border-radius: 9px !important;
+                background: transparent !important; box-shadow: none !important; transform: none !important;
+                color: #c7cad0 !important;
+                font-size: 13.5px !important; font-weight: 500 !important; text-align: left !important;
+                cursor: pointer; transition: background .15s ease, color .15s ease;
+            }
+            #global-settings-modal-overlay .gs-sidebar .nexus-item:hover { background: rgba(255, 255, 255, 0.05) !important; color: #fff !important; }
+            #global-settings-modal-overlay .gs-sidebar .nexus-item.active { background: var(--gs-accent-soft) !important; color: #fff !important; }
+            #global-settings-modal-overlay .gs-sidebar .nexus-icon {
+                width: 26px !important; height: 26px !important; min-width: 26px !important;
+                display: grid !important; place-items: center !important;
+                border-radius: 7px !important; border: 0 !important;
+                background: rgba(255, 255, 255, 0.06) !important;
+                color: #aeb3bb !important; font-size: 12px !important; box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar .nexus-item.active .nexus-icon { background: var(--gs-accent) !important; color: #0b1116 !important; }
+            #global-settings-modal-overlay .gs-sidebar .nexus-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+            /* ---- Main pane ---- */
+            #global-settings-modal-overlay .gs-main {
+                display: block !important;
+                padding: 0 !important;
+                overflow-y: auto !important;
+                background: var(--gs-bg) !important;
+                min-width: 0;
+                width: auto !important;
+            }
+            #global-settings-modal-overlay .gs-page-head {
+                position: sticky; top: 0; z-index: 5;
+                display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+                padding: 24px 32px 16px;
+                background: linear-gradient(180deg, var(--gs-bg) 78%, rgba(22, 23, 26, 0));
+            }
+            #global-settings-modal-overlay .gs-page-head h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.4px; color: var(--gs-text); }
+            #global-settings-modal-overlay .gs-page-head p { margin: 5px 0 0; font-size: 13px; line-height: 1.45; color: var(--gs-dim); max-width: 60ch; }
+            #global-settings-modal-overlay .gs-page-head .close-modal {
+                position: static !important;
+                flex: 0 0 auto; width: 34px !important; height: 34px !important;
+                display: grid !important; place-items: center !important;
+                border-radius: 50% !important; border: 0 !important;
+                background: rgba(255, 255, 255, 0.07) !important; color: #c7cad0 !important;
+                font-size: 14px !important; line-height: 1 !important; cursor: pointer;
+            }
+            #global-settings-modal-overlay .gs-page-head .close-modal:hover { background: rgba(255, 255, 255, 0.13) !important; color: #fff !important; }
+            #global-settings-modal-overlay .settings-content-wrapper { padding: 4px 32px 36px !important; }
+
+            /* ---- Sections: a label above a rounded group of rows ---- */
+            #global-settings-modal-overlay .settings-section {
+                margin: 0 0 22px !important;
+                padding: 4px 16px 6px !important;
+                background: var(--gs-card) !important;
+                border: 1px solid var(--gs-line) !important;
+                border-radius: 14px !important;
+                box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .settings-section > .config-header:first-child {
+                display: block !important;
+                margin: 0 -16px 4px !important;
+                padding: 12px 16px 10px !important;
+                border-bottom: 1px solid var(--gs-line) !important;
+                font-size: 11px !important; font-weight: 700 !important;
+                letter-spacing: 0.08em !important; text-transform: uppercase !important;
+                color: var(--gs-dim) !important;
+                background: none !important;
+            }
+            #global-settings-modal-overlay .settings-section > p,
+            #global-settings-modal-overlay .settings-section .iw-tz-hint {
+                font-size: 12.5px !important; line-height: 1.5 !important; color: var(--gs-dim) !important;
+            }
+
+            /* Rows */
+            #global-settings-modal-overlay .settings-row,
+            #global-settings-modal-overlay .settings-section > .m-setting-row {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                gap: 16px !important;
+                min-height: 48px !important;
+                margin: 0 !important; padding: 8px 0 !important;
+                background: none !important; border: 0 !important; border-radius: 0 !important;
+                border-top: 1px solid var(--gs-line) !important;
+            }
+            #global-settings-modal-overlay .settings-section > .config-header:first-child + .settings-row,
+            #global-settings-modal-overlay .settings-section > .config-header:first-child + .m-setting-row { border-top: 0 !important; }
+            #global-settings-modal-overlay .row-label {
+                display: flex !important; align-items: center !important; gap: 12px !important;
+                font-size: 13.5px !important; font-weight: 500 !important; color: var(--gs-text) !important;
+                letter-spacing: 0 !important; text-transform: none !important;
+            }
+            #global-settings-modal-overlay .row-label > i:first-child {
+                width: 26px; height: 26px; min-width: 26px;
+                display: grid; place-items: center;
+                border-radius: 7px; background: rgba(255, 255, 255, 0.06);
+                color: #b3b8c0; font-size: 12px;
+            }
+
+            /* Toggle switch */
+            #global-settings-modal-overlay .toggle-switch {
+                position: relative !important; flex: 0 0 auto !important;
+                width: 42px !important; height: 25px !important; margin: 0 !important;
+            }
+            #global-settings-modal-overlay .toggle-switch input { opacity: 0 !important; width: 0 !important; height: 0 !important; position: absolute !important; }
+            #global-settings-modal-overlay .toggle-slider {
+                position: absolute !important; inset: 0 !important; cursor: pointer;
+                background: #3a3d44 !important; border: 0 !important; border-radius: 999px !important;
+                transition: background .2s ease !important; box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .toggle-slider::before {
+                content: '' !important; position: absolute !important;
+                left: 3px !important; top: 3px !important; bottom: auto !important;
+                width: 19px !important; height: 19px !important; border-radius: 50% !important;
+                background: #fff !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+                transition: transform .2s cubic-bezier(.3, .7, .4, 1) !important;
+            }
+            #global-settings-modal-overlay .toggle-switch input:checked + .toggle-slider { background: #30d158 !important; }
+            #global-settings-modal-overlay .toggle-switch input:checked + .toggle-slider::before { transform: translateX(17px) !important; }
+            #global-settings-modal-overlay .toggle-switch input:disabled + .toggle-slider { opacity: .45; cursor: not-allowed; }
+
+            /* Segmented controls */
+            #global-settings-modal-overlay .iw-seg {
+                display: inline-flex !important; gap: 2px !important;
+                margin: 10px 0 !important; padding: 3px !important;
+                background: #111214 !important; border: 1px solid var(--gs-line) !important;
+                border-radius: 10px !important; width: auto !important;
+            }
+            #global-settings-modal-overlay .iw-seg-btn {
+                display: inline-flex !important; align-items: center !important; gap: 7px !important;
+                height: 32px !important; padding: 0 14px !important;
+                border: 0 !important; border-radius: 8px !important;
+                background: transparent !important; color: #aeb3bb !important;
+                font-size: 12.5px !important; font-weight: 600 !important; cursor: pointer;
+                box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .iw-seg-btn:hover { color: #fff !important; }
+            #global-settings-modal-overlay .iw-seg-btn.active { background: #2c2f36 !important; color: #fff !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important; }
+
+            /* Inputs */
+            #global-settings-modal-overlay select,
+            #global-settings-modal-overlay .iw-tz-select,
+            #global-settings-modal-overlay .row-input-select,
+            #global-settings-modal-overlay input[type="text"],
+            #global-settings-modal-overlay input[type="number"] {
+                height: 34px; padding: 0 10px;
+                background: #111214 !important; color: var(--gs-text) !important;
+                border: 1px solid var(--gs-line-strong) !important; border-radius: 8px !important;
+                font: inherit; font-size: 13px !important;
+            }
+            #global-settings-modal-overlay input[type="range"] { accent-color: var(--gs-accent); }
+
+            /* One PRO badge everywhere */
+            #global-settings-modal-overlay .pro-lock-badge {
+                display: inline-flex !important; align-items: center !important; gap: 4px !important;
+                margin-left: 6px !important; padding: 2px 7px !important;
+                border: 0 !important; border-radius: 6px !important;
+                background: linear-gradient(135deg, #f5d27a, #e0a93b) !important;
+                color: #1c1c1e !important;
+                font-size: 9.5px !important; font-weight: 800 !important; letter-spacing: 0.06em !important;
+                text-transform: uppercase !important;
+            }
+            #global-settings-modal-overlay .pro-lock-badge i { font-size: 8px !important; }
+
+            /* The Pro upsell on the Map page: a calmer card that sits in the flow. */
+            #global-settings-modal-overlay .pro-upsell-card {
+                margin-bottom: 22px !important;
+                border-radius: 14px !important;
+                border-color: rgba(56, 189, 248, 0.25) !important;
+            }
+
+            /* Cards stack with one even gap. */
+            #global-settings-modal-overlay .settings-content-wrapper {
+                display: flex !important; flex-direction: column !important; gap: 20px !important;
+            }
+            #global-settings-modal-overlay .settings-content-wrapper > .settings-section,
+            #global-settings-modal-overlay .settings-content-wrapper > .pro-upsell-card { margin: 0 !important; }
+            #global-settings-modal-overlay .settings-section .iw-seg { align-self: flex-start; }
+
+            /* Components shared with the mobile sheet (label rows, filter board,
+               VA toggles) draw their rows as boxed pills; inside a card they
+               become the same flat divided rows as everything else. */
+            #global-settings-modal-overlay .settings-section .m-setting-row {
+                min-height: 48px !important; box-sizing: border-box !important;
+                margin: 0 !important; padding: 8px 0 !important;
+                background: none !important; border: 0 !important; border-radius: 0 !important;
+                border-top: 1px solid var(--gs-line) !important; box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .settings-section .m-setting-row:first-child { border-top: 0 !important; }
+            #global-settings-modal-overlay .settings-section .m-row-left {
+                display: flex !important; align-items: center !important; gap: 12px !important;
+                font-size: 13.5px !important; font-weight: 500 !important; color: var(--gs-text) !important;
+            }
+            #global-settings-modal-overlay .settings-section .m-row-left > i:first-child {
+                width: 26px; height: 26px; min-width: 26px;
+                display: grid; place-items: center;
+                border-radius: 7px; background: rgba(255, 255, 255, 0.06);
+                color: #b3b8c0; font-size: 12px;
+            }
+            #global-settings-modal-overlay .settings-section .m-setting-row.is-pro-feature .m-row-left > i:first-child { color: #f5d27a; }
+            #global-settings-modal-overlay .settings-section .mobile-section-header {
+                margin: 18px 0 2px !important; padding: 0 !important;
+                font-size: 11px !important; font-weight: 700 !important;
+                letter-spacing: 0.08em !important; text-transform: uppercase !important;
+                color: var(--gs-dim) !important; background: none !important; border: 0 !important;
+            }
+            /* The mobile switch, matched to the desktop one. */
+            #global-settings-modal-overlay .m-switch { position: relative !important; width: 42px !important; height: 25px !important; flex: 0 0 auto !important; }
+            #global-settings-modal-overlay .m-switch input { opacity: 0 !important; width: 0 !important; height: 0 !important; position: absolute !important; }
+            #global-settings-modal-overlay .m-switch .m-slider {
+                position: absolute !important; inset: 0 !important; cursor: pointer;
+                background: #3a3d44 !important; border: 0 !important; border-radius: 999px !important;
+                box-shadow: none !important; transition: background .2s ease !important;
+            }
+            #global-settings-modal-overlay .m-switch .m-slider::before {
+                content: '' !important; position: absolute !important;
+                left: 3px !important; top: 3px !important; bottom: auto !important;
+                width: 19px !important; height: 19px !important; border-radius: 50% !important;
+                background: #fff !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+                transition: transform .2s cubic-bezier(.3, .7, .4, 1) !important;
+            }
+            #global-settings-modal-overlay .m-switch input:checked + .m-slider { background: #30d158 !important; }
+            #global-settings-modal-overlay .m-switch input:checked + .m-slider::before { transform: translateX(17px) !important; }
+
+            /* Old rules cap the panes (max-height: 500px) and size rows as
+               content-box; the redesign fills the modal and scrolls inside. */
+            #global-settings-modal-overlay .modal-body,
+            #global-settings-modal-overlay .gs-sidebar,
+            #global-settings-modal-overlay .gs-main {
+                max-height: none !important;
+                min-height: 0 !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar,
+            #global-settings-modal-overlay .gs-main { height: 100% !important; }
+            #global-settings-modal-overlay .settings-row,
+            #global-settings-modal-overlay .settings-section > .m-setting-row { box-sizing: border-box !important; height: auto !important; }
+            #global-settings-modal-overlay .settings-section .iw-seg { display: inline-flex !important; width: auto !important; max-width: 100%; }
+            #global-settings-modal-overlay .settings-section .iw-seg .iw-seg-btn { flex: 0 0 auto !important; width: auto !important; }
+
+            @media (max-width: 900px) {
+                #global-settings-modal-overlay .modal-body { grid-template-columns: 200px minmax(0, 1fr) !important; }
+                #global-settings-modal-overlay .settings-content-wrapper { padding: 4px 20px 28px !important; }
+                #global-settings-modal-overlay .gs-page-head { padding: 20px 20px 14px; }
+            }
+`;
         document.head.appendChild(style);
     },
 
@@ -18648,34 +18980,34 @@ const SettingsUI = {
         const html = `
         <div id="global-settings-modal-overlay" class="modal-overlay">
             <div class="filter-modal settings-modal">
-                <div class="modal-header">
-                    <div class="header-main">
-                        <div class="header-icon-box"><i class="fa-solid fa-gear"></i></div>
-                        <div class="header-text">
-                            <h2>Global Settings</h2>
-                            <span>Configure your airspace experience</span>
-                        </div>
-                    </div>
-                    <button class="close-modal" id="close-settings-modal">&times;</button>
-                </div>
                 <div class="modal-body">
-                    <div class="filter-selection-pane custom-scroll">
-                        <div class="filter-group-wrapper">
-                            <div class="filter-group-header">Configuration</div>
-                            <div class="filter-options-list">
-                                ${Object.entries(this.categories).map(([key, cat]) => `
-                                    <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
-                                        <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
-                                        <span class="nexus-label">${cat.label}</span>
-                                    </button>
-                                `).join('')}
+                    <nav class="filter-selection-pane custom-scroll gs-sidebar" aria-label="Settings sections">
+                        <div class="gs-sidebar-title"><i class="fa-solid fa-gear"></i> Settings</div>
+                        ${this.groups.map(group => `
+                            <div class="filter-group-wrapper">
+                                <div class="filter-group-header">${group.label}</div>
+                                <div class="filter-options-list">
+                                    ${group.items.map(key => {
+                                        const cat = this.categories[key];
+                                        return `
+                                        <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
+                                            <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
+                                            <span class="nexus-label">${cat.label}</span>
+                                        </button>`;
+                                    }).join('')}
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                    <div class="filter-config-pane custom-scroll">
-                        <div id="settings-category-content" class="settings-content-wrapper">
-                            
-                        </div>
+                        `).join('')}
+                    </nav>
+                    <div class="filter-config-pane custom-scroll gs-main">
+                        <header class="gs-page-head">
+                            <div>
+                                <h2 id="gs-page-title"></h2>
+                                <p id="gs-page-desc"></p>
+                            </div>
+                            <button class="close-modal" id="close-settings-modal" aria-label="Close settings"><i class="fa-solid fa-xmark"></i></button>
+                        </header>
+                        <div id="settings-category-content" class="settings-content-wrapper"></div>
                     </div>
                 </div>
             </div>
@@ -18688,7 +19020,7 @@ const SettingsUI = {
     attachListeners() {
         const modal = document.getElementById('global-settings-modal-overlay');
         modal?.addEventListener('click', (e) => {
-            if (e.target === modal || e.target.id === 'close-settings-modal') this.toggle(false);
+            if (e.target === modal || e.target.closest('#close-settings-modal')) this.toggle(false);
         });
 
         document.querySelectorAll('.settings-modal .nexus-item').forEach(item => {
@@ -18946,7 +19278,7 @@ renderCategory(catId) {
 
                             <div class="settings-row pro-feature-row is-pro-feature" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
                                 <div class="row-label">
-                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide pro-lock-badge"><i class="fa-solid fa-lock"></i>PRO</span>
                                 </div>
                                 <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}" ${!isSignedIn ? 'disabled' : ''}>
                             </div>
@@ -19148,7 +19480,10 @@ renderCategory(catId) {
                                 </label>
                             </div>
                         </div>
-
+                    `;
+                    break;
+                case 'windows':
+                    html = `
                         <div class="settings-section">
                             <label class="config-header">Flight Window</label>
                             <div class="iw-seg" data-seg="flight-window-mode">
@@ -19248,7 +19583,10 @@ renderCategory(catId) {
                                 <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;" ${!isSignedIn ? 'disabled' : ''}>Reset Default Theme</button>
                             </div>
                         </div>
-
+                    `;
+                    break;
+                case 'sharing':
+                    html = `
                         <div class="settings-section">
                             <label class="config-header">Shared Link Preview</label>
                             <p style="margin: 0 0 12px 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.5;">
@@ -19336,6 +19674,12 @@ renderCategory(catId) {
             }
 
             container.innerHTML = html;
+            const meta = this.categories[catId] || {};
+            const titleEl = document.getElementById('gs-page-title');
+            const descEl = document.getElementById('gs-page-desc');
+            if (titleEl) titleEl.textContent = meta.label || '';
+            if (descEl) descEl.textContent = meta.desc || '';
+            container.closest('.gs-main')?.scrollTo?.(0, 0);
 
             // --- Post-render syncs for the ported mobile components ---
             if (catId === 'airspace') {
@@ -19354,11 +19698,11 @@ renderCategory(catId) {
                 // Static Images API; see MobileSettingsUI.generateStylePreview).
                 MobileSettingsUI.hydrateStylePreviews(container);
             }
-            if (catId === 'theme') {
+            {
                 const shareHost = container.querySelector('#share-map-picker');
                 if (shareHost && typeof renderShareMapPicker === 'function') renderShareMapPicker(shareHost);
             }
-            if (catId === 'overlays') {
+            {
                 // Wire + hydrate the shared ATC Tag Studio (same controls as the
                 // mobile sheet; the methods are class-scoped so they drive every
                 // mounted instance). Fresh DOM each render, so the attach guard
