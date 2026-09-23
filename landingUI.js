@@ -758,6 +758,16 @@ export const LandingUI = {
         const html = `
             <div id="inflight-tactical-ui" class="tactical-ui-root" data-theme="${this._theme}">
                 <header class="tactical-header">
+                    <!-- Desktop top-nav wordmark (hidden at <=768px). -->
+                    <div class="lui-brand" aria-label="InFlight">
+                        <img class="lui-brand-logo" src="Images/inflight-mark.png" alt=""
+                             onerror="this.onerror=null;this.style.display='none';">
+                        <span class="lui-brand-mark">
+                            <span class="lui-brand-word">InFlight</span>
+                            <span class="lui-brand-sub">Live Map</span>
+                        </span>
+                    </div>
+
                     <div class="top-branding dropdown" id="server-selector">
                         <div class="status-dot"></div>
                         <div class="branding-content">
@@ -837,8 +847,9 @@ export const LandingUI = {
                 </div>
 
                 <div class="auth-nexus" id="auth-nexus-container">
-                    <button class="orb-btn" id="open-auth-btn" aria-label="Profile">
-                        <i class="fa-solid fa-user-astronaut"></i>
+                    <button class="orb-btn" id="open-auth-btn" aria-label="Profile" title="Account">
+                        <span class="lui-acct-ini"><i class="fa-solid fa-user-astronaut"></i></span>
+                        <span class="tab-label">Account</span>
                     </button>
                 </div>
 
@@ -900,7 +911,7 @@ export const LandingUI = {
                             </button>
                         </div>
 
-                        <div class="nexus-orb-wrapper">
+                        <div class="nexus-orb-wrapper lui-nav-settings">
                             <div class="nexus-preview-tooltip" id="settings-preview-tooltip"></div>
                             <button class="orb-btn" id="tile-settings" aria-label="Settings">
                                 <i class="fa-solid fa-gear"></i>
@@ -1390,6 +1401,9 @@ export const LandingUI = {
     update(isActive) {
         const el = document.getElementById('inflight-tactical-ui');
         if (el) isActive ? el.classList.add('active') : el.classList.remove('active');
+        // Lets the desktop boards (Network, Nearby) open below the top nav
+        // instead of over it. Only read by a >=769px rule.
+        el?.parentElement?.classList.toggle('lui-topnav-on', !!isActive);
     },
 
     injectStyles() {
@@ -2964,6 +2978,228 @@ export const LandingUI = {
                     opacity: 0 !important;
                     pointer-events: none !important;
                 }
+            }
+
+            /* ============ DESKTOP TOP NAV (>=769px) ============
+               Same island masthead as gallery.html: one dark bar floating on
+               the map holds everything. The root itself becomes the bar and
+               the header / utility groups flatten into it (display: contents),
+               so the DOM — and the <=768px chrome built on it — is unchanged. */
+            .lui-brand { display: none; }
+
+            @media (min-width: 769px) {
+                #inflight-tactical-ui {
+                    --lui-nav-bg: #16181d;
+                    --lui-nav-ink: #c3cad4;
+                    --lui-nav-hover: rgba(255, 255, 255, 0.08);
+                    --lui-nav-active: rgba(255, 255, 255, 0.14);
+                    --lui-nav-line: rgba(255, 255, 255, 0.10);
+                    --lui-nav-link: #0b63ce;
+                    inset: 12px 16px auto 16px;
+                    max-width: 1360px;
+                    margin: 0 auto;
+                    height: 66px;
+                    padding: 0 16px;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    background: var(--lui-nav-bg);
+                    border-radius: 16px;
+                    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
+                    color: #fff;
+                    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+                    pointer-events: auto;
+                }
+
+                #inflight-tactical-ui .tactical-header,
+                #inflight-tactical-ui .top-right-actions,
+                #inflight-tactical-ui .utility-nexus,
+                #inflight-tactical-ui .orb-row { display: contents; }
+
+                /* Left to right: brand, server, nav, | search, settings, account */
+                #inflight-tactical-ui .lui-brand      { order: 1; }
+                #inflight-tactical-ui #server-selector { order: 2; }
+                #inflight-tactical-ui .orb-row > *    { order: 3; }
+                #inflight-tactical-ui .search-blade   { order: 4; }
+                #inflight-tactical-ui .lui-nav-settings { order: 5; }
+                #inflight-tactical-ui .auth-nexus     { order: 6; }
+
+                /* ---- Brand ---- */
+                #inflight-tactical-ui .lui-brand {
+                    display: inline-flex; align-items: center; gap: 10px;
+                    flex: 0 0 auto; margin-right: 10px; user-select: none;
+                }
+                .lui-brand-logo { width: 34px; height: 34px; object-fit: contain; flex: 0 0 auto; }
+                .lui-brand-mark { display: flex; flex-direction: column; justify-content: center; line-height: 1; }
+                .lui-brand-word {
+                    font-size: 1.05rem; font-weight: 900; letter-spacing: .16em;
+                    text-transform: uppercase; white-space: nowrap;
+                }
+                .lui-brand-sub {
+                    margin-top: 3px; font-size: .55rem; font-weight: 700; letter-spacing: .43em;
+                    text-transform: uppercase; color: #b9c0cb; white-space: nowrap;
+                }
+
+                /* ---- Server switcher ---- */
+                #inflight-tactical-ui .top-branding.dropdown {
+                    position: relative; box-sizing: border-box; top: auto; left: auto;
+                    flex: 0 0 auto; height: 38px; padding: 0 12px; gap: 9px;
+                    margin-right: 8px; border-radius: 7px;
+                    background: rgba(255, 255, 255, 0.06);
+                    border: 1px solid var(--lui-nav-line);
+                    -webkit-backdrop-filter: none; backdrop-filter: none;
+                    box-shadow: none; color: #e7eaef;
+                    transition: background .15s ease, border-color .15s ease;
+                }
+                #inflight-tactical-ui .top-branding.dropdown:hover,
+                #inflight-tactical-ui .top-branding.dropdown.open {
+                    background: rgba(255, 255, 255, 0.10);
+                    border-color: rgba(255, 255, 255, 0.18);
+                }
+                #inflight-tactical-ui .status-dot { width: 7px; height: 7px; box-shadow: 0 0 8px var(--lui-pos); }
+                #inflight-tactical-ui #landing-server-name { font-size: .72rem; letter-spacing: .08em; }
+
+                /* ---- Dropdown panels hang just under the bar ---- */
+                #inflight-tactical-ui .server-menu,
+                #inflight-tactical-ui .weather-spread {
+                    top: calc(100% + 22px); bottom: auto;
+                    min-width: 190px; padding: 6px; gap: 2px;
+                    background: var(--lui-nav-bg);
+                    border: 1px solid var(--lui-nav-line);
+                    border-radius: 12px;
+                    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.4);
+                }
+                #inflight-tactical-ui .server-menu { width: auto; }
+                #inflight-tactical-ui .server-option,
+                #inflight-tactical-ui .spread-opt {
+                    padding: 9px 12px; border-radius: 8px;
+                    font-size: .82rem; font-weight: 600; color: var(--lui-nav-ink);
+                }
+                #inflight-tactical-ui .server-option:hover,
+                #inflight-tactical-ui .spread-opt:hover { background: var(--lui-nav-hover); color: #fff; }
+
+                /* ---- Nav links (the old orbs) ---- */
+                #inflight-tactical-ui .orb-row .orb-btn,
+                #inflight-tactical-ui .auth-nexus .orb-btn {
+                    width: auto; height: 38px; padding: 0 12px;
+                    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+                    border-radius: 7px; border: 0;
+                    background: transparent; box-shadow: none; transform: none;
+                    -webkit-backdrop-filter: none; backdrop-filter: none;
+                    color: var(--lui-nav-ink);
+                    font-size: .82rem; font-weight: 600; white-space: nowrap;
+                    transition: background .15s ease, color .15s ease, border-color .15s ease;
+                }
+                #inflight-tactical-ui .orb-row .orb-btn i { font-size: .9rem; }
+                #inflight-tactical-ui .orb-row .orb-btn:hover {
+                    background: var(--lui-nav-hover); color: #fff;
+                    border-color: transparent; box-shadow: none; transform: none;
+                }
+                #inflight-tactical-ui .orb-row .orb-btn.active,
+                #inflight-tactical-ui .weather-nexus-container.expanded #tile-weather {
+                    background: var(--lui-nav-active); color: #fff;
+                }
+                #inflight-tactical-ui .orb-row .tab-label { display: inline; }
+                #inflight-tactical-ui .active-pulse-dot {
+                    top: 6px; right: 6px; width: 8px; height: 8px;
+                    border: 2px solid var(--lui-nav-bg); box-shadow: none;
+                }
+
+                /* Settings: an icon button beside the search, like gallery's shuffle */
+                #inflight-tactical-ui .lui-nav-settings .orb-btn { width: 38px; padding: 0; color: #dfe3e9; }
+                #inflight-tactical-ui .lui-nav-settings .tab-label { display: none; }
+
+                /* ---- Weather: the upward spread becomes a dropdown menu ---- */
+                #inflight-tactical-ui .weather-nexus-container { flex-direction: row; gap: 0; }
+                #inflight-tactical-ui .weather-spread {
+                    flex-direction: column; align-items: stretch;
+                    left: 0; transform: translateY(-6px);
+                }
+                #inflight-tactical-ui .weather-nexus-container.expanded .weather-spread { transform: translateY(0); }
+                #inflight-tactical-ui .spread-opt {
+                    justify-content: flex-start; gap: 12px;
+                    background: transparent; border: 0; box-shadow: none;
+                    -webkit-backdrop-filter: none; backdrop-filter: none;
+                }
+                #inflight-tactical-ui .spread-opt i { width: 16px; text-align: center; font-size: .85rem; }
+                #inflight-tactical-ui .spread-label { font-size: .82rem; font-weight: 600; }
+                #inflight-tactical-ui .spread-opt.active { background: rgba(11, 99, 206, 0.24); color: #fff; }
+                #inflight-tactical-ui .spread-opt.active i { color: #5aa2ff; }
+
+                /* ---- Hover previews drop down instead of rising ---- */
+                #inflight-tactical-ui .nexus-preview-tooltip {
+                    top: calc(100% + 22px); bottom: auto;
+                    transform: translateY(-8px);
+                }
+                #inflight-tactical-ui .nexus-preview-tooltip.visible { transform: translateY(0); }
+                #inflight-tactical-ui #filters-preview-tooltip { left: 0; right: auto; }
+
+                /* ---- Search: gallery's white field ---- */
+                #inflight-tactical-ui .search-blade {
+                    flex: 0 1 340px; min-width: 150px; width: auto;
+                    box-sizing: border-box;
+                    height: 38px; margin-left: auto; padding: 0 12px;
+                    background: #ffffff; border: 1px solid #3a4049; border-radius: 6px;
+                    box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+                    transition: border-color .15s ease, box-shadow .15s ease;
+                }
+                #inflight-tactical-ui .search-blade:focus-within {
+                    width: auto; background: #ffffff;
+                    border-color: var(--lui-nav-link);
+                    box-shadow: 0 0 0 1px var(--lui-nav-link);
+                }
+                #inflight-tactical-ui .search-blade.has-results { border-radius: 6px !important; }
+                #inflight-tactical-ui #blade-search-input {
+                    min-width: 0; margin-left: 8px;
+                    color: #15181d; font-size: .86rem; font-weight: 500;
+                }
+                #inflight-tactical-ui #blade-search-input::placeholder { color: #98a0ac; }
+                #inflight-tactical-ui .search-icon { color: #7c8492; font-size: 13px; }
+                #inflight-tactical-ui .search-shortcut { display: none; }
+                #inflight-tactical-ui .search-results-dropdown {
+                    top: calc(100% + 22px); left: auto; right: 0;
+                    width: max(100%, 440px);
+                    max-height: min(560px, calc(100vh - 120px));
+                }
+
+                /* ---- Account: gallery's pill ---- */
+                #inflight-tactical-ui .auth-nexus { position: relative; bottom: auto; left: auto; z-index: auto; flex: 0 0 auto; }
+                #inflight-tactical-ui .auth-nexus .orb-btn {
+                    padding: 0 12px 0 6px; border-radius: 999px;
+                    border: 1px solid rgba(255, 255, 255, 0.22); color: #e7eaef;
+                }
+                #inflight-tactical-ui .auth-nexus .orb-btn:hover {
+                    background: rgba(255, 255, 255, 0.10); color: #fff;
+                    border-color: rgba(255, 255, 255, 0.22); box-shadow: none; transform: none;
+                }
+                #inflight-tactical-ui .lui-acct-ini {
+                    width: 26px; height: 26px; border-radius: 999px;
+                    background: #39404a; color: #fff;
+                    display: flex; align-items: center; justify-content: center;
+                    font-size: .72rem;
+                }
+                #inflight-tactical-ui .auth-nexus .tab-label { display: inline; }
+
+                /* Boards that dock top-right open under the bar, not over it. */
+                .lui-topnav-on > .info-window {
+                    top: 90px;
+                    max-height: calc(100vh - 110px);
+                }
+            }
+
+            /* Everything has to fit: drop the nav labels first... */
+            @media (min-width: 769px) and (max-width: 1319px) {
+                #inflight-tactical-ui .orb-row .tab-label { display: none; }
+                #inflight-tactical-ui .orb-row .orb-btn { width: 38px; padding: 0; }
+            }
+            /* ...then the wordmark and the account label. */
+            @media (min-width: 769px) and (max-width: 999px) {
+                #inflight-tactical-ui { padding: 0 12px; gap: 4px; }
+                #inflight-tactical-ui .lui-brand { margin-right: 4px; }
+                #inflight-tactical-ui .lui-brand-mark { display: none; }
+                #inflight-tactical-ui .top-branding.dropdown { margin-right: 4px; }
+                #inflight-tactical-ui .auth-nexus .tab-label { display: none; }
+                #inflight-tactical-ui .auth-nexus .orb-btn { padding: 0 5px; }
             }
         `;
         
