@@ -10,6 +10,8 @@
  *   * picking a picture sends a real JPEG, scaled to the app's sizes, with the
  *     apikey and bearer token, and the card says it worked
  *   * a Pro account can do the same for a banner
+ *   * both go through the move-and-scale frame first: dragging moves the
+ *     picture, the upload is the framed square / 3:1 strip, cancel sends nothing
  *   * a phone without createImageBitmap (older iOS Safari) still uploads
  *   * a request the browser refuses to send (a failed CORS preflight, a
  *     dropped connection) is reported as that, not as a vague failure
@@ -107,9 +109,35 @@ const DEVICES = {
         await page.waitForSelector('input[data-upload="avatar"]', { state: 'attached', timeout: 5000 });
         ok(`the ${device} card is drawn`, !!(await page.$(device === 'mobile' ? '.pce-mobile' : '.pui-card.pce')));
 
+        // Cancelling the move-and-scale frame uploads nothing.
+        sent.length = 0;
+        await page.setInputFiles('input[data-upload="avatar"]', { name: 'photo.png', mimeType: 'image/png', buffer: PNG });
+        await page.waitForSelector('.iadj-stage', { timeout: 5000 });
+        await page.click('.iadj [data-act="cancel"]');
+        await page.waitForTimeout(200);
+        ok('cancelling the frame closes it and sends nothing', !(await page.$('.iadj-overlay')) && sent.length === 0, sent.length);
+
         for (const kind of ['avatar', 'banner']) {
             sent.length = 0;
             await page.setInputFiles(`input[data-upload="${kind}"]`, { name: 'photo.png', mimeType: 'image/png', buffer: PNG });
+            await page.waitForSelector('.iadj-stage', { timeout: 5000 });
+            // Zoom in with the slider, then drag the picture about.
+            await page.$eval('.iadj-zoom', el => { el.value = '2'; el.dispatchEvent(new Event('input')); });
+            const box = await page.locator('.iadj-stage').boundingBox();
+            if (device === 'mobile') {
+                // A touch drag, through pointer events as a phone sends them.
+                await page.dispatchEvent('.iadj-stage', 'pointerdown', { pointerId: 7, pointerType: 'touch', clientX: box.x + 60, clientY: box.y + 40 });
+                await page.dispatchEvent('.iadj-stage', 'pointermove', { pointerId: 7, pointerType: 'touch', clientX: box.x + 20, clientY: box.y + 10 });
+                await page.dispatchEvent('.iadj-stage', 'pointerup', { pointerId: 7, pointerType: 'touch', clientX: box.x + 20, clientY: box.y + 10 });
+            } else {
+                await page.mouse.move(box.x + 60, box.y + 40);
+                await page.mouse.down();
+                await page.mouse.move(box.x + 20, box.y + 10, { steps: 4 });
+                await page.mouse.up();
+            }
+            const moved = await page.$eval('.iadj-img', el => el.style.transform);
+            ok(`${kind}: dragging moves the picture in the frame`, /translate\(-/.test(moved), moved);
+            await page.click('.iadj [data-act="save"]');
             await page.waitForFunction(() => /updated/.test(document.querySelector('#pce-msg')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
             const msg = await page.textContent('#pce-msg');
             ok(`${kind}: the card says it was saved`, /updated/i.test(msg), msg);
@@ -123,12 +151,17 @@ const DEVICES = {
             ok(`${kind}: the payload is a JPEG no bigger than ${longest}px`,
                 req.body.kind === kind && req.body.contentType === 'image/jpeg' && size && Math.max(size.w, size.h) <= longest,
                 JSON.stringify(size));
+            const aspect = kind === 'avatar' ? 1 : 3;
+            ok(`${kind}: the upload is the framed ${aspect}:1 crop`,
+                size && Math.abs(size.w / size.h - aspect) < 0.02, JSON.stringify(size));
         }
 
         // What a refused CORS preflight looks like from inside the page.
         await page.unroute(FN);
         await page.route(FN, route => route.abort('failed'));
         await page.setInputFiles('input[data-upload="avatar"]', { name: 'photo.png', mimeType: 'image/png', buffer: PNG });
+        await page.waitForSelector('.iadj-stage', { timeout: 5000 });
+        await page.click('.iadj [data-act="save"]');
         await page.waitForFunction(() => document.querySelector('#pce-msg')?.classList.contains('is-error'), null, { timeout: 5000 }).catch(() => {});
         ok('a request that never leaves the browser is reported as a connection problem',
             /couldn.t reach/i.test(await page.textContent('#pce-msg')));

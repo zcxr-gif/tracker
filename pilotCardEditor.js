@@ -7,6 +7,8 @@
  *
  *   - No profile yet → claim a handle (that is what creates the row).
  *   - Picture: upload / remove. Free.
+ *   - Either upload first opens the move-and-scale frame (imageAdjuster.js),
+ *     so what is saved is exactly what the pilot framed.
  *   - Banner: one of six painted presets for everyone; a photograph on Pro
  *     only. Free accounts see the photo option locked with a PRO tag, and a
  *     lapsed account's saved photo is neither previewed nor re-uploadable.
@@ -18,14 +20,16 @@
  */
 
 import { PilotProfiles, BANNER_PRESET_LABELS, presetGradient } from './pilotProfiles.js';
+import { adjustImage } from './imageAdjuster.js';
 
 const HANDLE_SHAPE = /^[a-z0-9](?:[a-z0-9_]{1,18})[a-z0-9]$/;
 const IF_USERNAME_SHAPE = /^[A-Za-z0-9_.-]{1,40}$/;
 // Same sizes the app encodes to; re-encoding also drops EXIF (a phone photo
 // carries where it was taken, and these are public files).
+// aspect is the frame the pilot positions the picture in (width / height).
 const KIND = {
-    avatar: { longest: 720, minSide: 96 },
-    banner: { longest: 1800, minSide: 320 },
+    avatar: { longest: 720, minSide: 96, aspect: 1 },
+    banner: { longest: 1800, minSide: 320, aspect: 3 },
 };
 
 function esc(s) {
@@ -58,19 +62,36 @@ async function decodeImage(file) {
     }
 }
 
-async function encodeJpeg(file, kind) {
+// Decode, let the pilot frame it, then encode what is inside the frame.
+// Resolves to null when they cancel.
+async function pickAndEncode(file, kind) {
     const spec = KIND[kind];
     const bitmap = await decodeImage(file);
-    if (Math.min(bitmap.width, bitmap.height) < spec.minSide) {
-        throw new Error(`That ${kind === 'avatar' ? 'picture' : 'banner'} is too small — it needs to be at least ${spec.minSide} pixels on its short side.`);
+    try {
+        if (Math.min(bitmap.width, bitmap.height) < spec.minSide) {
+            throw new Error(`That ${kind === 'avatar' ? 'picture' : 'banner'} is too small — it needs to be at least ${spec.minSide} pixels on its short side.`);
+        }
+        const crop = await adjustImage(bitmap, {
+            shape: kind === 'avatar' ? 'circle' : 'rect',
+            aspect: spec.aspect,
+            title: kind === 'avatar' ? 'Move and scale' : 'Position your banner',
+            saveLabel: 'Use this',
+        });
+        if (!crop) return null;
+        // Scale the framed part down to the app's size, but never below the
+        // short side the server accepts (a deep zoom on a small photo).
+        let scale = Math.min(1, spec.longest / Math.max(crop.sw, crop.sh));
+        scale = Math.max(scale, spec.minSide / Math.min(crop.sw, crop.sh));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(crop.sw * scale);
+        canvas.height = Math.round(crop.sh * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(bitmap.source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
+    } finally {
+        bitmap.close?.();
     }
-    const scale = Math.min(1, spec.longest / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext('2d').drawImage(bitmap.source, 0, 0, canvas.width, canvas.height);
-    bitmap.close?.();
-    return canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
 }
 
 export const PilotCardEditor = {
@@ -169,7 +190,7 @@ export const PilotCardEditor = {
                     </label>
                     ${bannerUrl ? '<button type="button" class="pce-btn pce-quiet" data-remove="banner">Remove photo</button>' : ''}
                 </div>
-                <p class="pce-help">Your photo replaces the painted banner. The painted one still shows while it loads.</p>
+                <p class="pce-help">You can drag and zoom your photo into place before it is saved. It replaces the painted banner, which still shows while it loads.</p>
             ` : `
                 <div class="pce-row">
                     <button type="button" class="pce-btn pce-locked" disabled aria-disabled="true">
@@ -256,8 +277,10 @@ export const PilotCardEditor = {
         const { supabase, isPro } = this._opts;
         if (kind === 'banner' && !isPro) { this._say('Photo banners are an Inflight Pro feature.', true); return; }
         await this._run(async () => {
+            this._say('');
+            const data = await pickAndEncode(file, kind);
+            if (!data) return;
             this._say(kind === 'avatar' ? 'Uploading your picture…' : 'Uploading your banner…');
-            const data = await encodeJpeg(file, kind);
             await PilotProfiles.upload(supabase, kind, data);
             this._profile = await PilotProfiles.mine(supabase);
             this._changed();
