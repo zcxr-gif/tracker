@@ -15,7 +15,10 @@
 // use), which republishes the same TDMs already decoded to lat/lon. Its
 // anonymous rate limit is per IP and low, so the answer is also cached in
 // Netlify's shared CDN cache, keeping upstream calls to a few an hour for
-// the whole site. The FAA sources are only tried when it has nothing.
+// the whole site. When it has nothing, the FAA's older DINS query page
+// (www.notams.faa.gov — a different server from NOTAM Search, and the PACOTS
+// source Little Navmap's track download was built on) is read next, then
+// the other FAA sources.
 //
 // Optional: PACOTS_SOURCE_URL — any URL returning plain text containing TDMs.
 // When set it is read first, so the feed can be switched without a deploy.
@@ -40,6 +43,8 @@ const FAA_PAGE_URL = `${FAA_ORIGIN}/notamSearch/nsapp.html`;
 const FAA_SEARCH = `${FAA_ORIGIN}/notamSearch/search`;
 const FAA_API = 'https://external-api.faa.gov/notamapi/v1/notams';
 const FPD_PACOTS = 'https://api.flightplandatabase.com/nav/PACOTS';
+const DINS_URL = 'https://www.notams.faa.gov/dinsQueryWeb/queryRetrievalMapAction.do'
+    + '?retrieveLocId=KZAK%20RJJJ%20PAZA&actionType=notamRetrievalByICAOs&submit=NOTAMs';
 const CENTRES = ['KZAK', 'RJJJ'];
 const PAGE = 30;
 const MAX_PAGES = 12;
@@ -162,6 +167,19 @@ async function fpdTracks() {
     return tracks;
 }
 
+/** Every NOTAM on the DINS report page for KZAK/RJJJ/PAZA, as plain text. */
+async function dinsText() {
+    const res = await fetch(DINS_URL, {
+        headers: { 'User-Agent': BROWSER_UA, 'Accept': 'text/html,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9' },
+        timeout: 15000,
+    });
+    if (!res.ok) throw new Error(`FAA DINS -> HTTP ${res.status}`);
+    return (await res.text())
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
 async function overrideMessages(url) {
     const res = await fetch(url, { headers: { 'User-Agent': UA }, timeout: 12000 });
     if (!res.ok) throw new Error(`PACOTS_SOURCE_URL -> HTTP ${res.status}`);
@@ -187,6 +205,19 @@ async function collect() {
     if (decoded.length) {
         const tracks = currentTracks([...decoded, ...parseTdms(texts.join('\n'))]);
         return { ok: true, tracks, sources, fetchedAt: new Date().toISOString() };
+    }
+    try {
+        const text = await dinsText();
+        const found = parseTdms(text).length;
+        texts.push(text);
+        sources.push({ source: 'faa-dins', ok: true, tracks: found });
+        if (found) {
+            const tracks = currentTracks(parseTdms(texts.join('\n')));
+            return { ok: true, tracks, sources, fetchedAt: new Date().toISOString() };
+        }
+    } catch (err) {
+        console.warn('pacific-tracks:', err.message);
+        sources.push({ source: 'faa-dins', ok: false, error: err.message });
     }
     const { FAA_CLIENT_ID: id, FAA_CLIENT_SECRET: secret } = process.env;
     let cookie = null; // one NOTAM Search session, opened only if needed
