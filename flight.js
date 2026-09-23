@@ -11,6 +11,7 @@ import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
+import { PilotProfiles } from './pilotProfiles.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -4924,8 +4925,65 @@ function injectCustomStyles() {
         }
         .ac-info-tab-btn.pilot-tab-btn.active {
             color: #fff;
-            border-bottom-color: var(--color-warning); 
+            border-bottom-color: var(--color-warning);
             text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
+        }
+
+        /* Pilot tab as the pilot's profile card (desktop). The banner and
+           avatar exist in the markup at every width but only show here. */
+        .ac-pilot-banner, .ac-pilot-avatar { display: none; }
+        @media (min-width: 769px) {
+            .ac-info-tab-btn.pilot-tab-btn {
+                position: relative;
+                isolation: isolate;
+                border-radius: 8px;
+                justify-content: flex-start !important;
+                padding: 0 12px 0 8px !important;
+                transition: color 0.2s ease, filter 0.2s ease;
+            }
+            /* No username means no card: keep the old icon instead. */
+            .ac-pilot-avatar:not(:empty) ~ i { display: none; }
+            .ac-info-tab-btn.pilot-tab-btn:hover { color: #fff !important; filter: brightness(1.12); }
+            .ac-pilot-avatar {
+                display: grid;
+                place-items: center;
+                flex: 0 0 auto;
+                width: 26px;
+                height: 26px;
+                border-radius: 50%;
+                overflow: hidden;
+                background: #4a505c;
+                border: 1.5px solid rgba(255, 255, 255, 0.85);
+                color: #fff;
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.02em;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+            }
+            .ac-pilot-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+            .ac-pilot-avatar:empty { display: none; }
+            .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner {
+                display: block;
+                position: absolute;
+                inset: 0;
+                z-index: -1;
+                border-radius: inherit;
+                background-size: cover, cover;
+                background-position: center, center;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+            }
+            /* A scrim so the name reads on any photograph. */
+            .ac-pilot-banner::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border-radius: inherit;
+                background: linear-gradient(90deg, rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.28) 100%);
+            }
+            .ac-info-tab-btn.pilot-tab-btn.has-profile {
+                color: #fff !important;
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+            }
         }
 
         @media (max-width: 768px) {
@@ -23188,6 +23246,45 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     show(0);
 }
 
+// The pilot tab wears the pilot's InFlight profile (made in the iOS app):
+// their picture in the avatar, their banner behind the name. Synchronous on a
+// cache hit so a re-rendered window doesn't flash back to initials.
+function decoratePilotTab(btn) {
+    const uname = btn?.dataset.username;
+    if (!uname || uname === 'N/A') return;
+    const apply = (profile) => {
+        if (!profile || !btn.isConnected) return;
+        btn.classList.add('has-profile');
+        const banner = btn.querySelector('.ac-pilot-banner');
+        if (banner) {
+            banner.style.backgroundImage = profile.bannerUrl
+                ? `url("${profile.bannerUrl}"), ${profile.bannerGradient}`
+                : profile.bannerGradient;
+        }
+        const avatar = btn.querySelector('.ac-pilot-avatar');
+        if (avatar && profile.avatarUrl) {
+            const img = new Image();
+            img.alt = '';
+            img.onload = () => { if (avatar.isConnected) { avatar.textContent = ''; avatar.appendChild(img); } };
+            img.src = profile.avatarUrl;
+        }
+    };
+    const cached = PilotProfiles.peek(uname);
+    if (cached !== undefined) apply(cached);
+    else PilotProfiles.byIfUsername(uname).then(apply);
+}
+
+function openPilotProfile(username, userId) {
+    const id = userId && userId !== 'undefined' && userId !== 'null' ? userId : null;
+    if (window.LandingUI?.openUserProfile) {
+        window.LandingUI.openUserProfile(username, id);
+        return;
+    }
+    import('./UserProfileUI.js')
+        .then(m => m.UserProfileUI.open({ username, userId: id }))
+        .catch(err => console.error('Failed to load UserProfileUI:', err));
+}
+
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
     // --- Safety Check: Ensure the container exists ---
     const windowEl = document.getElementById('aircraft-info-window');
@@ -23712,6 +23809,10 @@ let totalDistanceNM = 0;
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Flight Display</span>
                  </button>
                  <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" title="${pilotReportTabText}" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <!-- Desktop: the pilot's InFlight profile banner and picture
+                         (decoratePilotTab). Hidden at <=768px by CSS. -->
+                    <span class="ac-pilot-banner" aria-hidden="true"></span>
+                    <span class="ac-pilot-avatar" aria-hidden="true">${pilotUsername !== 'N/A' ? pilotUsername.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() : ''}</span>
                     <i class="fa-solid fa-chart-simple" style="flex-shrink: 0;"></i>
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pilotReportTabText}</span>
                  </button>
@@ -24211,8 +24312,21 @@ let totalDistanceNM = 0;
     const mainHighlight = windowEl.querySelector('#main-switcher-highlight');
     const tabPanes = windowEl.querySelectorAll('.ac-tab-pane');
 
+    // Desktop: the pilot tab is the pilot's profile card, and opens their
+    // profile (the same one the search bar opens) instead of the Pilot Report
+    // pane. Phones keep the pane.
+    const pilotTabBtn = windowEl.querySelector('.ac-info-tab-btn.pilot-tab-btn');
+    decoratePilotTab(pilotTabBtn);
+
     mainTabBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {
+            const uname = btn.dataset.username;
+            if (btn === pilotTabBtn && window.innerWidth > 768 && uname && uname !== 'N/A') {
+                // The window's delegated tab handler must not switch panes too.
+                e.stopPropagation();
+                openPilotProfile(uname, btn.dataset.userId);
+                return;
+            }
             mainTabBtns.forEach(b => {
                 b.classList.remove('active');
                 b.style.color = '#94a3b8';
