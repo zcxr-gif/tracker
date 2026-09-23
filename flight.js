@@ -4951,6 +4951,36 @@ function injectCustomStyles() {
         /* Pilot tab as the pilot's profile card (desktop). The banner and
            avatar exist in the markup at every width but only show here. */
         .ac-pilot-banner, .ac-pilot-avatar, .ac-pilot-go { display: none; }
+        /* Phones keep the Flight Display / Pilot switch, and the pilot's half of
+           it wears their card: banner behind, picture beside the name. */
+        @media (max-width: 768px) {
+            .ac-info-tab-btn.pilot-tab-btn {
+                position: relative;
+                isolation: isolate;
+                overflow: hidden;
+            }
+            .ac-info-tab-btn.pilot-tab-btn .ac-pilot-avatar:not(:empty) {
+                display: grid; place-items: center; flex: 0 0 auto;
+                width: 22px; height: 22px; border-radius: 50%; overflow: hidden;
+                background: #4a505c; color: #fff; font-size: 8px; font-weight: 800;
+                border: 1px solid rgba(255, 255, 255, 0.8);
+            }
+            .ac-info-tab-btn.pilot-tab-btn .ac-pilot-avatar:not(:empty) ~ i { display: none !important; }
+            .ac-info-tab-btn.pilot-tab-btn .ac-pilot-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+            .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner {
+                display: block; position: absolute; inset: 0; z-index: -1;
+                border-radius: inherit;
+                background-size: cover, cover; background-position: center, center;
+                animation: ac-pilot-fade-m 0.45s ease;
+            }
+            .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner::after {
+                content: ''; position: absolute; inset: 0; border-radius: inherit;
+                background: linear-gradient(90deg, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.3));
+            }
+            .info-window .ac-info-tab-btn.pilot-tab-btn.has-profile,
+            .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn.has-profile { color: #fff !important; }
+            @keyframes ac-pilot-fade-m { from { opacity: 0; } to { opacity: 1; } }
+        }
         @media (min-width: 769px) {
             .ac-info-tab-btn.pilot-tab-btn {
                 position: relative;
@@ -16252,23 +16282,6 @@ function updateTrafficLegendUI() {
 }
 
 
-    /* =========================================================================
-     * GLOBAL PLAYBACK — WITHDRAWN
-     *
-     * Rewinding the whole map is no longer offered here. The orb and the mobile
-     * tab that opened it are gone, and so is the picker behind them; the two
-     * replays that have a subject — one aircraft, one controller's airspace —
-     * are untouched.
-     *
-     * The listener stays because the entry points are static files a browser
-     * may still be holding: a tab running yesterday's chrome against today's
-     * bundle would otherwise tap a Playback control and get silence. It opens
-     * the letter that explains the withdrawal instead.
-     * ========================================================================= */
-    window.addEventListener('openGlobalPlayback', () => {
-        try { window.InflightPlaybackFarewell?.open(); } catch (_) { /* letter not loaded */ }
-    });
-
     // Launch the ATC session replay for a recorded controller session. Mirrors
     // the flight-replay launch flow: get the competing chrome out of the way so
     // the docked replay panel + map are unobstructed, then restore it once the
@@ -20822,6 +20835,19 @@ window.globalNatTracks = natTracks;
 
         // --- 14. Listen for iframe messages (ND_READY, simple-window stats/actions/resize) ---
         window.addEventListener('message', (event) => {
+            // A pilot card inside the Simple / Card flight window asks for the
+            // pilot's profile — the same one the primary window's card opens.
+            // Only honoured from that window's own iframe.
+            if (event.data && event.data.type === 'OPEN_PILOT_PROFILE') {
+                const frame = document.getElementById('simple-flight-window-frame');
+                const uname = typeof event.data.username === 'string' ? event.data.username.trim() : '';
+                if (frame && event.source === frame.contentWindow && uname) {
+                    const props = currentFlightInWindow && currentMapFeatures[currentFlightInWindow]?.properties;
+                    const userId = props && String(props.username || '').toLowerCase() === uname.toLowerCase() ? props.userId : null;
+                    openPilotProfile(uname, userId);
+                }
+                return;
+            }
             if (event.data && event.data.type === 'ND_READY') {
                 refreshNavDisplayFromCache();
             }

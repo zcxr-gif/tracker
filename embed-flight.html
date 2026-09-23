@@ -438,6 +438,7 @@
                 <div class="pkh-l">
                     <div class="pkh-cs-row">
                         <span class="pkh-cs" id="pk-callsign">---</span>
+                        <span class="pk-avatar" id="pk-avatar" style="display:none"></span>
                         <span class="pkh-chip user" id="pk-user" style="display:none"></span>
                         <span class="pkh-chip phase" id="pk-phase" style="display:none"></span>
                     </div>
@@ -568,6 +569,16 @@
     let _lastGraphAt = 0;
     let _lastLegsKey = null;
 
+    // Pilot card + peek-row picture. The module (pilotCardWidget.js) loads
+    // async; until it has, this is a no-op and the next update catches up.
+    // Both paints are no-ops when the pilot hasn't changed.
+    function paintPilot(username) {
+        const w = window.InflightPilotCard;
+        if (!w) return;
+        w.paintPilotCard(document.getElementById('aw-pilot-card'), username);
+        w.paintMiniAvatar(document.getElementById('pk-avatar'), username);
+    }
+
     function buildCard(p) {
         const route = p.route || {};
         const ac = p.aircraft || {};
@@ -639,6 +650,10 @@
                         <i class="fa-solid fa-arrow-up-from-bracket"></i><span>Share</span>
                     </button>
                 </div>
+
+                <!-- The pilot's InFlight card (banner, picture, name), as in the
+                     primary window; painted by pilotCardWidget.js. -->
+                <div class="aw-pilot" id="aw-pilot-card" style="margin: 14px 0 4px;"></div>
 
                 <div class="aw-stats">
                     <div class="aw-stat"><span class="l">Status</span><b data-f="phase-text">---</b></div>
@@ -837,6 +852,8 @@
         if (pkUser) {
             if (p.username) { pkUser.style.display = ''; pkUser.textContent = p.username; }
             else pkUser.style.display = 'none';
+            const pkAv = document.getElementById('pk-avatar');
+            if (pkAv) pkAv.style.display = p.username ? '' : 'none';
         }
         const pkPh = document.getElementById('pk-phase');
         if (pkPh) {
@@ -965,6 +982,7 @@
             _lastGraphAt = 0; _lastLegsKey = null;
             hydrateVaAds(p);
         }
+        paintPilot(p.username);
 
         updateDynamic(p);
         renderGraph();
@@ -1118,5 +1136,9 @@
         window.parent.postMessage({ type: 'EMBED_FLIGHT_READY' }, '*');
     } catch (_) {}
     </script>
+<script type="module">
+    import { paintPilotCard, paintMiniAvatar } from './pilotCardWidget.js';
+    window.InflightPilotCard = { paintPilotCard, paintMiniAvatar };
+</script>
 </body>
 </html>
