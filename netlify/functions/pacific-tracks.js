@@ -8,6 +8,15 @@
 // FAA's public NOTAM Search. Browsers can't call it directly (no CORS), hence
 // the proxy — same shape as sigmets.js.
 //
+// The FAA's firewall refuses Netlify's servers outright (HTTP 403 whatever the
+// request looks like), and its API keys are only issued to a few kinds of
+// organisation. So the tracks are read first from Flight Plan Database's
+// public API (api.flightplandatabase.com/nav/PACOTS: no key needed for light
+// use), which republishes the same TDMs already decoded to lat/lon. Its
+// anonymous rate limit is per IP and low, so the answer is also cached in
+// Netlify's shared CDN cache, keeping upstream calls to a few an hour for
+// the whole site. The FAA sources are only tried when it has nothing.
+//
 // Optional: PACOTS_SOURCE_URL — any URL returning plain text containing TDMs.
 // When set it is read first, so the feed can be switched without a deploy.
 //
@@ -30,6 +39,7 @@ const FAA_ORIGIN = 'https://notams.aim.faa.gov';
 const FAA_PAGE_URL = `${FAA_ORIGIN}/notamSearch/nsapp.html`;
 const FAA_SEARCH = `${FAA_ORIGIN}/notamSearch/search`;
 const FAA_API = 'https://external-api.faa.gov/notamapi/v1/notams';
+const FPD_PACOTS = 'https://api.flightplandatabase.com/nav/PACOTS';
 const CENTRES = ['KZAK', 'RJJJ'];
 const PAGE = 30;
 const MAX_PAGES = 12;
@@ -116,6 +126,42 @@ async function faaApiMessages(centre, id, secret) {
     return texts;
 }
 
+const round4 = (n) => Math.round(n * 1e4) / 1e4;
+const isoOrEmpty = (v) => { const t = Date.parse(v); return Number.isFinite(t) ? new Date(t).toISOString() : ''; };
+
+/**
+ * Flight Plan Database's decoded tracks, in this function's track shape:
+ * [{ ident, validFrom, validTo, route: { nodes: [{ ident, lat, lon }] } }].
+ * A response in any other shape is reported (with its top-level keys) rather
+ * than silently read as "no tracks".
+ */
+async function fpdTracks() {
+    const res = await fetch(FPD_PACOTS, { headers: { 'Accept': 'application/json', 'User-Agent': UA }, timeout: 12000 });
+    if (!res.ok) throw new Error(`Flight Plan Database -> HTTP ${res.status}`);
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : (data && Array.isArray(data.tracks) ? data.tracks : null);
+    if (!list) throw new Error(`Flight Plan Database: unexpected response (keys: ${Object.keys(data || {}).join(', ') || typeof data})`);
+    const tracks = list.map((t) => {
+        const nodes = (t && t.route && Array.isArray(t.route.nodes) ? t.route.nodes : (t && t.nodes)) || [];
+        const points = nodes
+            .map(n => [Number(n && n.lon), Number(n && n.lat)])
+            .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180)
+            .map(([lon, lat]) => [round4(lon), round4(lat)]);
+        return {
+            name: String((t && (t.ident || t.name)) || '').trim(),
+            messageId: '',
+            validFrom: isoOrEmpty(t && t.validFrom),
+            validTo: isoOrEmpty(t && t.validTo),
+            route: nodes.map(n => n && n.ident).filter(Boolean).join(' '),
+            points,
+        };
+    }).filter(t => t.name && t.points.length >= 2);
+    if (list.length && !tracks.length) {
+        throw new Error(`Flight Plan Database: ${list.length} tracks but none readable (keys: ${Object.keys(list[0] || {}).join(', ')})`);
+    }
+    return tracks;
+}
+
 async function overrideMessages(url) {
     const res = await fetch(url, { headers: { 'User-Agent': UA }, timeout: 12000 });
     if (!res.ok) throw new Error(`PACOTS_SOURCE_URL -> HTTP ${res.status}`);
@@ -129,6 +175,18 @@ async function collect() {
     if (override) {
         try { texts.push(...await overrideMessages(override)); sources.push({ source: 'override', ok: true }); }
         catch (err) { sources.push({ source: 'override', ok: false, error: err.message }); }
+    }
+    let decoded = [];
+    try {
+        decoded = await fpdTracks();
+        sources.push({ source: 'flightplandatabase', ok: true, tracks: decoded.length });
+    } catch (err) {
+        console.warn('pacific-tracks:', err.message);
+        sources.push({ source: 'flightplandatabase', ok: false, error: err.message });
+    }
+    if (decoded.length) {
+        const tracks = currentTracks([...decoded, ...parseTdms(texts.join('\n'))]);
+        return { ok: true, tracks, sources, fetchedAt: new Date().toISOString() };
     }
     const { FAA_CLIENT_ID: id, FAA_CLIENT_SECRET: secret } = process.env;
     let cookie = null; // one NOTAM Search session, opened only if needed
@@ -174,12 +232,16 @@ exports.handler = async () => {
             && Date.now() - Date.parse(cache.body.fetchedAt) < 12 * 60 * 60 * 1000;
         cache = { at: Date.now(), body: keepOld ? { ...cache.body, sources: body.sources } : body };
     }
+    const maxAge = (cache.body.tracks.length ? CACHE_MS : EMPTY_CACHE_MS) / 1000;
     return {
         statusCode: 200,
         headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
-            'Cache-Control': `public, max-age=${(cache.body.tracks.length ? CACHE_MS : EMPTY_CACHE_MS) / 1000}`,
+            'Cache-Control': `public, max-age=${maxAge}`,
+            // Shared across every visitor, so the upstream rate limit is
+            // spent once per refresh for the whole site, not per person.
+            'Netlify-CDN-Cache-Control': `public, s-maxage=${maxAge}, durable`,
         },
         body: JSON.stringify(cache.body),
     };
