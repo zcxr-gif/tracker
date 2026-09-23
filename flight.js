@@ -4949,40 +4949,10 @@ function injectCustomStyles() {
             text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
         }
 
-        /* Pilot tab as the pilot's profile card (desktop). The banner and
-           avatar exist in the markup at every width but only show here. */
+        /* Pilot tab as the pilot's profile card — the whole tab bar, at every
+           width. The banner and avatar are hidden until this block shows them. */
         .ac-pilot-banner, .ac-pilot-avatar, .ac-pilot-go { display: none; }
-        /* Phones keep the Flight Display / Pilot switch, and the pilot's half of
-           it wears their card: banner behind, picture beside the name. */
-        @media (max-width: 768px) {
-            .ac-info-tab-btn.pilot-tab-btn {
-                position: relative;
-                isolation: isolate;
-                overflow: hidden;
-            }
-            .ac-info-tab-btn.pilot-tab-btn .ac-pilot-avatar:not(:empty) {
-                display: grid; place-items: center; flex: 0 0 auto;
-                width: 22px; height: 22px; border-radius: 50%; overflow: hidden;
-                background: #4a505c; color: #fff; font-size: 8px; font-weight: 800;
-                border: 1px solid rgba(255, 255, 255, 0.8);
-            }
-            .ac-info-tab-btn.pilot-tab-btn .ac-pilot-avatar:not(:empty) ~ i { display: none !important; }
-            .ac-info-tab-btn.pilot-tab-btn .ac-pilot-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-            .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner {
-                display: block; position: absolute; inset: 0; z-index: -1;
-                border-radius: inherit;
-                background-size: cover, cover; background-position: center, center;
-                animation: ac-pilot-fade-m 0.45s ease;
-            }
-            .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner::after {
-                content: ''; position: absolute; inset: 0; border-radius: inherit;
-                background: linear-gradient(90deg, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.3));
-            }
-            .info-window .ac-info-tab-btn.pilot-tab-btn.has-profile,
-            .mobile-island-bottom .ac-info-tab-btn.pilot-tab-btn.has-profile { color: #fff !important; }
-            @keyframes ac-pilot-fade-m { from { opacity: 0; } to { opacity: 1; } }
-        }
-        @media (min-width: 769px) {
+        @media all {
             .ac-info-tab-btn.pilot-tab-btn {
                 position: relative;
                 isolation: isolate;
@@ -5038,6 +5008,23 @@ function injectCustomStyles() {
                 font-size: 12px !important;
             }
             #main-data-switcher .ac-pilot-avatar { width: 40px; height: 40px; font-size: 12px; }
+
+            /* Phones: MobileLandingChromeUI styles this bar as an iOS segmented
+               control with !important rules; these id-scoped ones win so the
+               card reads the same as on desktop. */
+            #aircraft-info-window #main-data-switcher { border-radius: 12px !important; }
+            #aircraft-info-window #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
+                border-radius: 12px !important;
+                text-transform: uppercase !important;
+                letter-spacing: 1.2px !important;
+                font-weight: 700 !important;
+                color: #e5e7eb !important;
+                overflow: hidden !important;
+                isolation: isolate !important;
+                position: relative !important;
+                height: 100% !important;
+            }
+            #aircraft-info-window #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn.has-profile { color: #fff !important; }
             .ac-pilot-go {
                 margin-left: auto;
                 flex: 0 0 auto;
@@ -23797,6 +23784,21 @@ function decoratePilotTab(btn) {
     else PilotProfiles.byIfUsername(uname).then(apply);
 }
 
+// Every pilot card — desktop window, phone sheet, and any cloned copy of it —
+// opens the pilot's profile. Capture phase, so it runs before (and stops)
+// the window's own tab handlers, which would otherwise switch panes.
+if (typeof document !== 'undefined' && !window.__pilotCardClickBound) {
+    window.__pilotCardClickBound = true;
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest && e.target.closest('.ac-info-tab-btn.pilot-tab-btn');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const uname = btn.dataset.username;
+        if (uname && uname !== 'N/A') openPilotProfile(uname, btn.dataset.userId);
+    }, true);
+}
+
 function openPilotProfile(username, userId) {
     const id = userId && userId !== 'undefined' && userId !== 'null' ? userId : null;
     if (window.LandingUI?.openUserProfile) {
@@ -23958,11 +23960,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const hasPlan = originalFlatWaypoints.length >= 2;
 
     // --- State Persistence Logic ---
-    // Desktop has no tab switch any more (the pilot card opens a profile
-    // instead), so it always shows the flight data.
-    const currentActiveTab = window.innerWidth > 768
-        ? 'ac-tab-flight-data'
-        : (windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data');
+    // There is no tab switch any more (the pilot card opens a profile
+    // instead), so the window always shows the flight data.
+    const currentActiveTab = 'ac-tab-flight-data';
     const currentViewTarget = windowEl.querySelector('.display-toggle-btn.active')?.dataset.target || 'nd-view';
 
     // --- Aircraft Info ---
@@ -24849,12 +24849,10 @@ let totalDistanceNM = 0;
     mainTabBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {
             const uname = btn.dataset.username;
-            if (btn === pilotTabBtn && window.innerWidth > 768) {
-                // The window's delegated tab handler must not switch panes too.
-                e.stopPropagation();
-                if (uname && uname !== 'N/A') openPilotProfile(uname, btn.dataset.userId);
-                return;
-            }
+            // The pilot card is handled by the capture listener in
+            // decoratePilotTab's section (it also covers the phone sheet's
+            // cloned copies); it never switches panes.
+            if (btn === pilotTabBtn) return;
             mainTabBtns.forEach(b => {
                 b.classList.remove('active');
                 b.style.color = '#94a3b8';
