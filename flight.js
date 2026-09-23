@@ -56,6 +56,25 @@ PreferenceSync.init(supabase);
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
 
+// The nav's account pill: once signed in it carries the pilot's own name and
+// picture (from their InFlight profile), and follows sign-in, sign-out and any
+// change they make to their picture.
+async function refreshNavAccount() {
+    try {
+        const { data: { session } = {} } = await supabase.auth.getSession();
+        if (!session?.user) { LandingUI.setAccount(null); return; }
+        const mine = await PilotProfiles.mine(supabase).catch(() => null);
+        const md = session.user.user_metadata || {};
+        const name = mine?.displayName || md.full_name || md.if_username
+            || (session.user.email || '').split('@')[0] || 'Account';
+        LandingUI.setAccount({ name, avatarUrl: mine?.avatarUrl || null });
+    } catch (_) { /* leave the pill as it is */ }
+}
+// Deferred: supabase-js deadlocks if its own calls are awaited inside the
+// auth callback.
+supabase.auth.onAuthStateChange(() => { setTimeout(refreshNavAccount, 0); });
+window.addEventListener('inflight:pilot-profile-changed', refreshNavAccount);
+
 // 2. Initialize Mobile Dashboard
 MobileDashboardUI.init(supabase);
 

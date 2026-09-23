@@ -52,7 +52,77 @@ function shape(row) {
     };
 }
 
+export const BANNER_PRESET_LABELS = {
+    dusk: 'Dusk', dawn: 'Dawn', flight_level: 'Flight level',
+    night: 'Night', desert: 'Desert', ocean: 'Ocean',
+};
+
+export function presetGradient(preset) {
+    const stops = BANNER_PRESETS[preset] || BANNER_PRESETS.dusk;
+    return `linear-gradient(180deg, ${stops.join(', ')})`;
+}
+
+// The profile-image Edge Function is the only writer to the picture buckets
+// (they refuse anon writes). It checks the file is really an image, caps size
+// and dimensions, enforces Pro for banners, and records the path on the row.
+async function callProfileImage(accessToken, body) {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/profile-image`, {
+        method: 'POST',
+        headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+    let answer = {};
+    try { answer = await res.json(); } catch (_) { /* empty body */ }
+    if (!res.ok) {
+        const err = new Error(answer.error || 'That picture could not be saved.');
+        err.needsPro = answer.pro === true || res.status === 402;
+        throw err;
+    }
+    return answer;
+}
+
 export const PilotProfiles = {
+    presets: Object.keys(BANNER_PRESETS),
+
+    /** Drop a cached lookup (after the owner changes their picture or banner). */
+    forget(ifUsername) {
+        cache.delete(String(ifUsername || '').trim().toLowerCase());
+    },
+
+    /**
+     * The signed-in user's own row, read with their session. Filtered by id:
+     * the select policy also returns every public profile, so an unfiltered
+     * read would hand back a stranger's. Resolves to null when there is none.
+     */
+    async mine(supabase) {
+        const { data: { session } = {} } = await supabase.auth.getSession();
+        const uid = session?.user?.id;
+        if (!uid) return null;
+        const { data, error } = await supabase
+            .from('pilot_profiles').select('*').eq('user_id', uid).limit(1).maybeSingle();
+        if (error || !data) return null;
+        return { ...shape(data), row: data, bannerPreset: data.banner_preset || 'dusk' };
+    },
+
+    /** kind: 'avatar' | 'banner'; base64 is a JPEG. Resolves to the stored path. */
+    async upload(supabase, kind, base64) {
+        const { data: { session } = {} } = await supabase.auth.getSession();
+        if (!session) throw new Error('Sign in to add a picture.');
+        const answer = await callProfileImage(session.access_token, { kind, contentType: 'image/jpeg', data: base64 });
+        return answer.path;
+    },
+
+    async remove(supabase, kind) {
+        const { data: { session } = {} } = await supabase.auth.getSession();
+        if (!session) throw new Error('Sign in first.');
+        await callProfileImage(session.access_token, { kind, remove: true });
+    },
+
+    publicUrl,
     /** Cached profile for an IF username: a profile, null (none), or undefined (unknown). */
     peek(ifUsername) {
         const key = String(ifUsername || '').trim().toLowerCase();

@@ -934,6 +934,7 @@ export const LandingUI = {
 
         const container = document.getElementById('sector-ops-map-fullscreen');
         if (container) container.insertAdjacentHTML('beforeend', html);
+        this._applyAccount();
     },
 
     attachListeners() {
@@ -1405,6 +1406,35 @@ export const LandingUI = {
     dispatchFilterUpdate() {
         const quickSearch = document.getElementById('blade-search-input')?.value || '';
         window.dispatchEvent(new CustomEvent('filterUpdate', { detail: { filters: { ...this._activeFilters }, quickSearch } }));
+    },
+
+    // Signed-in identity for the nav's account pill: { name, avatarUrl } or
+    // null when signed out. Kept so a later render() can re-apply it.
+    setAccount(account) {
+        this._account = account || null;
+        this._applyAccount();
+    },
+
+    _applyAccount() {
+        const btn = document.getElementById('open-auth-btn');
+        if (!btn) return;
+        const ini = btn.querySelector('.lui-acct-ini');
+        const label = btn.querySelector('.tab-label');
+        const a = this._account;
+        if (label) label.textContent = a ? a.name : 'Account';
+        btn.title = a ? a.name : 'Account';
+        btn.classList.toggle('is-signed-in', !!a);
+        if (!ini) return;
+        if (a && a.avatarUrl) {
+            const img = new Image();
+            img.alt = '';
+            img.onload = () => { if (ini.isConnected && this._account === a) { ini.textContent = ''; ini.appendChild(img); } };
+            img.src = a.avatarUrl;
+        } else if (a) {
+            ini.textContent = String(a.name || '?').replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+        } else {
+            ini.innerHTML = '<i class="fa-solid fa-user-astronaut"></i>';
+        }
     },
 
     update(isActive) {
@@ -3207,7 +3237,13 @@ export const LandingUI = {
                     display: flex; align-items: center; justify-content: center;
                     font-size: .72rem;
                 }
-                #inflight-tactical-ui .auth-nexus .tab-label { display: inline; }
+                #inflight-tactical-ui .auth-nexus .tab-label {
+                    display: inline; max-width: 140px;
+                    overflow: hidden; text-overflow: ellipsis;
+                }
+                #inflight-tactical-ui .lui-acct-ini { overflow: hidden; font-size: .62rem; font-weight: 800; }
+                #inflight-tactical-ui .lui-acct-ini img { width: 100%; height: 100%; object-fit: cover; display: block; animation: lui-fade .3s ease; }
+                @keyframes lui-fade { from { opacity: 0; } to { opacity: 1; } }
 
                 /* Boards that dock top-right open under the bar, not over it. */
                 .lui-topnav-on > .info-window {

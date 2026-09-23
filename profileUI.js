@@ -35,6 +35,7 @@ import { WORLD_MAP } from './worldMapData.js';
 import { computeAchievements } from './pilotAchievements.js';
 import { CrewCenterOverlay } from './crewCenterOverlay.js';
 import { DiscordPresenceUI } from './discordPresenceUI.js';
+import { PilotCardEditor } from './pilotCardEditor.js';
 
 const AIRCRAFT_SELECTION_LIST = [
     // Airbus
@@ -4267,6 +4268,8 @@ if (this._activeTab === 'flight-plan') {
 
                 <div class="pui-settings-grid pui-fade-in">
                     <div class="pui-settings-main" style="display: flex; flex-direction: column; gap: var(--pui-gap-md);">
+                        <!-- Picture & banner (the iOS app's profile), see pilotCardEditor.js. -->
+                        <div id="pui-pilot-card-editor"></div>
                         <div class="pui-card">
                             <div class="pui-card-header"><h3>${this.t('set.profile')}</h3></div>
                             <div class="pui-card-body">
@@ -5245,6 +5248,16 @@ const contentRoot = document.getElementById('pui-content');
             // ─── Discord Rich Presence panel ───────────────────────────────
             // Self-contained: it renders itself, wires its own listeners and
             // tears down when this host leaves the DOM. See discordPresenceUI.js.
+            // ─── Picture & banner (pilot profile) ─────────────────────────
+            const pilotCardHost = document.getElementById('pui-pilot-card-editor');
+            if (pilotCardHost) {
+                PilotCardEditor.mount(pilotCardHost, {
+                    supabase: this._supabase,
+                    isPro: !!this._isPro,
+                    user: this._currentUser,
+                });
+            }
+
             const discordHost = document.getElementById('pui-discord-presence');
             if (discordHost) {
                 DiscordPresenceUI.mount(discordHost, {
