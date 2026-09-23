@@ -5030,6 +5030,23 @@ function injectCustomStyles() {
                fade is already solid, and the card still overlaps the photo. */
             #aircraft-info-window .ac-route-bar-backdrop { display: flow-root; }
 
+            /* The route card wears the pilot card's style: same width (8px
+               in from the window edge), same corners, no light border, same
+               soft dark shadow, and the dark fill the pilot card falls back
+               to when a pilot has no banner. */
+            #aircraft-info-window .ac-route-info-bar {
+                margin: -32px 8px 0 8px !important;
+                border: 0 !important;
+                border-radius: 12px !important;
+                background: linear-gradient(135deg, #262930 0%, #30343c 100%) !important;
+                -webkit-backdrop-filter: none !important;
+                backdrop-filter: none !important;
+                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28) !important;
+            }
+            #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
+                background: linear-gradient(135deg, #262930 0%, #30343c 100%) !important;
+            }
+
             /* The pilot row and the instrument area lose their divider lines
                and blend into each other instead of starting as new bands.
                Narrow side padding so the pilot card uses the width. */
