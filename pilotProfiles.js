@@ -66,15 +66,21 @@ export function presetGradient(preset) {
 // (they refuse anon writes). It checks the file is really an image, caps size
 // and dimensions, enforces Pro for banners, and records the path on the row.
 async function callProfileImage(accessToken, body) {
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/profile-image`, {
-        method: 'POST',
-        headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-    });
+    let res;
+    try {
+        res = await fetch(`${SUPABASE_URL}/functions/v1/profile-image`, {
+            method: 'POST',
+            headers: {
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+    } catch (_) {
+        // A refused preflight or a dropped connection both land here.
+        throw new Error('Couldn\'t reach the picture service. Check your connection and try again.');
+    }
     let answer = {};
     try { answer = await res.json(); } catch (_) { /* empty body */ }
     if (!res.ok) {
