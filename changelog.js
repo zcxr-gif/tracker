@@ -51,6 +51,10 @@
                     text: 'Signed in, the top bar shows your own name and picture instead of “Account”. Profiles opened from search or from a flight carry the pilot’s banner and picture too.'
                 },
                 {
+                    tag: 'new', icon: 'fa-water',
+                    text: 'Pacific tracks. The day’s Pacific Organized Track System — the real-world tracks Oakland and Fukuoka publish — is drawn alongside the North Atlantic tracks, straight across the date line. Tap one for its validity and route. Turn it on or off in Settings › Overlays › Oceanic Tracks.'
+                },
+                {
                     tag: 'improved', icon: 'fa-bars',
                     text: 'One bar across the top on desktop. Server, Weather, Filters, ATC, Network, Nearby, Gallery, search, Settings and your account all live in a single bar instead of four corners of the map.'
                 },
