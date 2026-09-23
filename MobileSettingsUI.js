@@ -608,9 +608,8 @@ export const MobileSettingsUI = {
 
             <div class="mobile-section-header">Oceanic Tracks</div>
             <div class="m-settings-list">
-                ${this.renderToggle('showNatTracks', 'North Atlantic Tracks', 'fa-route')}
-                ${this.renderToggle('showPacificTracks', 'Pacific Tracks', 'fa-water')}
-                ${this.renderToggle('showNatLabels', 'Track Labels', 'fa-font')}
+                ${this.renderToggle('showNatTracks', 'NAT Tracks', 'fa-route')}
+                ${this.renderToggle('showNatLabels', 'NAT Labels', 'fa-font')}
             </div>
         `;
     },

@@ -18,33 +18,13 @@ const TRACK_COLOR_EXPRESSION = [
     '#3498db'
 ];
 
-// Pacific tracks are lettered (eastbound) and numbered (westbound) well past
-// the NAT's A–F, so each track is coloured by its position in the day's list.
-const PACIFIC_PALETTE = ['#38bdf8', '#f472b6', '#facc15', '#34d399', '#a78bfa', '#fb923c', '#22d3ee', '#f87171', '#a3e635', '#e879f9', '#60a5fa', '#fbbf24'];
-
-// Pacific tracks come from the site's own proxy of the real-world PACOTS
-// messages (netlify/functions/pacific-tracks.js); Infinite Flight's API only
-// carries the North Atlantic set.
-function pacificUrl() {
-    const onSite = typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol) && window.location.hostname !== 'localhost';
-    return (onSite ? '' : 'https://inflight.info') + '/.netlify/functions/pacific-tracks';
-}
-
 export class NatTracksLayer {
-    /**
-     * @param {Object} opts
-     *   kind: 'NAT' (default) | 'PACOTS' — which set of tracks this layer draws.
-     *   Layer/source ids are prefixed by kind so both can be on the map at once.
-     */
-    constructor(map, opts = {}) {
+    constructor(map) {
         this.map = map;
-        this.kind = opts.kind === 'PACOTS' ? 'PACOTS' : 'NAT';
-        const prefix = this.kind === 'PACOTS' ? 'pacots' : 'nat';
-        this.sourceId = `${prefix}-tracks-source`;
-        this.lineLayerId = `${prefix}-tracks-layer`;
-        this.labelLayerId = `${prefix}-tracks-labels`;
-        this.bgLayerId = `${prefix}-tracks-bg-circles`;
-        this.colorExpr = this.kind === 'PACOTS' ? ['coalesce', ['get', 'color'], '#38bdf8'] : TRACK_COLOR_EXPRESSION;
+        this.sourceId = 'nat-tracks-source';
+        this.lineLayerId = 'nat-tracks-layer';
+        this.labelLayerId = 'nat-tracks-labels';
+        this.bgLayerId = 'nat-tracks-bg-circles';
         this.airplaneLayerId = 'sector-ops-live-flights-layer'; 
         this.tracks = [];
         this.refreshInterval = null;
@@ -87,14 +67,14 @@ export class NatTracksLayer {
             id: this.lineLayerId,
             type: 'line',
             source: this.sourceId,
-            filter: ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false],
+            filter: ['==', ['geometry-type'], 'LineString'],
             layout: { 
                 'line-join': 'round', 
                 'line-cap': 'round',
                 'visibility': this.showTracks ? 'visible' : 'none' 
             },
             paint: {
-                'line-color': this.colorExpr,
+                'line-color': TRACK_COLOR_EXPRESSION,
                 'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 3.5, 1.8],
                 'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.8, 0.4]
             }
@@ -110,7 +90,7 @@ export class NatTracksLayer {
                 'visibility': (this.showTracks && this.showLabels) ? 'visible' : 'none'
             },
             paint: {
-                'circle-color': this.colorExpr,
+                'circle-color': TRACK_COLOR_EXPRESSION,
                 'circle-radius': ['case', ['boolean', ['feature-state', 'hover'], false], 8, 6.5],
                 'circle-opacity': 0.9,
                 'circle-stroke-width': 1,
@@ -181,53 +161,15 @@ export class NatTracksLayer {
      */
     async fetchTracks() {
         try {
-            const url = this.kind === 'PACOTS' ? pacificUrl() : `${ACARS_SOCKET_URL}/api/live/tracks`;
-            const response = await fetch(url);
+            const response = await fetch(`${ACARS_SOCKET_URL}/api/live/tracks`);
             const data = await response.json();
             if (data.ok) {
-                this.tracks = Array.isArray(data.tracks) ? data.tracks : [];
+                this.tracks = data.tracks;
                 this.render();
             }
         } catch (error) {
-            console.error(`Error fetching ${this.kind} tracks:`, error);
+            console.error('Error fetching NAT tracks:', error);
         }
-    }
-
-    /**
-     * A track as line parts split at the date line. Mapbox won't draw a line
-     * with longitudes past ±180, and a segment from 170E to 170W joined
-     * naively runs the long way round the world — so a crossing segment is
-     * cut where it meets the antimeridian (latitude interpolated) and carries
-     * on from the other edge as a new part.
-     */
-    splitAtDateLine(coords) {
-        const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
-        const parts = [];
-        let part = [];
-        const add = (pt) => { if (!same(part[part.length - 1], pt)) part.push(pt); };
-        for (let i = 0; i < coords.length; i++) {
-            let [lon, lat] = coords[i];
-            if (part.length) {
-                const [plon, plat] = part[part.length - 1];
-                // A point exactly on the date line belongs to the side it is
-                // approached from (so 170W → 180 is not a crossing).
-                if (Math.abs(lon) === 180) lon = plon < 0 ? -180 : 180;
-                const d = lon - plon;
-                if (Math.abs(d) > 180) {
-                    // Crossing: eastbound when the jump is negative (170 → -170).
-                    const edge = d < 0 ? 180 : -180;
-                    const lonUnwrapped = d < 0 ? lon + 360 : lon - 360;
-                    const t = (edge - plon) / (lonUnwrapped - plon);
-                    const latX = plat + t * (lat - plat);
-                    add([edge, latX]);
-                    if (part.length >= 2) parts.push(part);
-                    part = [[-edge, latX]];
-                }
-            }
-            add([lon, lat]);
-        }
-        if (part.length) parts.push(part);
-        return parts.filter(p => p.length >= 2);
     }
 
     /**
@@ -235,19 +177,11 @@ export class NatTracksLayer {
      */
     render() {
         const features = [];
-        this.tracks.forEach((track, i) => {
-            const coordinates = Array.isArray(track.points) ? track.points : this.parsePath(track.path || []);
+        this.tracks.forEach(track => {
+            const coordinates = this.parsePath(track.path);
             if (coordinates.length < 2) return;
-            const parts = this.splitAtDateLine(coordinates);
 
-            const commonProps = this.kind === 'PACOTS' ? {
-                name: track.name,
-                type: 'PACOTS',
-                color: PACIFIC_PALETTE[i % PACIFIC_PALETTE.length],
-                validFrom: track.validFrom || '',
-                validTo: track.validTo || '',
-                pathString: track.route || ''
-            } : {
+            const commonProps = {
                 name: track.name,
                 type: track.type,
                 eastLevels: track.eastLevels?.join(', ') || 'None',
@@ -255,13 +189,11 @@ export class NatTracksLayer {
                 pathString: track.path.join(' → ')
             };
 
-            // Add the track line (in parts where it crosses the date line)
+            // Add the track line
             features.push({
                 type: 'Feature',
                 properties: commonProps,
-                geometry: parts.length > 1
-                    ? { type: 'MultiLineString', coordinates: parts }
-                    : { type: 'LineString', coordinates: parts[0] || coordinates }
+                geometry: { type: 'LineString', coordinates }
             });
 
             // Add point markers at start and end
@@ -293,12 +225,11 @@ export class NatTracksLayer {
                 const [lat, lon] = point.split('/').map(parseFloat);
                 return [-lon, lat];
             }
-            const match = String(point).trim().match(/^(\d{2})(\d{2})?([NS])(\d{2,3})(\d{2})?([EW])$/);
+            const match = point.match(/(\d+)([NS])(\d+)([EW])/);
             if (match) {
-                let lat = parseFloat(match[1]) + (match[2] ? parseFloat(match[2]) / 60 : 0);
-                let lon = parseFloat(match[4]) + (match[5] ? parseFloat(match[5]) / 60 : 0);
-                if (match[3] === 'S') lat = -lat;
-                if (match[6] === 'W') lon = -lon;
+                let lat = parseFloat(match[1]), lon = parseFloat(match[3]);
+                if (match[2] === 'S') lat = -lat;
+                if (match[4] === 'W') lon = -lon;
                 return [lon, lat];
             }
             return null; 
@@ -333,14 +264,7 @@ export class NatTracksLayer {
 
         this.map.on('click', this.lineLayerId, (e) => {
             const props = e.features[0].properties;
-            const z = (iso) => iso ? new Date(iso).toISOString().slice(11, 16) + 'Z' : '--';
-            const html = props.type === 'PACOTS' ? `
-                <div style="font-family: 'Inter', sans-serif; padding: 4px; max-width: 260px;">
-                    <b style="font-size: 14px;">Pacific Track ${props.name}</b><br/>
-                    <small>Valid ${z(props.validFrom)} – ${z(props.validTo)}</small><br/>
-                    <small style="opacity:.75; word-break: break-word;">${props.pathString}</small>
-                </div>
-            ` : `
+            const html = `
                 <div style="font-family: 'Inter', sans-serif; padding: 4px;">
                     <b style="font-size: 14px;">Track ${props.name}</b><br/>
                     <small>Levels: ${props.eastLevels} / ${props.westLevels}</small>

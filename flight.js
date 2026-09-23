@@ -1383,7 +1383,6 @@ let mapFilters = {
         live3DTraffic: false, // 3D elevated dot view for live traffic (toolbar/settings toggle)
         showNatTracks: true,
         showNatLabels: false,
-        showPacificTracks: true,
         showVaOnly: false,
         // Focus the live map on a single VA: only planes that belong to this VA
         // ad id are shown (membership = its callsign suffix tag OR its roster;
@@ -11669,12 +11668,6 @@ function updateMapFilters() {
             showLabels: mapFilters.showNatLabels
         });
     }
-    if (window.globalPacificTracks) {
-        window.globalPacificTracks.setOptions({
-            showTracks: mapFilters.showPacificTracks !== false,
-            showLabels: mapFilters.showNatLabels
-        });
-    }
 
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         const iconSize = parseFloat(mapFilters.planeIconSize) || 0.05;
@@ -19467,13 +19460,6 @@ renderCategory(catId) {
                                 </label>
                             </div>
                             <div class="settings-row">
-                                <div class="row-label"><i class="fa-solid fa-water"></i> Pacific Tracks (PACOTS)</div>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="set-pacific-tracks" ${mapFilters.showPacificTracks !== false ? 'checked' : ''}>
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
-                            <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-font"></i> Track Labels</div>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="set-nat-labels" ${mapFilters.showNatLabels ? 'checked' : ''}>
@@ -19787,7 +19773,6 @@ renderCategory(catId) {
             'set-va-only': 'showVaOnly',
             'set-nat-tracks': 'showNatTracks',
             'set-nat-labels': 'showNatLabels',
-            'set-pacific-tracks': 'showPacificTracks',
             'setting-toggle-3dpath': 'show3DPath',
             'set-flat-map': 'useFlatMap',
             'set-show-unstaffed': 'showUnstaffedAirports',
@@ -21157,17 +21142,6 @@ if (!document.getElementById('trip-card-takeover')) {
 
 natTracks.fetchTracks();
 window.globalNatTracks = natTracks;
-
-        // Pacific (PACOTS) tracks — from the site's proxy of the real-world
-        // track messages, since Infinite Flight only provides the NAT set.
-        // They are issued a few times a day, so a slow refresh is plenty.
-        const pacificTracks = new NatTracksLayer(sectorOpsMap, { kind: 'PACOTS' });
-        pacificTracks.setOptions({
-            showTracks: mapFilters.showPacificTracks !== false,
-            showLabels: mapFilters.showNatLabels
-        });
-        pacificTracks.startAutoRefresh(30 * 60 * 1000);
-        window.globalPacificTracks = pacificTracks;
         
         // (Optional) Store it globally if you need to reference it later
         window.globalNatTracks = natTracks;
@@ -21543,14 +21517,6 @@ function onAtcDataReceived(newAtcData) {
             // Trigger the render to add them to the map
             window.globalNatTracks.render();
             console.log("NAT Tracks restored.");
-        }
-        if (window.globalPacificTracks) {
-            window.globalPacificTracks.initSource();
-            window.globalPacificTracks.setOptions({
-                showTracks: mapFilters.showPacificTracks !== false,
-                showLabels: mapFilters.showNatLabels
-            });
-            window.globalPacificTracks.render();
         }
 
         // 3. Re-apply SIGMETS (Volanta Style)
