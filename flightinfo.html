@@ -488,6 +488,8 @@
     /* PILOT MANIFEST */
     .profile-card { background:var(--bg-panel); border:1px solid var(--border-glass); border-radius:var(--radius-lg); overflow:hidden; display:flex; flex-direction:column; margin-bottom:6px; }
     .profile-pilot-head { padding:16px 20px 0; display:flex; flex-direction:column; gap:4px; }
+    #prof-pilot-card:not(:empty) + .pp-name { display:none; }
+    #prof-pilot-card:not(:empty) { margin-bottom:6px; }
     .pp-name { font-size:18px; font-weight:800; color:#fff; letter-spacing:-.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .pp-link { display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--color-brand); text-decoration:none; width:fit-content; }
     .pp-link:hover { color:#fff; }
@@ -1305,6 +1307,9 @@
                 <div class="grid-section-label">Pilot Manifest</div>
                 <div class="profile-card">
                     <div class="profile-pilot-head">
+                        <!-- The pilot's InFlight card (banner, picture, name), as in
+                             the primary window; see pilotCardWidget.js. -->
+                        <div id="prof-pilot-card"></div>
                         <span class="pp-name" id="prof-username">Pilot</span>
                         <a class="pp-link" id="prof-community-link" target="_blank" rel="noopener" style="display:none;">
                             Community Profile <i class="fa-solid fa-up-right-from-square"></i>
@@ -2102,6 +2107,12 @@
             const pilotName = (data.username || 'Pilot').toUpperCase();
             updateText('username', pilotName);
             updateText('c-username', pilotName);
+            // Pilot card + pictures (module loads async; the next tick catches up).
+            if (window.InflightPilotCard) {
+                window.InflightPilotCard.paintPilotCard(document.getElementById('prof-pilot-card'), data.username);
+                window.InflightPilotCard.paintMiniAvatar(document.querySelector('#c-pilot > i, #c-pilot > .ipc-mini'), data.username);
+                window.InflightPilotCard.paintMiniAvatar(document.querySelector('.pilot-row > i, .pilot-row > .ipc-mini'), data.username);
+            }
 
             // Flight phase badge — mirrors the full window's detailed flying
             // states (PUSHBACK, TAXIING, LIFTOFF, FLARE, LANDING ROLLOUT, …).
@@ -2673,5 +2684,9 @@
             window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*');
         });
     </script>
+<script type="module">
+    import { paintPilotCard, paintMiniAvatar } from './pilotCardWidget.js';
+    window.InflightPilotCard = { paintPilotCard, paintMiniAvatar };
+</script>
 </body>
 </html>

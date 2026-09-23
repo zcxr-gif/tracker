@@ -24,6 +24,47 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.09.23',
+            date: 'September 2026',
+            title: 'Pilots Have Faces Now',
+            tagline: 'Every flight window shows who is flying it — their picture, their banner — and one tap opens their profile.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-id-badge',
+                    text: 'Pilot cards in every flight window. Open any aircraft and the pilot is there with the picture and banner they set up — in the full window, in Simple and in Card. Tap the card to open their profile. Pilots who haven’t set one up yet show their initials.',
+                    visual: `
+                        <div class="cl-vis-card" style="padding:0; overflow:hidden;">
+                            <div style="position:relative; height:56px; display:flex; align-items:center; gap:10px; padding:0 14px; background:linear-gradient(180deg,#2b336b,#944f70,#eb8c5c);">
+                                <span style="position:absolute; inset:0; background:linear-gradient(90deg,rgba(0,0,0,.6),rgba(0,0,0,.25));"></span>
+                                <span style="position:relative; width:34px; height:34px; border-radius:50%; background:#4a505c; border:1.5px solid rgba(255,255,255,.85); display:grid; place-items:center; font-size:11px; font-weight:800; color:#fff;">AB</span>
+                                <b style="position:relative; color:#fff; font-size:11px; letter-spacing:1.2px;">ANDREA_BIDOLI</b>
+                                <span style="position:relative; margin-left:auto; color:#fff; opacity:.75; font-size:8px; font-weight:800; letter-spacing:1px;">VIEW PROFILE &rsaquo;</span>
+                            </div>
+                        </div>`
+                },
+                {
+                    tag: 'new', icon: 'fa-image',
+                    text: 'Set your picture and banner from the website — Settings › Picture & banner, on desktop and on your phone. It’s the same profile as the iOS app, so a change in one shows in the other. Everyone gets six painted banners; a photo banner is part of Inflight Pro.'
+                },
+                {
+                    tag: 'new', icon: 'fa-user',
+                    text: 'Signed in, the top bar shows your own name and picture instead of “Account”. Profiles opened from search or from a flight carry the pilot’s banner and picture too.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-bars',
+                    text: 'One bar across the top on desktop. Server, Weather, Filters, ATC, Network, Nearby, Gallery, search, Settings and your account all live in a single bar instead of four corners of the map.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-hourglass-half',
+                    text: 'A simpler loading screen: the logo, one loading line, and a banner from one of our partner virtual airlines — a different one each time, until you have seen them all.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-arrows-left-right-to-line',
+                    text: 'Flight window: the photo now fades cleanly into the route card, the cards line up edge to edge, and which side of the map the window opens on has moved to Settings › Flight Window.'
+                }
+            ]
+        },
+        {
             id: '2026.08.09',
             date: 'August 2026',
             title: 'Rewind The Whole Map',

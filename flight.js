@@ -11,6 +11,7 @@ import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './plane-D2OPBxWC.js';
+import { PilotProfiles } from './pilotProfiles.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -54,6 +55,25 @@ PreferenceSync.init(supabase);
 
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
+
+// The nav's account pill: once signed in it carries the pilot's own name and
+// picture (from their InFlight profile), and follows sign-in, sign-out and any
+// change they make to their picture.
+async function refreshNavAccount() {
+    try {
+        const { data: { session } = {} } = await supabase.auth.getSession();
+        if (!session?.user) { LandingUI.setAccount(null); return; }
+        const mine = await PilotProfiles.mine(supabase).catch(() => null);
+        const md = session.user.user_metadata || {};
+        const name = mine?.displayName || md.full_name || md.if_username
+            || (session.user.email || '').split('@')[0] || 'Account';
+        LandingUI.setAccount({ name, avatarUrl: mine?.avatarUrl || null });
+    } catch (_) { /* leave the pill as it is */ }
+}
+// Deferred: supabase-js deadlocks if its own calls are awaited inside the
+// auth callback.
+supabase.auth.onAuthStateChange(() => { setTimeout(refreshNavAccount, 0); });
+window.addEventListener('inflight:pilot-profile-changed', refreshNavAccount);
 
 // 2. Initialize Mobile Dashboard
 MobileDashboardUI.init(supabase);
@@ -4924,8 +4944,164 @@ function injectCustomStyles() {
         }
         .ac-info-tab-btn.pilot-tab-btn.active {
             color: #fff;
-            border-bottom-color: var(--color-warning); 
+            border-bottom-color: var(--color-warning);
             text-shadow: 0 0 10px rgba(255, 183, 77, 0.5);
+        }
+
+        /* Pilot tab as the pilot's profile card — the whole tab bar, at every
+           width. The banner and avatar are hidden until this block shows them. */
+        .ac-pilot-banner, .ac-pilot-avatar, .ac-pilot-go { display: none; }
+        @media all {
+            .ac-info-tab-btn.pilot-tab-btn {
+                position: relative;
+                isolation: isolate;
+                border-radius: 8px;
+                justify-content: flex-start !important;
+                padding: 0 12px 0 8px !important;
+                transition: color 0.2s ease, filter 0.2s ease;
+            }
+            /* No username means no card: keep the old icon instead. */
+            .ac-pilot-avatar:not(:empty) ~ i { display: none; }
+            .ac-info-tab-btn.pilot-tab-btn:hover { color: #fff !important; filter: brightness(1.12); }
+            .ac-pilot-avatar {
+                display: grid;
+                place-items: center;
+                flex: 0 0 auto;
+                width: 26px;
+                height: 26px;
+                border-radius: 50%;
+                overflow: hidden;
+                background: #4a505c;
+                border: 1.5px solid rgba(255, 255, 255, 0.85);
+                color: #fff;
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.02em;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+            }
+            .ac-pilot-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+            .ac-pilot-avatar:empty { display: none; }
+
+            /* The whole bar is the pilot card: no Flight Display switch (it
+               had nothing left to switch to), no sliding highlight, and no
+               move-window button (it lives in Settings › Flight Window). */
+            #main-data-switcher > .ac-info-tab-btn:not(.pilot-tab-btn),
+            #main-switcher-highlight,
+            .ac-info-window-tabs #ac-dock-toggle-btn { display: none !important; }
+            .ac-info-window-tabs.no-pilot { display: none !important; }
+            /* The old switcher box behind the card: its light border, white
+               inset highlight and dark fill all showed as edges around the
+               banner, so on desktop it is just a clip for the card. */
+            #main-data-switcher {
+                padding: 0 !important;
+                height: 64px !important;
+                overflow: hidden;
+                border: 0 !important;
+                background: transparent !important;
+                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28) !important;
+            }
+            #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
+                border-radius: 12px;
+                gap: 12px !important;
+                padding: 0 16px 0 12px !important;
+                font-size: 12px !important;
+            }
+            #main-data-switcher .ac-pilot-avatar { width: 40px; height: 40px; font-size: 12px; }
+
+            /* Phones: MobileLandingChromeUI styles this bar as an iOS segmented
+               control with !important rules; these id-scoped ones win so the
+               card reads the same as on desktop. */
+            #aircraft-info-window #main-data-switcher { border-radius: 12px !important; }
+            #aircraft-info-window #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
+                border-radius: 12px !important;
+                text-transform: uppercase !important;
+                letter-spacing: 1.2px !important;
+                font-weight: 700 !important;
+                color: #e5e7eb !important;
+                overflow: hidden !important;
+                isolation: isolate !important;
+                position: relative !important;
+                height: 100% !important;
+            }
+            #aircraft-info-window #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn.has-profile { color: #fff !important; }
+            .ac-pilot-go {
+                margin-left: auto;
+                flex: 0 0 auto;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 9px;
+                letter-spacing: 1px;
+                opacity: 0.75;
+            }
+            .ac-pilot-go i { font-size: 9px; }
+            .ac-info-tab-btn.pilot-tab-btn:hover .ac-pilot-go { opacity: 1; }
+
+            /* The route card pulls itself up over the photo with a -32px top
+               margin. Its wrapper (.ac-route-bar-backdrop, solid #3a3a3a) had
+               no padding or border, so that margin collapsed through it and
+               the wrapper rose 32px too — laying a flat block over the bottom
+               of the photo while the photo's fade was only ~60% of the way
+               to #3a3a3a. That was the hard line. A new block formatting
+               context stops the collapse: the wrapper now starts where the
+               fade is already solid, and the card still overlaps the photo. */
+            #aircraft-info-window .ac-route-bar-backdrop { display: flow-root; }
+
+            /* The route card wears the pilot card's style: same width (8px
+               in from the window edge), same corners, no light border, same
+               soft dark shadow, and the dark fill the pilot card falls back
+               to when a pilot has no banner. */
+            #aircraft-info-window .ac-route-info-bar {
+                margin: -32px 8px 0 8px !important;
+                border: 0 !important;
+                border-radius: 12px !important;
+                background: linear-gradient(135deg, #262930 0%, #30343c 100%) !important;
+                -webkit-backdrop-filter: none !important;
+                backdrop-filter: none !important;
+                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28) !important;
+            }
+            #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
+                background: linear-gradient(135deg, #262930 0%, #30343c 100%) !important;
+            }
+
+            /* The pilot row and the instrument area lose their divider lines
+               and blend into each other instead of starting as new bands.
+               Narrow side padding so the pilot card uses the width. */
+            #aircraft-info-window .ac-info-window-tabs {
+                background: #3a3a3a !important;
+                border-top: 0 !important;
+                border-bottom: 0 !important;
+                padding: 14px 8px 16px 8px !important;
+            }
+            #aircraft-info-window .unified-display-main-content {
+                border-top: 0 !important;
+                background: linear-gradient(180deg, #3a3a3a 0px, var(--bg-glass) 64px) !important;
+            }
+            /* The card's banner and picture fade in rather than pop. */
+            .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner { animation: ac-pilot-fade 0.45s ease; }
+            .ac-pilot-avatar img { animation: ac-pilot-fade 0.35s ease; }
+            @keyframes ac-pilot-fade { from { opacity: 0; } to { opacity: 1; } }
+            .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner {
+                display: block;
+                position: absolute;
+                inset: 0;
+                z-index: -1;
+                border-radius: inherit;
+                background-size: cover, cover;
+                background-position: center, center;
+            }
+            /* A scrim so the name reads on any photograph. */
+            .ac-pilot-banner::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border-radius: inherit;
+                background: linear-gradient(90deg, rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.28) 100%);
+            }
+            .ac-info-tab-btn.pilot-tab-btn.has-profile {
+                color: #fff !important;
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+            }
         }
 
         @media (max-width: 768px) {
@@ -16093,23 +16269,6 @@ function updateTrafficLegendUI() {
 }
 
 
-    /* =========================================================================
-     * GLOBAL PLAYBACK — WITHDRAWN
-     *
-     * Rewinding the whole map is no longer offered here. The orb and the mobile
-     * tab that opened it are gone, and so is the picker behind them; the two
-     * replays that have a subject — one aircraft, one controller's airspace —
-     * are untouched.
-     *
-     * The listener stays because the entry points are static files a browser
-     * may still be holding: a tab running yesterday's chrome against today's
-     * bundle would otherwise tap a Playback control and get silence. It opens
-     * the letter that explains the withdrawal instead.
-     * ========================================================================= */
-    window.addEventListener('openGlobalPlayback', () => {
-        try { window.InflightPlaybackFarewell?.open(); } catch (_) { /* letter not loaded */ }
-    });
-
     // Launch the ATC session replay for a recorded controller session. Mirrors
     // the flight-replay launch flow: get the competing chrome out of the way so
     // the docked replay panel + map are unobstructed, then restore it once the
@@ -17777,17 +17936,30 @@ const SettingsUI = {
     // Mirrors the mobile settings sheet's tab structure (MobileSettingsUI):
     // Map / Aircraft / Labels / Overlays, plus the shared tactical filter
     // board under Filters and the desktop-only window Theme tab.
+    // Sidebar groups, top to bottom. Each page has a one-line description that
+    // heads it. The keys are stable ids: 'airspace' is deep-linked from the top
+    // nav's Filters button.
+    groups: [
+        { label: 'Map',       items: ['map', 'overlays', 'airspace'] },
+        { label: 'Aircraft',  items: ['aircraft', 'labels'] },
+        { label: 'Windows',   items: ['windows', 'theme'] },
+        { label: 'Community', items: ['va', 'sharing'] },
+        { label: 'You',       items: ['month', 'card', 'whatsnew'] },
+    ],
+
     categories: {
-        map: { label: "Map", icon: "fa-map" },
-        aircraft: { label: "Aircraft", icon: "fa-plane-up" },
-        labels: { label: "Labels", icon: "fa-tag" },
-        overlays: { label: "Overlays", icon: "fa-layer-group" },
-        airspace: { label: "Filters", icon: "fa-sliders" },
-        va: { label: "VA", icon: "fa-handshake-angle" },
-        theme: { label: "Theme", icon: "fa-palette" },
-        month: { label: "Your Month", icon: "fa-chart-pie" },
-        card: { label: "Profile Card", icon: "fa-id-card" },
-        whatsnew: { label: "What's New", icon: "fa-bullhorn" }
+        map:      { label: "Map",                      icon: "fa-map",             desc: "Map style, projection and how much of the base map is drawn." },
+        overlays: { label: "Overlays",                 icon: "fa-layer-group",     desc: "ATC, airports, terrain, routes and oceanic tracks drawn over the map." },
+        airspace: { label: "Traffic Filters",          icon: "fa-sliders",         desc: "Choose which live traffic is shown on the map." },
+        aircraft: { label: "Aircraft",                 icon: "fa-plane-up",        desc: "Your own aircraft, icon colours and how traffic is drawn." },
+        labels:   { label: "Labels",                   icon: "fa-tag",             desc: "What the tags next to aircraft say, and how they look." },
+        windows:  { label: "Flight & Airport Windows", icon: "fa-window-maximize", desc: "Which window opens when you tap a flight or an airport, and what it shows." },
+        theme:    { label: "Appearance",               icon: "fa-palette",         desc: "The colours and transparency of the flight and airport windows." },
+        va:       { label: "Virtual Airlines",         icon: "fa-handshake-angle", desc: "Partner VA hubs and events on the map." },
+        sharing:  { label: "Sharing",                  icon: "fa-share-nodes",     desc: "How a flight you share looks when the link is posted." },
+        month:    { label: "Your Month",               icon: "fa-chart-pie",       desc: "Your flying month, made to be shared." },
+        card:     { label: "Profile Card",             icon: "fa-id-card",         desc: "Your shareable pilot card." },
+        whatsnew: { label: "What's New",               icon: "fa-bullhorn",        desc: "Release notes for the tracker." }
     },
 
     _injectStyles() {
@@ -18413,7 +18585,326 @@ const SettingsUI = {
                 }
                 #global-settings-modal-overlay .nexus-item { flex-shrink: 0; }
             }
-        `;
+        
+
+            /* ================================================================
+               SETTINGS REDESIGN — grouped sidebar, a page header, and each
+               section drawn as one rounded group of rows. Everything below
+               overrides the older rules above on purpose.
+               ================================================================ */
+            #global-settings-modal-overlay {
+                --gs-bg: #16171a;
+                --gs-side: #111214;
+                --gs-card: #1d1f23;
+                --gs-line: rgba(255, 255, 255, 0.06);
+                --gs-line-strong: rgba(255, 255, 255, 0.10);
+                --gs-text: #eceef1;
+                --gs-dim: #8d929b;
+                --gs-faint: #5f6570;
+                --gs-accent: #38bdf8;
+                --gs-accent-soft: rgba(56, 189, 248, 0.13);
+            }
+            #global-settings-modal-overlay .filter-modal.settings-modal {
+                width: min(1060px, 94vw) !important;
+                max-width: none !important;
+                height: min(780px, 90vh) !important;
+                max-height: none !important;
+                padding: 0 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                background: var(--gs-bg) !important;
+                border: 1px solid var(--gs-line-strong) !important;
+                border-radius: 18px !important;
+                box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55) !important;
+                overflow: hidden !important;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                color: var(--gs-text);
+            }
+            #global-settings-modal-overlay .modal-body {
+                display: grid !important;
+                grid-template-columns: 250px minmax(0, 1fr) !important;
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                height: 100% !important;
+                padding: 0 !important;
+                gap: 0 !important;
+            }
+
+            /* ---- Sidebar ---- */
+            #global-settings-modal-overlay .gs-sidebar {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 0 !important;
+                padding: 20px 12px 16px !important;
+                background: var(--gs-side) !important;
+                border-right: 1px solid var(--gs-line) !important;
+                overflow-y: auto !important;
+                width: auto !important;
+                max-width: none !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar-title {
+                display: flex; align-items: center; gap: 10px;
+                padding: 2px 10px 6px;
+                font-size: 17px; font-weight: 700; letter-spacing: -0.2px; color: var(--gs-text);
+            }
+            #global-settings-modal-overlay .gs-sidebar-title i { font-size: 14px; color: var(--gs-dim); }
+            #global-settings-modal-overlay .gs-sidebar .filter-group-wrapper { display: block !important; gap: 0 !important; margin: 0 !important; }
+            #global-settings-modal-overlay .gs-sidebar .filter-group-header {
+                margin: 18px 10px 6px !important;
+                padding: 0 !important;
+                font-size: 10.5px !important; font-weight: 700 !important;
+                letter-spacing: 0.09em !important; text-transform: uppercase !important;
+                color: var(--gs-faint) !important;
+                border: 0 !important; background: none !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar .filter-options-list {
+                display: flex !important; flex-direction: column !important; gap: 2px !important;
+                padding: 0 !important; margin: 0 !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar .nexus-item {
+                display: flex !important; align-items: center !important; gap: 11px !important;
+                width: 100% !important; height: 38px !important; min-height: 0 !important;
+                padding: 0 10px !important; margin: 0 !important;
+                border: 0 !important; border-radius: 9px !important;
+                background: transparent !important; box-shadow: none !important; transform: none !important;
+                color: #c7cad0 !important;
+                font-size: 13.5px !important; font-weight: 500 !important; text-align: left !important;
+                cursor: pointer; transition: background .15s ease, color .15s ease;
+            }
+            #global-settings-modal-overlay .gs-sidebar .nexus-item:hover { background: rgba(255, 255, 255, 0.05) !important; color: #fff !important; }
+            #global-settings-modal-overlay .gs-sidebar .nexus-item.active { background: var(--gs-accent-soft) !important; color: #fff !important; }
+            #global-settings-modal-overlay .gs-sidebar .nexus-icon {
+                width: 26px !important; height: 26px !important; min-width: 26px !important;
+                display: grid !important; place-items: center !important;
+                border-radius: 7px !important; border: 0 !important;
+                background: rgba(255, 255, 255, 0.06) !important;
+                color: #aeb3bb !important; font-size: 12px !important; box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar .nexus-item.active .nexus-icon { background: var(--gs-accent) !important; color: #0b1116 !important; }
+            #global-settings-modal-overlay .gs-sidebar .nexus-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+            /* ---- Main pane ---- */
+            #global-settings-modal-overlay .gs-main {
+                display: block !important;
+                padding: 0 !important;
+                overflow-y: auto !important;
+                background: var(--gs-bg) !important;
+                min-width: 0;
+                width: auto !important;
+            }
+            #global-settings-modal-overlay .gs-page-head {
+                position: sticky; top: 0; z-index: 5;
+                display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+                padding: 24px 32px 16px;
+                background: linear-gradient(180deg, var(--gs-bg) 78%, rgba(22, 23, 26, 0));
+            }
+            #global-settings-modal-overlay .gs-page-head h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.4px; color: var(--gs-text); }
+            #global-settings-modal-overlay .gs-page-head p { margin: 5px 0 0; font-size: 13px; line-height: 1.45; color: var(--gs-dim); max-width: 60ch; }
+            #global-settings-modal-overlay .gs-page-head .close-modal {
+                position: static !important;
+                flex: 0 0 auto; width: 34px !important; height: 34px !important;
+                display: grid !important; place-items: center !important;
+                border-radius: 50% !important; border: 0 !important;
+                background: rgba(255, 255, 255, 0.07) !important; color: #c7cad0 !important;
+                font-size: 14px !important; line-height: 1 !important; cursor: pointer;
+            }
+            #global-settings-modal-overlay .gs-page-head .close-modal:hover { background: rgba(255, 255, 255, 0.13) !important; color: #fff !important; }
+            #global-settings-modal-overlay .settings-content-wrapper { padding: 4px 32px 36px !important; }
+
+            /* ---- Sections: a label above a rounded group of rows ---- */
+            #global-settings-modal-overlay .settings-section {
+                margin: 0 0 22px !important;
+                padding: 4px 16px 6px !important;
+                background: var(--gs-card) !important;
+                border: 1px solid var(--gs-line) !important;
+                border-radius: 14px !important;
+                box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .settings-section > .config-header:first-child {
+                display: block !important;
+                margin: 0 -16px 4px !important;
+                padding: 12px 16px 10px !important;
+                border-bottom: 1px solid var(--gs-line) !important;
+                font-size: 11px !important; font-weight: 700 !important;
+                letter-spacing: 0.08em !important; text-transform: uppercase !important;
+                color: var(--gs-dim) !important;
+                background: none !important;
+            }
+            #global-settings-modal-overlay .settings-section > p,
+            #global-settings-modal-overlay .settings-section .iw-tz-hint {
+                font-size: 12.5px !important; line-height: 1.5 !important; color: var(--gs-dim) !important;
+            }
+
+            /* Rows */
+            #global-settings-modal-overlay .settings-row,
+            #global-settings-modal-overlay .settings-section > .m-setting-row {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                gap: 16px !important;
+                min-height: 48px !important;
+                margin: 0 !important; padding: 8px 0 !important;
+                background: none !important; border: 0 !important; border-radius: 0 !important;
+                border-top: 1px solid var(--gs-line) !important;
+            }
+            #global-settings-modal-overlay .settings-section > .config-header:first-child + .settings-row,
+            #global-settings-modal-overlay .settings-section > .config-header:first-child + .m-setting-row { border-top: 0 !important; }
+            #global-settings-modal-overlay .row-label {
+                display: flex !important; align-items: center !important; gap: 12px !important;
+                font-size: 13.5px !important; font-weight: 500 !important; color: var(--gs-text) !important;
+                letter-spacing: 0 !important; text-transform: none !important;
+            }
+            #global-settings-modal-overlay .row-label > i:first-child {
+                width: 26px; height: 26px; min-width: 26px;
+                display: grid; place-items: center;
+                border-radius: 7px; background: rgba(255, 255, 255, 0.06);
+                color: #b3b8c0; font-size: 12px;
+            }
+
+            /* Toggle switch */
+            #global-settings-modal-overlay .toggle-switch {
+                position: relative !important; flex: 0 0 auto !important;
+                width: 42px !important; height: 25px !important; margin: 0 !important;
+            }
+            #global-settings-modal-overlay .toggle-switch input { opacity: 0 !important; width: 0 !important; height: 0 !important; position: absolute !important; }
+            #global-settings-modal-overlay .toggle-slider {
+                position: absolute !important; inset: 0 !important; cursor: pointer;
+                background: #3a3d44 !important; border: 0 !important; border-radius: 999px !important;
+                transition: background .2s ease !important; box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .toggle-slider::before {
+                content: '' !important; position: absolute !important;
+                left: 3px !important; top: 3px !important; bottom: auto !important;
+                width: 19px !important; height: 19px !important; border-radius: 50% !important;
+                background: #fff !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+                transition: transform .2s cubic-bezier(.3, .7, .4, 1) !important;
+            }
+            #global-settings-modal-overlay .toggle-switch input:checked + .toggle-slider { background: #30d158 !important; }
+            #global-settings-modal-overlay .toggle-switch input:checked + .toggle-slider::before { transform: translateX(17px) !important; }
+            #global-settings-modal-overlay .toggle-switch input:disabled + .toggle-slider { opacity: .45; cursor: not-allowed; }
+
+            /* Segmented controls */
+            #global-settings-modal-overlay .iw-seg {
+                display: inline-flex !important; gap: 2px !important;
+                margin: 10px 0 !important; padding: 3px !important;
+                background: #111214 !important; border: 1px solid var(--gs-line) !important;
+                border-radius: 10px !important; width: auto !important;
+            }
+            #global-settings-modal-overlay .iw-seg-btn {
+                display: inline-flex !important; align-items: center !important; gap: 7px !important;
+                height: 32px !important; padding: 0 14px !important;
+                border: 0 !important; border-radius: 8px !important;
+                background: transparent !important; color: #aeb3bb !important;
+                font-size: 12.5px !important; font-weight: 600 !important; cursor: pointer;
+                box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .iw-seg-btn:hover { color: #fff !important; }
+            #global-settings-modal-overlay .iw-seg-btn.active { background: #2c2f36 !important; color: #fff !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important; }
+
+            /* Inputs */
+            #global-settings-modal-overlay select,
+            #global-settings-modal-overlay .iw-tz-select,
+            #global-settings-modal-overlay .row-input-select,
+            #global-settings-modal-overlay input[type="text"],
+            #global-settings-modal-overlay input[type="number"] {
+                height: 34px; padding: 0 10px;
+                background: #111214 !important; color: var(--gs-text) !important;
+                border: 1px solid var(--gs-line-strong) !important; border-radius: 8px !important;
+                font: inherit; font-size: 13px !important;
+            }
+            #global-settings-modal-overlay input[type="range"] { accent-color: var(--gs-accent); }
+
+            /* One PRO badge everywhere */
+            #global-settings-modal-overlay .pro-lock-badge {
+                display: inline-flex !important; align-items: center !important; gap: 4px !important;
+                margin-left: 6px !important; padding: 2px 7px !important;
+                border: 0 !important; border-radius: 6px !important;
+                background: linear-gradient(135deg, #f5d27a, #e0a93b) !important;
+                color: #1c1c1e !important;
+                font-size: 9.5px !important; font-weight: 800 !important; letter-spacing: 0.06em !important;
+                text-transform: uppercase !important;
+            }
+            #global-settings-modal-overlay .pro-lock-badge i { font-size: 8px !important; }
+
+            /* The Pro upsell on the Map page: a calmer card that sits in the flow. */
+            #global-settings-modal-overlay .pro-upsell-card {
+                margin-bottom: 22px !important;
+                border-radius: 14px !important;
+                border-color: rgba(56, 189, 248, 0.25) !important;
+            }
+
+            /* Cards stack with one even gap. */
+            #global-settings-modal-overlay .settings-content-wrapper {
+                display: flex !important; flex-direction: column !important; gap: 20px !important;
+            }
+            #global-settings-modal-overlay .settings-content-wrapper > .settings-section,
+            #global-settings-modal-overlay .settings-content-wrapper > .pro-upsell-card { margin: 0 !important; }
+            #global-settings-modal-overlay .settings-section .iw-seg { align-self: flex-start; }
+
+            /* Components shared with the mobile sheet (label rows, filter board,
+               VA toggles) draw their rows as boxed pills; inside a card they
+               become the same flat divided rows as everything else. */
+            #global-settings-modal-overlay .settings-section .m-setting-row {
+                min-height: 48px !important; box-sizing: border-box !important;
+                margin: 0 !important; padding: 8px 0 !important;
+                background: none !important; border: 0 !important; border-radius: 0 !important;
+                border-top: 1px solid var(--gs-line) !important; box-shadow: none !important;
+            }
+            #global-settings-modal-overlay .settings-section .m-setting-row:first-child { border-top: 0 !important; }
+            #global-settings-modal-overlay .settings-section .m-row-left {
+                display: flex !important; align-items: center !important; gap: 12px !important;
+                font-size: 13.5px !important; font-weight: 500 !important; color: var(--gs-text) !important;
+            }
+            #global-settings-modal-overlay .settings-section .m-row-left > i:first-child {
+                width: 26px; height: 26px; min-width: 26px;
+                display: grid; place-items: center;
+                border-radius: 7px; background: rgba(255, 255, 255, 0.06);
+                color: #b3b8c0; font-size: 12px;
+            }
+            #global-settings-modal-overlay .settings-section .m-setting-row.is-pro-feature .m-row-left > i:first-child { color: #f5d27a; }
+            #global-settings-modal-overlay .settings-section .mobile-section-header {
+                margin: 18px 0 2px !important; padding: 0 !important;
+                font-size: 11px !important; font-weight: 700 !important;
+                letter-spacing: 0.08em !important; text-transform: uppercase !important;
+                color: var(--gs-dim) !important; background: none !important; border: 0 !important;
+            }
+            /* The mobile switch, matched to the desktop one. */
+            #global-settings-modal-overlay .m-switch { position: relative !important; width: 42px !important; height: 25px !important; flex: 0 0 auto !important; }
+            #global-settings-modal-overlay .m-switch input { opacity: 0 !important; width: 0 !important; height: 0 !important; position: absolute !important; }
+            #global-settings-modal-overlay .m-switch .m-slider {
+                position: absolute !important; inset: 0 !important; cursor: pointer;
+                background: #3a3d44 !important; border: 0 !important; border-radius: 999px !important;
+                box-shadow: none !important; transition: background .2s ease !important;
+            }
+            #global-settings-modal-overlay .m-switch .m-slider::before {
+                content: '' !important; position: absolute !important;
+                left: 3px !important; top: 3px !important; bottom: auto !important;
+                width: 19px !important; height: 19px !important; border-radius: 50% !important;
+                background: #fff !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+                transition: transform .2s cubic-bezier(.3, .7, .4, 1) !important;
+            }
+            #global-settings-modal-overlay .m-switch input:checked + .m-slider { background: #30d158 !important; }
+            #global-settings-modal-overlay .m-switch input:checked + .m-slider::before { transform: translateX(17px) !important; }
+
+            /* Old rules cap the panes (max-height: 500px) and size rows as
+               content-box; the redesign fills the modal and scrolls inside. */
+            #global-settings-modal-overlay .modal-body,
+            #global-settings-modal-overlay .gs-sidebar,
+            #global-settings-modal-overlay .gs-main {
+                max-height: none !important;
+                min-height: 0 !important;
+            }
+            #global-settings-modal-overlay .gs-sidebar,
+            #global-settings-modal-overlay .gs-main { height: 100% !important; }
+            #global-settings-modal-overlay .settings-row,
+            #global-settings-modal-overlay .settings-section > .m-setting-row { box-sizing: border-box !important; height: auto !important; }
+            #global-settings-modal-overlay .settings-section .iw-seg { display: inline-flex !important; width: auto !important; max-width: 100%; }
+            #global-settings-modal-overlay .settings-section .iw-seg .iw-seg-btn { flex: 0 0 auto !important; width: auto !important; }
+
+            @media (max-width: 900px) {
+                #global-settings-modal-overlay .modal-body { grid-template-columns: 200px minmax(0, 1fr) !important; }
+                #global-settings-modal-overlay .settings-content-wrapper { padding: 4px 20px 28px !important; }
+                #global-settings-modal-overlay .gs-page-head { padding: 20px 20px 14px; }
+            }
+`;
         document.head.appendChild(style);
     },
 
@@ -18476,34 +18967,34 @@ const SettingsUI = {
         const html = `
         <div id="global-settings-modal-overlay" class="modal-overlay">
             <div class="filter-modal settings-modal">
-                <div class="modal-header">
-                    <div class="header-main">
-                        <div class="header-icon-box"><i class="fa-solid fa-gear"></i></div>
-                        <div class="header-text">
-                            <h2>Global Settings</h2>
-                            <span>Configure your airspace experience</span>
-                        </div>
-                    </div>
-                    <button class="close-modal" id="close-settings-modal">&times;</button>
-                </div>
                 <div class="modal-body">
-                    <div class="filter-selection-pane custom-scroll">
-                        <div class="filter-group-wrapper">
-                            <div class="filter-group-header">Configuration</div>
-                            <div class="filter-options-list">
-                                ${Object.entries(this.categories).map(([key, cat]) => `
-                                    <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
-                                        <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
-                                        <span class="nexus-label">${cat.label}</span>
-                                    </button>
-                                `).join('')}
+                    <nav class="filter-selection-pane custom-scroll gs-sidebar" aria-label="Settings sections">
+                        <div class="gs-sidebar-title"><i class="fa-solid fa-gear"></i> Settings</div>
+                        ${this.groups.map(group => `
+                            <div class="filter-group-wrapper">
+                                <div class="filter-group-header">${group.label}</div>
+                                <div class="filter-options-list">
+                                    ${group.items.map(key => {
+                                        const cat = this.categories[key];
+                                        return `
+                                        <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
+                                            <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
+                                            <span class="nexus-label">${cat.label}</span>
+                                        </button>`;
+                                    }).join('')}
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                    <div class="filter-config-pane custom-scroll">
-                        <div id="settings-category-content" class="settings-content-wrapper">
-                            
-                        </div>
+                        `).join('')}
+                    </nav>
+                    <div class="filter-config-pane custom-scroll gs-main">
+                        <header class="gs-page-head">
+                            <div>
+                                <h2 id="gs-page-title"></h2>
+                                <p id="gs-page-desc"></p>
+                            </div>
+                            <button class="close-modal" id="close-settings-modal" aria-label="Close settings"><i class="fa-solid fa-xmark"></i></button>
+                        </header>
+                        <div id="settings-category-content" class="settings-content-wrapper"></div>
                     </div>
                 </div>
             </div>
@@ -18516,7 +19007,7 @@ const SettingsUI = {
     attachListeners() {
         const modal = document.getElementById('global-settings-modal-overlay');
         modal?.addEventListener('click', (e) => {
-            if (e.target === modal || e.target.id === 'close-settings-modal') this.toggle(false);
+            if (e.target === modal || e.target.closest('#close-settings-modal')) this.toggle(false);
         });
 
         document.querySelectorAll('.settings-modal .nexus-item').forEach(item => {
@@ -18774,7 +19265,7 @@ renderCategory(catId) {
 
                             <div class="settings-row pro-feature-row is-pro-feature" style="border-left: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05);">
                                 <div class="row-label">
-                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide" style="background: #38bdf8; color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 800;">PRO</span>
+                                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #38bdf8;"></i> Custom Plane Color <span class="ios-hide pro-lock-badge"><i class="fa-solid fa-lock"></i>PRO</span>
                                 </div>
                                 <input type="color" id="set-pro-color" class="settings-color-input" value="${mapFilters.proCustomColor || '#38bdf8'}" ${!isSignedIn ? 'disabled' : ''}>
                             </div>
@@ -18976,13 +19467,23 @@ renderCategory(catId) {
                                 </label>
                             </div>
                         </div>
-
+                    `;
+                    break;
+                case 'windows':
+                    html = `
                         <div class="settings-section">
                             <label class="config-header">Flight Window</label>
                             <div class="iw-seg" data-seg="flight-window-mode">
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'legacy' ? ' active' : ''}" data-mode="legacy"><i class="fa-solid fa-layer-group"></i> Legacy</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'simple' ? ' active' : ''}" data-mode="simple"><i class="fa-solid fa-window-maximize"></i> Simple</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
+                            </div>
+                            <!-- Which side of the map the flight window opens on.
+                                 Used to be a button in the window's own tab bar. -->
+                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
+                            <div class="iw-seg" data-seg="flight-window-side">
+                                <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') === 'left' ? ' active' : ''}" data-mode="left"><i class="fa-solid fa-arrow-left"></i> Left</button>
+                                <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') !== 'left' ? ' active' : ''}" data-mode="right"><i class="fa-solid fa-arrow-right"></i> Right</button>
                             </div>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
@@ -19069,7 +19570,10 @@ renderCategory(catId) {
                                 <button id="set-theme-reset" class="modal-btn secondary" style="width: 100%; margin-top: 20px;" ${!isSignedIn ? 'disabled' : ''}>Reset Default Theme</button>
                             </div>
                         </div>
-
+                    `;
+                    break;
+                case 'sharing':
+                    html = `
                         <div class="settings-section">
                             <label class="config-header">Shared Link Preview</label>
                             <p style="margin: 0 0 12px 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.5;">
@@ -19157,6 +19661,12 @@ renderCategory(catId) {
             }
 
             container.innerHTML = html;
+            const meta = this.categories[catId] || {};
+            const titleEl = document.getElementById('gs-page-title');
+            const descEl = document.getElementById('gs-page-desc');
+            if (titleEl) titleEl.textContent = meta.label || '';
+            if (descEl) descEl.textContent = meta.desc || '';
+            container.closest('.gs-main')?.scrollTo?.(0, 0);
 
             // --- Post-render syncs for the ported mobile components ---
             if (catId === 'airspace') {
@@ -19175,11 +19685,11 @@ renderCategory(catId) {
                 // Static Images API; see MobileSettingsUI.generateStylePreview).
                 MobileSettingsUI.hydrateStylePreviews(container);
             }
-            if (catId === 'theme') {
+            {
                 const shareHost = container.querySelector('#share-map-picker');
                 if (shareHost && typeof renderShareMapPicker === 'function') renderShareMapPicker(shareHost);
             }
-            if (catId === 'overlays') {
+            {
                 // Wire + hydrate the shared ATC Tag Studio (same controls as the
                 // mobile sheet; the methods are class-scoped so they drive every
                 // mounted instance). Fresh DOM each render, so the attach guard
@@ -19315,6 +19825,17 @@ renderCategory(catId) {
         };
         wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
+
+        // Window side: same preference the old move-window button kept, and
+        // applied to an open window straight away rather than on reopen.
+        document.querySelectorAll('.iw-seg[data-seg="flight-window-side"] .iw-seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const left = btn.dataset.mode === 'left';
+                localStorage.setItem('acWindowDock', left ? 'left' : 'right');
+                document.getElementById('aircraft-info-window')?.classList.toggle('dock-left', left);
+                btn.parentElement.querySelectorAll('.iw-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+            });
+        });
 
         // Pro time-zone picker — flight-window times in the user's own zone.
         const tzSelect = document.getElementById('set-user-timezone');
@@ -20645,6 +21166,19 @@ window.globalNatTracks = natTracks;
 
         // --- 14. Listen for iframe messages (ND_READY, simple-window stats/actions/resize) ---
         window.addEventListener('message', (event) => {
+            // A pilot card inside the Simple / Card flight window asks for the
+            // pilot's profile — the same one the primary window's card opens.
+            // Only honoured from that window's own iframe.
+            if (event.data && event.data.type === 'OPEN_PILOT_PROFILE') {
+                const frame = document.getElementById('simple-flight-window-frame');
+                const uname = typeof event.data.username === 'string' ? event.data.username.trim() : '';
+                if (frame && event.source === frame.contentWindow && uname) {
+                    const props = currentFlightInWindow && currentMapFeatures[currentFlightInWindow]?.properties;
+                    const userId = props && String(props.username || '').toLowerCase() === uname.toLowerCase() ? props.userId : null;
+                    openPilotProfile(uname, userId);
+                }
+                return;
+            }
             if (event.data && event.data.type === 'ND_READY') {
                 refreshNavDisplayFromCache();
             }
@@ -23188,6 +23722,60 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     show(0);
 }
 
+// The pilot tab wears the pilot's InFlight profile (made in the iOS app):
+// their picture in the avatar, their banner behind the name. Synchronous on a
+// cache hit so a re-rendered window doesn't flash back to initials.
+function decoratePilotTab(btn) {
+    const uname = btn?.dataset.username;
+    if (!uname || uname === 'N/A') return;
+    const apply = (profile) => {
+        if (!profile || !btn.isConnected) return;
+        btn.classList.add('has-profile');
+        const banner = btn.querySelector('.ac-pilot-banner');
+        if (banner) {
+            banner.style.backgroundImage = profile.bannerUrl
+                ? `url("${profile.bannerUrl}"), ${profile.bannerGradient}`
+                : profile.bannerGradient;
+        }
+        const avatar = btn.querySelector('.ac-pilot-avatar');
+        if (avatar && profile.avatarUrl) {
+            const img = new Image();
+            img.alt = '';
+            img.onload = () => { if (avatar.isConnected) { avatar.textContent = ''; avatar.appendChild(img); } };
+            img.src = profile.avatarUrl;
+        }
+    };
+    const cached = PilotProfiles.peek(uname);
+    if (cached !== undefined) apply(cached);
+    else PilotProfiles.byIfUsername(uname).then(apply);
+}
+
+// Every pilot card — desktop window, phone sheet, and any cloned copy of it —
+// opens the pilot's profile. Capture phase, so it runs before (and stops)
+// the window's own tab handlers, which would otherwise switch panes.
+if (typeof document !== 'undefined' && !window.__pilotCardClickBound) {
+    window.__pilotCardClickBound = true;
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest && e.target.closest('.ac-info-tab-btn.pilot-tab-btn');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const uname = btn.dataset.username;
+        if (uname && uname !== 'N/A') openPilotProfile(uname, btn.dataset.userId);
+    }, true);
+}
+
+function openPilotProfile(username, userId) {
+    const id = userId && userId !== 'undefined' && userId !== 'null' ? userId : null;
+    if (window.LandingUI?.openUserProfile) {
+        window.LandingUI.openUserProfile(username, id);
+        return;
+    }
+    import('./UserProfileUI.js')
+        .then(m => m.UserProfileUI.open({ username, userId: id }))
+        .catch(err => console.error('Failed to load UserProfileUI:', err));
+}
+
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
     // --- Safety Check: Ensure the container exists ---
     const windowEl = document.getElementById('aircraft-info-window');
@@ -23338,7 +23926,9 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const hasPlan = originalFlatWaypoints.length >= 2;
 
     // --- State Persistence Logic ---
-    const currentActiveTab = windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data';
+    // There is no tab switch any more (the pilot card opens a profile
+    // instead), so the window always shows the flight data.
+    const currentActiveTab = 'ac-tab-flight-data';
     const currentViewTarget = windowEl.querySelector('.display-toggle-btn.active')?.dataset.target || 'nd-view';
 
     // --- Aircraft Info ---
@@ -23705,15 +24295,20 @@ let totalDistanceNM = 0;
         <div id="ac-route-map-strip" style="display: none; margin: 12px 16px 0 16px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);"></div>
         </div>
 
-    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
+    <div class="ac-info-window-tabs${pilotUsername === 'N/A' ? ' no-pilot' : ''}" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
             <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; min-width: 0; background: #24272f; border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.08); height: 44px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);">
                  <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-gauge-high" style="flex-shrink: 0;"></i>
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Flight Display</span>
                  </button>
                  <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" title="${pilotReportTabText}" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <!-- Desktop: the pilot's InFlight profile banner and picture
+                         (decoratePilotTab). Hidden at <=768px by CSS. -->
+                    <span class="ac-pilot-banner" aria-hidden="true"></span>
+                    <span class="ac-pilot-avatar" aria-hidden="true">${pilotUsername !== 'N/A' ? pilotUsername.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() : ''}</span>
                     <i class="fa-solid fa-chart-simple" style="flex-shrink: 0;"></i>
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pilotReportTabText}</span>
+                    <span class="ac-pilot-go" aria-hidden="true">View profile <i class="fa-solid fa-chevron-right"></i></span>
                  </button>
                  <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3a3f4a; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX}); box-shadow: 0 6px 16px rgba(0,0,0,0.22);"></div>
             </div>
@@ -24211,8 +24806,19 @@ let totalDistanceNM = 0;
     const mainHighlight = windowEl.querySelector('#main-switcher-highlight');
     const tabPanes = windowEl.querySelectorAll('.ac-tab-pane');
 
+    // Desktop: the pilot tab is the pilot's profile card, and opens their
+    // profile (the same one the search bar opens) instead of the Pilot Report
+    // pane. Phones keep the pane.
+    const pilotTabBtn = windowEl.querySelector('.ac-info-tab-btn.pilot-tab-btn');
+    decoratePilotTab(pilotTabBtn);
+
     mainTabBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {
+            const uname = btn.dataset.username;
+            // The pilot card is handled by the capture listener in
+            // decoratePilotTab's section (it also covers the phone sheet's
+            // cloned copies); it never switches panes.
+            if (btn === pilotTabBtn) return;
             mainTabBtns.forEach(b => {
                 b.classList.remove('active');
                 b.style.color = '#94a3b8';
