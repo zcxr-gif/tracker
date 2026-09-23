@@ -158,8 +158,14 @@ async function collect() {
     return { ok: true, tracks, sources, fetchedAt: new Date().toISOString() };
 }
 
+// An answer with no tracks (every source failed, or had nothing) is retried
+// after a minute rather than held for the full 15, here and in the CDN and
+// browser caches — otherwise one refused request blanks the map for a while.
+const EMPTY_CACHE_MS = 60 * 1000;
+
 exports.handler = async () => {
-    if (!cache || Date.now() - cache.at > CACHE_MS) {
+    const ttl = cache && cache.body.tracks.length ? CACHE_MS : EMPTY_CACHE_MS;
+    if (!cache || Date.now() - cache.at > ttl) {
         const body = await collect();
         // An empty fetch doesn't replace a good answer from the last 12 hours
         // (the source hiccuped); older than that, the tracks have expired and
@@ -173,7 +179,7 @@ exports.handler = async () => {
         headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'public, max-age=900',
+            'Cache-Control': `public, max-age=${(cache.body.tracks.length ? CACHE_MS : EMPTY_CACHE_MS) / 1000}`,
         },
         body: JSON.stringify(cache.body),
     };
