@@ -7,6 +7,7 @@
  */
 
 import { ProAccess } from './proAccess.js';
+import { PilotCardEditor } from './pilotCardEditor.js';
 import { StripeCheckoutModal } from './stripeCheckoutModal.js';
 import { CareerModule } from './careerModule.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
@@ -3195,6 +3196,9 @@ init(supabaseClient) {
                   <i class="fa-solid fa-chevron-right mdui-row-chev"></i>
               </button>
 
+              <!-- Picture & banner (the iOS app's pilot profile), see pilotCardEditor.js -->
+              <div id="mdui-pilot-card-editor"></div>
+
               <!-- Profile -->
               <div class="mdui-section">
                   <div class="mdui-section-title">Profile</div>
@@ -4180,6 +4184,16 @@ _attachListeners() {
         }
 
         if (this._activeTab === 'settings') {
+            const pilotCardHost = document.getElementById('mdui-pilot-card-editor');
+            if (pilotCardHost) {
+                PilotCardEditor.mount(pilotCardHost, {
+                    supabase: this._supabase,
+                    isPro: this._isPro === true,
+                    user: this._currentUser,
+                    variant: 'mobile',
+                });
+            }
+
             // Identity hero acts as a "jump to name field" affordance.
             document.getElementById('mdui-edit-name-row')?.addEventListener('click', () => {
                 const target = document.getElementById('mdui-edit-name');

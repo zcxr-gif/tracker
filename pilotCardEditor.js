@@ -1,12 +1,15 @@
 /**
  * pilotCardEditor.js
  *
- * "Picture & banner" card in the account Settings page: the website's side of
+ * "Picture & banner" card in the account Settings — the desktop dashboard
+ * (ProfileUI) and the mobile one (MobileDashboardUI): the website's side of
  * the profile editor the iOS app has (see PROFILES.md in the iOS repo).
  *
  *   - No profile yet → claim a handle (that is what creates the row).
  *   - Picture: upload / remove. Free.
- *   - Banner: one of six painted presets for everyone; a photograph on Pro.
+ *   - Banner: one of six painted presets for everyone; a photograph on Pro
+ *     only. Free accounts see the photo option locked with a PRO tag, and a
+ *     lapsed account's saved photo is neither previewed nor re-uploadable.
  *
  * The server is the real gate: pilot_profiles' write guard and the
  * profile-image function refuse a photo banner from a free account whatever
@@ -54,10 +57,12 @@ export const PilotCardEditor = {
     _profile: null,
     _busy: false,
 
-    mount(host, { supabase, isPro = false, user = null } = {}) {
+    // variant: 'desktop' (a pui-card in the dashboard's Settings) or 'mobile'
+    // (an iOS-style section in MobileDashboardUI's Settings tab).
+    mount(host, { supabase, isPro = false, user = null, variant = 'desktop' } = {}) {
         if (!host || !supabase) return;
         this._host = host;
-        this._opts = { supabase, isPro, user };
+        this._opts = { supabase, isPro, user, variant };
         this._injectStyles();
         host.innerHTML = this._frame('<div class="pce-muted">Loading your profile…</div>');
         this._load();
@@ -72,6 +77,13 @@ export const PilotCardEditor = {
     },
 
     _frame(body) {
+        if (this._opts.variant === 'mobile') {
+            return `
+                <div class="mdui-section pce pce-mobile">
+                    <div class="mdui-section-title">Picture &amp; banner</div>
+                    <div class="pce-mobile-card" id="pce-body">${body}</div>
+                </div>`;
+        }
         return `
             <div class="pui-card pce">
                 <div class="pui-card-header"><h3>Picture &amp; banner</h3></div>
@@ -90,7 +102,12 @@ export const PilotCardEditor = {
 
         const p = this._profile;
         const { isPro } = this._opts;
-        const bannerBg = p.bannerUrl ? `url("${p.bannerUrl}"), ${presetGradient(p.bannerPreset)}` : presetGradient(p.bannerPreset);
+        // Your own row is read straight from the table, which (unlike the
+        // public card) still carries a banner photo after Pro lapses. Nobody
+        // else sees it then, so neither does the preview.
+        const bannerUrl = isPro ? p.bannerUrl : null;
+        const keptPhoto = !isPro && !!p.row?.banner_path;
+        const bannerBg = bannerUrl ? `url("${bannerUrl}"), ${presetGradient(p.bannerPreset)}` : presetGradient(p.bannerPreset);
         const avatar = p.avatarUrl
             ? `<img src="${esc(p.avatarUrl)}" alt="">`
             : esc(initials(p.displayName));
@@ -121,17 +138,26 @@ export const PilotCardEditor = {
                         <span>${BANNER_PRESET_LABELS[k]}</span>
                     </button>`).join('')}
             </div>
+            <div class="pce-label">Photo banner <span class="pce-pro">PRO</span></div>
             ${isPro ? `
                 <div class="pce-row">
                     <label class="pce-btn">
                         <input type="file" accept="image/jpeg,image/png,image/webp" data-upload="banner" hidden>
-                        <i class="fa-solid fa-image"></i> ${p.bannerUrl ? 'Change banner photo' : 'Use a photo'}
+                        <i class="fa-solid fa-image"></i> ${bannerUrl ? 'Change banner photo' : 'Upload a photo'}
                     </label>
-                    ${p.bannerUrl ? '<button type="button" class="pce-btn pce-quiet" data-remove="banner">Remove photo</button>' : ''}
+                    ${bannerUrl ? '<button type="button" class="pce-btn pce-quiet" data-remove="banner">Remove photo</button>' : ''}
                 </div>
-                <p class="pui-help-text">A photo sits over the painted banner, which shows while it loads.</p>
+                <p class="pce-help">Your photo replaces the painted banner. The painted one still shows while it loads.</p>
             ` : `
-                <p class="pui-help-text"><i class="fa-solid fa-lock"></i> A photo banner is part of Inflight Pro. Everyone gets the painted ones.</p>
+                <div class="pce-row">
+                    <button type="button" class="pce-btn pce-locked" disabled aria-disabled="true">
+                        <i class="fa-solid fa-lock"></i> Upload a photo
+                    </button>
+                    ${keptPhoto ? '<button type="button" class="pce-btn pce-quiet" data-remove="banner">Remove saved photo</button>' : ''}
+                </div>
+                <p class="pce-help">${keptPhoto
+                    ? 'Your banner photo is saved and comes back when you are on Inflight Pro again. Until then everyone sees your painted banner.'
+                    : 'Photo banners are an Inflight Pro feature. Everyone can use the painted banners above.'}</p>
             `}
             <div class="pce-msg" id="pce-msg" role="status"></div>
         `);
@@ -144,19 +170,17 @@ export const PilotCardEditor = {
         const suggestion = String(ifName || user?.email?.split('@')[0] || '')
             .toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').slice(0, 20);
         this._paint(`
-            <p class="pui-help-text" style="margin-top:0">
+            <p class="pce-help" style="margin-top:0">
                 Pick a handle to create your pilot profile. It is what your picture and banner hang on,
                 and what people see when they open your aircraft on the map.
             </p>
-            <div class="pui-input-group">
-                <label>Handle</label>
-                <div class="pui-input-wrapper">
-                    <i class="fa-solid fa-at pui-input-icon"></i>
-                    <input type="text" id="pce-handle" class="pui-input has-icon" maxlength="20" value="${esc(suggestion)}" autocomplete="off" spellcheck="false">
-                </div>
-                <p class="pui-help-text">3–20 characters: lowercase letters, numbers and single underscores.</p>
+            <label class="pce-label" for="pce-handle">Handle</label>
+            <div class="pce-handle-wrap">
+                <span>@</span>
+                <input type="text" id="pce-handle" class="pce-input" maxlength="20" value="${esc(suggestion)}" autocomplete="off" autocapitalize="off" spellcheck="false">
             </div>
-            <div class="pce-row"><button type="button" class="pui-btn-primary" id="pce-claim">Create profile</button></div>
+            <p class="pce-help">3–20 characters: lowercase letters, numbers and single underscores.</p>
+            <div class="pce-row"><button type="button" class="pce-btn pce-primary" id="pce-claim">Create profile</button></div>
             <div class="pce-msg" id="pce-msg" role="status"></div>
         `);
         this._host.querySelector('#pce-claim')?.addEventListener('click', () => this._claim());
@@ -207,7 +231,8 @@ export const PilotCardEditor = {
     },
 
     async _upload(kind, file) {
-        const { supabase } = this._opts;
+        const { supabase, isPro } = this._opts;
+        if (kind === 'banner' && !isPro) { this._say('Photo banners are an Inflight Pro feature.', true); return; }
         await this._run(async () => {
             this._say(kind === 'avatar' ? 'Uploading your picture…' : 'Uploading your banner…');
             const data = await encodeJpeg(file, kind);
@@ -310,6 +335,29 @@ export const PilotCardEditor = {
                 color: #fff; font: inherit; font-size: .62rem; font-weight: 700; text-shadow: 0 1px 3px rgba(0,0,0,.6);
             }
             .pce-swatch.is-active { border-color: var(--pui-accent, #fff); box-shadow: 0 0 0 2px rgba(0,0,0,.35) inset; }
+            .pce-help { font-size: .78rem; line-height: 1.45; color: var(--pui-text-muted, #8e8e93); margin: 8px 0 0; }
+            .pce-pro {
+                display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 5px;
+                font-size: .6rem; letter-spacing: .06em; color: #1c1c1e;
+                background: linear-gradient(135deg, #f5d27a, #e0a93b); vertical-align: 1px;
+            }
+            .pce-locked { opacity: .55; cursor: not-allowed; }
+            .pce-locked:hover { filter: none; }
+            .pce-primary { background: #0a84ff; border-color: #0a84ff; color: #fff; }
+            .pce-handle-wrap {
+                display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px; border-radius: 10px;
+                background: var(--pui-bg-input, rgba(255,255,255,.08)); border: 1px solid var(--pui-border, rgba(255,255,255,.12));
+            }
+            .pce-handle-wrap span { opacity: .6; }
+            .pce-input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: inherit; font: inherit; font-size: 16px; }
+            /* Mobile: an inset card in the Settings tab's iOS style. */
+            .pce-mobile-card {
+                background: var(--mdui-bg-card, rgba(44, 44, 46, 0.9)); border-radius: 14px; padding: 14px;
+            }
+            .pce-mobile .pce-preview { height: 104px; margin-bottom: 40px; }
+            .pce-mobile .pce-avatar { width: 68px; height: 68px; bottom: -32px; left: 12px; border-color: var(--mdui-bg-card, #2c2c2e); }
+            .pce-mobile .pce-ident { margin: -30px 0 14px 92px; }
+            .pce-mobile .pce-btn { height: 40px; }
             .pce-msg { min-height: 1.2em; margin-top: 12px; font-size: .85rem; color: var(--pui-text-muted, #94a3b8); }
             .pce-msg.is-error { color: #f87171; }
             @media (max-width: 560px) { .pce-swatches { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
