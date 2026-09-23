@@ -869,13 +869,13 @@ export const LandingUI = {
                                 <button class="spread-opt" data-weather="clouds"><i class="fa-solid fa-cloud"></i><span class="spread-label">Clouds</span></button>
                                 <button class="spread-opt" data-weather="wind"><i class="fa-solid fa-wind"></i><span class="spread-label">Wind</span></button>
                             </div>
-                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun-rain"></i><span class="tab-label">Weather</span></button>
+                            <button class="orb-btn" id="tile-weather" aria-label="Weather"><i class="fa-solid fa-cloud-sun"></i><span class="tab-label">Weather</span></button>
                         </div>
 
                         <div class="nexus-orb-wrapper">
                             <div class="nexus-preview-tooltip" id="filters-preview-tooltip"></div>
                             <button class="orb-btn nexus-trigger" id="toggle-filter-modal" aria-label="Filters">
-                                <i class="fa-solid fa-filter"></i>
+                                <i class="fa-solid fa-sliders"></i>
                                 <span class="tab-label">Filters</span>
                                 <div id="filter-active-dot" class="active-pulse-dot"></div>
                             </button>
@@ -883,7 +883,7 @@ export const LandingUI = {
 
                         <div class="nexus-orb-wrapper desktop-only-tab">
                             <button class="orb-btn" id="tile-atc" aria-label="Active ATC">
-                                <i class="fa-solid fa-tower-broadcast"></i>
+                                <i class="fa-solid fa-headset"></i>
                                 <span class="tab-label">ATC</span>
                                 <div id="atc-active-dot" class="active-pulse-dot"></div>
                             </button>
@@ -895,7 +895,7 @@ export const LandingUI = {
                              hosts it on phones only exists at 768px and under. -->
                         <div class="nexus-orb-wrapper desktop-only-tab">
                             <button class="orb-btn" id="tile-network" aria-label="Network activity">
-                                <i class="fa-solid fa-chart-simple"></i>
+                                <i class="fa-solid fa-chart-line"></i>
                                 <span class="tab-label">Network</span>
                             </button>
                         </div>
@@ -906,7 +906,7 @@ export const LandingUI = {
                              reaches it. -->
                         <div class="nexus-orb-wrapper desktop-only-tab">
                             <button class="orb-btn" id="tile-nearby" aria-label="Nearby traffic">
-                                <i class="fa-solid fa-satellite-dish"></i>
+                                <i class="fa-solid fa-location-crosshairs"></i>
                                 <span class="tab-label">Nearby</span>
                             </button>
                         </div>
@@ -915,7 +915,7 @@ export const LandingUI = {
                              photos from the iOS tab bar's Photos tab. -->
                         <div class="nexus-orb-wrapper desktop-only-tab">
                             <a class="orb-btn" id="tile-gallery" href="gallery.html" aria-label="Gallery" title="InFlight Spotters gallery">
-                                <i class="fa-solid fa-images"></i>
+                                <i class="fa-solid fa-camera"></i>
                                 <span class="tab-label">Gallery</span>
                             </a>
                         </div>
@@ -3044,7 +3044,7 @@ export const LandingUI = {
                     padding: 0 12px;
                     display: flex;
                     align-items: center;
-                    gap: 4px;
+                    gap: 12px;
                     border-radius: 14px;
                     color: #fff;
                     font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -3253,9 +3253,10 @@ export const LandingUI = {
             }
 
             /* Everything has to fit: drop the nav labels first... */
-            @media (min-width: 769px) and (max-width: 1319px) {
+            @media (min-width: 769px) and (max-width: 1399px) {
                 #inflight-tactical-ui .orb-row .tab-label { display: none; }
                 #inflight-tactical-ui .orb-row .orb-btn { width: 32px; padding: 0; }
+                #inflight-tactical-ui { gap: 8px; }
             }
             /* ...then the wordmark and the account label. */
             @media (min-width: 769px) and (max-width: 999px) {
