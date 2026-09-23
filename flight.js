@@ -4931,7 +4931,7 @@ function injectCustomStyles() {
 
         /* Pilot tab as the pilot's profile card (desktop). The banner and
            avatar exist in the markup at every width but only show here. */
-        .ac-pilot-banner, .ac-pilot-avatar { display: none; }
+        .ac-pilot-banner, .ac-pilot-avatar, .ac-pilot-go { display: none; }
         @media (min-width: 769px) {
             .ac-info-tab-btn.pilot-tab-btn {
                 position: relative;
@@ -4962,6 +4962,38 @@ function injectCustomStyles() {
             }
             .ac-pilot-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
             .ac-pilot-avatar:empty { display: none; }
+
+            /* The whole bar is the pilot card: no Flight Display switch (it
+               had nothing left to switch to), no sliding highlight, and no
+               move-window button (it lives in Settings › Flight Window). */
+            #main-data-switcher > .ac-info-tab-btn:not(.pilot-tab-btn),
+            #main-switcher-highlight,
+            .ac-info-window-tabs #ac-dock-toggle-btn { display: none !important; }
+            .ac-info-window-tabs.no-pilot { display: none !important; }
+            #main-data-switcher {
+                padding: 0 !important;
+                height: 56px !important;
+                overflow: hidden;
+            }
+            #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
+                border-radius: 12px;
+                gap: 12px !important;
+                padding: 0 16px 0 12px !important;
+                font-size: 12px !important;
+            }
+            #main-data-switcher .ac-pilot-avatar { width: 34px; height: 34px; font-size: 11px; }
+            .ac-pilot-go {
+                margin-left: auto;
+                flex: 0 0 auto;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 9px;
+                letter-spacing: 1px;
+                opacity: 0.75;
+            }
+            .ac-pilot-go i { font-size: 9px; }
+            .ac-info-tab-btn.pilot-tab-btn:hover .ac-pilot-go { opacity: 1; }
             .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner {
                 display: block;
                 position: absolute;
@@ -19042,6 +19074,13 @@ renderCategory(catId) {
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'simple' ? ' active' : ''}" data-mode="simple"><i class="fa-solid fa-window-maximize"></i> Simple</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
                             </div>
+                            <!-- Which side of the map the flight window opens on.
+                                 Used to be a button in the window's own tab bar. -->
+                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
+                            <div class="iw-seg" data-seg="flight-window-side">
+                                <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') === 'left' ? ' active' : ''}" data-mode="left"><i class="fa-solid fa-arrow-left"></i> Left</button>
+                                <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') !== 'left' ? ' active' : ''}" data-mode="right"><i class="fa-solid fa-arrow-right"></i> Right</button>
+                            </div>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
@@ -19373,6 +19412,17 @@ renderCategory(catId) {
         };
         wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
+
+        // Window side: same preference the old move-window button kept, and
+        // applied to an open window straight away rather than on reopen.
+        document.querySelectorAll('.iw-seg[data-seg="flight-window-side"] .iw-seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const left = btn.dataset.mode === 'left';
+                localStorage.setItem('acWindowDock', left ? 'left' : 'right');
+                document.getElementById('aircraft-info-window')?.classList.toggle('dock-left', left);
+                btn.parentElement.querySelectorAll('.iw-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+            });
+        });
 
         // Pro time-zone picker — flight-window times in the user's own zone.
         const tzSelect = document.getElementById('set-user-timezone');
@@ -23435,7 +23485,11 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const hasPlan = originalFlatWaypoints.length >= 2;
 
     // --- State Persistence Logic ---
-    const currentActiveTab = windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data';
+    // Desktop has no tab switch any more (the pilot card opens a profile
+    // instead), so it always shows the flight data.
+    const currentActiveTab = window.innerWidth > 768
+        ? 'ac-tab-flight-data'
+        : (windowEl.querySelector('.ac-info-tab-btn.active')?.dataset.tab || 'ac-tab-flight-data');
     const currentViewTarget = windowEl.querySelector('.display-toggle-btn.active')?.dataset.target || 'nd-view';
 
     // --- Aircraft Info ---
@@ -23802,7 +23856,7 @@ let totalDistanceNM = 0;
         <div id="ac-route-map-strip" style="display: none; margin: 12px 16px 0 16px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.4);"></div>
         </div>
 
-    <div class="ac-info-window-tabs" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
+    <div class="ac-info-window-tabs${pilotUsername === 'N/A' ? ' no-pilot' : ''}" style="background: #3a3a3a; padding: 16px 16px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); border-bottom: 1px solid rgba(0,0,0,0.24);">
             <div class="modern-view-switcher" id="main-data-switcher" style="flex: 1; min-width: 0; background: #24272f; border-radius: 12px; padding: 4px; display: flex; position: relative; border: 1px solid rgba(255,255,255,0.08); height: 44px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);">
                  <button class="ac-info-tab-btn ${flightDataActiveClass}" data-tab="ac-tab-flight-data" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <i class="fa-solid fa-gauge-high" style="flex-shrink: 0;"></i>
@@ -23815,6 +23869,7 @@ let totalDistanceNM = 0;
                     <span class="ac-pilot-avatar" aria-hidden="true">${pilotUsername !== 'N/A' ? pilotUsername.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() : ''}</span>
                     <i class="fa-solid fa-chart-simple" style="flex-shrink: 0;"></i>
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pilotReportTabText}</span>
+                    <span class="ac-pilot-go" aria-hidden="true">View profile <i class="fa-solid fa-chevron-right"></i></span>
                  </button>
                  <div class="switcher-highlight" id="main-switcher-highlight" style="position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: calc(100% - 8px); background: #3a3f4a; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(${highlightX}); box-shadow: 0 6px 16px rgba(0,0,0,0.22);"></div>
             </div>
@@ -24321,10 +24376,10 @@ let totalDistanceNM = 0;
     mainTabBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {
             const uname = btn.dataset.username;
-            if (btn === pilotTabBtn && window.innerWidth > 768 && uname && uname !== 'N/A') {
+            if (btn === pilotTabBtn && window.innerWidth > 768) {
                 // The window's delegated tab handler must not switch panes too.
                 e.stopPropagation();
-                openPilotProfile(uname, btn.dataset.userId);
+                if (uname && uname !== 'N/A') openPilotProfile(uname, btn.dataset.userId);
                 return;
             }
             mainTabBtns.forEach(b => {
