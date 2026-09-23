@@ -1,665 +1,2976 @@
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InFlight | Aviation Gallery</title>
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>InFlight Spotters | Infinite Flight Aviation Photography</title>
+
+    <meta name="description" content="InFlight Spotters — community aircraft photography from Infinite Flight. Search by registration, aircraft type, airline, airport or photographer.">
+    <link rel="canonical" href="https://inflight.info/gallery.html">
+    <meta name="theme-color" content="#16181d">
+    <link rel="icon" href="Images/inflight.png">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="InFlight">
+    <meta property="og:title" content="InFlight Spotters">
+    <meta property="og:description" content="Community aircraft photography from Infinite Flight — search by registration, type, airline, airport or photographer.">
+    <meta property="og:url" content="https://inflight.info/gallery.html">
+    <meta property="og:image" content="https://inflight.info/Images/og-banner.png">
+    <meta name="twitter:card" content="summary_large_image">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
-                    },
-                    colors: {
-                        background: '#020617', 
-                        surface: '#0f172a',
-                        surfaceLight: '#1e293b',
-                        primary: '#6366f1',
-                        accent: '#38bdf8',
-                    }
-                }
-            }
-        }
-    </script>
 
     <style>
+        /* ==================================================================
+           InFlight Spotters — a light, print-like spotter layout: gray page,
+           white panels with gray title bars, one black masthead.
+           ================================================================== */
+        :root {
+            color-scheme: light;
+            --page:   #e7e9ec;
+            --card:   #ffffff;
+            --panel-head: #f2f4f6;
+            --strip:  #23272e;   /* dark caption bar under each photo */
+            --head:   #16181d;   /* masthead */
+            --ink:    #15181d;
+            --ink2:   #4d5561;
+            --muted:  #858d99;
+            --line:   #d3d8de;
+            --link:   #0b63ce;
+            --link-dk:#0a58b5;
+            --mat:    #1b1e24;   /* matting behind a photo */
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
         body {
-            background-color: #020617;
-            color: #f8fafc;
-            overflow-x: hidden;
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            background: var(--page);
+            color: var(--ink);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            -webkit-font-smoothing: antialiased;
+        }
+        body.no-scroll { overflow: hidden; }
+        img { display: block; max-width: 100%; }
+        button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+        a { color: inherit; text-decoration: none; }
+        input, select { font: inherit; }
+
+        .wrap { width: 100%; max-width: 1360px; margin: 0 auto; padding: 0 16px; }
+
+        /* ---------------- Masthead ----------------
+           An island: the bar floats on the gray page rather than spanning it. */
+        .masthead { background: transparent; color: #fff; padding: 12px 0 0; }
+        .masthead-inner {
+            display: flex; align-items: center; gap: 16px;
+            height: 66px; padding: 0 16px;
+            background: var(--head);
+            border-radius: 16px;
+            box-shadow: 0 6px 20px rgba(21, 24, 29, .18);
+        }
+        .masthead .mobile-search { padding: 8px 16px 0; }
+
+        .brand { display: inline-flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+        .brand-logo {
+            width: 34px; height: 34px; object-fit: contain;
+            flex: 0 0 auto;
+        }
+        .brand-mark { display: flex; flex-direction: column; justify-content: center; line-height: 1; }
+        .brand-word {
+            font-size: 1.05rem; font-weight: 900; letter-spacing: .16em;
+            text-transform: uppercase; white-space: nowrap;
+        }
+        /* SPOTTERS sits under INFLIGHT, small, and tracks out to the same width. */
+        .brand-sub {
+            margin-top: 3px; font-size: .55rem; font-weight: 700; letter-spacing: .43em;
+            text-transform: uppercase; color: #b9c0cb; white-space: nowrap;
         }
 
-        .nav-blur {
-            background: rgba(2, 6, 23, 0.75);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        .mast-nav { display: none; align-items: center; gap: 4px; margin-left: 10px; }
+        .mast-link {
+            padding: 8px 12px; border-radius: 7px;
+            font-size: .82rem; font-weight: 600; color: #c3cad4;
+            transition: background .15s ease, color .15s ease;
+        }
+        .mast-link:hover { color: #fff; background: rgba(255,255,255,.08); }
+        .mast-link.active { color: #fff; background: rgba(255,255,255,.14); }
+
+        .mast-search { position: relative; flex: 1 1 auto; max-width: 340px; display: none; }
+        .mast-search input {
+            width: 100%; height: 38px;
+            background: #ffffff; color: var(--ink);
+            border: 1px solid #3a4049; border-radius: 6px;
+            padding: 0 12px 0 34px; font-size: .86rem;
+        }
+        .mast-search input::placeholder { color: #98a0ac; }
+        .mast-search input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+        .mast-search .ic { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #7c8492; }
+
+        .icon-btn {
+            width: 38px; height: 38px; border-radius: 7px;
+            display: inline-flex; align-items: center; justify-content: center;
+            color: #dfe3e9;
+        }
+        .icon-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            height: 38px; padding: 0 16px; border-radius: 6px;
+            background: var(--link); color: #fff;
+            font-size: .84rem; font-weight: 700; white-space: nowrap;
+            transition: background .15s ease;
+        }
+        .btn:hover { background: var(--link-dk); }
+        .btn:disabled { background: #a9bdd8; cursor: not-allowed; }
+        .btn-lg { height: 42px; width: 100%; font-size: .9rem; }
+
+        .mobile-search { display: none; padding: 0 0 12px; }
+        .mobile-search.show { display: block; }
+        .mobile-search .mast-search { display: block; max-width: none; }
+
+        /* ---------------- Tab bar ---------------- */
+        /* The tab rail and the search belong to the feed. On a photo, the
+           upload form or the account they are chrome for a page you are not on,
+           so they go rather than sit there being tappable. */
+        .tabbar { position: sticky; top: 8px; z-index: 30; padding: 10px 0 0; }
+        body:not(.browsing) .tabbar,
+        body:not(.browsing) .mast-search,
+        body:not(.browsing) #mobile-search-btn,
+        body:not(.browsing) #mobile-search { display: none; }
+        .tabs {
+            display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 0 6px;
+            box-shadow: 0 4px 14px rgba(21, 24, 29, .08);
+        }
+        .tabs::-webkit-scrollbar { display: none; }
+        .tab {
+            position: relative; flex: 0 0 auto;
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 13px 14px;
+            font-size: .82rem; font-weight: 700; color: var(--ink2);
+            white-space: nowrap;
+        }
+        .tab:hover { color: var(--ink); }
+        .tab.active { color: var(--link); }
+        .tab.active::after {
+            content: ''; position: absolute; left: 10px; right: 10px; bottom: 6px;
+            height: 3px; background: var(--link); border-radius: 3px;
         }
 
-        .text-gradient {
-            background: linear-gradient(to bottom, #fff 30%, rgba(255, 255, 255, 0.4));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        /* ---------------- Panels ---------------- */
+        .panel { background: var(--card); border: 1px solid var(--line); border-radius: 4px; margin-bottom: 16px; }
+        .panel-head {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 9px 12px;
+            background: var(--panel-head);
+            border-bottom: 1px solid var(--line);
+            font-size: .66rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase;
+            color: var(--ink2);
+        }
+        .panel-head .more { font-size: .64rem; font-weight: 700; color: var(--link); letter-spacing: .06em; }
+        .panel-head .more:hover { text-decoration: underline; }
+        .panel-body { padding: 12px; }
+
+        /* ---------------- Photo tiles ---------------- */
+        .grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        @media (min-width: 720px)  { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1100px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1500px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+        .tile {
+            position: relative; display: block; width: 100%; text-align: left;
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 4px; overflow: hidden;
+            transition: box-shadow .18s ease, border-color .18s ease;
+        }
+        .tile:hover { border-color: #9fb3c8; box-shadow: 0 6px 18px rgba(21, 24, 29, .16); }
+        .tile-frame { display: block; position: relative; aspect-ratio: 3 / 2; background: var(--mat); overflow: hidden; }
+        .tile-frame img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s ease; }
+        .tile:hover .tile-frame img { transform: scale(1.04); }
+        /* Submissions — what happened to a photo you sent in. */
+        .sub { padding: 10px 12px; border-bottom: 1px solid #edeff2; }
+        .sub:last-child { border-bottom: 0; }
+        .sub-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .sub-ac { flex: 1 1 auto; min-width: 0; font-size: .84rem; font-weight: 600; }
+        .sub-ac .muted { font-weight: 500; }
+        .sub-date { font-size: .73rem; color: var(--muted); white-space: nowrap; }
+        .sub-reason {
+            margin: 7px 0 0; padding: 8px 10px; border-radius: 4px;
+            background: #fdf2f2; border: 1px solid #f3cfcf;
+            font-size: .8rem; color: #7c2020; line-height: 1.45;
+        }
+        .sub-link { margin-top: 6px; font-size: .78rem; }
+        .pill {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 9px; border-radius: 999px;
+            font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+            white-space: nowrap;
+        }
+        .pill.pending { background: #fff5e2; color: #8a5a00; border: 1px solid #f0d08a; }
+        .pill.approved { background: #eefaf1; color: #14612f; border: 1px solid #b6e3c4; }
+        .pill.rejected { background: #fdeceb; color: #9b1c16; border: 1px solid #f3c2bf; }
+        .sub-summary { display: flex; gap: 14px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--line); background: #fafbfc; }
+        .sub-summary div { font-size: .78rem; color: var(--ink2); }
+        .sub-summary b { color: var(--ink); }
+
+        .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+        .badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 10px; border-radius: 999px;
+            border: 1px solid var(--line); background: #fff;
+            font-size: .73rem; font-weight: 700; color: var(--ink2);
+            cursor: default;
+        }
+        .badge .ic { display: inline-flex; color: var(--link); }
+        .badge.gold { background: #fff8e6; border-color: #f0d08a; color: #7a5600; }
+        .badge.gold .ic { color: #c08a00; }
+        .badge.silver { background: #f3f5f8; border-color: #cdd4dd; color: #46505e; }
+        .badge.silver .ic { color: #6b7686; }
+        .badge.rose { background: #fff0f4; border-color: #f5c2d1; color: #8c1d3c; }
+        .badge.rose .ic { color: #e0245e; }
+        .badge.green { background: #eefaf1; border-color: #b6e3c4; color: #14612f; }
+        .badge.green .ic { color: #0a7d32; }
+        .tile-badge {
+            position: absolute; top: 8px; left: 8px;
+            display: inline-flex; align-items: center; gap: 4px;
+            background: rgba(22, 24, 29, .82); color: #fff;
+            font-size: .6rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+            padding: 3px 7px; border-radius: 3px;
         }
 
-        /* Cinematic Cards */
-        .glow-card {
-            position: relative;
-            background: rgba(15, 23, 42, 0.4);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-            overflow: hidden;
+        /* Likes ride on the photo itself so they are readable while scrolling,
+           and they are a button: liking should not need a detour through the
+           photo page. */
+        .tile-likes {
+            left: 8px; right: auto; top: auto; bottom: 8px;
+            gap: 5px; padding: 4px 9px; font-size: .7rem; letter-spacing: 0;
+            text-transform: none; cursor: pointer;
+        }
+        .tile-likes:hover { background: rgba(2, 6, 23, .92); border-color: rgba(255,255,255,.3); }
+        .tile-likes.on { background: #e0245e; border-color: #e0245e; color: #fff; }
+        .tile-likes .heart { display: inline-flex; }
+
+        .tile-meta { display: block; background: var(--strip); color: #fff; padding: 7px 9px 8px; }
+        .tile-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+        .tile-shooter { font-size: .78rem; font-weight: 600; color: #f0f2f5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tile-reg { font-family: 'JetBrains Mono', monospace; font-size: .74rem; font-weight: 600; color: #ffffff; white-space: nowrap; }
+        .tile-sub { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 3px; font-size: .68rem; color: #a7aeba; }
+        .tile-sub span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tile-sub .right { color: #8d95a2; }
+
+        /* ---------------- Newest mosaic ---------------- */
+        .mosaic { display: grid; gap: 8px; grid-template-columns: repeat(2, 1fr); padding: 8px; }
+        @media (min-width: 720px) { .mosaic { grid-template-columns: repeat(4, 1fr); } }
+        .shot { position: relative; overflow: hidden; border-radius: 3px; background: var(--mat); display: block; width: 100%; text-align: left; }
+        .shot img { width: 100%; height: 100%; object-fit: cover; transition: transform .6s ease; }
+        .shot:hover img { transform: scale(1.05); }
+        .shot-cap {
+            display: block;
+            position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 10px 8px;
+            background: linear-gradient(to top, rgba(10,12,16,.92), rgba(10,12,16,0));
+            color: #fff;
+        }
+        .shot-cap .t { font-size: .8rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .shot-cap .s { font-size: .68rem; color: #c3cad4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .shot.lead { grid-column: span 2; aspect-ratio: 16 / 10; }
+        /* The lead photo fills both rows of smalls rather than keeping its own
+           ratio, so the mosaic has no empty corner. */
+        @media (min-width: 720px) { .shot { aspect-ratio: 4 / 3; } .shot.lead { grid-row: span 2; aspect-ratio: auto; height: 100%; } }
+        @media (max-width: 719px) { .shot { aspect-ratio: 4 / 3; } .shot.d-none-sm { display: none; } }
+
+        /* ---------------- Toolbar ---------------- */
+        .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; }
+        .count { font-size: .78rem; color: var(--ink2); font-weight: 600; }
+        .spacer { flex: 1 1 auto; }
+        .sort-label { font-size: .62rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); }
+        select.sort {
+            height: 32px; border: 1px solid var(--line); border-radius: 4px;
+            background: #fff; padding: 0 8px; font-size: .8rem; color: var(--ink);
         }
 
-        .glow-card::before {
-            content: "";
-            position: absolute;
-            inset: -1px;
-            background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(99, 102, 241, 0.4) 0%, transparent 60%);
-            border-radius: inherit;
-            z-index: 1;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s ease;
+        .chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 10px; border-radius: 999px;
+            border: 1px solid var(--line); background: #fff;
+            font-size: .74rem; font-weight: 600; color: var(--ink2);
+            transition: all .15s ease;
+        }
+        .chip:hover { border-color: var(--link); color: var(--link); background: #f3f8ff; }
+        .chip.on { background: var(--link); border-color: var(--link); color: #fff; }
+        .chip.on:hover { background: var(--link-dk); color: #fff; }
+
+        /* ---------------- Browsing controls ----------------
+           Borrowed from the reference sites: a time window like
+           Airplane-Pictures' 48h/week/month/year switch, an A–Z index rail
+           like Planespotters' airline index, a grid/list density toggle like
+           Airliners' list view, and a field-by-field advanced search. */
+        .toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 12px 10px; }
+        .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+        .seg button {
+            padding: 5px 10px; font-size: .74rem; font-weight: 700; color: var(--ink2);
+            border-right: 1px solid var(--line); background: #fff; white-space: nowrap;
+        }
+        .seg button:last-child { border-right: 0; }
+        .seg button:hover { background: #f2f5f9; }
+        .seg button.on { background: var(--link); color: #fff; }
+
+        .letters { display: flex; flex-wrap: wrap; gap: 3px; padding: 8px 12px; border-top: 1px solid #edeff2; }
+        .letters button {
+            min-width: 25px; height: 25px; padding: 0 5px; border-radius: 4px;
+            font-size: .73rem; font-weight: 700; color: var(--ink2); border: 1px solid transparent;
+        }
+        .letters button:hover { background: #eef2f7; color: var(--link); }
+        .letters button.on { background: var(--link); color: #fff; }
+        .letters button:disabled { color: #c3c9d1; cursor: default; background: none; }
+
+        .adv { display: none; padding: 12px; border-top: 1px solid #edeff2; background: #fafbfc; }
+        .adv.show { display: block; }
+        .adv-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        @media (min-width: 860px) { .adv-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        .adv label { display: block; font-size: .62rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+        .adv input {
+            width: 100%; height: 34px; padding: 0 9px;
+            border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: .82rem;
+        }
+        .adv input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+        .adv-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+
+        /* Profile header — the airframe / airline / photographer page header
+           that Planespotters and JetPhotos put above a filtered result set. */
+        .profile { display: flex; gap: 14px; padding: 14px; align-items: center; }
+        .profile-art { width: 132px; aspect-ratio: 3/2; border-radius: 4px; overflow: hidden; background: var(--mat); flex: 0 0 auto; }
+        .profile-art img { width: 100%; height: 100%; object-fit: cover; }
+        .profile-kind { font-size: .62rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); }
+        .profile h2 { margin: 2px 0 8px; font-size: 1.3rem; font-weight: 800; letter-spacing: -.01em; }
+        .profile-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+        .profile-stats div { min-width: 74px; }
+        .profile-stats dt { font-size: .6rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+        .profile-stats dd { margin: 1px 0 0; font-size: .95rem; font-weight: 800; }
+        @media (max-width: 560px) { .profile-art { width: 92px; } .profile h2 { font-size: 1.05rem; } }
+
+        /* Photo of the day ribbon */
+        .ribbon {
+            position: absolute; top: 10px; left: 10px; z-index: 2;
+            display: inline-flex; align-items: center; gap: 5px;
+            background: #f0b429; color: #231a02;
+            font-size: .6rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase;
+            padding: 4px 9px; border-radius: 3px;
         }
 
-        .glow-card:hover::before { opacity: 1; }
-        .glow-card:hover {
-            border-color: rgba(99, 102, 241, 0.4);
-            transform: translateY(-4px);
-            box-shadow: 0 30px 60px -15px rgba(0,0,0,0.8);
+        /* List view — one dense row per photo, Airliners-style */
+        .list { background: var(--card); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+        .lrow {
+            display: grid; align-items: center; gap: 10px; width: 100%; text-align: left;
+            grid-template-columns: 74px minmax(0,1fr);
+            padding: 7px 10px; border-bottom: 1px solid #edeff2;
+        }
+        @media (min-width: 720px) {
+            .lrow { grid-template-columns: 84px 7rem minmax(0,1fr) minmax(0,10rem) minmax(0,9rem) 6.5rem; }
+        }
+        .lrow:last-child { border-bottom: 0; }
+        .lrow:hover { background: #f2f5f9; }
+        .lrow img { width: 100%; aspect-ratio: 3/2; object-fit: cover; border-radius: 3px; background: var(--mat); }
+        .lrow .c-reg { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--link); font-size: .8rem; }
+        .lrow .c-type { font-size: .82rem; font-weight: 600; }
+        .lrow .c-air, .lrow .c-shooter { font-size: .78rem; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .lrow .c-date { font-size: .73rem; color: var(--muted); white-space: nowrap; }
+        .lrow .stack { display: grid; gap: 1px; }
+        @media (min-width: 720px) { .lrow .stack .c-sub { display: none; } }
+        .lrow .c-sub { font-size: .72rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* ---------------- Sidebar bits ---------------- */
+        .layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; padding: 16px 0 28px; }
+        @media (min-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr) 320px; } }
+
+        .person { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border-radius: 4px; text-align: left; }
+        .person:hover { background: #f2f5f9; }
+        .person .rank { width: 14px; font-family: 'JetBrains Mono', monospace; font-size: .7rem; color: var(--muted); }
+        .person img { width: 32px; height: 32px; border-radius: 999px; border: 1px solid var(--line); }
+        .person .n { font-size: .83rem; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .person .c { font-size: .7rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+        .row {
+            display: grid; grid-template-columns: 5.4rem minmax(0, 1fr) auto; gap: 8px; align-items: center;
+            width: 100%; text-align: left;
+            padding: 8px 12px; border-bottom: 1px solid #edeff2; font-size: .76rem;
+        }
+        .row:last-child { border-bottom: 0; }
+        .row:hover { background: #f2f5f9; }
+        .row .reg { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--link); }
+        .row .ac { color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .row .dt { color: var(--muted); font-size: .7rem; white-space: nowrap; }
+
+        .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; }
+        .nums dt { font-size: .62rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+        .nums dd { margin: 2px 0 0; font-size: 1.15rem; font-weight: 800; color: var(--ink); }
+
+        .muted { color: var(--muted); }
+        .note { font-size: .72rem; color: var(--muted); line-height: 1.5; }
+        .empty { grid-column: 1 / -1; padding: 56px 16px; text-align: center; color: var(--muted); font-size: .9rem; }
+        .skel { background: linear-gradient(90deg, #dfe3e8 25%, #eef1f4 50%, #dfe3e8 75%); background-size: 200% 100%; animation: sh 1.3s infinite; border-radius: 4px; }
+        @keyframes sh { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+        /* ---------------- Photo page ----------------
+           A page in the flow, not an overlay: opening a photo swaps the browse
+           view out, so the browser's own back button returns to the feed. */
+        .view { display: none; }
+        .view.on { display: block; }
+        .lb-wrap { max-width: 1100px; margin: 0 auto; padding: 16px 0 28px; }
+        .lb-card { background: var(--card); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+        .crumb {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+            padding: 10px 0 12px;
+        }
+        .crumb-back { display: inline-flex; align-items: center; gap: 6px; font-size: .82rem; font-weight: 700; color: var(--link); }
+        .crumb-back:hover { text-decoration: underline; }
+        .crumb-title { font-size: .8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .crumb-nav { display: inline-flex; gap: 6px; }
+        .crumb-nav button {
+            display: inline-flex; align-items: center; gap: 5px;
+            height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 4px;
+            background: #fff; font-size: .78rem; font-weight: 600; color: var(--ink2);
+        }
+        .crumb-nav button:hover { border-color: var(--link); color: var(--link); }
+        .lb-stage { position: relative; background: var(--mat); }
+        .lb-stage img { width: 100%; max-height: 76vh; object-fit: contain; margin: 0 auto; }
+        .lb-bar { display: grid; grid-template-columns: repeat(6, 1fr); background: var(--strip); color: #fff; }
+        @media (max-width: 560px) { .lb-bar { grid-template-columns: repeat(3, 1fr); } }
+        .lb-bar button:hover, .lb-bar a:hover { background: rgba(255,255,255,.08); }
+        .lb-bar > * { padding: 9px 4px; text-align: center; border-right: 1px solid rgba(255,255,255,.1); }
+        .lb-bar > *:last-child { border-right: 0; }
+        .lb-bar .k { font-size: .55rem; letter-spacing: .14em; text-transform: uppercase; color: #a7aeba; }
+        .lb-bar .v { font-size: .92rem; font-weight: 800; margin-top: 2px; }
+        .lb-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 16px; }
+        @media (min-width: 860px) { .lb-body { grid-template-columns: minmax(0, 1fr) 260px; } }
+        .lb-title { margin: 0 0 12px; font-size: 1.35rem; font-weight: 800; letter-spacing: -.01em; }
+        .lb-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 10px; padding: 7px 0; border-bottom: 1px solid #edeff2; font-size: .86rem; }
+        .lb-row dt { color: var(--muted); }
+        .lb-row dd { margin: 0; color: var(--ink); }
+        .lb-link { color: var(--link); font-weight: 600; }
+        .lb-link:hover { text-decoration: underline; }
+        .shooter-card { border: 1px solid var(--line); border-radius: 4px; }
+        .strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px; }
+        @media (min-width: 720px) { .strip { grid-template-columns: repeat(5, 1fr); } }
+        .strip .shot { aspect-ratio: 4 / 3; border-radius: 3px; }
+
+        /* ---------------- Account ----------------
+           The signed-in pilot, their photos, and the sign-in form. */
+        .acct-btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            height: 38px; padding: 0 10px 0 6px; border-radius: 999px;
+            border: 1px solid rgba(255,255,255,.22); color: #e7eaef;
+            font-size: .82rem; font-weight: 600; white-space: nowrap;
+        }
+        .acct-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+        .acct-btn img, .acct-btn .ini {
+            width: 26px; height: 26px; border-radius: 999px; object-fit: cover;
+            background: #39404a; color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: .66rem; font-weight: 800; letter-spacing: .02em;
+        }
+        .acct-wrap { max-width: 900px; margin: 0 auto; padding: 16px 0 28px; }
+        .acct-card { display: flex; gap: 16px 24px; align-items: center; padding: 16px; flex-wrap: wrap; }
+        .acct-id { flex: 1 1 320px; min-width: 0; }
+        .acct-figures { flex: 0 1 auto; }
+        .acct-avatar {
+            width: 68px; height: 68px; border-radius: 999px; object-fit: cover;
+            border: 1px solid var(--line); background: #e7e9ec;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem; font-weight: 800; color: var(--ink2); flex: 0 0 auto;
+        }
+        .acct-name { font-size: 1.25rem; font-weight: 800; letter-spacing: -.01em; }
+        .acct-if { display: inline-flex; align-items: center; gap: 5px; font-size: .84rem; color: var(--ink2); margin-top: 2px; }
+        .verified { display: inline-flex; align-items: center; gap: 4px; color: #0a7d32; font-weight: 700; font-size: .72rem; }
+        .unverified { font-size: .72rem; color: var(--muted); }
+        .signin-form { max-width: 380px; }
+        .link-btn { color: var(--link); font-weight: 600; font-size: .82rem; }
+        .link-btn:hover { text-decoration: underline; }
+
+        /* ---------------- Upload page ----------------
+           The gallery's own submission form — it posts straight to the review
+           endpoint and depends on nothing else on the site. */
+        .up-wrap { max-width: 900px; margin: 0 auto; padding: 16px 0 28px; }
+        .up-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+        @media (min-width: 900px) { .up-grid { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; } }
+        .drop {
+            display: block; border: 2px dashed var(--line); border-radius: 6px;
+            padding: 26px 16px; text-align: center; background: #fafbfc; cursor: pointer;
+            transition: border-color .15s ease, background .15s ease;
+        }
+        .drop:hover, .drop.over { border-color: var(--link); background: #f3f8ff; }
+        .drop input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+        .drop-title { font-size: .92rem; font-weight: 700; }
+        .drop-sub { font-size: .76rem; color: var(--muted); margin-top: 3px; }
+        .previews { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+        .preview { position: relative; aspect-ratio: 3/2; border-radius: 4px; overflow: hidden; background: var(--mat); border: 1px solid var(--line); }
+        .preview img { width: 100%; height: 100%; object-fit: cover; }
+        .preview button {
+            position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 999px;
+            background: rgba(16,18,22,.8); color: #fff; font-size: .8rem; line-height: 1;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .field { margin-top: 12px; }
+        .field label { display: block; font-size: .64rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+        .field label .opt { font-weight: 600; letter-spacing: 0; text-transform: none; color: #a3aab4; }
+        .field input {
+            width: 100%; height: 38px; padding: 0 10px;
+            border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: .88rem;
+        }
+        .field input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+        .rules { font-size: .82rem; color: var(--ink2); }
+        .rules li { margin-bottom: 9px; line-height: 1.45; }
+        .rules b { color: var(--ink); }
+        .rules-must { margin-top: 12px; padding: 10px 12px; border-radius: 4px; background: #fff7ed; border: 1px solid #f3d9b0; font-size: .8rem; }
+        .rules-must .h { font-weight: 800; font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: #92500c; margin-bottom: 6px; }
+        .ack { display: flex; gap: 9px; align-items: flex-start; margin-top: 14px; font-size: .84rem; }
+        .ack input { margin-top: 3px; }
+        .status { margin-top: 12px; font-size: .85rem; font-weight: 600; min-height: 20px; }
+        .status.ok { color: #10692f; }
+        .status.err { color: #b3261e; }
+
+        /* ---------------- Footer ---------------- */
+        .foot { margin-top: auto; background: var(--head); color: #aeb6c2; }
+        .foot-cols { display: grid; grid-template-columns: repeat(2, 1fr); gap: 26px; padding: 32px 0; }
+        @media (min-width: 720px) { .foot-cols { grid-template-columns: repeat(4, 1fr); } }
+        .foot h4 { margin: 0 0 10px; font-size: .62rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #7d8695; }
+        .foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+        .foot li button, .foot li a { font-size: .84rem; color: #ccd2da; text-align: left; }
+        .foot li button:hover, .foot li a:hover { color: #fff; }
+        .foot-base { border-top: 1px solid rgba(255,255,255,.08); padding: 14px 0; text-align: center; font-size: .68rem; color: #79828f; letter-spacing: .06em; }
+
+        /* Phones: the wordmark keeps the row, so the upload button goes to its
+           icon and the brand loses a little weight. */
+        /* The time window has to fit a 360px screen without clipping. */
+        @media (max-width: 460px) {
+            .seg button { padding: 5px 7px; font-size: .68rem; }
         }
 
-        /* Upgraded Image & Overlay Handling */
-        .glow-card img.main-img {
-            transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-            will-change: transform;
-        }
-        .glow-card:hover img.main-img {
-            transform: scale(1.08);
-        }
-        
-        .card-gradient-overlay {
-            background: linear-gradient(to top, rgba(2,6,23,0.95) 0%, rgba(2,6,23,0.5) 40%, transparent 100%);
-            opacity: 0.85;
-            transition: opacity 0.5s ease;
-        }
-        .glow-card:hover .card-gradient-overlay {
-            opacity: 1;
+        @media (max-width: 480px) {
+            .masthead-inner { gap: 10px; padding: 0 12px; }
+            .brand-logo { width: 30px; height: 30px; }
+            .brand-word { font-size: .92rem; letter-spacing: .12em; }
+            .brand-sub { font-size: .48rem; letter-spacing: .35em; }
+            .upload-label { display: none; }
+            .btn { padding: 0 12px; }
+            .acct-btn span:not(.ini) { display: none; }
+            .acct-btn { padding: 0 6px; }
         }
 
-        /* Stacked Card Effect for Groups */
-        .stack-effect::after {
-            content: '';
-            position: absolute;
-            top: 6px; left: 12px; right: 12px; bottom: -6px;
-            background: rgba(30, 41, 59, 0.4);
-            border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 1.5rem;
-            z-index: -1;
-            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .stack-effect::before {
-            content: '';
-            position: absolute;
-            top: 12px; left: 24px; right: 24px; bottom: -12px;
-            background: rgba(15, 23, 42, 0.4);
-            border: 1px solid rgba(255,255,255,0.02);
-            border-radius: 1.5rem;
-            z-index: -2;
-            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .glow-card:hover.stack-effect::after { transform: translateY(6px) scale(0.97); }
-        .glow-card:hover.stack-effect::before { transform: translateY(12px) scale(0.94); }
-
-        /* Premium Folder Expansion */
-        .folder-expansion {
-            grid-column: 1 / -1;
-            background: rgba(10, 15, 30, 0.7);
-            backdrop-filter: blur(24px);
-            border: 1px solid rgba(99, 102, 241, 0.2);
-            border-radius: 2rem;
-            padding: 2.5rem;
-            margin-top: 1rem;
-            margin-bottom: 2rem;
-            box-shadow: inset 0 2px 20px rgba(255,255,255,0.02), 0 30px 60px -10px rgba(0,0,0,0.8);
-            position: relative;
-            transform-origin: top;
-            animation: expandIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            overflow: hidden;
-        }
-
-        .folder-expansion::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 10%; right: 10%; height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.8), transparent);
-        }
-
-        @keyframes expandIn {
-            from { opacity: 0; transform: scaleY(0.95); height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; border-width: 0; }
-            to { opacity: 1; transform: scaleY(1); height: auto; }
-        }
-
-        .folder-expansion.closing {
-            animation: collapseOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-
-        @keyframes collapseOut {
-            from { opacity: 1; transform: scaleY(1); height: auto; }
-            to { opacity: 0; transform: scaleY(0.95); height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; border-width: 0; }
-        }
-
-        .variant-card {
-            background: rgba(2, 6, 23, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 1.5rem;
-            overflow: hidden;
-            position: relative;
-            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .variant-card:hover {
-            border-color: rgba(99, 102, 241, 0.4);
-            transform: translateY(-6px);
-            box-shadow: 0 20px 40px -10px rgba(0,0,0,0.8);
-        }
-
-        /* Custom Scrollbar */
-        .horizontal-scroll::-webkit-scrollbar {
-            height: 6px;
-        }
-        .horizontal-scroll::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 10px;
-            margin: 0 2rem;
-        }
-        .horizontal-scroll::-webkit-scrollbar-thumb {
-            background: rgba(99, 102, 241, 0.4);
-            border-radius: 10px;
-        }
-        .horizontal-scroll::-webkit-scrollbar-thumb:hover {
-            background: rgba(99, 102, 241, 0.8);
-        }
-
-        /* Segmented Control */
-        .segmented-control {
-            position: relative;
-            display: inline-flex;
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            padding: 6px;
-            border-radius: 9999px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .segment-btn {
-            position: relative;
-            z-index: 10;
-            padding: 0.75rem 2.5rem;
-            border-radius: 9999px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #94a3b8;
-            transition: color 0.4s ease;
-            display: flex; align-items: center; gap: 0.5rem;
-        }
-        .segment-btn.active { color: #ffffff; }
-        #tab-indicator {
-            position: absolute;
-            top: 6px; bottom: 6px; width: calc(50% - 6px);
-            background: rgba(99, 102, 241, 0.15);
-            border: 1px solid rgba(99, 102, 241, 0.3);
-            border-radius: 9999px;
-            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 5;
-        }
-
-        .grid-container { transition: opacity 0.3s ease; }
-        .grid-container.loading { opacity: 0.5; pointer-events: none; }
+        @media (min-width: 1024px) { .mast-nav { display: flex; } }
+        @media (min-width: 640px)  { .mast-search { display: block; } .m-only { display: none !important; } }
     </style>
 </head>
-<body class="antialiased selection:bg-primary/30">
+<body>
 
-    <nav class="fixed top-0 w-full z-50 nav-blur">
-        <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-            <a href="home.html" class="flex items-center gap-3 group">
-                <img src="Images/inflight.png" alt="InFlight Logo" class="size-10 rounded-full object-cover transition-all duration-300 group-hover:scale-110 ring-2 ring-primary/20 shadow-lg shadow-primary/10" onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=In+Flight&background=6366f1&color=fff';">
-                <span class="text-xl font-bold tracking-tight text-white">InFlight</span>
-            </a>
-            <div class="hidden md:flex items-center gap-10">
-                <a href="home.html#features" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Capabilities</a>
-                <a href="gallery.html" class="text-sm font-medium text-white transition-colors">Gallery</a>
-                <a href="https://discord.gg/cNSkZtdJ" class="text-sm font-medium text-slate-400 hover:text-white transition-colors">Discord</a>
+    <!-- ===================== Masthead ===================== -->
+    <header class="masthead">
+        <div class="wrap">
+            <div class="masthead-inner">
+                <a class="brand" href="gallery.html" id="brand-home" aria-label="InFlight Spotters — home">
+                    <img class="brand-logo" src="Images/inflight-mark.png" alt=""
+                         onerror="this.onerror=null;this.style.display='none';">
+                    <span class="brand-mark">
+                        <span class="brand-word">InFlight</span>
+                        <span class="brand-sub">Spotters</span>
+                    </span>
+                </a>
+
+                <nav class="mast-nav">
+                    <button class="mast-link" data-navtab="photos">Photos</button>
+                    <button class="mast-link" data-navtab="aircraft">Aircraft</button>
+                    <button class="mast-link" data-navtab="liveries">Airlines</button>
+                    <button class="mast-link" data-navtab="airports">Airports</button>
+                    <button class="mast-link" data-navtab="contributors">Photographers</button>
+                </nav>
+
+                <div class="spacer"></div>
+
+                <div class="mast-search">
+                    <i data-lucide="search" class="ic" style="width:16px;height:16px"></i>
+                    <input id="search-input" type="search" autocomplete="off" placeholder="Registration, type, airline, photographer…">
+                </div>
+
+                <button id="random-btn" class="icon-btn" aria-label="Open a random photo" title="Random photo">
+                    <i data-lucide="shuffle" style="width:18px;height:18px"></i>
+                </button>
+
+                <button id="mobile-search-btn" class="icon-btn m-only" aria-label="Search">
+                    <i data-lucide="search" style="width:18px;height:18px"></i>
+                </button>
+
+                <button id="account-btn" class="acct-btn">
+                    <span class="ini" id="account-ini"><i data-lucide="user" style="width:14px;height:14px"></i></span>
+                    <span id="account-label">Sign in</span>
+                </button>
+
+                <button id="upload-btn" class="btn">
+                    <i data-lucide="upload" style="width:16px;height:16px"></i>
+                    <span class="upload-label">Upload</span>
+                </button>
+            </div>
+
+            <div id="mobile-search" class="mobile-search">
+                <div class="mast-search">
+                    <i data-lucide="search" class="ic" style="width:16px;height:16px"></i>
+                    <input id="search-input-mobile" type="search" autocomplete="off" placeholder="Registration, type, airline, photographer…">
+                </div>
             </div>
         </div>
-    </nav>
+    </header>
 
-    <main class="flex-1 flex flex-col pt-32 pb-20 max-w-[1600px] mx-auto px-6 w-full">
-        
-        <header class="text-center mb-12 max-w-4xl mx-auto space-y-8">
-            <h1 class="text-4xl md:text-6xl font-black tracking-tighter text-gradient leading-tight">
-                Aviation Gallery
-            </h1>
-            
-            <div class="flex justify-center">
-                <div class="segmented-control">
-                    <div id="tab-indicator"></div>
-                    <button class="segment-btn active" id="btn-aircraft" onclick="setTab('aircraft')">
-                        <i data-lucide="plane" class="size-4"></i> Directory
-                    </button>
-                    <button class="segment-btn" id="btn-airports" onclick="setTab('airports')">
-                        <i data-lucide="building-2" class="size-4"></i> Terminals
-                    </button>
-                </div>
+    <!-- ===================== Tabs ===================== -->
+    <div class="tabbar">
+        <div class="wrap">
+            <div class="tabs">
+                <button class="tab" data-tab="photos"><i data-lucide="image" style="width:15px;height:15px"></i> Latest photos</button>
+                <button class="tab" data-tab="aircraft"><i data-lucide="plane" style="width:15px;height:15px"></i> Aircraft types</button>
+                <button class="tab" data-tab="liveries"><i data-lucide="paint-bucket" style="width:15px;height:15px"></i> Airlines &amp; liveries</button>
+                <button class="tab" data-tab="airports"><i data-lucide="building-2" style="width:15px;height:15px"></i> Airports</button>
+                <button class="tab" data-tab="contributors"><i data-lucide="camera" style="width:15px;height:15px"></i> Photographers</button>
             </div>
-        </header>
+        </div>
+    </div>
 
-        <div class="mb-10 bg-surface/40 border border-white/5 rounded-3xl p-6 backdrop-blur-md shadow-2xl flex flex-col lg:flex-row gap-8 justify-between items-center z-20 relative">
-            
-            <div class="flex-1 w-full">
-                <h3 class="text-xs font-mono text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <i data-lucide="award" class="size-3.5 text-accent"></i> Top Contributors
-                </h3>
-                <div id="contributors-container" class="flex flex-wrap gap-4 items-center">
-                    <div class="animate-pulse h-10 w-32 bg-white/5 rounded-full"></div>
-                </div>
+    <main class="wrap">
+      <!-- ===================== Browse ===================== -->
+      <div id="browse-view" class="view on">
+        <!-- Photo of the day + newest uploads -->
+        <section class="panel" style="margin-top:16px">
+            <div class="panel-head">
+                <span>Photo of the day &amp; newest uploads</span>
+                <button class="more" data-action="view-latest">View all photos</button>
             </div>
+            <div id="masthead-grid" class="mosaic">
+                <div class="skel shot lead"></div>
+                <div class="skel shot"></div>
+                <div class="skel shot"></div>
+                <div class="skel shot d-none-sm"></div>
+                <div class="skel shot d-none-sm"></div>
+            </div>
+        </section>
 
-            <div class="hidden lg:block w-px h-16 bg-white/10"></div>
+        <div class="layout">
+            <!-- Feed -->
+            <div>
+                <div id="profile-panel" class="panel" style="display:none; margin-bottom:12px"></div>
 
-            <div class="w-full lg:w-auto flex flex-col sm:flex-row gap-4 items-center shrink-0">
-                <div class="relative w-full sm:w-64">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i data-lucide="search" class="size-4 text-slate-400"></i>
+                <div class="panel" style="margin-bottom:12px">
+                    <div class="toolbar">
+                        <div id="active-filter" style="display:none; gap:8px; align-items:center; flex-wrap:wrap"></div>
+                        <div id="result-count" class="count"></div>
+                        <div class="spacer"></div>
+                        <div class="seg" id="view-toggle">
+                            <button data-view="grid" class="on" title="Grid view"><i data-lucide="layout-grid" style="width:14px;height:14px"></i></button>
+                            <button data-view="list" title="List view"><i data-lucide="list" style="width:14px;height:14px"></i></button>
+                        </div>
+                        <label for="sort-select" class="sort-label">Sort</label>
+                        <select id="sort-select" class="sort">
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="type">Aircraft type A–Z</option>
+                            <option value="reg">Registration A–Z</option>
+                            <option value="likes">Most liked</option>
+                            <option value="photographer">Photographer A–Z</option>
+                        </select>
                     </div>
-                    <input type="text" id="search-input" placeholder="Filter by type or livery..." 
-                        class="w-full bg-black/50 border border-white/10 rounded-full py-2.5 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all">
+
+                    <div class="toolbar-row" id="window-row">
+                        <div class="seg" id="window-seg">
+                            <button data-window="48h">48 hours</button>
+                            <button data-window="week">Week</button>
+                            <button data-window="month">Month</button>
+                            <button data-window="year">Year</button>
+                            <button data-window="all" class="on">All time</button>
+                        </div>
+                        <div class="spacer"></div>
+                        <button id="adv-toggle" class="chip"><i data-lucide="sliders-horizontal" style="width:13px;height:13px"></i> Advanced search</button>
+                    </div>
+
+                    <div id="letters" class="letters" style="display:none"></div>
+
+                    <form id="adv" class="adv" autocomplete="off">
+                        <div class="adv-grid">
+                            <div><label for="adv-type">Aircraft type</label><input id="adv-type" placeholder="e.g. Boeing 787-9"></div>
+                            <div><label for="adv-airline">Airline / livery</label><input id="adv-airline" placeholder="e.g. Air Canada"></div>
+                            <div><label for="adv-reg">Registration</label><input id="adv-reg" placeholder="e.g. G-DRAA"></div>
+                            <div><label for="adv-shooter">Photographer</label><input id="adv-shooter" placeholder="Name"></div>
+                            <div><label for="adv-from">Uploaded from</label><input id="adv-from" type="date"></div>
+                            <div><label for="adv-to">Uploaded to</label><input id="adv-to" type="date"></div>
+                        </div>
+                        <div class="adv-actions">
+                            <button type="button" id="adv-reset" class="chip">Reset</button>
+                            <button type="submit" class="btn" style="height:34px">Search photos</button>
+                        </div>
+                    </form>
                 </div>
-                <div class="text-right w-full sm:w-auto">
-                    <div class="text-2xl font-bold text-white" id="stat-total">--</div>
-                    <div class="text-[10px] font-mono text-slate-500 uppercase tracking-widest" id="stat-label">Total Assets</div>
+
+                <div id="content-grid" class="grid"></div>
+                <div id="sentinel" style="height:60px"></div>
+                <div id="load-more-wrap" style="display:none; justify-content:center; padding-top:8px">
+                    <button id="load-more" class="chip" style="padding:9px 18px; font-size:.84rem">Load more photos</button>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <aside>
+                <section class="panel">
+                    <div class="panel-head"><span>Photo updates</span></div>
+                    <div class="panel-body">
+                        <p style="margin:0 0 10px; font-size:.86rem; color:var(--ink2)">
+                            <strong id="recent-count" style="color:var(--ink)">—</strong> photos added in the last 30 days
+                        </p>
+                        <button id="upload-btn-side" class="btn btn-lg">
+                            <i data-lucide="upload" style="width:16px;height:16px"></i> Upload your photos
+                        </button>
+                        <p class="note" style="margin:10px 0 0">Every submission is screened by staff on Discord before it appears here.</p>
+                        <button id="my-photos-btn" class="chip" style="width:100%; justify-content:center; margin-top:10px">
+                            <i data-lucide="user" style="width:13px;height:13px"></i> Your photos
+                        </button>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head"><span>Top photographers</span></div>
+                    <div id="contributors-panel" style="padding:6px">
+                        <div class="skel" style="height:46px; margin:4px"></div>
+                        <div class="skel" style="height:46px; margin:4px"></div>
+                        <div class="skel" style="height:46px; margin:4px"></div>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head"><span>Latest additions</span></div>
+                    <div id="latest-rows"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head"><span>The gallery in numbers</span></div>
+                    <dl id="numbers-panel" class="nums panel-body" style="margin:0"></dl>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head"><span>Popular searches</span></div>
+                    <div id="popular-searches" class="panel-body" style="display:flex; flex-wrap:wrap; gap:6px"></div>
+                </section>
+            </aside>
+        </div>
+      </div>
+
+      <!-- ===================== Photo page ===================== -->
+      <section id="photo-view" class="view" aria-label="Photo details">
+        <div class="lb-wrap">
+            <div class="crumb">
+                <button id="lb-close" class="crumb-back">
+                    <i data-lucide="arrow-left" style="width:15px;height:15px"></i> Back to the gallery
+                </button>
+                <span class="crumb-title" id="crumb-title"></span>
+                <div class="spacer"></div>
+                <div class="crumb-nav">
+                    <button id="lb-prev-top"><i data-lucide="chevron-left" style="width:14px;height:14px"></i> Previous</button>
+                    <button id="lb-next-top">Next <i data-lucide="chevron-right" style="width:14px;height:14px"></i></button>
+                </div>
+            </div>
+            <div class="lb-card">
+                <div class="lb-stage">
+                    <img id="lb-image" src="" alt="">
+                </div>
+                <div class="lb-bar">
+                    <button id="lb-like" aria-pressed="false"><div class="k">Likes</div><div class="v">—</div></button>
+                    <div><div class="k">Photo</div><div class="v" id="lb-index">—</div></div>
+                    <div><div class="k">Of reg</div><div class="v" id="lb-regcount">—</div></div>
+                    <div><div class="k">Of type</div><div class="v" id="lb-typecount">—</div></div>
+                    <button id="lb-share"><div class="k">Share</div><div class="v"><i data-lucide="share-2" style="width:16px;height:16px;display:inline"></i></div></button>
+                    <a id="lb-open" href="#" target="_blank" rel="noopener"><div class="k">Full size</div><div class="v"><i data-lucide="external-link" style="width:16px;height:16px;display:inline"></i></div></a>
+                </div>
+                <div class="lb-body">
+                    <div>
+                        <h2 class="lb-title" id="lb-title"></h2>
+                        <div id="lb-badges" style="display:flex; flex-wrap:wrap; gap:6px; margin:-6px 0 12px"></div>
+                        <dl id="lb-details" style="margin:0"></dl>
+                    </div>
+                    <div class="shooter-card">
+                        <div class="panel-head"><span>Photographer</span></div>
+                        <div class="panel-body" id="lb-photographer"></div>
+                    </div>
+                </div>
+                <div class="panel-head" id="lb-more-head"><span id="lb-more-title">More of this aircraft</span></div>
+                <div id="lb-more" class="strip"></div>
+            </div>
+        </div>
+      </section>
+
+      <!-- ===================== Account ===================== -->
+      <section id="account-view" class="view" aria-label="Your gallery account">
+        <div class="acct-wrap">
+            <div class="crumb">
+                <button id="acct-back" class="crumb-back">
+                    <i data-lucide="arrow-left" style="width:15px;height:15px"></i> Back to the gallery
+                </button>
+                <span class="crumb-title" id="acct-crumb">Your account</span>
+            </div>
+
+            <!-- Signed out -->
+            <div id="signin-panel" class="panel">
+                <div class="panel-head"><span>Sign in</span></div>
+                <div class="panel-body">
+                    <p class="note" style="margin:0 0 14px; max-width:520px">
+                        The gallery uses your InFlight tracker account, so your Infinite Flight username
+                        travels with every photo you upload and your old uploads come back to you.
+                    </p>
+                    <form id="signin-form" class="signin-form">
+                        <div class="field" style="margin-top:0">
+                            <label for="signin-email">Email</label>
+                            <input id="signin-email" type="email" autocomplete="email" required>
+                        </div>
+                        <div class="field">
+                            <label for="signin-password">Password</label>
+                            <input id="signin-password" type="password" autocomplete="current-password" required>
+                        </div>
+                        <div class="status" id="signin-status" role="status" aria-live="polite"></div>
+                        <button type="submit" class="btn btn-lg" id="signin-submit" style="margin-top:4px">
+                            <i data-lucide="log-in" style="width:16px;height:16px"></i> Sign in
+                        </button>
+                    </form>
+                    <p class="note" style="margin:14px 0 0">
+                        No account yet, or forgotten your password?
+                        <a class="link-btn" href="index.html">Open the tracker</a> — the gallery uses the same sign-in.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Signed in -->
+            <div id="account-panel" style="display:none">
+                <div class="panel">
+                    <div class="panel-head">
+                        <span>Your pilot account</span>
+                        <button class="more" id="signout-btn">Sign out</button>
+                    </div>
+                    <div class="acct-card" id="account-card"></div>
+                    <div class="panel-body" style="border-top:1px solid var(--line)" id="account-badges"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <span>Your submissions</span>
+                        <button class="more" id="subs-refresh">Refresh</button>
+                    </div>
+                    <div id="account-subs"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head"><span>Your most liked photo</span></div>
+                    <div id="account-best"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <span>Your photos</span>
+                        <span id="account-photo-count" style="letter-spacing:0; text-transform:none; font-weight:600"></span>
+                    </div>
+                    <div id="account-photos" class="grid" style="padding:12px"></div>
                 </div>
             </div>
         </div>
+      </section>
 
-        <div id="gallery-grid" class="grid-container grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-8 md:gap-10">
+      <!-- ===================== Upload ===================== -->
+      <section id="upload-view" class="view" aria-label="Submit a photo">
+        <div class="up-wrap">
+            <div class="crumb">
+                <button id="up-back" class="crumb-back">
+                    <i data-lucide="arrow-left" style="width:15px;height:15px"></i> Back to the gallery
+                </button>
+                <span class="crumb-title">Submit your Infinite Flight photos</span>
             </div>
 
+            <form id="up-form" class="up-grid" enctype="multipart/form-data" novalidate>
+                <div class="panel" style="margin:0">
+                    <div class="panel-head"><span>Your photos</span></div>
+                    <div class="panel-body">
+                        <label class="drop" id="up-drop">
+                            <input type="file" id="up-files" name="images" accept="image/*" multiple>
+                            <i data-lucide="upload-cloud" style="width:26px;height:26px;margin:0 auto 8px;color:var(--link)"></i>
+                            <div class="drop-title">Drop photos here or <span style="color:var(--link)">browse</span></div>
+                            <div class="drop-sub">Up to 3 images · JPG, PNG or WEBP</div>
+                        </label>
+                        <div class="previews" id="up-previews"></div>
+
+                        <div class="field">
+                            <label for="up-type">Aircraft type</label>
+                            <input id="up-type" name="aircraftType" placeholder="e.g. Airbus A320neo" required>
+                        </div>
+                        <div class="field">
+                            <label for="up-livery">Livery / airline</label>
+                            <input id="up-livery" name="liveryName" placeholder="e.g. IndiGo" required>
+                        </div>
+                        <div class="field">
+                            <label for="up-tail">Tail number <span class="opt">— optional, we'll match it if you leave it blank</span></label>
+                            <input id="up-tail" name="tailNumber" placeholder="e.g. VT-IZA">
+                        </div>
+                        <div class="field" id="up-credit-field">
+                            <label for="up-credit">Your name <span class="opt">— shown as the photographer</span></label>
+                            <input id="up-credit" name="collaboratorName" placeholder="How you want to be credited">
+                        </div>
+                        <div class="field" id="up-signed-in" style="display:none">
+                            <label>Credited to</label>
+                            <div style="display:flex; align-items:center; gap:9px; padding:8px 10px; border:1px solid var(--line); border-radius:4px; background:#fafbfc">
+                                <span class="acct-avatar" id="up-avatar" style="width:30px;height:30px;font-size:.72rem"></span>
+                                <span style="min-width:0">
+                                    <span style="display:block; font-size:.86rem; font-weight:700" id="up-credit-name"></span>
+                                    <span class="note" id="up-credit-sub"></span>
+                                </span>
+                            </div>
+                        </div>
+                        <input type="hidden" id="up-id" name="collaboratorId">
+
+                        <label class="ack">
+                            <input type="checkbox" id="up-ack">
+                            <span>I've read the rules and my photos follow them.</span>
+                        </label>
+
+                        <div class="status" id="up-status" role="status" aria-live="polite"></div>
+
+                        <button type="submit" class="btn btn-lg" id="up-submit" style="margin-top:6px" disabled>
+                            <i data-lucide="send" style="width:16px;height:16px"></i> Submit for review
+                        </button>
+                    </div>
+                </div>
+
+                <aside class="panel" style="margin:0">
+                    <div class="panel-head"><span>Submission rules</span></div>
+                    <div class="panel-body">
+                        <p class="note" style="margin:0 0 10px">Every photo is screened by staff on Discord before it appears in the gallery. Submissions that break these rules are rejected.</p>
+                        <ul class="rules" style="margin:0; padding-left:18px">
+                            <li><b>Hide the UI.</b> No menus, widgets or overlays — the plane, not your battery indicator.</li>
+                            <li><b>Keep it natural.</b> Original, unedited photos only: no filters or colour grading.</li>
+                            <li><b>The whole picture.</b> Don't crop — submit the full frame.</li>
+                            <li><b>Centre the aircraft.</b></li>
+                            <li><b>Good lighting.</b> No backlit shots; the side you're showing should be lit.</li>
+                            <li><b>Spotter-style shots.</b> Mid-air shots are likely to be rejected.</li>
+                            <li><b>Tell us what it is.</b> Aircraft type and livery, e.g. British Airways Airbus A380.</li>
+                        </ul>
+                        <div class="rules-must">
+                            <div class="h">Required</div>
+                            <ul style="margin:0; padding-left:18px">
+                                <li>Taken with Infinite Flight's built-in HD screenshot in replay mode.</li>
+                                <li>Taken in the beta app — 25.1 renders are no longer accepted.</li>
+                                <li>Cropped, edited or UI-obstructed photos will not be accepted.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </aside>
+            </form>
+        </div>
+      </section>
     </main>
 
-    <footer class="py-10 border-t border-white/5 bg-background text-center mt-auto">
-        <div class="text-[10px] font-mono text-slate-700 tracking-widest uppercase">
-            <span>© 2026 InFlight Tracker</span>
+    <!-- ===================== Footer ===================== -->
+    <footer class="foot">
+        <div class="wrap">
+            <div class="foot-cols">
+                <div>
+                    <h4>Gallery</h4>
+                    <ul>
+                        <li><button data-tab-link="photos">Latest photos</button></li>
+                        <li><button data-tab-link="aircraft">Aircraft types</button></li>
+                        <li><button data-tab-link="liveries">Airlines &amp; liveries</button></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Spotting</h4>
+                    <ul>
+                        <li><button data-tab-link="airports">Airports</button></li>
+                        <li><button data-tab-link="contributors">Photographers</button></li>
+                        <li><button data-action="upload">Upload your photos</button></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>InFlight</h4>
+                    <ul>
+                        <li><a href="home.html">Home</a></li>
+                        <li><a href="index.html">Live tracker</a></li>
+                        <li><a href="home.html#features">Capabilities</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Community</h4>
+                    <ul>
+                        <li><a href="https://discord.gg/cNSkZtdJ">Discord</a></li>
+                        <li><a href="crew-website.html">Crew centre</a></li>
+                    </ul>
+                </div>
+            </div>
         </div>
+        <div class="foot-base">© 2026 InFlight Spotters — every photo © its contributor</div>
     </footer>
+
+    <!-- The tracker's own sign-in. Same project and same storage key, so a
+         pilot already signed in on the tracker is already signed in here. -->
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+        const SUPABASE_URL = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
+
+        try {
+            const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            window.InflightGalleryAuth = client;
+            client.auth.onAuthStateChange(() => {
+                window.dispatchEvent(new CustomEvent('inflight-auth-changed'));
+            });
+        } catch (err) {
+            // A blocked CDN or a private-mode storage failure must not take the
+            // gallery down with it — browsing and anonymous uploads still work.
+            console.warn('[gallery] auth unavailable:', err && err.message);
+            window.InflightGalleryAuth = null;
+        }
+        window.dispatchEvent(new CustomEvent('inflight-auth-ready'));
+    </script>
 
     <script>
         lucide.createIcons();
 
-        const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run'; 
-        
-        // State Management
-        let currentMode = 'aircraft';
-        let rawAircraftData = [];
-        let rawAirportData = [];
-        let groupedAircraft = {};
+        const API_BASE_URL = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        const FALLBACK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200"><rect width="300" height="200" fill="#1b1e24"/><text x="150" y="105" font-family="monospace" font-size="12" fill="#6b7280" text-anchor="middle">IMAGE UNAVAILABLE</text></svg>'
+        );
+        const PAGE_SIZE = 40;
 
-        // DOM Elements
-        const galleryGrid = document.getElementById('gallery-grid');
-        const searchInput = document.getElementById('search-input');
-        const tabIndicator = document.getElementById('tab-indicator');
-        const btnAircraft = document.getElementById('btn-aircraft');
-        const btnAirports = document.getElementById('btn-airports');
+        // ------------------------------------------------------------------
+        // State. A photo — not an aircraft record — is the unit of this page,
+        // so a record carrying three images contributes three entries with
+        // their own photographer credit (imageContributors is index-aligned).
+        // ------------------------------------------------------------------
+        const state = {
+            tab: 'photos',
+            query: '',
+            sort: 'newest',
+            filter: null,      // { kind: 'type'|'livery'|'reg'|'contributor', value }
+            window: 'all',     // 48h | week | month | year | all
+            letter: null,      // A–Z index on the grouped tabs
+            view: 'grid',      // grid | list
+            adv: null,         // { type, airline, reg, shooter, from, to }
+            shown: PAGE_SIZE,
+            photoId: null,     // open photo page
+        };
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadData();
-        });
+        let likeCounts = {};   // photoId -> how many people liked it
+        let myLikes = new Set();
 
-        // Mouse glow effect delegation
-        galleryGrid.addEventListener('mousemove', e => {
-            const card = e.target.closest('.glow-card');
-            if (!card) return;
-            const rect = card.getBoundingClientRect();
-            card.style.setProperty('--x', `${e.clientX - rect.left}px`);
-            card.style.setProperty('--y', `${e.clientY - rect.top}px`);
-        });
+        let photos = [];       // flattened aircraft photos
+        let airports = [];     // airport photos
+        let viewList = [];     // photo list currently rendered/navigable
+        let moreList = [];     // the photo page's sibling strip (same reg, else same type)
 
-        // Search Filter Engine
-        searchInput.addEventListener('input', (e) => {
-            const term = e.target.value.toLowerCase();
-            if (currentMode === 'aircraft') {
-                renderAircraftGroups(term);
-            } else {
-                renderAirports(term);
+        const els = {
+            grid: document.getElementById('content-grid'),
+            masthead: document.getElementById('masthead-grid'),
+            count: document.getElementById('result-count'),
+            filterBar: document.getElementById('active-filter'),
+            sort: document.getElementById('sort-select'),
+            search: document.getElementById('search-input'),
+            searchMobile: document.getElementById('search-input-mobile'),
+            sentinel: document.getElementById('sentinel'),
+            loadMoreWrap: document.getElementById('load-more-wrap'),
+            loadMore: document.getElementById('load-more'),
+            browseView: document.getElementById('browse-view'),
+            photoView: document.getElementById('photo-view'),
+            uploadView: document.getElementById('upload-view'),
+            accountView: document.getElementById('account-view'),
+            profile: document.getElementById('profile-panel'),
+            letters: document.getElementById('letters'),
+            windowRow: document.getElementById('window-row'),
+            windowSeg: document.getElementById('window-seg'),
+            viewToggle: document.getElementById('view-toggle'),
+            adv: document.getElementById('adv'),
+        };
+
+        const WINDOWS = { '48h': 2, week: 7, month: 30, year: 365 };
+        const MAX_UPLOAD_IMAGES = 3;
+        const CREDIT_KEY = 'inflight_contributor_name';
+
+        // Three in-page views — browse, one photo, upload. Nothing overlays the
+        // page, so back/forward move between them like any other page.
+        let currentView = 'browse';
+        document.body.classList.add('browsing');
+        function showView(name) {
+            currentView = name;
+            els.browseView.classList.toggle('on', name === 'browse');
+            els.photoView.classList.toggle('on', name === 'photo');
+            els.uploadView.classList.toggle('on', name === 'upload');
+            els.accountView.classList.toggle('on', name === 'account');
+            document.body.classList.toggle('browsing', name === 'browse');
+            document.getElementById('mobile-search').classList.remove('show');
+            window.scrollTo({ top: 0, behavior: 'auto' });
+        }
+        const advFields = { type: 'adv-type', airline: 'adv-airline', reg: 'adv-reg', shooter: 'adv-shooter', from: 'adv-from', to: 'adv-to' };
+
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        const norm = (s) => String(s || '').trim().toLowerCase();
+        const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : (many || one + 's')}`;
+        const fmtDate = (d) => {
+            const date = d ? new Date(d) : null;
+            if (!date || isNaN(date)) return 'Unknown';
+            return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        };
+        const avatar = (name) => `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'IF')}&background=e7e9ec&color=4d5561&bold=true`;
+
+        // ------------------------------------------------------------------
+        // Load + flatten
+        // ------------------------------------------------------------------
+        async function loadData() {
+            renderSkeletons();
+            const [acRes, apRes] = await Promise.allSettled([
+                fetch(`${API_BASE_URL}/api/aircraft`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
+                fetch(`${API_BASE_URL}/api/airports`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
+            ]);
+
+            if (acRes.status === 'fulfilled' && Array.isArray(acRes.value)) photos = flattenAircraft(acRes.value);
+            if (apRes.status === 'fulfilled' && Array.isArray(apRes.value)) airports = apRes.value.filter(a => a && a.imageUrl);
+
+            if (!photos.length && !airports.length) {
+                els.masthead.innerHTML = '';
+                els.grid.innerHTML = `<div class="empty">
+                        <i data-lucide="server-crash" style="width:30px;height:30px;margin:0 auto 10px"></i>
+                        <p>Could not reach the photo database. Please try again shortly.</p>
+                    </div>`;
+                lucide.createIcons();
+                return;
             }
-        });
 
-        function setTab(type) {
-            currentMode = type;
-            searchInput.value = ''; // clear search on switch
-            
-            if (type === 'aircraft') {
-                tabIndicator.style.transform = 'translateX(0)';
-                btnAircraft.classList.add('active');
-                btnAirports.classList.remove('active');
-                document.getElementById('stat-label').innerText = 'Aircraft Fleets';
-                renderAircraftGroups();
-                updateLeaderboard(rawAircraftData);
-            } else {
-                tabIndicator.style.transform = 'translateX(100%)';
-                btnAirports.classList.add('active');
-                btnAircraft.classList.remove('active');
-                document.getElementById('stat-label').innerText = 'Terminals';
-                renderAirports();
-                updateLeaderboard(rawAirportData);
-            }
+            await loadLikes();
+            renderMasthead();
+            renderSidebar();
+            applyHash();
+            if (account) paintAccount();
         }
 
-        async function loadData() {
-            galleryGrid.classList.add('loading');
-            galleryGrid.innerHTML = Array(6).fill(0).map(() => `
-                <div class="animate-pulse bg-surfaceLight rounded-3xl aspect-[16/10] border border-white/5"></div>
-            `).join('');
+        function flattenAircraft(entries) {
+            const out = [];
+            entries.forEach((e) => {
+                const urls = (Array.isArray(e.imageUrls) && e.imageUrls.length)
+                    ? e.imageUrls.filter(Boolean)
+                    : (e.imageUrl ? [e.imageUrl] : []);
+                if (!urls.length) return;
+                const credits = Array.isArray(e.imageContributors) ? e.imageContributors : [];
+                urls.forEach((url, i) => {
+                    const credit = credits[i] || {};
+                    out.push({
+                        id: `${e._id || e.tailNumber || 'ac'}-${i}`,
+                        // The account behind the credit, when the photo has one.
+                        // Legacy records carry it only at the top level.
+                        pilotId: credit.pilotId || (i === 0 ? e.contributorPilotId : null) || null,
+                        ifUsername: credit.ifUsername || (i === 0 ? e.contributorIfUsername : null) || null,
+                        type: e.aircraftType || 'Unknown type',
+                        livery: e.liveryName || 'Unknown livery',
+                        reg: (e.tailNumber || '').toUpperCase(),
+                        url,
+                        slot: i + 1,
+                        slots: urls.length,
+                        photographer: credit.name || e.contributorName || 'IF Community',
+                        photographerId: credit.id || e.contributorId || null,
+                        uploadedAt: e.uploadedAt || null,
+                    });
+                });
+            });
+            // Newest first is the gallery's natural order; every other sort
+            // derives from this list.
+            return out.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+        }
+
+        // ------------------------------------------------------------------
+        // Derived indexes
+        // ------------------------------------------------------------------
+        function groupBy(list, keyFn) {
+            const map = new Map();
+            list.forEach(item => {
+                const key = keyFn(item);
+                if (!key) return;
+                if (!map.has(key)) map.set(key, []);
+                map.get(key).push(item);
+            });
+            return map;
+        }
+
+        // Who took a photo. An account is the same person however they have
+        // written their name over the years, so it wins over the free-text
+        // credit; an unclaimed photo still groups by the name that is printed
+        // on it. The key doubles as the value in a shareable link, hence the
+        // readable `@ifusername` form.
+        const photographerKey = (p) => (p.ifUsername ? '@' + p.ifUsername
+            : p.pilotId ? 'id:' + p.pilotId
+            : p.photographer);
+        const photographerLabel = (list) => (list && list[0] ? list[0].photographer : '');
+        const isLinked = (list) => !!(list && list[0] && list[0].pilotId);
+
+        const likesOf = (id) => likeCounts[id] || 0;
+        const likedByMe = (id) => myLikes.has(id);
+
+        // The pill on a tile. Rendered for every photo, zero included, so the
+        // count is part of scrolling the gallery rather than something you have
+        // to open a photo to find.
+        function likePill(id) {
+            const n = likesOf(id);
+            const mine = likedByMe(id);
+            return `<span class="tile-badge tile-likes${mine ? ' on' : ''}" data-like-photo="${esc(id)}"
+                          role="button" tabindex="-1" aria-pressed="${mine}"
+                          aria-label="${mine ? 'Unlike' : 'Like'} this photo (${n})">
+                        <span class="heart"><i data-lucide="heart" style="width:12px;height:12px${mine ? ';fill:currentColor' : ''}"></i></span>${n}
+                    </span>`;
+        }
+
+        // Repaint just the pills for one photo rather than the whole feed: a
+        // like should not cost a re-render of forty tiles.
+        function refreshLikeViews(id) {
+            document.querySelectorAll(`[data-like-photo="${CSS.escape(id)}"]`).forEach((el) => {
+                el.outerHTML = likePill(id);
+            });
+            paintLikeButton(id);
+            lucide.createIcons();
+        }
+
+        async function loadLikes() {
+            try {
+                const token = await accessToken();
+                const res = await fetch(`${API_BASE_URL}/api/gallery/likes`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                likeCounts = data.counts || {};
+                myLikes = new Set(data.mine || []);
+            } catch (_) { /* likes are decoration on a page that still works */ }
+        }
+
+        // Liking needs an account: without one there is nothing to count but an
+        // IP address, which is not a person.
+        async function toggleLike(photoId) {
+            if (!account) {
+                showView('account');
+                writeHash();
+                const status = document.getElementById('signin-status');
+                status.textContent = 'Sign in to like photos.';
+                status.className = 'status';
+                return;
+            }
+            const token = await accessToken();
+            if (!token) return;
+
+            // Optimistic, because a like should feel instant; the server's count
+            // replaces the guess a moment later either way.
+            const liked = myLikes.has(photoId);
+            if (liked) { myLikes.delete(photoId); likeCounts[photoId] = Math.max(0, likesOf(photoId) - 1); }
+            else { myLikes.add(photoId); likeCounts[photoId] = likesOf(photoId) + 1; }
+            refreshLikeViews(photoId);
 
             try {
-                const [acRes, apRes] = await Promise.all([
-                    fetch(`${API_BASE_URL}/api/aircraft`),
-                    fetch(`${API_BASE_URL}/api/airports`)
-                ]);
-
-                const acData = await acRes.json();
-                const apData = await apRes.json();
-
-                // Filter out entries without images
-                rawAircraftData = acData.filter(item => item.imageUrl && item.imageUrl !== null);
-                rawAirportData = apData.filter(item => item.imageUrl && item.imageUrl !== null);
-
-                // Build Fleet Groups
-                groupedAircraft = {};
-                rawAircraftData.forEach(ac => {
-                    const type = ac.aircraftType || 'Unknown Type';
-                    if (!groupedAircraft[type]) groupedAircraft[type] = [];
-                    groupedAircraft[type].push(ac);
+                const res = await fetch(`${API_BASE_URL}/api/gallery/likes/${encodeURIComponent(photoId)}`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
                 });
+                if (res.ok) {
+                    const data = await res.json();
+                    likeCounts[photoId] = data.count;
+                    if (data.liked) myLikes.add(photoId); else myLikes.delete(photoId);
+                } else {
+                    // Put it back the way it was.
+                    if (liked) { myLikes.add(photoId); likeCounts[photoId] = likesOf(photoId) + 1; }
+                    else { myLikes.delete(photoId); likeCounts[photoId] = Math.max(0, likesOf(photoId) - 1); }
+                }
+            } catch (_) {
+                if (liked) { myLikes.add(photoId); likeCounts[photoId] = likesOf(photoId) + 1; }
+                else { myLikes.delete(photoId); likeCounts[photoId] = Math.max(0, likesOf(photoId) - 1); }
+            }
+            refreshLikeViews(photoId);
+            if (account) paintAccount();
+        }
 
-                // Initial Render
-                setTab('aircraft');
+        function paintLikeButton(photoId) {
+            const btn = document.getElementById('lb-like');
+            if (!btn || btn.dataset.like !== photoId) return;
+            const liked = myLikes.has(photoId);
+            btn.querySelector('.v').innerHTML =
+                `<i data-lucide="heart" style="width:15px;height:15px;display:inline;${liked ? 'fill:#e0245e;color:#e0245e' : ''}"></i> ${likesOf(photoId)}`;
+            btn.setAttribute('aria-pressed', liked ? 'true' : 'false');
+            lucide.createIcons();
+        }
 
-            } catch (error) {
-                console.error("API Error:", error);
-                galleryGrid.innerHTML = `
-                    <div class="col-span-full py-20 text-center text-red-400 border border-red-500/10 bg-red-500/5 rounded-3xl">
-                        <i data-lucide="server-crash" class="size-10 mx-auto mb-4 opacity-80"></i>
-                        <p class="font-mono text-sm tracking-widest uppercase">Telemetry Sync Failed</p>
+        /* ==================================================================
+           What a photographer has done, and what they have earned for it.
+
+           Everything here is derived from photos the page already holds plus
+           the like counts, so a badge can never say something the gallery
+           cannot show you. Nothing is awarded by hand.
+           ================================================================== */
+
+        const likesReceived = (list) => list.reduce((n, p) => n + likesOf(p.id), 0);
+
+        // Photos where this person got there first: the earliest photo of a
+        // registration in the gallery.
+        function firstsOf(list) {
+            const regs = byReg();
+            return list.filter((p) => {
+                if (!p.reg) return false;
+                const all = regs.get(p.reg) || [];
+                const earliest = all.slice().sort((a, b) => new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0))[0];
+                return earliest && earliest.id === p.id;
+            }).length;
+        }
+
+        function spotterStats(list) {
+            const dates = list.map((p) => p.uploadedAt).filter(Boolean).sort();
+            const top = list.slice().sort((a, b) => likesOf(b.id) - likesOf(a.id))[0] || null;
+            return {
+                photos: list.length,
+                likes: likesReceived(list),
+                types: new Set(list.map((p) => p.type)).size,
+                airlines: new Set(list.map((p) => p.livery)).size,
+                regs: new Set(list.map((p) => p.reg).filter(Boolean)).size,
+                firsts: firstsOf(list),
+                since: dates[0] || null,
+                latest: dates[dates.length - 1] || null,
+                topPhoto: top && likesOf(top.id) > 0 ? top : null,
+                linked: isLinked(list),
+            };
+        }
+
+        // Tiers are read highest-first, so only the one that has been reached
+        // is shown — five "photos" badges in a row says nothing.
+        const BADGE_TIERS = [
+            { key: 'photos', icon: 'camera', tone: 'gold', steps: [
+                [100, 'Century of photos', '100 photos in the gallery'],
+                [50, '50 photos', '50 photos in the gallery'],
+                [25, '25 photos', '25 photos in the gallery'],
+                [10, '10 photos', '10 photos in the gallery'],
+                [1, 'First upload', 'Their first photo is in the gallery'],
+            ] },
+            { key: 'likes', icon: 'heart', tone: 'rose', steps: [
+                [500, '500 likes', '500 likes received'],
+                [100, '100 likes', '100 likes received'],
+                [50, '50 likes', '50 likes received'],
+                [10, '10 likes', '10 likes received'],
+                [1, 'First like', 'Somebody liked one of their photos'],
+            ] },
+            { key: 'firsts', icon: 'award', tone: 'gold', steps: [
+                [25, 'Pioneer · 25', 'First photo of 25 registrations'],
+                [10, 'Pioneer · 10', 'First photo of 10 registrations'],
+                [1, 'Pioneer', 'First to photograph a registration'],
+            ] },
+            { key: 'types', icon: 'plane', tone: 'silver', steps: [
+                [25, 'Fleet spotter · 25', '25 different aircraft types'],
+                [10, 'Fleet spotter', '10 different aircraft types'],
+            ] },
+            { key: 'airlines', icon: 'paint-bucket', tone: 'silver', steps: [
+                [25, 'Livery hunter · 25', '25 different airlines'],
+                [10, 'Livery hunter', '10 different airlines'],
+            ] },
+        ];
+
+        function badgesFor(list) {
+            const stats = spotterStats(list);
+            const earned = [];
+
+            BADGE_TIERS.forEach((group) => {
+                const step = group.steps.find(([need]) => stats[group.key] >= need);
+                if (step) earned.push({ icon: group.icon, tone: group.tone, label: step[1], title: step[2] });
+            });
+
+            const potd = photoOfTheDay();
+            if (potd && list.some((p) => p.id === potd.id)) {
+                earned.push({ icon: 'star', tone: 'gold', label: 'Photo of the day', title: "Their photo is today's pick" });
+            }
+            if (stats.linked) {
+                earned.push({ icon: 'badge-check', tone: 'green', label: 'Linked account', title: 'Signed in with their InFlight account' });
+            }
+            return earned;
+        }
+
+        const renderBadges = (list) => badgesFor(list).map((b) => `
+            <span class="badge ${b.tone}" title="${esc(b.title)}">
+                <span class="ic"><i data-lucide="${b.icon}" style="width:13px;height:13px"></i></span>${esc(b.label)}
+            </span>`).join('');
+
+        const byType = () => groupBy(photos, p => p.type);
+        const byLivery = () => groupBy(photos, p => p.livery);
+        const byReg = () => groupBy(photos.filter(p => p.reg), p => p.reg);
+        const byPhotographer = () => groupBy(photos, photographerKey);
+
+        // ------------------------------------------------------------------
+        // Filtering + sorting
+        // ------------------------------------------------------------------
+        function matchesQuery(p, q) {
+            if (!q) return true;
+            return [p.reg, p.type, p.livery, p.photographer].some(v => norm(v).includes(q));
+        }
+
+        function filteredPhotos() {
+            const q = norm(state.query);
+            let list = photos.filter(p => matchesQuery(p, q));
+
+            if (state.filter) {
+                const val = norm(state.filter.value);
+                if (state.filter.kind === 'contributor') {
+                    list = list.filter(p => norm(photographerKey(p)) === val);
+                } else {
+                    const key = { type: 'type', livery: 'livery', reg: 'reg' }[state.filter.kind];
+                    list = list.filter(p => norm(p[key]) === val);
+                }
+            }
+
+            // Time window, the way Airplane-Pictures splits its feed into
+            // 48 hours / week / month / year.
+            const days = WINDOWS[state.window];
+            if (days) {
+                const cutoff = Date.now() - days * 864e5;
+                list = list.filter(p => p.uploadedAt && new Date(p.uploadedAt).getTime() >= cutoff);
+            }
+
+            // Advanced search: each field narrows independently, like the
+            // field-by-field search on Airliners and Planespotters.
+            const a = state.adv;
+            if (a) {
+                if (a.type) list = list.filter(p => norm(p.type).includes(norm(a.type)));
+                if (a.airline) list = list.filter(p => norm(p.livery).includes(norm(a.airline)));
+                if (a.reg) list = list.filter(p => norm(p.reg).includes(norm(a.reg)));
+                if (a.shooter) list = list.filter(p => norm(p.photographer).includes(norm(a.shooter)));
+                if (a.from) {
+                    const t = new Date(a.from).getTime();
+                    list = list.filter(p => p.uploadedAt && new Date(p.uploadedAt).getTime() >= t);
+                }
+                if (a.to) {
+                    const t = new Date(a.to).getTime() + 864e5;  // inclusive of the end day
+                    list = list.filter(p => p.uploadedAt && new Date(p.uploadedAt).getTime() < t);
+                }
+            }
+
+            return sortPhotos(list);
+        }
+
+        const letterOf = (name) => {
+            const c = String(name || '').trim().charAt(0).toUpperCase();
+            return /[A-Z]/.test(c) ? c : '#';
+        };
+
+        function sortPhotos(list) {
+            const copy = list.slice();
+            switch (state.sort) {
+                case 'oldest': return copy.sort((a, b) => new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0));
+                case 'type': return copy.sort((a, b) => a.type.localeCompare(b.type) || a.livery.localeCompare(b.livery));
+                case 'reg': return copy.sort((a, b) => a.reg.localeCompare(b.reg));
+                case 'likes': return copy.sort((a, b) => (likesOf(b.id) - likesOf(a.id))
+                    || (new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0)));
+                case 'photographer': return copy.sort((a, b) => a.photographer.localeCompare(b.photographer));
+                default: return copy.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Rendering
+        // ------------------------------------------------------------------
+        function renderSkeletons(n = 9) {
+            els.grid.innerHTML = Array(n).fill(0)
+                .map(() => '<div class="skel" style="aspect-ratio:3/2"></div>').join('');
+        }
+
+        function photoTile(p) {
+            const multi = p.slots > 1
+                ? `<span class="tile-badge"><i data-lucide="layers" style="width:11px;height:11px"></i>${p.slot}/${p.slots}</span>` : '';
+            const likes = likePill(p.id);
+            return `
+                <button class="tile" data-photo="${esc(p.id)}"
+                        aria-label="${esc(p.type)} ${esc(p.reg)} photographed by ${esc(p.photographer)}">
+                    <span class="tile-frame">
+                        <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.type)} — ${esc(p.livery)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                        ${multi}
+                        ${likes}
+                    </span>
+                    <span class="tile-meta">
+                        <span class="tile-row">
+                            <span class="tile-shooter">${esc(p.photographer)}</span>
+                            <span class="tile-reg">${esc(p.reg || '—')}</span>
+                        </span>
+                        <span class="tile-sub">
+                            <span>${esc(p.type)}</span>
+                            <span class="right">${esc(p.livery)}</span>
+                        </span>
+                    </span>
+                </button>`;
+        }
+
+        function groupCard(title, subtitle, cover, count, kind, value) {
+            return `
+                <button class="tile" data-group="${esc(kind)}" data-value="${esc(value)}">
+                    <span class="tile-frame">
+                        <img loading="lazy" decoding="async" src="${esc(cover)}" alt="${esc(title)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                        <span class="tile-badge"><i data-lucide="image" style="width:11px;height:11px"></i>${plural(count, 'photo')}</span>
+                    </span>
+                    <span class="tile-meta">
+                        <span class="tile-row"><span class="tile-shooter">${esc(title)}</span></span>
+                        <span class="tile-sub"><span>${esc(subtitle)}</span></span>
+                    </span>
+                </button>`;
+        }
+
+        function photoRow(p) {
+            return `
+                <button class="lrow" data-photo="${esc(p.id)}">
+                    <img loading="lazy" decoding="async" src="${esc(p.url)}" alt=""
+                         onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                    <span class="c-reg">${esc(p.reg || '—')}</span>
+                    <span class="stack">
+                        <span class="c-type">${esc(p.type)}</span>
+                        <span class="c-sub">${esc(p.livery)} · ${esc(p.photographer)} · ${esc(fmtDate(p.uploadedAt))}</span>
+                    </span>
+                    <span class="c-air">${esc(p.livery)}</span>
+                    <span class="c-shooter">${esc(p.photographer)}</span>
+                    <span class="c-date">${esc(fmtDate(p.uploadedAt))}</span>
+                </button>`;
+        }
+
+        function render() {
+            syncTabs();
+            renderFilterBar();
+            renderProfile();
+            renderLetters();
+            els.windowRow.style.display = state.tab === 'photos' ? 'flex' : 'none';
+            els.viewToggle.style.display = state.tab === 'photos' ? 'inline-flex' : 'none';
+
+            if (state.tab === 'photos') return renderPhotoFeed();
+            if (state.tab === 'aircraft') return renderGroups('type');
+            if (state.tab === 'liveries') return renderGroups('livery');
+            if (state.tab === 'airports') return renderAirports();
+            if (state.tab === 'contributors') return renderContributors();
+        }
+
+        const emptyState = (msg) => `<div class="empty">${esc(msg)}</div>`;
+
+        function showLoadMore(show) {
+            els.loadMoreWrap.style.display = show ? 'flex' : 'none';
+        }
+
+        function renderPhotoFeed() {
+            viewList = filteredPhotos();
+            els.count.textContent = plural(viewList.length, 'photo');
+
+            els.grid.className = state.view === 'list' ? 'list' : 'grid';
+
+            if (!viewList.length) {
+                els.grid.className = 'grid';
+                els.grid.innerHTML = emptyState('No photos match this search yet.');
+                showLoadMore(false);
+                return;
+            }
+
+            const page = viewList.slice(0, state.shown);
+            els.grid.innerHTML = page.map(state.view === 'list' ? photoRow : photoTile).join('');
+            showLoadMore(state.shown < viewList.length);
+            lucide.createIcons();
+        }
+
+        function renderGroups(kind) {
+            const q = norm(state.query);
+            els.grid.className = 'grid';
+            const map = kind === 'type' ? byType() : byLivery();
+            let groups = Array.from(map.entries());
+
+            if (q) groups = groups.filter(([name, list]) => norm(name).includes(q) || list.some(p => matchesQuery(p, q)));
+            if (state.letter) groups = groups.filter(([name]) => letterOf(name) === state.letter);
+            groups.sort((a, b) => (state.sort === 'type' || state.sort === 'reg')
+                ? a[0].localeCompare(b[0])
+                : b[1].length - a[1].length);
+
+            els.count.textContent = kind === 'type'
+                ? plural(groups.length, 'aircraft type')
+                : plural(groups.length, 'livery', 'liveries');
+            showLoadMore(false);
+
+            if (!groups.length) {
+                els.grid.innerHTML = emptyState('Nothing matches this search yet.');
+                return;
+            }
+
+            els.grid.innerHTML = groups.map(([name, list]) => {
+                const regs = plural(new Set(list.map(p => p.reg).filter(Boolean)).size, 'registration');
+                const subtitle = kind === 'type'
+                    ? `${plural(new Set(list.map(p => p.livery)).size, 'livery', 'liveries')} · ${regs}`
+                    : `${plural(new Set(list.map(p => p.type)).size, 'type')} · ${regs}`;
+                return groupCard(name, subtitle, list[0].url, list.length, kind, name);
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function renderAirports() {
+            const q = norm(state.query);
+            els.grid.className = 'grid';
+            const list = airports.filter(a => !q || norm(a.icao).includes(q));
+            list.sort((a, b) => state.sort === 'oldest'
+                ? new Date(a.lastUpdated || 0) - new Date(b.lastUpdated || 0)
+                : (state.sort === 'type' || state.sort === 'reg')
+                    ? String(a.icao).localeCompare(String(b.icao))
+                    : new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
+
+            els.count.textContent = plural(list.length, 'airport');
+            showLoadMore(false);
+
+            if (!list.length) {
+                els.grid.innerHTML = emptyState('No airports match this search yet.');
+                return;
+            }
+
+            // Airports share the photo page, so they are mapped onto the same
+            // shape the viewer navigates.
+            viewList = list.map(a => ({
+                id: `apt-${a.icao}`,
+                type: a.icao,
+                livery: 'Airport scenery',
+                reg: a.icao,
+                url: a.imageUrl,
+                slot: 1, slots: 1,
+                photographer: a.contributorName || 'IF Community',
+                uploadedAt: a.lastUpdated,
+                isAirport: true,
+            }));
+
+            els.grid.innerHTML = viewList.map(p => `
+                <button class="tile" data-photo="${esc(p.id)}" aria-label="${esc(p.reg)} airport imagery">
+                    <span class="tile-frame">
+                        <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.reg)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                        <span class="tile-badge"><i data-lucide="building-2" style="width:11px;height:11px"></i>Airport</span>
+                    </span>
+                    <span class="tile-meta">
+                        <span class="tile-row">
+                            <span class="tile-shooter" style="font-family:'JetBrains Mono',monospace; letter-spacing:.08em">${esc(p.reg)}</span>
+                            <span class="tile-reg" style="font-family:Inter,sans-serif; font-size:.68rem; color:#a7aeba">${esc(fmtDate(p.uploadedAt))}</span>
+                        </span>
+                        <span class="tile-sub"><span>Terminal &amp; ramp imagery</span></span>
+                    </span>
+                </button>`).join('');
+            lucide.createIcons();
+        }
+
+        function renderContributors() {
+            const q = norm(state.query);
+            els.grid.className = 'grid';
+            const people = Array.from(byPhotographer().entries())
+                .filter(([, list]) => {
+                    const label = photographerLabel(list);
+                    return (!q || norm(label).includes(q)) && (!state.letter || letterOf(label) === state.letter);
+                })
+                .sort((a, b) => b[1].length - a[1].length);
+
+            els.count.textContent = plural(people.length, 'photographer');
+            showLoadMore(false);
+
+            if (!people.length) {
+                els.grid.innerHTML = emptyState('No photographers match this search.');
+                return;
+            }
+
+            els.grid.innerHTML = people.map(([key, list]) => {
+                const name = photographerLabel(list);
+                const types = new Set(list.map(p => p.type)).size;
+                const linked = isLinked(list)
+                    ? '<i data-lucide="badge-check" style="width:13px;height:13px;display:inline;vertical-align:-2px;color:#7fd6a0"></i> ' : '';
+                return `
+                <button class="tile" data-group="contributor" data-value="${esc(key)}">
+                    <span class="tile-frame">
+                        <img loading="lazy" decoding="async" src="${esc(list[0].url)}" alt="${esc(name)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                    </span>
+                    <span class="tile-meta" style="display:flex; align-items:center; gap:9px">
+                        <img src="${avatar(name)}" alt="" style="width:30px;height:30px;border-radius:999px">
+                        <span style="min-width:0">
+                            <span class="tile-shooter" style="display:block">${linked}${esc(name)}</span>
+                            <span class="tile-sub" style="margin:0"><span>${plural(list.length, 'photo')} · ${plural(likesReceived(list), 'like')} · ${plural(types, 'type')}</span></span>
+                        </span>
+                    </span>
+                </button>`;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        // A–Z index rail over the grouped tabs, like the airline index pages
+        // on Planespotters and the browse-by lists on Airplane-Pictures.
+        function renderLetters() {
+            const source = state.tab === 'aircraft' ? byType()
+                : state.tab === 'liveries' ? byLivery()
+                : state.tab === 'contributors' ? byPhotographer()
+                : null;
+            if (!source) { els.letters.style.display = 'none'; return; }
+
+            const present = new Set(state.tab === 'contributors'
+                ? Array.from(source.values()).map(list => letterOf(photographerLabel(list)))
+                : Array.from(source.keys()).map(letterOf));
+            const letters = ['#'].concat('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''));
+            els.letters.style.display = 'flex';
+            els.letters.innerHTML =
+                `<button data-letter="" class="${state.letter ? '' : 'on'}">All</button>` +
+                letters.map(l => `<button data-letter="${l}" class="${state.letter === l ? 'on' : ''}"${present.has(l) ? '' : ' disabled'}>${l}</button>`).join('');
+        }
+
+        // The header a spotter site puts above a filtered set: an airframe,
+        // airline or photographer page rather than a bare filter chip.
+        function renderProfile() {
+            if (!state.filter || state.tab !== 'photos') { els.profile.style.display = 'none'; return; }
+
+            const set = state.filter.kind === 'contributor'
+                ? photos.filter(p => norm(photographerKey(p)) === norm(state.filter.value))
+                : photos.filter(p => {
+                    const key = { type: 'type', livery: 'livery', reg: 'reg' }[state.filter.kind];
+                    return norm(p[key]) === norm(state.filter.value);
+                });
+            if (!set.length) { els.profile.style.display = 'none'; return; }
+
+            const uniq = (f) => new Set(set.map(f).filter(Boolean)).size;
+            const dates = set.map(p => p.uploadedAt).filter(Boolean).sort();
+            const kindLabel = { type: 'Aircraft type', livery: 'Airline / livery', reg: 'Registration', contributor: 'Photographer' }[state.filter.kind];
+
+            let stats = [['Photos', set.length]];
+            if (state.filter.kind === 'type') stats.push(['Liveries', uniq(p => p.livery)], ['Registrations', uniq(p => p.reg)], ['Photographers', uniq(p => p.photographer)]);
+            if (state.filter.kind === 'livery') stats.push(['Types', uniq(p => p.type)], ['Registrations', uniq(p => p.reg)], ['Photographers', uniq(p => p.photographer)]);
+            if (state.filter.kind === 'reg') stats.push(['Type', set[0].type], ['Airline', set[0].livery], ['Photographers', uniq(p => p.photographer)]);
+            if (state.filter.kind === 'contributor') {
+                const rank = Array.from(byPhotographer().entries()).sort((a, b) => b[1].length - a[1].length)
+                    .findIndex(([k]) => norm(k) === norm(state.filter.value)) + 1;
+                const sp = spotterStats(set);
+                stats.push(['Likes', sp.likes], ['Types', sp.types], ['Airlines', sp.airlines],
+                           ['Registrations', sp.regs], ['Firsts', sp.firsts], ['Rank', `#${rank}`]);
+            } else {
+                stats.push(['Likes', likesReceived(set)]);
+            }
+            if (dates.length) stats.push(['Latest', fmtDate(dates[dates.length - 1])]);
+
+            els.profile.style.display = 'block';
+            els.profile.innerHTML = `
+                <div class="panel-head">
+                    <span>${kindLabel}</span>
+                    <button class="more" id="clear-filter">Back to all photos</button>
+                </div>
+                <div class="profile">
+                    <div class="profile-art">
+                        <img src="${esc(set[0].url)}" alt="" onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
                     </div>
-                `;
+                    <div style="min-width:0">
+                        <div class="profile-kind">${kindLabel}</div>
+                        <h2>${esc(state.filter.kind === 'contributor' ? photographerLabel(set) : state.filter.value)}</h2>
+                        ${state.filter.kind === 'contributor' && set[0].ifUsername ? `
+                            <div class="acct-if" style="margin:-4px 0 8px">
+                                <i data-lucide="badge-check" style="width:14px;height:14px;color:#0a7d32"></i>
+                                Infinite Flight: <strong>${esc(set[0].ifUsername)}</strong>
+                            </div>` : ''}
+                        <dl class="profile-stats">
+                            ${stats.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${typeof v === 'number' ? v.toLocaleString() : esc(v)}</dd></div>`).join('')}
+                        </dl>
+                        ${state.filter.kind === 'contributor'
+                            ? `<div class="badges" style="margin-top:10px">${renderBadges(set)}</div>` : ''}
+                    </div>
+                </div>`;
+        }
+
+        // Photo of the day: a stable pick that changes once a day, in the
+        // spirit of JetPhotos' photo of the week and Planespotters' editor's
+        // choice — seeded by the date so everyone sees the same photo.
+        function photoOfTheDay() {
+            if (!photos.length) return null;
+            const day = Math.floor(Date.now() / 864e5);
+            let seed = day * 2654435761 % 4294967296;
+            const newest = photos.slice(0, 4).map(p => p.id);
+            for (let i = 0; i < 8; i++) {
+                const pick = photos[(seed + i) % photos.length];
+                if (!newest.includes(pick.id)) return pick;
+            }
+            return photos[0];
+        }
+
+        function renderMasthead() {
+            const potd = photoOfTheDay();
+            if (!potd) { els.masthead.innerHTML = ''; return; }
+            const rest = photos.filter(p => p.id !== potd.id).slice(0, 4);
+
+            const cell = (p, i) => `
+                <button class="shot ${i === 0 ? 'lead' : ''} ${i > 2 ? 'd-none-sm' : ''}" data-photo="${esc(p.id)}" data-scope="masthead">
+                    ${i === 0 ? '<span class="ribbon"><i data-lucide="star" style="width:11px;height:11px"></i> Photo of the day</span>' : ''}
+                    <img loading="lazy" decoding="async" src="${esc(p.url)}" alt="${esc(p.type)}"
+                         onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                    <span class="shot-cap">
+                        <span class="t" style="display:block">${esc(p.type)}</span>
+                        <span class="s" style="display:block">${esc(p.livery)} · © ${esc(p.photographer)}</span>
+                    </span>
+                </button>`;
+
+            els.masthead.innerHTML = [potd].concat(rest).map(cell).join('');
+            lucide.createIcons();
+        }
+
+        function renderSidebar() {
+            // Photo updates
+            const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+            const recent = photos.filter(p => p.uploadedAt && new Date(p.uploadedAt).getTime() >= cutoff).length;
+            document.getElementById('recent-count').textContent = recent.toLocaleString();
+
+            // Top photographers
+            const people = Array.from(byPhotographer().entries()).sort((a, b) => b[1].length - a[1].length).slice(0, 6);
+            document.getElementById('contributors-panel').innerHTML = people.map(([key, list], i) => {
+                const name = photographerLabel(list);
+                return `
+                <button class="person" data-group="contributor" data-value="${esc(key)}">
+                    <span class="rank">${i + 1}</span>
+                    <img src="${avatar(name)}" alt="">
+                    <span style="min-width:0; flex:1">
+                        <span class="n" style="display:block">${esc(name)}</span>
+                        <span class="c" style="display:block">${plural(list.length, 'photo')} · ${plural(likesReceived(list), 'like')}</span>
+                    </span>
+                    <i data-lucide="chevron-right" style="width:15px;height:15px;color:var(--muted)"></i>
+                </button>`;
+            }).join('') || '<p class="note" style="padding:8px">No photographers yet.</p>';
+
+            // Latest additions
+            document.getElementById('latest-rows').innerHTML = photos.slice(0, 6).map(p => `
+                <button class="row" data-photo="${esc(p.id)}" data-scope="latest">
+                    <span class="reg">${esc(p.reg || '—')}</span>
+                    <span class="ac">${esc(p.type)} <span class="muted">· ${esc(p.livery)}</span></span>
+                    <span class="dt">${esc(fmtDate(p.uploadedAt))}</span>
+                </button>`).join('') || '<p class="note" style="padding:8px">Nothing here yet.</p>';
+
+            // The gallery in numbers
+            const numbers = [
+                ['Photos', photos.length],
+                ['Aircraft types', byType().size],
+                ['Liveries', byLivery().size],
+                ['Registrations', byReg().size],
+                ['Photographers', byPhotographer().size],
+                ['Airports', airports.length],
+            ];
+            document.getElementById('numbers-panel').innerHTML = numbers.map(([label, value]) =>
+                `<div><dt>${label}</dt><dd>${value.toLocaleString()}</dd></div>`).join('');
+
+            // Popular searches — the best represented types and liveries
+            const popular = [
+                ...Array.from(byType().entries()).sort((a, b) => b[1].length - a[1].length).slice(0, 8).map(([n]) => ({ kind: 'type', value: n })),
+                ...Array.from(byLivery().entries()).sort((a, b) => b[1].length - a[1].length).slice(0, 6).map(([n]) => ({ kind: 'livery', value: n })),
+            ];
+            document.getElementById('popular-searches').innerHTML = popular.map(item =>
+                `<button class="chip" data-group="${item.kind}" data-value="${esc(item.value)}">${esc(item.value)}</button>`).join('');
+
+            lucide.createIcons();
+        }
+
+        // The active filter now has its own profile header, so this bar reports
+        // what the advanced search is narrowing by, one removable chip per field.
+        function renderFilterBar() {
+            const a = state.adv || {};
+            const labels = { type: 'Type', airline: 'Airline', reg: 'Reg', shooter: 'Photographer', from: 'From', to: 'To' };
+            const chips = Object.keys(labels).filter(k => a[k]).map(k =>
+                `<span class="chip on">${labels[k]}: ${esc(a[k])}
+                    <button data-adv-clear="${k}" aria-label="Remove ${labels[k]} filter" style="display:inline-flex">
+                        <i data-lucide="x" style="width:12px;height:12px"></i>
+                    </button>
+                 </span>`);
+
+            if (!chips.length) { els.filterBar.style.display = 'none'; return; }
+            els.filterBar.style.display = 'flex';
+            els.filterBar.innerHTML = chips.join('') + '<button class="chip" data-adv-clear="*">Clear all</button>';
+            lucide.createIcons();
+        }
+
+        // Push state back into the controls (used when a link restores a view).
+        function syncControls() {
+            Array.from(els.windowSeg.children).forEach(b => b.classList.toggle('on', b.dataset.window === state.window));
+            Array.from(els.viewToggle.children).forEach(b => b.classList.toggle('on', b.dataset.view === state.view));
+            Object.entries(advFields).forEach(([key, id]) => {
+                document.getElementById(id).value = (state.adv && state.adv[key]) || '';
+            });
+            els.adv.classList.toggle('show', !!state.adv);
+        }
+
+        function syncTabs() {
+            document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === state.tab));
+            document.querySelectorAll('[data-navtab]').forEach(b => b.classList.toggle('active', b.dataset.navtab === state.tab));
+        }
+
+        // ------------------------------------------------------------------
+        // Photo page
+        // ------------------------------------------------------------------
+        const findPhoto = (id) => viewList.find(p => p.id === id) || photos.find(p => p.id === id) || null;
+
+        function openPhoto(id, list) {
+            const source = list && list.length ? list : viewList;
+            const idx = source.findIndex(p => p.id === id);
+            const photo = idx >= 0 ? source[idx] : findPhoto(id);
+            if (!photo) return;
+            if (idx >= 0) viewList = source;
+            state.photoId = photo.id;
+            paintPhotoPage(photo);
+            showView('photo');
+            writeHash();
+        }
+
+        function paintPhotoPage(p) {
+            const regList = p.reg && !p.isAirport ? (byReg().get(p.reg) || []) : [];
+            const typeList = p.isAirport ? [] : (byType().get(p.type) || []);
+            const idx = viewList.findIndex(x => x.id === p.id);
+            const image = document.getElementById('lb-image');
+
+            image.src = p.url;
+            image.alt = `${p.type} — ${p.livery}`;
+            image.onerror = function () { this.onerror = null; this.src = FALLBACK_IMG; };
+            document.getElementById('lb-open').href = p.url;
+            const likeBtn = document.getElementById('lb-like');
+            likeBtn.dataset.like = p.id;
+            paintLikeButton(p.id);
+            document.getElementById('lb-index').textContent = idx >= 0 ? `${idx + 1}/${viewList.length}` : '1';
+            document.getElementById('lb-regcount').textContent = regList.length || '—';
+            document.getElementById('lb-typecount').textContent = typeList.length || '—';
+            const heading = p.isAirport ? `${p.reg} — airport imagery` : `${p.livery} ${p.type}`;
+            document.getElementById('lb-title').textContent = heading;
+            document.getElementById('crumb-title').textContent = p.reg ? `${heading} · ${p.reg}` : heading;
+
+            const rows = p.isAirport
+                ? [
+                    ['Airport', `<span style="font-family:'JetBrains Mono',monospace; letter-spacing:.08em">${esc(p.reg)}</span>`],
+                    ['Content', 'Terminal &amp; ramp imagery'],
+                    ['Updated', esc(fmtDate(p.uploadedAt))],
+                ]
+                : [
+                    ['Aircraft', `<button class="lb-link" data-group="type" data-value="${esc(p.type)}">${esc(p.type)}</button>`],
+                    ['Reg', p.reg
+                        ? `<button class="lb-link" data-group="reg" data-value="${esc(p.reg)}" style="font-family:'JetBrains Mono',monospace">${esc(p.reg)}</button> <span class="muted">· ${plural(regList.length, 'photo')}</span>`
+                        : '<span class="muted">Not recorded</span>'],
+                    ['Airline', `<button class="lb-link" data-group="livery" data-value="${esc(p.livery)}">${esc(p.livery)}</button>`],
+                    ['Uploaded', esc(fmtDate(p.uploadedAt))],
+                    ['Slot', `${p.slot} of ${p.slots} in this aircraft's gallery`],
+                ];
+            // Badges earned from the data itself — the first photo of a
+            // registration is the one JetPhotos hands out a badge for.
+            const badges = [];
+            if (!p.isAirport && regList.length) {
+                const earliest = regList.slice().sort((a, b) => new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0))[0];
+                if (earliest.id === p.id) badges.push(['award', `First photo of ${p.reg}`]);
+            }
+            if (!p.isAirport && typeList.length === 1) badges.push(['sparkles', `Only ${p.type} in the gallery`]);
+            badges.push(['shield-check', 'Screened by staff']);
+            document.getElementById('lb-badges').innerHTML = badges.map(([icon, text]) =>
+                `<span class="chip"><i data-lucide="${icon}" style="width:13px;height:13px"></i> ${esc(text)}</span>`).join('');
+
+            document.getElementById('lb-details').innerHTML = rows.map(([k, v]) =>
+                `<div class="lb-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+
+            document.getElementById('lb-photographer').innerHTML = `
+                <div style="display:flex; align-items:center; gap:10px">
+                    <img src="${avatar(p.photographer)}" alt="" style="width:42px;height:42px;border-radius:999px;border:1px solid var(--line)">
+                    <div style="min-width:0">
+                        <div style="font-size:.88rem; font-weight:700">${esc(p.photographer)}</div>
+                        ${p.ifUsername
+                            ? `<div class="acct-if" style="font-size:.76rem">
+                                   <i data-lucide="badge-check" style="width:13px;height:13px;color:#0a7d32"></i>
+                                   ${esc(p.ifUsername)} on Infinite Flight
+                               </div>`
+                            : `<div class="note">Photo © ${esc(p.photographer)}</div>`}
+                    </div>
+                </div>
+                ${p.isAirport ? '' : `<button class="chip" data-group="contributor" data-value="${esc(photographerKey(p))}" style="margin-top:10px; width:100%; justify-content:center">
+                    <i data-lucide="images" style="width:14px;height:14px"></i> All photos by this spotter
+                </button>`}`;
+
+            // "More of this aircraft" — same registration, falling back to same type
+            const siblings = (regList.length > 1 ? regList : typeList);
+            const more = siblings.filter(x => x.id !== p.id).slice(0, 10);
+            document.getElementById('lb-more-title').textContent = regList.length > 1
+                ? `More photos of ${p.reg}` : (p.isAirport ? 'More airports' : `More ${p.type} photos`);
+            const strip = more.length ? more : (p.isAirport ? viewList.filter(x => x.id !== p.id).slice(0, 10) : []);
+            moreList = strip.length ? [p, ...strip] : [];
+            document.getElementById('lb-more').innerHTML = strip.length
+                ? strip.map(m => `
+                    <button class="shot" data-photo="${esc(m.id)}" data-scope="lightbox">
+                        <img loading="lazy" src="${esc(m.url)}" alt="${esc(m.type)}"
+                             onerror="this.onerror=null;this.src='${FALLBACK_IMG}'">
+                    </button>`).join('')
+                : '<p class="note" style="grid-column:1/-1; padding:14px; text-align:center">This is the only photo we hold.</p>';
+
+            lucide.createIcons();
+        }
+
+        function stepPhoto(delta) {
+            if (!viewList.length) return;
+            const idx = viewList.findIndex(p => p.id === state.photoId);
+            if (idx < 0) return;
+            const next = (idx + delta + viewList.length) % viewList.length;
+            state.photoId = viewList[next].id;
+            paintPhotoPage(viewList[next]);
+            window.scrollTo({ top: 0, behavior: 'auto' });
+            writeHash();
+        }
+
+        function closePhoto() {
+            state.photoId = null;
+            showView('browse');
+            writeHash();
+        }
+
+        // ------------------------------------------------------------------
+        // Shareable state in the URL hash
+        // ------------------------------------------------------------------
+        let suppressHash = false;
+
+        function writeHash() {
+            const params = new URLSearchParams();
+            if (state.tab !== 'photos') params.set('tab', state.tab);
+            if (state.query) params.set('q', state.query);
+            if (state.filter) params.set(state.filter.kind, state.filter.value);
+            if (state.sort !== 'newest') params.set('sort', state.sort);
+            if (state.window !== 'all') params.set('w', state.window);
+            if (state.view !== 'grid') params.set('v', state.view);
+            if (state.letter) params.set('l', state.letter);
+            if (state.adv) Object.entries(state.adv).forEach(([k, v]) => { if (v) params.set('a' + k, v); });
+            if (state.photoId) params.set('photo', state.photoId);
+            if (currentView === 'upload') params.set('view', 'upload');
+            if (currentView === 'account') params.set('view', 'account');
+            const hash = params.toString();
+            suppressHash = true;
+            history.replaceState(null, '', hash ? `#${hash}` : location.pathname + location.search);
+            setTimeout(() => { suppressHash = false; }, 0);
+        }
+
+        function applyHash() {
+            const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+            const tab = params.get('tab');
+            if (['photos', 'aircraft', 'liveries', 'airports', 'contributors'].includes(tab)) state.tab = tab;
+            state.query = params.get('q') || '';
+            state.sort = params.get('sort') || 'newest';
+            state.window = WINDOWS[params.get('w')] ? params.get('w') : 'all';
+            state.view = params.get('v') === 'list' ? 'list' : 'grid';
+            state.letter = params.get('l') || null;
+            const adv = {};
+            Object.keys(advFields).forEach(k => { const v = params.get('a' + k); if (v) adv[k] = v; });
+            state.adv = Object.keys(adv).length ? adv : null;
+            state.filter = null;
+            ['type', 'livery', 'reg', 'contributor'].forEach(kind => {
+                const v = params.get(kind);
+                if (v && !state.filter) state.filter = { kind, value: v };
+            });
+            // A filter only means something in the photo feed, so a hand-written
+            // link pairing one with a grouped tab lands on the photos it names.
+            if (state.filter) state.tab = 'photos';
+            state.shown = PAGE_SIZE;
+
+            els.search.value = state.query;
+            els.searchMobile.value = state.query;
+            els.sort.value = state.sort;
+            syncControls();
+            render();
+
+            if (params.get('view') === 'upload') { showView('upload'); return; }
+            if (params.get('view') === 'account') { showView('account'); return; }
+
+            const photoId = params.get('photo');
+            if (photoId) {
+                if (findPhoto(photoId)) openPhoto(photoId);
+            } else if (currentView === 'photo') {
+                showView('browse');
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Interaction
+        // ------------------------------------------------------------------
+        function setTab(tab) {
+            // A tab click from the photo or upload view returns to the feed.
+            if (currentView !== 'browse') { state.photoId = null; showView('browse'); }
+            state.tab = tab;
+            state.shown = PAGE_SIZE;
+            state.letter = null;
+            if (tab !== 'photos') state.filter = null;
+            render();
+            writeHash();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function setFilter(kind, value) {
+            state.filter = { kind, value };
+            state.tab = 'photos';
+            state.query = '';
+            state.adv = null;
+            state.letter = null;
+            syncControls();
+            els.search.value = '';
+            els.searchMobile.value = '';
+            state.shown = PAGE_SIZE;
+            // A filter is a thing to look at in the feed, wherever it was set
+            // from — the photo page, the account page, anywhere.
+            if (currentView !== 'browse') { state.photoId = null; showView('browse'); }
+            render();
+            writeHash();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        let searchTimer = null;
+        function onSearch(value) {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                state.query = value;
+                state.shown = PAGE_SIZE;
+                render();
+                writeHash();
+            }, 180);
+        }
+
+        els.search.addEventListener('input', e => { els.searchMobile.value = e.target.value; onSearch(e.target.value); });
+        els.searchMobile.addEventListener('input', e => { els.search.value = e.target.value; onSearch(e.target.value); });
+
+        document.getElementById('mobile-search-btn').addEventListener('click', () => {
+            const box = document.getElementById('mobile-search');
+            box.classList.toggle('show');
+            if (box.classList.contains('show')) els.searchMobile.focus();
+        });
+
+        els.sort.addEventListener('change', e => {
+            state.sort = e.target.value;
+            state.shown = PAGE_SIZE;
+            render();
+            writeHash();
+        });
+
+        // Time window (48h / week / month / year / all time)
+        els.windowSeg.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-window]');
+            if (!btn) return;
+            state.window = btn.dataset.window;
+            state.shown = PAGE_SIZE;
+            syncControls();
+            render();
+            writeHash();
+        });
+
+        // Grid / list density
+        els.viewToggle.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-view]');
+            if (!btn) return;
+            state.view = btn.dataset.view;
+            state.shown = PAGE_SIZE;
+            syncControls();
+            render();
+            writeHash();
+        });
+
+        // A–Z index rail
+        els.letters.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-letter]');
+            if (!btn || btn.disabled) return;
+            state.letter = btn.dataset.letter || null;
+            render();
+            writeHash();
+        });
+
+        // Advanced search
+        document.getElementById('adv-toggle').addEventListener('click', () => {
+            els.adv.classList.toggle('show');
+            if (els.adv.classList.contains('show')) document.getElementById('adv-type').focus();
+        });
+
+        els.adv.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const adv = {};
+            Object.entries(advFields).forEach(([key, id]) => {
+                const v = document.getElementById(id).value.trim();
+                if (v) adv[key] = v;
+            });
+            state.adv = Object.keys(adv).length ? adv : null;
+            state.tab = 'photos';
+            state.shown = PAGE_SIZE;
+            render();
+            writeHash();
+        });
+
+        document.getElementById('adv-reset').addEventListener('click', () => {
+            state.adv = null;
+            state.shown = PAGE_SIZE;
+            syncControls();
+            render();
+            writeHash();
+        });
+
+        // Random photo, the way Airliners offers a random pull from the archive
+        document.getElementById('random-btn').addEventListener('click', () => {
+            if (!photos.length) return;
+            openPhoto(photos[Math.floor(Math.random() * photos.length)].id, photos);
+        });
+
+        els.loadMore.addEventListener('click', () => {
+            state.shown += PAGE_SIZE;
+            renderPhotoFeed();
+        });
+
+        // Endless scroll: extend the feed as the sentinel comes into view, with
+        // the button above it as the manual fallback.
+        new IntersectionObserver((entries) => {
+            if (!entries.some(e => e.isIntersecting)) return;
+            if (state.tab !== 'photos') return;
+            if (state.shown >= viewList.length) return;
+            state.shown += PAGE_SIZE;
+            renderPhotoFeed();
+        }, { rootMargin: '600px' }).observe(els.sentinel);
+
+        // One delegated click handler for tiles, chips, tabs and photo-sheet links.
+        document.addEventListener('click', (e) => {
+            const tabBtn = e.target.closest('[data-tab], [data-navtab], [data-tab-link]');
+            if (tabBtn) {
+                setTab(tabBtn.dataset.tab || tabBtn.dataset.navtab || tabBtn.dataset.tabLink);
+                return;
+            }
+
+            const advClear = e.target.closest('[data-adv-clear]');
+            if (advClear) {
+                const key = advClear.dataset.advClear;
+                if (key === '*' || !state.adv) state.adv = null;
+                else {
+                    delete state.adv[key];
+                    if (!Object.keys(state.adv).length) state.adv = null;
+                }
+                state.shown = PAGE_SIZE;
+                syncControls();
+                render();
+                writeHash();
+                return;
+            }
+
+            if (e.target.closest('#clear-filter')) {
+                state.filter = null;
+                state.shown = PAGE_SIZE;
+                render();
+                writeHash();
+                return;
+            }
+
+            const group = e.target.closest('[data-group]');
+            if (group) {
+                setFilter(group.dataset.group, group.dataset.value);
+                return;
+            }
+
+            if (e.target.closest('[data-action="upload"]')) {
+                openSubmit();
+                return;
+            }
+
+            if (e.target.closest('[data-action="view-latest"]')) {
+                state.filter = null; state.query = '';
+                els.search.value = ''; els.searchMobile.value = '';
+                setTab('photos');
+                return;
+            }
+
+            const pill = e.target.closest('[data-like-photo]');
+            if (pill) {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleLike(pill.dataset.likePhoto);
+                return;
+            }
+
+            const tile = e.target.closest('[data-photo]');
+            if (tile) {
+                const scope = tile.dataset.scope;
+                // The masthead and the sidebar browse the whole collection; the
+                // grid browses what is on screen, the strip its own siblings.
+                const list = (scope === 'masthead' || scope === 'latest') ? photos
+                    : scope === 'lightbox' ? moreList
+                    : scope === 'mine' ? myPhotos()
+                    : null;
+                openPhoto(tile.dataset.photo, list);
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (currentView === 'photo') {
+                if (e.key === 'Escape') closePhoto();
+                if (e.key === 'ArrowRight') stepPhoto(1);
+                if (e.key === 'ArrowLeft') stepPhoto(-1);
+                return;
+            }
+            if (e.key === '/' && !/input|textarea|select/i.test((document.activeElement || {}).tagName || '')) {
+                e.preventDefault();
+                els.search.focus();
+            }
+        });
+
+        document.getElementById('lb-close').addEventListener('click', closePhoto);
+        document.getElementById('lb-prev-top').addEventListener('click', () => stepPhoto(-1));
+        document.getElementById('lb-next-top').addEventListener('click', () => stepPhoto(1));
+
+        // ------------------------------------------------------------------
+        // Share — a picture, not a link.
+        //
+        // A pasted URL says nothing about whose photo it is. What gets shared
+        // here is the photo itself with a strip along the bottom carrying the
+        // mark, the aircraft and the photographer's name, so the credit travels
+        // with the image into places that will never link back.
+        //
+        // It shares in place: the native sheet when the browser has one, a
+        // download otherwise. Nothing navigates.
+        // ------------------------------------------------------------------
+        const SHARE_W = 1400;
+
+        const loadImage = (src, cors) => new Promise((resolve, reject) => {
+            const img = new Image();
+            if (cors) img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = src;
+        });
+
+        async function buildShareImage(p) {
+            // The photo is served from another origin, so it has to arrive with
+            // CORS for the canvas to stay readable. Without it toBlob throws and
+            // we fall back to sharing the link.
+            const photo = await loadImage(p.url, true);
+            const scale = SHARE_W / photo.naturalWidth;
+            const imgH = Math.round(photo.naturalHeight * scale);
+            const barH = 104;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = SHARE_W;
+            canvas.height = imgH + barH;
+            const ctx = canvas.getContext('2d');
+
+            ctx.drawImage(photo, 0, 0, SHARE_W, imgH);
+
+            // Credit strip
+            ctx.fillStyle = '#16181d';
+            ctx.fillRect(0, imgH, SHARE_W, barH);
+
+            let textLeft = 34;
+            try {
+                const mark = await loadImage('Images/inflight-mark.png', false);
+                const markH = 52;
+                const markW = Math.round(mark.naturalWidth * (markH / mark.naturalHeight));
+                ctx.drawImage(mark, 34, imgH + (barH - markH) / 2, markW, markH);
+                textLeft = 34 + markW + 16;
+            } catch (_) { /* the wordmark alone still says where it came from */ }
+
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '800 27px Inter, system-ui, sans-serif';
+            ctx.fillText('INFLIGHT', textLeft, imgH + barH / 2 - 13);
+            ctx.fillStyle = '#b9c0cb';
+            ctx.font = '700 14px Inter, system-ui, sans-serif';
+            ctx.fillText('S P O T T E R S', textLeft + 2, imgH + barH / 2 + 15);
+
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '700 24px Inter, system-ui, sans-serif';
+            ctx.fillText(`Photo © ${p.photographer}`, SHARE_W - 34, imgH + barH / 2 - 13);
+            ctx.fillStyle = '#b9c0cb';
+            ctx.font = '500 18px Inter, system-ui, sans-serif';
+            const line = [p.livery, p.type, p.reg].filter(Boolean).join(' · ');
+            ctx.fillText(line, SHARE_W - 34, imgH + barH / 2 + 15);
+
+            // And a watermark on the photo itself, for the crop that cuts the
+            // strip off.
+            ctx.textAlign = 'right';
+            ctx.font = '800 20px Inter, system-ui, sans-serif';
+            ctx.fillStyle = 'rgba(0,0,0,.35)';
+            ctx.fillText('INFLIGHT SPOTTERS', SHARE_W - 21, imgH - 25);
+            ctx.fillStyle = 'rgba(255,255,255,.82)';
+            ctx.fillText('INFLIGHT SPOTTERS', SHARE_W - 22, imgH - 26);
+
+            return new Promise((resolve, reject) => {
+                canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('no blob'))), 'image/jpeg', 0.92);
+            });
+        }
+
+        const shareFileName = (p) => `inflight-spotters-${(p.reg || p.type || 'photo')
+            .toLowerCase().replace(/[^a-z0-9]+/g, '-')}.jpg`;
+
+        document.getElementById('lb-share').addEventListener('click', async () => {
+            const p = findPhoto(state.photoId);
+            if (!p) return;
+            const url = location.href;
+            flashShare('…');
+
+            try {
+                const blob = await buildShareImage(p);
+                const file = new File([blob], shareFileName(p), { type: 'image/jpeg' });
+
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        files: [file],
+                        title: `${p.livery} ${p.type}`,
+                        text: `${p.livery} ${p.type}${p.reg ? ' · ' + p.reg : ''} — photo © ${p.photographer} · InFlight Spotters`,
+                    });
+                    flashShare('Shared');
+                    return;
+                }
+
+                // No share sheet: hand them the file and the link instead.
+                const href = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = href;
+                a.download = shareFileName(p);
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(href), 10000);
+                try { await navigator.clipboard.writeText(url); } catch (_) {}
+                flashShare('Saved');
+            } catch (err) {
+                // AbortError is the person closing the sheet, not a failure.
+                if (err && err.name === 'AbortError') { flashShare('Share'); return; }
+                // A photo the bucket serves without CORS taints the canvas, so
+                // there is no image to share — the link still works.
+                try {
+                    if (navigator.share) await navigator.share({ url, title: 'InFlight Spotters' });
+                    else await navigator.clipboard.writeText(url);
+                    flashShare('Link');
+                } catch (_) { flashShare('Failed'); }
+            }
+        });
+
+        function flashShare(msg) {
+            const el = document.getElementById('lb-share').querySelector('.v');
+            if (el.dataset.original === undefined) el.dataset.original = el.innerHTML;
+            el.textContent = msg;
+            clearTimeout(flashShare._t);
+            flashShare._t = setTimeout(() => {
+                el.innerHTML = el.dataset.original;
                 lucide.createIcons();
+            }, 1600);
+        }
+
+        document.getElementById('lb-like').addEventListener('click', () => {
+            const btn = document.getElementById('lb-like');
+            if (btn.dataset.like) toggleLike(btn.dataset.like);
+        });
+
+        // ------------------------------------------------------------------
+        // Account — the tracker sign-in, and the photos it owns.
+        //
+        // The session is the tracker's: same Supabase project, same storage, so
+        // a pilot signed in on the tracker arrives here already signed in. The
+        // backend never takes the browser's word for who that is — the access
+        // token goes up and /api/gallery/me answers.
+        // ------------------------------------------------------------------
+        let account = null;          // what /api/gallery/me returned, or null
+        let submissions = null;      // { submissions: [...], counts: {...} }
+        let claimedThisSession = false;
+
+        const authClient = () => window.InflightGalleryAuth || null;
+
+        async function accessToken() {
+            const client = authClient();
+            if (!client) return null;
+            try {
+                const { data } = await client.auth.getSession();
+                return (data && data.session && data.session.access_token) || null;
+            } catch (_) { return null; }
+        }
+
+        const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2)
+            .map(w => w.charAt(0).toUpperCase()).join('') || '?';
+
+        // What happened to the photos you sent in. Staff decide on Discord; the
+        // decision — and the reason they typed with it — comes back here.
+        async function loadSubmissions() {
+            const token = await accessToken();
+            if (!token) { submissions = null; return; }
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/gallery/submissions`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                submissions = res.ok ? await res.json() : null;
+            } catch (_) { submissions = null; }
+        }
+
+        async function loadAccount() {
+            const token = await accessToken();
+            if (!token) { account = null; submissions = null; paintAccount(); return; }
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/gallery/me`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                account = res.ok ? await res.json() : null;
+            } catch (_) {
+                account = null;
+            }
+            paintAccount();
+            if (account) { await loadSubmissions(); paintSubmissions(); }
+            if (photos.length) { await loadLikes(); render(); }
+            if (account) claimOnce();
+        }
+
+        // Auto-match on first sign-in: photos credited to a name this account
+        // answers to become theirs. The server decides what qualifies.
+        async function claimOnce() {
+            if (claimedThisSession || !account) return;
+            claimedThisSession = true;
+            const token = await accessToken();
+            if (!token) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/gallery/claim`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.claimed > 0) {
+                    // The photos in memory still carry the old credit, so refetch
+                    // rather than guess which ones moved — paintAccount then
+                    // counts the real list.
+                    await refreshPhotos();
+                    paintAccount();
+                }
+            } catch (_) { /* claiming is a convenience, never a blocker */ }
+        }
+
+        async function refreshPhotos() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/aircraft`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    photos = flattenAircraft(data);
+                    renderMasthead();
+                    renderSidebar();
+                    render();
+                }
+            } catch (_) { /* keep what we have */ }
+        }
+
+        function myPhotos() {
+            if (!account) return [];
+            return photos.filter(p => p.pilotId && p.pilotId === account.pilotId);
+        }
+
+        function paintAccount() {
+            const label = document.getElementById('account-label');
+            const ini = document.getElementById('account-ini');
+
+            if (!account) {
+                label.textContent = 'Sign in';
+                ini.innerHTML = '<i data-lucide="user" style="width:14px;height:14px"></i>';
+                document.getElementById('signin-panel').style.display = '';
+                document.getElementById('account-panel').style.display = 'none';
+                document.getElementById('acct-crumb').textContent = 'Sign in to the gallery';
+                document.getElementById('up-credit-field').style.display = '';
+                document.getElementById('up-signed-in').style.display = 'none';
+                lucide.createIcons();
+                return;
+            }
+
+            const credit = account.credit || account.displayName || account.handle || 'Pilot';
+            const pending = (submissions && submissions.counts && submissions.counts.pending) || 0;
+            label.textContent = pending ? `${credit} · ${pending} in review` : credit;
+            ini.innerHTML = account.avatarUrl
+                ? `<img src="${esc(account.avatarUrl)}" alt="">`
+                : esc(initials(credit));
+
+            document.getElementById('signin-panel').style.display = 'none';
+            document.getElementById('account-panel').style.display = '';
+            document.getElementById('acct-crumb').textContent = credit;
+
+            const mine = myPhotos();
+            const sp = spotterStats(mine);
+            document.getElementById('account-card').innerHTML = `
+                ${account.avatarUrl
+                    ? `<img class="acct-avatar" src="${esc(account.avatarUrl)}" alt="">`
+                    : `<span class="acct-avatar">${esc(initials(credit))}</span>`}
+                <div class="acct-id">
+                    <div class="acct-name">${esc(account.displayName || credit)}</div>
+                    ${account.ifUsername
+                        ? `<div class="acct-if">
+                               <i data-lucide="plane" style="width:14px;height:14px"></i>
+                               Infinite Flight: <strong>${esc(account.ifUsername)}</strong>
+                               ${account.ifVerified
+                                    ? '<span class="verified"><i data-lucide="badge-check" style="width:13px;height:13px"></i> Verified</span>'
+                                    : '<span class="unverified">— not verified yet</span>'}
+                           </div>`
+                        : `<div class="note" style="margin-top:4px">
+                               No Infinite Flight username on your pilot profile yet —
+                               <a class="link-btn" href="index.html">add one in the tracker</a> and your photos will carry it.
+                           </div>`}
+                    ${account.handle
+                        ? `<div style="margin-top:8px"><a class="link-btn" href="${API_BASE_URL}/pilot/${encodeURIComponent(account.handle)}" target="_blank" rel="noopener">View your pilot profile</a></div>`
+                        : ''}
+                    ${account.blocked
+                        ? `<div class="status err" style="margin-top:8px">Uploads are restricted on your account${account.blocked.reason ? `: ${esc(account.blocked.reason)}` : '.'}</div>`
+                        : ''}
+                </div>
+                <div class="acct-figures">
+                    <dl class="profile-stats">
+                        <div><dt>Photos</dt><dd>${(photos.length ? sp.photos : (account.photos || 0)).toLocaleString()}</dd></div>
+                        <div><dt>Likes received</dt><dd>${sp.likes.toLocaleString()}</dd></div>
+                        <div><dt>Likes given</dt><dd>${myLikes.size.toLocaleString()}</dd></div>
+                        <div><dt>Types</dt><dd>${sp.types.toLocaleString()}</dd></div>
+                        <div><dt>Airlines</dt><dd>${sp.airlines.toLocaleString()}</dd></div>
+                        <div><dt>Firsts</dt><dd>${sp.firsts.toLocaleString()}</dd></div>
+                    </dl>
+                </div>`;
+
+            const badges = renderBadges(mine);
+            document.getElementById('account-badges').innerHTML = badges
+                ? `<div class="badges">${badges}</div>`
+                : `<p class="note" style="margin:0">Upload a photo to start earning badges — the first one is waiting.</p>`;
+
+            const best = document.getElementById('account-best');
+            best.innerHTML = sp.topPhoto
+                ? `<button class="row" data-photo="${esc(sp.topPhoto.id)}" data-scope="mine" style="grid-template-columns:5.4rem minmax(0,1fr) auto">
+                       <span class="reg">${esc(sp.topPhoto.reg || '—')}</span>
+                       <span class="ac">${esc(sp.topPhoto.type)} <span class="muted">· ${esc(sp.topPhoto.livery)}</span></span>
+                       <span class="dt">${plural(likesOf(sp.topPhoto.id), 'like')}</span>
+                   </button>`
+                : `<p class="note" style="padding:10px 12px; margin:0">No likes yet — they show up here as your photos collect them.</p>`;
+
+            document.getElementById('account-photo-count').textContent = plural(mine.length, 'photo');
+            paintSubmissions();
+            document.getElementById('account-photos').innerHTML = mine.length
+                ? mine.map(photoTile).join('')
+                : `<p class="note" style="grid-column:1/-1; padding:12px">
+                       No photos are linked to your account yet. Anything you upload while signed in lands here,
+                       and older photos credited to your name are matched automatically.
+                   </p>`;
+
+            // Upload credits the account instead of asking for a name.
+            document.getElementById('up-credit-field').style.display = 'none';
+            const signed = document.getElementById('up-signed-in');
+            signed.style.display = '';
+            document.getElementById('up-avatar').innerHTML = account.avatarUrl
+                ? `<img src="${esc(account.avatarUrl)}" alt="" style="width:100%;height:100%;border-radius:999px;object-fit:cover">`
+                : esc(initials(credit));
+            document.getElementById('up-credit-name').textContent = credit;
+            document.getElementById('up-credit-sub').textContent = account.ifUsername
+                ? `Infinite Flight · ${account.ifUsername}`
+                : 'Your tracker account';
+
+            lucide.createIcons();
+        }
+
+        const SUB_STATES = {
+            pending: { label: 'In review', icon: 'clock' },
+            approved: { label: 'Accepted', icon: 'check-circle-2' },
+            rejected: { label: 'Not accepted', icon: 'x-circle' },
+        };
+
+        function paintSubmissions() {
+            const host = document.getElementById('account-subs');
+            if (!host) return;
+
+            if (!submissions || !submissions.submissions) {
+                host.innerHTML = '<p class="note" style="padding:12px; margin:0">Could not load your submissions just now.</p>';
+                return;
+            }
+
+            const rows = submissions.submissions;
+            if (!rows.length) {
+                host.innerHTML = `<p class="note" style="padding:12px; margin:0">
+                        Nothing submitted yet. Photos you upload appear here while staff review them,
+                        with the outcome and — if it is declined — the reason why.
+                    </p>`;
+                return;
+            }
+
+            const c = submissions.counts || {};
+            const summary = `
+                <div class="sub-summary">
+                    <div><b>${(c.pending || 0).toLocaleString()}</b> in review</div>
+                    <div><b>${(c.approved || 0).toLocaleString()}</b> accepted</div>
+                    <div><b>${(c.rejected || 0).toLocaleString()}</b> not accepted</div>
+                </div>`;
+
+            host.innerHTML = summary + rows.map((row) => {
+                const state = SUB_STATES[row.status] || SUB_STATES.pending;
+                const when = fmtDate(row.reviewedAt || row.createdAt);
+                // An approved photo is in the gallery, so link to it by its
+                // registration rather than leaving them to search for it.
+                const link = row.status === 'approved' && row.tailNumber
+                    ? `<div class="sub-link"><button class="lb-link" data-group="reg" data-value="${esc(row.tailNumber)}">See it in the gallery</button></div>`
+                    : '';
+                const reason = row.status === 'rejected' && row.reason
+                    ? `<p class="sub-reason"><strong>Why:</strong> ${esc(row.reason)}</p>`
+                    : row.status === 'rejected'
+                        ? '<p class="sub-reason">Declined without a reason recorded — ask on Discord if you would like the detail.</p>'
+                        : '';
+
+                return `
+                <div class="sub">
+                    <div class="sub-top">
+                        <span class="pill ${row.status}">
+                            <i data-lucide="${state.icon}" style="width:12px;height:12px"></i> ${state.label}
+                        </span>
+                        <span class="sub-ac">
+                            ${esc(row.aircraftType)}
+                            <span class="muted">· ${esc(row.liveryName)}${row.tailNumber ? ' · ' + esc(row.tailNumber) : ''}</span>
+                        </span>
+                        <span class="sub-date">${esc(when)}</span>
+                    </div>
+                    ${reason}
+                    ${link}
+                </div>`;
+            }).join('');
+
+            lucide.createIcons();
+        }
+
+        document.getElementById('subs-refresh').addEventListener('click', async () => {
+            document.getElementById('account-subs').innerHTML =
+                '<p class="note" style="padding:12px; margin:0">Checking…</p>';
+            await loadSubmissions();
+            paintSubmissions();
+        });
+
+        function openAccount() {
+            showView('account');
+            writeHash();
+            if (!account) document.getElementById('signin-email').focus();
+        }
+
+        document.getElementById('brand-home').addEventListener('click', (e) => {
+            e.preventDefault();
+            state.filter = null;
+            state.query = '';
+            state.letter = null;
+            state.adv = null;
+            state.photoId = null;
+            els.search.value = '';
+            els.searchMobile.value = '';
+            syncControls();
+            showView('browse');
+            setTab('photos');
+        });
+
+        document.getElementById('account-btn').addEventListener('click', openAccount);
+        document.getElementById('my-photos-btn').addEventListener('click', openAccount);
+        document.getElementById('acct-back').addEventListener('click', () => { showView('browse'); writeHash(); });
+
+        document.getElementById('signin-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const client = authClient();
+            const status = document.getElementById('signin-status');
+            const setStatus = (msg, kind) => { status.textContent = msg; status.className = 'status' + (kind ? ' ' + kind : ''); };
+
+            if (!client) return setStatus('Sign-in is unavailable right now. Please try again shortly.', 'err');
+
+            const email = document.getElementById('signin-email').value.trim();
+            const password = document.getElementById('signin-password').value;
+            if (!email || !password) return setStatus('Enter your email and password.', 'err');
+
+            document.getElementById('signin-submit').disabled = true;
+            setStatus('Signing in…');
+            try {
+                const { error } = await client.auth.signInWithPassword({ email, password });
+                if (error) {
+                    setStatus(error.message || 'Could not sign you in.', 'err');
+                } else {
+                    setStatus('');
+                    document.getElementById('signin-password').value = '';
+                    await loadAccount();
+                }
+            } catch (_) {
+                setStatus('Network error — please try again.', 'err');
             } finally {
-                galleryGrid.classList.remove('loading');
+                document.getElementById('signin-submit').disabled = false;
             }
+        });
+
+        document.getElementById('signout-btn').addEventListener('click', async () => {
+            const client = authClient();
+            if (client) await client.auth.signOut().catch(() => {});
+            account = null;
+            claimedThisSession = false;
+            paintAccount();
+        });
+
+        // Another tab signing in or out — or the tracker itself — moves this page too.
+        window.addEventListener('inflight-auth-changed', () => { claimedThisSession = false; loadAccount(); });
+        window.addEventListener('inflight-auth-ready', loadAccount);
+        if (window.InflightGalleryAuth !== undefined) loadAccount();
+
+        // ------------------------------------------------------------------
+        // Upload — the gallery's own form. It posts multipart straight to the
+        // community review endpoint (staff approve on Discord before anything
+        // is written), so this page carries no dependency on the shared hub.
+        // ------------------------------------------------------------------
+        const up = {
+            form: document.getElementById('up-form'),
+            files: document.getElementById('up-files'),
+            drop: document.getElementById('up-drop'),
+            previews: document.getElementById('up-previews'),
+            ack: document.getElementById('up-ack'),
+            submit: document.getElementById('up-submit'),
+            status: document.getElementById('up-status'),
+            credit: document.getElementById('up-credit'),
+            id: document.getElementById('up-id'),
+        };
+
+        const readCredit = () => { try { return localStorage.getItem(CREDIT_KEY) || ''; } catch (_) { return ''; } };
+        const writeCredit = (v) => { try { v ? localStorage.setItem(CREDIT_KEY, v) : localStorage.removeItem(CREDIT_KEY); } catch (_) {} };
+
+        function openSubmit() {
+            up.credit.value = up.credit.value || readCredit();
+            showView('upload');
+            writeHash();
+        }
+        document.getElementById('upload-btn').addEventListener('click', openSubmit);
+        document.getElementById('upload-btn-side').addEventListener('click', openSubmit);
+        document.getElementById('up-back').addEventListener('click', () => { showView('browse'); writeHash(); });
+
+        const upSay = (msg, kind) => {
+            up.status.textContent = msg || '';
+            up.status.className = 'status' + (kind ? ' ' + kind : '');
+        };
+
+        function upSyncSubmit() {
+            const ready = up.ack.checked && (up.files.files || []).length > 0;
+            up.submit.disabled = !ready;
         }
 
-        function updateLeaderboard(dataset) {
-            const container = document.getElementById('contributors-container');
-            if (!dataset || dataset.length === 0) {
-                container.innerHTML = `<span class="text-sm text-slate-500">No data available</span>`;
-                return;
-            }
+        // Object URLs are built and revoked here rather than in markup: an
+        // inline onload resolves `URL` against the document (a string), not the
+        // global, so the revoke never fires.
+        let previewUrls = [];
+        function upRenderPreviews() {
+            previewUrls.forEach(u => URL.revokeObjectURL(u));
+            previewUrls = [];
+            up.previews.innerHTML = '';
 
-            const counts = {};
-            dataset.forEach(item => {
-                const name = item.contributorName || 'Anonymous';
-                counts[name] = (counts[name] || 0) + 1;
+            const files = Array.from(up.files.files || []).slice(0, MAX_UPLOAD_IMAGES);
+            files.forEach((file, i) => {
+                const url = URL.createObjectURL(file);
+                previewUrls.push(url);
+
+                const cell = document.createElement('div');
+                cell.className = 'preview';
+
+                const img = document.createElement('img');
+                img.src = url;
+                img.alt = file.name;
+
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.dataset.remove = String(i);
+                remove.setAttribute('aria-label', `Remove ${file.name}`);
+                remove.innerHTML = '&times;';
+
+                cell.append(img, remove);
+                up.previews.appendChild(cell);
             });
 
-            const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 4);
-
-            container.innerHTML = sorted.map(([name, count], index) => {
-                const badgeColor = index === 0 ? 'ring-yellow-500/50 text-yellow-500' : 'ring-white/10 text-slate-300';
-                const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=1e293b&color=fff`;
-                
-                return `
-                <div class="flex items-center gap-3 bg-black/40 pr-4 pl-1.5 py-1.5 rounded-full border border-white/5 transition-all hover:bg-black/60">
-                    <img src="${avatarUrl}" class="size-8 rounded-full ring-2 ${badgeColor}" alt="${name}">
-                    <div class="flex flex-col">
-                        <span class="text-xs font-bold text-white leading-none">${name}</span>
-                        <span class="text-[10px] text-slate-400 font-mono mt-0.5">${count} Uploads</span>
-                    </div>
-                </div>
-                `;
-            }).join('');
+            if ((up.files.files || []).length > MAX_UPLOAD_IMAGES) {
+                upSay(`Only the first ${MAX_UPLOAD_IMAGES} photos will be sent.`, 'err');
+            } else if (up.status.classList.contains('err')) {
+                upSay('');
+            }
+            upSyncSubmit();
         }
 
-        // Render the main grid of grouped Aircraft
-        function renderAircraftGroups(searchTerm = '') {
-            let groupsToRender = Object.keys(groupedAircraft);
-            
-            if (searchTerm) {
-                groupsToRender = groupsToRender.filter(type => {
-                    const typeMatch = type.toLowerCase().includes(searchTerm);
-                    const liveryMatch = groupedAircraft[type].some(ac => 
-                        (ac.liveryName || '').toLowerCase().includes(searchTerm)
-                    );
-                    return typeMatch || liveryMatch;
+        // Rebuild the FileList without one entry — the only way to drop a file
+        // from an <input type=file> and keep the rest.
+        function upRemoveAt(idx) {
+            const dt = new DataTransfer();
+            Array.from(up.files.files || []).forEach((f, i) => { if (i !== idx) dt.items.add(f); });
+            up.files.files = dt.files;
+            upRenderPreviews();
+        }
+
+        up.files.addEventListener('change', upRenderPreviews);
+        up.ack.addEventListener('change', upSyncSubmit);
+        up.previews.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-remove]');
+            if (btn) upRemoveAt(Number(btn.dataset.remove));
+        });
+
+        ['dragenter', 'dragover'].forEach(ev => up.drop.addEventListener(ev, (e) => {
+            e.preventDefault(); up.drop.classList.add('over');
+        }));
+        ['dragleave', 'drop'].forEach(ev => up.drop.addEventListener(ev, (e) => {
+            e.preventDefault(); up.drop.classList.remove('over');
+        }));
+        up.drop.addEventListener('drop', (e) => {
+            const dropped = Array.from((e.dataTransfer && e.dataTransfer.files) || []).filter(f => f.type.startsWith('image/'));
+            if (!dropped.length) return;
+            const dt = new DataTransfer();
+            dropped.slice(0, MAX_UPLOAD_IMAGES).forEach(f => dt.items.add(f));
+            up.files.files = dt.files;
+            upRenderPreviews();
+        });
+
+        up.form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const files = Array.from(up.files.files || []);
+            if (!files.length) return upSay('Please choose at least one photo.', 'err');
+            const type = document.getElementById('up-type').value.trim();
+            const livery = document.getElementById('up-livery').value.trim();
+            if (!type || !livery) return upSay('Aircraft type and livery are both required.', 'err');
+
+            // Signed in, the account is the credit and the server takes it from
+            // the token — the name field is not even sent.
+            const token = await accessToken();
+            const credit = account ? '' : up.credit.value.trim();
+            if (credit) writeCredit(credit);
+            // A linked Discord id, when another page on the site has set one.
+            if (!account && !up.id.value && window.InflightUser && window.InflightUser.discordId) {
+                up.id.value = window.InflightUser.discordId;
+            }
+
+            const fd = new FormData();
+            files.slice(0, MAX_UPLOAD_IMAGES).forEach(f => fd.append('images', f));
+            fd.set('aircraftType', type);
+            fd.set('liveryName', livery);
+            fd.set('tailNumber', document.getElementById('up-tail').value.trim());
+            fd.set('collaboratorName', credit);
+            if (up.id.value) fd.set('collaboratorId', up.id.value);
+            fd.set('sourceSite', location.hostname);
+
+            up.submit.disabled = true;
+            upSay('Uploading…');
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/community/aircraft/submit`, {
+                    method: 'POST',
+                    body: fd,
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
                 });
-            }
-
-            document.getElementById('stat-total').innerText = groupsToRender.length;
-
-            if (groupsToRender.length === 0) {
-                galleryGrid.innerHTML = `<div class="col-span-full py-20 text-center text-slate-500">No fleets match your filters.</div>`;
-                return;
-            }
-
-            const cardsHtml = groupsToRender.map(type => {
-                const fleet = groupedAircraft[type];
-                let coverAc = fleet.find(ac => ac.liveryName && (ac.liveryName.toLowerCase().includes('generic') || ac.liveryName.toLowerCase().includes('default')));
-                if (!coverAc) coverAc = fleet[0];
-                
-                const safeId = type.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-
-                return `
-                <div id="card-${safeId}" onclick="toggleFolder('${type}', this)" class="glow-card stack-effect group rounded-[2rem] aspect-[16/10] cursor-pointer bg-surface overflow-hidden relative z-10">
-                    <img src="${coverAc.imageUrl}" class="absolute inset-0 w-full h-full object-cover opacity-10 blur-2xl scale-125 z-0 pointer-events-none" alt="">
-                    
-                    <div class="absolute inset-0 z-10 p-4 sm:p-8 flex items-center justify-center">
-                        <img src="${coverAc.imageUrl}" alt="${type}" loading="lazy" 
-                            class="main-img w-full h-full object-contain drop-shadow-[0_20px_40px_rgba(0,0,0,0.9)]">
-                    </div>
-                    
-                    <div class="card-gradient-overlay absolute inset-0 z-20 pointer-events-none"></div>
-                    
-                    <div class="absolute bottom-0 left-0 right-0 z-30 p-6 sm:p-8 flex justify-between items-end transform translate-y-2 group-hover:translate-y-0 transition-transform duration-500">
-                        <div class="flex flex-col gap-2">
-                            <h3 class="text-3xl font-black text-white tracking-tight leading-none drop-shadow-lg">${type}</h3>
-                            <span class="text-sm text-slate-300 font-medium flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100">
-                                <i data-lucide="image" class="size-3.5 text-accent"></i> ${coverAc.liveryName}
-                            </span>
-                        </div>
-                        
-                        <div class="flex flex-col items-end gap-2">
-                            <div class="flex items-center gap-2 bg-white/10 backdrop-blur-md text-white px-4 py-2 rounded-full border border-white/20 shadow-lg group-hover:bg-primary group-hover:border-primary transition-all duration-300">
-                                <i data-lucide="layers" class="size-4"></i>
-                                <span class="text-xs font-bold uppercase tracking-widest">${fleet.length} Variants</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                `;
-            }).join('');
-
-            galleryGrid.innerHTML = cardsHtml;
-            lucide.createIcons();
-        }
-
-        // Render Airports
-        function renderAirports(searchTerm = '') {
-            let dataToRender = rawAirportData;
-            
-            if (searchTerm) {
-                dataToRender = dataToRender.filter(ap => 
-                    (ap.icao || '').toLowerCase().includes(searchTerm)
-                );
-            }
-
-            document.getElementById('stat-total').innerText = dataToRender.length;
-
-            if (dataToRender.length === 0) {
-                galleryGrid.innerHTML = `<div class="col-span-full py-20 text-center text-slate-500">No terminals match your filters.</div>`;
-                return;
-            }
-
-            const cardsHtml = dataToRender.map(ap => {
-                const dateObj = new Date(ap.lastUpdated);
-                const formattedDate = dateObj.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-                
-                return `
-                <div class="glow-card group rounded-[2rem] aspect-[16/10] cursor-pointer bg-surface overflow-hidden relative z-10">
-                    <img src="${ap.imageUrl}" class="absolute inset-0 w-full h-full object-cover opacity-10 blur-2xl scale-125 z-0 pointer-events-none" alt="">
-                    
-                    <div class="absolute inset-0 z-10 p-4 sm:p-8 flex items-center justify-center">
-                        <img src="${ap.imageUrl}" alt="${ap.icao}" loading="lazy" 
-                            class="main-img w-full h-full object-contain drop-shadow-[0_20px_40px_rgba(0,0,0,0.9)]">
-                    </div>
-                    
-                    <div class="card-gradient-overlay absolute inset-0 z-20 pointer-events-none"></div>
-                    
-                    <div class="absolute bottom-0 left-0 right-0 z-30 p-6 sm:p-8 flex justify-between items-end transform translate-y-2 group-hover:translate-y-0 transition-transform duration-500">
-                        <div class="flex flex-col gap-2">
-                            <h3 class="text-4xl font-black text-white tracking-widest leading-none drop-shadow-lg">${ap.icao}</h3>
-                            <div class="flex items-center gap-2 text-sm text-slate-300 font-mono opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100">
-                                <i data-lucide="clock" class="size-3.5 text-accent"></i>
-                                <span>Updated: ${formattedDate}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                `;
-            }).join('');
-
-            galleryGrid.innerHTML = cardsHtml;
-            lucide.createIcons();
-        }
-
-        // Inline Folder Expansion Logic
-        function toggleFolder(aircraftType, cardElement) {
-            const safeId = aircraftType.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-            const folderId = `folder-${safeId}`;
-            const existingFolder = document.getElementById(folderId);
-
-            // Close any currently open folders smoothly
-            document.querySelectorAll('.folder-expansion').forEach(el => {
-                if (el.id !== folderId) {
-                    el.classList.add('closing');
-                    setTimeout(() => el.remove(), 400);
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    upSay(account
+                        ? `Submitted as ${data.creditedTo || 'you'}. It is in review — the outcome, and the reason if it is declined, appears under Your submissions.`
+                        : 'Submitted. Staff review every photo on Discord before it appears here.', 'ok');
+                    up.form.reset();
+                    upRenderPreviews();
+                    up.credit.value = readCredit();
+                    // The new row is pending from this moment; fetch it so the
+                    // account page is right the next time they open it.
+                    if (account) { await loadSubmissions(); paintSubmissions(); }
+                } else if (res.status === 403) {
+                    // A restriction on the account reads differently from an
+                    // origin the backend will not accept at all.
+                    upSay(data.blocked
+                        ? (data.message || 'Uploads are restricted on your account.')
+                        : 'This site is not allowed to submit (origin check).', 'err');
+                } else if (res.status === 503) {
+                    upSay('The review service is waking up — please try again in a moment.', 'err');
+                } else {
+                    upSay(data.message || `Upload failed (${res.status}).`, 'err');
                 }
-            });
-
-            // Handle dimming/highlighting main cards
-            document.querySelectorAll('.glow-card').forEach(el => {
-                if (el !== cardElement) {
-                    el.classList.remove('ring-2', 'ring-primary', 'ring-offset-4', 'ring-offset-background');
-                    el.style.opacity = existingFolder ? '1' : '0.4';
-                    el.style.filter = existingFolder ? 'none' : 'grayscale(30%)';
-                }
-            });
-
-            if (existingFolder) {
-                // If clicking the active folder, just close it and restore standard view
-                existingFolder.classList.add('closing');
-                setTimeout(() => existingFolder.remove(), 400);
-                cardElement.classList.remove('ring-2', 'ring-primary', 'ring-offset-4', 'ring-offset-background');
-                document.querySelectorAll('.glow-card').forEach(el => {
-                    el.style.opacity = '1';
-                    el.style.filter = 'none';
-                });
-                return;
+            } catch (_) {
+                upSay('Network error — please try again.', 'err');
+            } finally {
+                upSyncSubmit();
             }
+        });
 
-            // Highlight the clicked card
-            cardElement.style.opacity = '1';
-            cardElement.style.filter = 'none';
-            cardElement.classList.add('ring-2', 'ring-primary', 'ring-offset-4', 'ring-offset-background');
-            
-            const fleet = groupedAircraft[aircraftType];
-            
-            // Build the massive, high-quality showcase cards for the variants
-            const folderHtml = `
-                <div id="${folderId}" class="folder-expansion">
-                    <div class="flex justify-between items-end mb-8 px-2">
-                        <div>
-                            <div class="flex items-center gap-3 mb-2">
-                                <h4 class="text-3xl font-black text-white tracking-tight">${aircraftType}</h4>
-                                <span class="bg-primary/20 text-primary border border-primary/30 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest">Directory</span>
-                            </div>
-                            <p class="text-sm text-slate-400 font-mono">Viewing ${fleet.length} active high-res configurations</p>
-                        </div>
-                        <button onclick="toggleFolder('${aircraftType}', document.getElementById('card-${safeId}'))" class="p-3 rounded-full bg-white/5 hover:bg-white/10 hover:text-red-400 text-white transition-all border border-white/10 hover:border-red-400/30">
-                            <i data-lucide="x" class="size-5"></i>
-                        </button>
-                    </div>
-                    
-                    <div class="flex gap-8 overflow-x-auto horizontal-scroll pb-6 pt-2 px-2 snap-x snap-mandatory">
-                        ${fleet.map(ac => `
-                            <div class="variant-card shrink-0 w-[85vw] sm:w-[600px] aspect-[16/10] snap-center group">
-                                <div class="absolute inset-0 bg-gradient-to-t from-black/95 via-black/20 to-transparent z-10 pointer-events-none"></div>
-                                <img src="${ac.imageUrl}" class="absolute inset-0 w-full h-full object-cover opacity-10 blur-xl z-0 pointer-events-none" alt="">
-                                
-                                <div class="absolute inset-0 z-10 p-6 flex items-center justify-center">
-                                    <img src="${ac.imageUrl}" alt="${ac.liveryName}" class="w-full h-full object-contain drop-shadow-[0_25px_35px_rgba(0,0,0,0.9)] transition-transform duration-700 ease-out group-hover:scale-105 group-hover:-translate-y-2">
-                                </div>
+        window.addEventListener('hashchange', () => { if (!suppressHash) applyHash(); });
 
-                                <div class="absolute bottom-0 left-0 w-full p-8 z-20 flex justify-between items-end">
-                                    <div class="flex flex-col gap-2">
-                                        <h5 class="text-4xl font-black text-white leading-none drop-shadow-xl">${ac.tailNumber || 'No Tail Data'}</h5>
-                                        <div class="flex items-center gap-2 text-accent bg-black/50 w-fit px-3 py-1.5 rounded-lg backdrop-blur-md border border-white/10">
-                                            <i data-lucide="paint-bucket" class="size-4"></i>
-                                            <span class="text-sm font-bold tracking-wide">${ac.liveryName}</span>
-                                        </div>
-                                    </div>
-                                    <div class="flex flex-col items-end gap-1.5">
-                                        <span class="text-[10px] text-slate-400 font-mono uppercase tracking-widest">Spotted By</span>
-                                        <div class="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-full border border-white/10 backdrop-blur-md">
-                                            <i data-lucide="camera" class="size-3.5 text-white"></i>
-                                            <span class="text-sm font-bold text-white">@${ac.contributorName || 'System'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-
-            // Insert directly after the clicked card
-            cardElement.insertAdjacentHTML('afterend', folderHtml);
-            lucide.createIcons();
-            
-            // Smooth scroll so the newly opened folder is nicely centered in the user's view
-            setTimeout(() => {
-                const newFolder = document.getElementById(folderId);
-                const offset = 100; // Account for the sticky navbar
-                const bodyRect = document.body.getBoundingClientRect().top;
-                const elementRect = newFolder.getBoundingClientRect().top;
-                const elementPosition = elementRect - bodyRect;
-                const offsetPosition = elementPosition - offset;
-
-                window.scrollTo({
-                    top: offsetPosition,
-                    behavior: 'smooth'
-                });
-            }, 50);
-        }
+        loadData();
     </script>
 </body>
 </html>
