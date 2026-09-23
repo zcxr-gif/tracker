@@ -4970,10 +4970,16 @@ function injectCustomStyles() {
             #main-switcher-highlight,
             .ac-info-window-tabs #ac-dock-toggle-btn { display: none !important; }
             .ac-info-window-tabs.no-pilot { display: none !important; }
+            /* The old switcher box behind the card: its light border, white
+               inset highlight and dark fill all showed as edges around the
+               banner, so on desktop it is just a clip for the card. */
             #main-data-switcher {
                 padding: 0 !important;
                 height: 64px !important;
                 overflow: hidden;
+                border: 0 !important;
+                background: transparent !important;
+                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28) !important;
             }
             #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
                 border-radius: 12px;
@@ -5030,7 +5036,6 @@ function injectCustomStyles() {
                 border-radius: inherit;
                 background-size: cover, cover;
                 background-position: center, center;
-                border: 1px solid rgba(255, 255, 255, 0.14);
             }
             /* A scrim so the name reads on any photograph. */
             .ac-pilot-banner::after {
