@@ -4972,7 +4972,7 @@ function injectCustomStyles() {
             .ac-info-window-tabs.no-pilot { display: none !important; }
             #main-data-switcher {
                 padding: 0 !important;
-                height: 56px !important;
+                height: 64px !important;
                 overflow: hidden;
             }
             #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
@@ -4981,7 +4981,7 @@ function injectCustomStyles() {
                 padding: 0 16px 0 12px !important;
                 font-size: 12px !important;
             }
-            #main-data-switcher .ac-pilot-avatar { width: 34px; height: 34px; font-size: 11px; }
+            #main-data-switcher .ac-pilot-avatar { width: 40px; height: 40px; font-size: 12px; }
             .ac-pilot-go {
                 margin-left: auto;
                 flex: 0 0 auto;
@@ -4995,27 +4995,24 @@ function injectCustomStyles() {
             .ac-pilot-go i { font-size: 9px; }
             .ac-info-tab-btn.pilot-tab-btn:hover .ac-pilot-go { opacity: 1; }
 
-            /* One continuous surface from the photo down to the instruments:
-               the photo fades all the way into the route card's colour, and
-               the pilot row and instrument area lose their divider lines and
-               blend into each other instead of starting as new bands. */
-            #aircraft-info-window .ac-header-overlay {
-                background: linear-gradient(to bottom,
-                    rgba(58, 58, 58, 0) 0%,
-                    rgba(58, 58, 58, 0) 34%,
-                    rgba(58, 58, 58, 0.22) 55%,
-                    rgba(58, 58, 58, 0.66) 76%,
-                    rgba(58, 58, 58, 0.94) 92%,
-                    #3a3a3a 100%) !important;
-            }
-            #aircraft-info-window .ac-route-bar-backdrop {
-                box-shadow: 0 -40px 48px 8px rgba(58, 58, 58, 0.55) !important;
-            }
+            /* The route card pulls itself up over the photo with a -32px top
+               margin. Its wrapper (.ac-route-bar-backdrop, solid #3a3a3a) had
+               no padding or border, so that margin collapsed through it and
+               the wrapper rose 32px too — laying a flat block over the bottom
+               of the photo while the photo's fade was only ~60% of the way
+               to #3a3a3a. That was the hard line. A new block formatting
+               context stops the collapse: the wrapper now starts where the
+               fade is already solid, and the card still overlaps the photo. */
+            #aircraft-info-window .ac-route-bar-backdrop { display: flow-root; }
+
+            /* The pilot row and the instrument area lose their divider lines
+               and blend into each other instead of starting as new bands.
+               Narrow side padding so the pilot card uses the width. */
             #aircraft-info-window .ac-info-window-tabs {
                 background: #3a3a3a !important;
                 border-top: 0 !important;
                 border-bottom: 0 !important;
-                padding-bottom: 16px !important;
+                padding: 14px 8px 16px 8px !important;
             }
             #aircraft-info-window .unified-display-main-content {
                 border-top: 0 !important;
