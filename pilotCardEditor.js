@@ -36,9 +36,31 @@ function initials(name) {
     return String(name || '?').replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
 }
 
+// createImageBitmap is missing on older iOS Safari and refuses some phone
+// photos; an <img> decodes anything the browser can show.
+async function decodeImage(file) {
+    if (typeof createImageBitmap === 'function') {
+        try {
+            const bitmap = await createImageBitmap(file);
+            return { width: bitmap.width, height: bitmap.height, source: bitmap, close: () => bitmap.close?.() };
+        } catch (_) { /* fall through */ }
+    }
+    const url = URL.createObjectURL(file);
+    try {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        return { width: img.naturalWidth, height: img.naturalHeight, source: img };
+    } catch (_) {
+        throw new Error('That file couldn\'t be read as a picture. Try a JPEG or PNG.');
+    } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+}
+
 async function encodeJpeg(file, kind) {
     const spec = KIND[kind];
-    const bitmap = await createImageBitmap(file);
+    const bitmap = await decodeImage(file);
     if (Math.min(bitmap.width, bitmap.height) < spec.minSide) {
         throw new Error(`That ${kind === 'avatar' ? 'picture' : 'banner'} is too small — it needs to be at least ${spec.minSide} pixels on its short side.`);
     }
@@ -46,7 +68,7 @@ async function encodeJpeg(file, kind) {
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    canvas.getContext('2d').drawImage(bitmap.source, 0, 0, canvas.width, canvas.height);
     bitmap.close?.();
     return canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
 }
