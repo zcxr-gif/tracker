@@ -12,6 +12,7 @@ import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
+import { PilotCardPrompt } from './pilotCardPrompt.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -98,6 +99,8 @@ async function refreshNavAccount() {
 // auth callback.
 supabase.auth.onAuthStateChange(() => { setTimeout(refreshNavAccount, 0); });
 window.addEventListener('inflight:pilot-profile-changed', refreshNavAccount);
+// Signed in with no picture yet: a one-time popup and a dot on the pill.
+PilotCardPrompt.init(supabase);
 
 // 2. Initialize Mobile Dashboard
 MobileDashboardUI.init(supabase);

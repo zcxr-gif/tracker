@@ -302,6 +302,8 @@ export const MobileLandingChromeUI = {
                 console.error('Profile button handler error:', err);
             }
         };
+        // No picture yet: pilotCardPrompt.js marks the orb with a dot.
+        profileBtn?.classList.toggle('pcp-needs-picture', !!window.__inflightNeedsPicture);
         profileBtn?.addEventListener('pointerup', openProfile);
         profileBtn?.addEventListener('click', openProfile);
 
