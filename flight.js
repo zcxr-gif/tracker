@@ -24504,11 +24504,24 @@ const SERENE_WINDOW_CSS = (() => {
 
         /* ---- Hero photo: a soft top scrim for the callsign, a long fade
            into the window colour at the bottom ---- */
-        ${S} .ac-header-modern { min-height: 236px !important; background-color: var(--sr-bg) !important; }
+        /* Always cover (the phone sheet used contain, which left the photo
+           ending in a hard edge above the fade). The fade is eased — many
+           stops following a smooth curve — so it melts into the window
+           colour with no visible band or line. */
+        ${S} .ac-header-modern {
+            min-height: 248px !important; background-color: var(--sr-bg) !important;
+            background-size: cover !important; background-position: center 42% !important;
+            background-repeat: no-repeat !important;
+        }
         ${S} .ac-header-overlay {
             background: linear-gradient(180deg,
-                rgba(12,14,18,0.42) 0%, rgba(12,14,18,0.08) 30%,
-                rgba(22,24,28,0) 52%, rgba(22,24,28,0.62) 80%,
+                rgba(12,14,18,0.46) 0%, rgba(12,14,18,0.26) 10%,
+                rgba(12,14,18,0.08) 22%, rgba(22,24,28,0) 34%,
+                rgba(22,24,28,0.02) 40%, rgba(22,24,28,0.06) 46%,
+                rgba(22,24,28,0.13) 52%, rgba(22,24,28,0.22) 58%,
+                rgba(22,24,28,0.33) 64%, rgba(22,24,28,0.46) 70%,
+                rgba(22,24,28,0.60) 76%, rgba(22,24,28,0.73) 82%,
+                rgba(22,24,28,0.85) 88%, rgba(22,24,28,0.94) 94%,
                 var(--sr-bg) 100%) !important;
         }
         ${S} .ac-header-top h1 {
@@ -24555,7 +24568,7 @@ const SERENE_WINDOW_CSS = (() => {
             font-family: var(--font-ui) !important; font-size: 22px !important; font-weight: 600 !important;
             letter-spacing: 0.03em; margin: 2px 0 3px;
         }
-        ${S} .ac-route-info-bar .time-small { font-size: 12px !important; font-weight: 500 !important; font-variant-numeric: tabular-nums; }
+        ${S} .ac-route-info-bar .time-small { font-family: var(--font-ui) !important; font-size: 12px !important; font-weight: 500 !important; font-variant-numeric: tabular-nums; }
         ${S} .ac-route-info-bar .time-source-label { font-size: 8.5px !important; font-weight: 600 !important; letter-spacing: 0.08em !important; opacity: 0.6 !important; }
         ${S} .phase-badge-route {
             width: fit-content; margin: 0 auto 10px !important; padding: 4px 11px;
@@ -24727,13 +24740,34 @@ const SERENE_WINDOW_CSS = (() => {
         }
         ${S} .dest-cell .v, ${S} .dest-mgrid .v { font-family: var(--font-ui); font-weight: 500; }
 
+        /* ---- At a glance: the four live numbers, one quiet row ---- */
+        ${S} .sr-glance {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            background: var(--sr-surface); border: 1px solid var(--sr-line);
+            border-radius: 20px; padding: 14px 4px;
+        }
+        ${S} .sr-g { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; padding: 0 6px; }
+        ${S} .sr-g + .sr-g { border-left: 1px solid var(--sr-line); }
+        ${S} .sr-g-l { font-size: 10.5px; font-weight: 500; color: var(--sr-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        ${S} .sr-g-v {
+            font-size: 16px; font-weight: 500; color: var(--sr-text); font-variant-numeric: tabular-nums;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+        }
+        ${S} .sr-g-v span[style*="font-size"] { font-size: 10px !important; color: var(--sr-faint) !important; font-weight: 500 !important; margin-left: 1px; }
+        @media (max-width: 400px) {
+            ${S} .sr-glance { grid-template-columns: repeat(2, 1fr); row-gap: 14px; }
+            ${S} .sr-g:nth-child(3) { border-left: 0; }
+        }
+
         /* ---- A gentle entrance for the content below the photo ---- */
         @keyframes sr-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
         ${S} .ac-route-info-bar,
         ${S} .ac-info-window-tabs,
         ${S} #ac-tab-flight-data > * { animation: sr-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
         ${S} .ac-info-window-tabs { animation-delay: 60ms; }
-        ${S} #ac-tab-flight-data > * { animation-delay: 120ms; }
+        ${S} #ac-tab-flight-data > * { animation-delay: 240ms; }
+        ${S} #ac-tab-flight-data > :nth-child(-n+4) { animation-delay: 120ms; }
+        ${S} #ac-tab-flight-data > :nth-child(n+5):nth-child(-n+8) { animation-delay: 180ms; }
         @media (prefers-reduced-motion: reduce) {
             ${S} .ac-route-info-bar, ${S} .ac-info-window-tabs, ${S} #ac-tab-flight-data > * { animation: none; }
         }
@@ -24746,6 +24780,80 @@ function ensureSereneWindowStyle() {
     s.id = 'ac-serene-style';
     s.textContent = SERENE_WINDOW_CSS;
     document.head.appendChild(s);
+}
+
+// Live readouts shown in Serene's "at a glance" strip. Each cell mirrors the
+// Navigation card's element of the same id, which the live-update path keeps
+// current, so the strip needs no update code of its own.
+const SERENE_GLANCE = [
+    ['ac-alt', 'Altitude'],
+    ['ac-gs', 'Ground speed'],
+    ['ac-vs', 'Vertical speed'],
+    ['ac-heading', 'Heading'],
+];
+
+/**
+ * Serene reads top-down as a story rather than a cockpit: the live numbers
+ * and the journey first, then where the flight is going, then the
+ * instruments, then the detail. Same nodes (ids, listeners, live updates are
+ * unaffected), only moved; anything not named keeps its place at the top of
+ * the column (the hidden legacy spans).
+ */
+function arrangeSereneWindow(html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    const pane = tpl.content.querySelector('#ac-tab-flight-data');
+    if (!pane) return html;
+
+    const q = (sel) => pane.querySelector(':scope > ' + sel);
+    // A card together with the section heading that sits just above it.
+    const withHeading = (el) => {
+        if (!el) return [];
+        const h = el.previousElementSibling;
+        return (h && h.matches('h2.acx-sec')) ? [h, el] : [el];
+    };
+    const make = (tag, cls, inner) => {
+        const el = document.createElement(tag);
+        el.className = cls;
+        el.innerHTML = inner;
+        return el;
+    };
+
+    const glance = make('div', 'sr-glance', SERENE_GLANCE.map(([id, label]) =>
+        `<div class="sr-g"><span class="sr-g-l">${label}</span><span class="sr-g-v" data-sr-mirror="${id}">---</span></div>`
+    ).join(''));
+
+    const order = [
+        glance,
+        ...withHeading(q('.stats-card')),
+        q('#legacy-dest-card'),
+        make('h2', 'acx-sec', 'Instruments'),
+        q('.pfd-and-location-grid'),
+        q('.nd-full-width-section'),
+        q('#ac-va-banner'),
+        ...withHeading(q('.graph-card')),
+        q('#ac-legs-host'),
+        ...withHeading(q('.nav-card')),
+        q('#ac-fuel-sec'), q('#ac-fuel-host'),
+        q('#ac-cabin-sec'), q('#ac-cabin-host'),
+        ...withHeading(q('.aircraft-card')),
+    ].filter(Boolean);
+    order.forEach((el) => pane.appendChild(el));
+    return tpl.innerHTML;
+}
+
+function wireSereneGlance(windowEl) {
+    (windowEl._srMirrors || []).forEach((o) => o.disconnect());
+    windowEl._srMirrors = [];
+    windowEl.querySelectorAll('[data-sr-mirror]').forEach((cell) => {
+        const src = windowEl.querySelector('#' + cell.dataset.srMirror);
+        if (!src) return;
+        const copy = () => { if (cell.innerHTML !== src.innerHTML) cell.innerHTML = src.innerHTML; };
+        copy();
+        const mo = new MutationObserver(copy);
+        mo.observe(src, { childList: true, subtree: true, characterData: true });
+        windowEl._srMirrors.push(mo);
+    });
 }
 
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
@@ -25189,7 +25297,7 @@ let totalDistanceNM = 0;
     // --- HTML Construction ---
     // Morphs the window from the loading box to the finished panel instead of
     // snapping to it — see setInfoWindowContent.
-    setInfoWindowContent(windowEl, `
+    const windowHtml = `
     <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; height: auto; min-height: 220px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
             <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
@@ -25629,7 +25737,11 @@ let totalDistanceNM = 0;
             </div>
         </div>
     </div>
-    `);
+    `;
+    // Serene rearranges the content column before it is written, so the
+    // morph measures the final layout (see arrangeSereneWindow).
+    setInfoWindowContent(windowEl, sereneSkin ? arrangeSereneWindow(windowHtml) : windowHtml);
+    if (sereneSkin) wireSereneGlance(windowEl);
 
     // --- POST-RENDER LOGIC ---
     // Destination dropdown: expand/collapse, fetching the airport summary
