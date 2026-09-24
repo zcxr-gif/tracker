@@ -103,10 +103,12 @@
     <link rel="preconnect" href="https://api.mapbox.com" crossorigin>
     <link rel="preconnect" href="https://events.mapbox.com" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <!-- flight.js imports supabase-js from jsDelivr, so that host is on the
+         boot path too. (unpkg is no longer: three.js now loads on demand.) -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="dns-prefetch" href="https://api.mapbox.com">
     <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
-    <link rel="dns-prefetch" href="https://unpkg.com">
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
 
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.16.0/mapbox-gl.css" rel="stylesheet">
 
@@ -184,17 +186,29 @@
 
         /* A slow horizon sweep, so the wait reads as "loading" rather than
            "frozen". Sits behind the canvas and never intercepts input. */
+        /* The sweep slides a 260%-wide gradient strip with transform instead
+           of animating background-position: the old version repainted the
+           whole viewport every frame during boot, competing with Mapbox for
+           exactly the frames that were loading the first tiles. Same motion
+           (the percentages are the old background-position range re-expressed
+           against the strip's own width), now compositor-only. */
+        #sector-ops-map-fullscreen {
+            overflow: hidden;
+        }
         #sector-ops-map-fullscreen::after {
             content: '';
             position: absolute;
-            inset: 0;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: 260%;
             pointer-events: none;
             z-index: 0;
             background: linear-gradient(100deg,
                 transparent 38%,
                 rgba(255, 255, 255, 0.045) 50%,
                 transparent 62%);
-            background-size: 260% 100%;
+            will-change: transform;
             animation: inflight-map-sweep 2.4s ease-in-out infinite;
         }
         /* Retired the moment the map reports its first paint. Driven by a
@@ -206,8 +220,8 @@
         }
 
         @keyframes inflight-map-sweep {
-            0%   { background-position: 120% 0; }
-            100% { background-position: -20% 0; }
+            0%   { transform: translateX(-73.846%); }
+            100% { transform: translateX(12.308%); }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -2632,13 +2646,10 @@
         </div>
     </div>
 
-    <!-- Three.js is only touched from inside functions (via window.THREE) by
-         the 3D layers, never at load time, so it does not need to block the
-         parser. `defer` keeps these three in order relative to each other and
-         still runs them before the module scripts below. -->
-    <script defer src="https://unpkg.com/three@0.126.0/build/three.min.js"></script>
-    <script defer src="https://unpkg.com/three@0.126.0/examples/js/loaders/FontLoader.js"></script>
-    <script defer src="https://unpkg.com/three@0.126.0/examples/js/geometries/TextGeometry.js"></script>
+    <!-- Three.js is no longer loaded here: the 3D views fetch it on first use
+         (see threeLoader.js), so the ~600 KB library stays off the boot path.
+         r126 ships FontLoader/TextGeometry in core, so those examples aren't
+         needed either. -->
     <script src="simbrief.apiv1.js"></script>
     <script src="colors.js"></script>
     <script src="sb.js"></script>

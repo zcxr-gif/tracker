@@ -10,8 +10,9 @@ import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
-import { spriteUVs } from './plane-D2OPBxWC.js';
+import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
+import { PilotCardPrompt } from './pilotCardPrompt.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -23,8 +24,32 @@ import { FlightDeltaClient } from './FlightDeltaClient.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
-import { FlightReplay } from './flightReplay.js';
-import { AtcReplay } from './atcReplay.js';
+// The replay players (~185 KB between them) are only needed once someone
+// opens a replay, so they are fetched then rather than parsed on every boot.
+// These stand-ins expose the one method this file calls; `open` is already
+// async in both modules, so callers can't tell the difference.
+function lazyReplay(load, label) {
+    let pending = null;
+    return {
+        async open(opts) {
+            pending = pending || load();
+            let impl;
+            try {
+                impl = await pending;
+            } catch (err) {
+                pending = null; // let the next attempt retry the import
+                console.error(`[${label}] failed to load:`, err);
+                if (typeof showNotification === 'function') {
+                    showNotification('Replay could not be loaded. Check your connection and try again.', 'error');
+                }
+                return false;
+            }
+            return impl.open(opts);
+        }
+    };
+}
+const FlightReplay = lazyReplay(() => import('./flightReplay.js').then(m => m.FlightReplay), 'FlightReplay');
+const AtcReplay = lazyReplay(() => import('./atcReplay.js').then(m => m.AtcReplay), 'AtcReplay');
 // The preset traffic rail's vocabulary, kept in one place so every surface that
 // filters traffic by kind reads Cargo, Heavies and the rest the same way.
 import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
@@ -74,6 +99,8 @@ async function refreshNavAccount() {
 // auth callback.
 supabase.auth.onAuthStateChange(() => { setTimeout(refreshNavAccount, 0); });
 window.addEventListener('inflight:pilot-profile-changed', refreshNavAccount);
+// Signed in with no picture yet: a one-time popup and a dot on the pill.
+PilotCardPrompt.init(supabase);
 
 // 2. Initialize Mobile Dashboard
 MobileDashboardUI.init(supabase);
@@ -1659,6 +1686,30 @@ function getUnderAircraftAnchor() {
     return 'sector-ops-live-flights-layer';
 }
 
+// Re-push live traffic immediately after its properties were re-tagged in
+// place (pilot relations, airport radius, VA focus, traffic highlight).
+function pushLiveTrafficNow() {
+    if (mapAnimator) {
+        mapAnimator.invalidateProps();
+        mapAnimator.flushNow();
+        return;
+    }
+    const source = (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && sectorOpsMap.getSource)
+        ? sectorOpsMap.getSource('sector-ops-live-flights-source') : null;
+    if (source) {
+        source.setData({ type: 'FeatureCollection', features: Object.values(currentMapFeatures) });
+    }
+}
+
+// Map queries on the aircraft layers return the lean render copy, which omits
+// the position/aircraft JSON and photo fields (see MapAnimator). Resolve the
+// full cached record by flightId; fall back to what the map returned.
+function liveFlightProps(renderProps) {
+    const fid = renderProps && renderProps.flightId;
+    const cached = fid != null ? currentMapFeatures[fid] : null;
+    return (cached && cached.properties) || renderProps;
+}
+
 function scheduleMapSourceUpdate() {
     if (mapSourceUpdateTimeout) return;
 
@@ -1668,6 +1719,8 @@ function scheduleMapSourceUpdate() {
         // lookups resolve at arbitrary times, and rebuilding the source in the
         // middle of a zoom is exactly what makes aircraft blink out and back.
         if (mapAnimator) {
+            // The lookups wrote tailNumber (read by the label layer) in place.
+            mapAnimator.invalidateProps();
             mapAnimator.scheduleUpdate();
             return;
         }
@@ -1759,12 +1812,7 @@ function refreshPilotRelations() {
         });
 
         // Push the re-tagged features so Mapbox re-evaluates the color expression.
-        if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-            sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-                type: 'FeatureCollection',
-                features: Object.values(currentMapFeatures)
-            });
-        }
+        pushLiveTrafficNow();
     } catch (err) {
         console.warn('refreshPilotRelations failed:', err);
     }
@@ -1920,7 +1968,10 @@ window.getPilotRelation = function (username) {
     async function saveFiltersToLocalStorage(options) {
         const immediate = options === true || (options && options.immediate);
         try {
-            // 1. Instant Local Commit (Zero Latency UI)
+            // 1. Instant Local Commit (Zero Latency UI). Stamped, so the
+            // local copy and the Pro cloud copy can be told apart by age
+            // (see loadFiltersFromLocalStorage).
+            mapFilters.__savedAt = Date.now();
             const filtersJson = JSON.stringify(mapFilters);
             localStorage.setItem('mapFilters', filtersJson);
 
@@ -1996,7 +2047,123 @@ window.getPilotRelation = function (username) {
         }
     }
 
-    async function loadFiltersFromLocalStorage() {
+    // --- Filters across visits ---------------------------------------------
+    // Filters are saved, and that used to mean a filter set once stayed on for
+    // good: come back hours later and the map was empty with nothing on screen
+    // saying why. Three rules now:
+    //
+    //  1. Session-only state is never restored. Pins live in memory, so
+    //     "show only pinned" has nothing to show after a reload; the old quick
+    //     search has no visible box left to clear it from.
+    //  2. Anything that narrows which aircraft are drawn is cleared once the
+    //     pilot has been away for AWAY_RESET_MS — on a reopen, or on coming
+    //     back to a tab left in the background — with a notice that can put
+    //     them back.
+    //  3. The Pro cloud copy only replaces the local one when it is newer
+    //     (both are stamped with __savedAt on save). It used to win whenever
+    //     the two differed, and the cloud write is debounced and rarely lands
+    //     when a tab is closed, so a filter switched off could come back.
+    const LAST_ACTIVE_KEY = 'inflight_last_active_at';
+    const AWAY_RESET_MS = 60 * 60 * 1000;
+    const TRAFFIC_FILTER_DEFAULTS = {
+        tactical: {}, tacticalExclude: {}, trafficPresets: [],
+        airborneOnly: false, onGroundOnly: false, hasPlanOnly: false,
+        showStaffOnly: false, showVaOnly: false, vaFilterId: null,
+        hideAllAircraft: false, showOnlyPinned: false, quickSearch: ''
+    };
+
+    function sanitizeSessionFilters() {
+        mapFilters.showOnlyPinned = false;
+        mapFilters.quickSearch = '';
+    }
+
+    function trafficFiltersActive() {
+        const t = mapFilters.tactical || {};
+        const tacticalOn = Object.keys(t).some((k) => {
+            if (k === 'group') return false; // group-flight overlay, not a filter
+            const v = t[k];
+            if (v == null || v === '' || v === 'All Countries') return false;
+            if (typeof v === 'object') return Object.values(v).some(x => x != null && x !== '');
+            return true;
+        });
+        return tacticalOn
+            || (Array.isArray(mapFilters.trafficPresets) && mapFilters.trafficPresets.length > 0)
+            || !!(mapFilters.airborneOnly || mapFilters.onGroundOnly || mapFilters.hasPlanOnly
+                || mapFilters.showStaffOnly || mapFilters.showVaOnly || mapFilters.vaFilterId
+                || mapFilters.hideAllAircraft || mapFilters.quickSearch);
+    }
+
+    // Clears the traffic filters, returning what they were so they can be put back.
+    function clearTrafficFilters() {
+        const before = JSON.parse(JSON.stringify(
+            Object.fromEntries(Object.keys(TRAFFIC_FILTER_DEFAULTS).map(k => [k, mapFilters[k]]))));
+        Object.assign(mapFilters, JSON.parse(JSON.stringify(TRAFFIC_FILTER_DEFAULTS)));
+        if (before.vaFilterId && typeof setVaFilter === 'function') setVaFilter(null);
+        return before;
+    }
+
+    function refilterMap() {
+        if (typeof updateMapFilters === 'function') updateMapFilters();
+        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+    }
+
+    function resetFiltersAfterAway() {
+        if (!trafficFiltersActive()) return;
+        const before = clearTrafficFilters();
+        refilterMap();
+        saveFiltersToLocalStorage(true);
+        // The notification module can register after this runs at boot.
+        setTimeout(() => {
+            if (typeof window.showNotification !== 'function') return;
+            window.showNotification('Your map filters were cleared while you were away.', 'info', {
+                timeout: 9000,
+                action: {
+                    label: 'Restore',
+                    onClick: () => {
+                        Object.assign(mapFilters, before);
+                        mapFilters.showOnlyPinned = false;
+                        if (before.vaFilterId && typeof setVaFilter === 'function') setVaFilter(before.vaFilterId);
+                        refilterMap();
+                        saveFiltersToLocalStorage(true);
+                    }
+                }
+            });
+        }, 1500);
+    }
+
+    function markActive() {
+        try { localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now())); } catch (_) { /* storage unavailable */ }
+    }
+    // Read before anything re-stamps it: how long since this site was last in use.
+    const awayOnArrival = (() => {
+        try {
+            const last = Number(localStorage.getItem(LAST_ACTIVE_KEY)) || 0;
+            return last > 0 && Date.now() - last >= AWAY_RESET_MS;
+        } catch (_) { return false; }
+    })();
+    markActive();
+    let hiddenSince = null;
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            hiddenSince = Date.now();
+            markActive();
+            return;
+        }
+        const away = hiddenSince ? Date.now() - hiddenSince : 0;
+        hiddenSince = null;
+        markActive();
+        if (away >= AWAY_RESET_MS) resetFiltersAfterAway();
+    });
+    window.addEventListener('pagehide', markActive);
+    setInterval(() => { if (document.visibilityState === 'visible') markActive(); }, 60000);
+
+    // Both boot paths call this; the first call does the work.
+    let filtersLoadPromise = null;
+    function loadFiltersFromLocalStorage() {
+        return filtersLoadPromise || (filtersLoadPromise = loadFiltersOnce());
+    }
+
+    async function loadFiltersOnce() {
         // 1. Instant Local Paint
         const savedFilters = localStorage.getItem('mapFilters');
         if (savedFilters) {
@@ -2013,8 +2180,11 @@ window.getPilotRelation = function (username) {
                 console.warn("Local storage parse failed.", e);
             }
         }
+        sanitizeSessionFilters();
 
         migrateIconSet();
+        if (awayOnArrival) resetFiltersAfterAway();
+        const localAt = Number(mapFilters.__savedAt) || 0;
 
         // 2. Seamless Background Cloud Reconciliation
         try {
@@ -2031,20 +2201,30 @@ window.getPilotRelation = function (username) {
                 // Only overwrite if Pro is active AND cloud settings exist
                 if (profile && profile.is_pro && profile.map_filters) {
                     const cloudJson = JSON.stringify(profile.map_filters);
-                    
-                    // Compare cloud state with local state to prevent unnecessary repaints
-                    if (cloudJson !== savedFilters) {
+                    const cloudAt = Number(profile.map_filters.__savedAt) || 0;
+                    // An unstamped local copy (nothing saved since stamping
+                    // began) still defers to the cloud, as it always did.
+                    const cloudNewer = localAt ? cloudAt > localAt : true;
+
+                    if (!cloudNewer) {
+                        // This device has the newer settings: correct the cloud
+                        // rather than let its stale copy come back next time.
+                        if (cloudJson !== JSON.stringify(mapFilters)) pushFiltersToCloud();
+                    } else if (cloudJson !== savedFilters) {
+                        // Compare cloud state with local state to prevent unnecessary repaints
                         Object.assign(mapFilters, profile.map_filters);
                         mapFilters.labelConfig = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
-                        
+                        sanitizeSessionFilters();
+
                         // Re-sync local storage to match the authoritative cloud state
-                        localStorage.setItem('mapFilters', cloudJson);
+                        localStorage.setItem('mapFilters', JSON.stringify(mapFilters));
                         applyFreeMapConstraints();
                         applyMapStyleMapping();
                         // After that write, not before: the cloud copy can be
                         // older than the migration, and it has just overwritten
                         // both the setting and the stamp that says it ran.
                         migrateIconSet();
+                        if (awayOnArrival) resetFiltersAfterAway();
                         
                         // Force Mapbox and UI to visually update seamlessly
                         if (typeof updateMapFilters === 'function') {
@@ -3887,18 +4067,39 @@ function injectCustomStyles() {
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-                        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-            transform-origin: top right;
+
+            /* --- SLIDE IN / OUT ---------------------------------------------
+               The panel slides in from the edge it is docked to and back out
+               the same way. Each direction has its own curve: in, a long
+               deceleration that settles softly (the iOS sheet curve); out, a
+               short acceleration, so the panel leaves decisively instead of
+               crawling off-screen on an ease-out. A browser uses the
+               transition declared on the state being entered, so the closed
+               rule below carries the exit timing and .visible the entrance.
+               Once off-screen the panel is visibility:hidden, so its 40px
+               backdrop blur stops being composited over the map. */
+            --iw-slide-in: cubic-bezier(0.32, 0.72, 0, 1);
+            --iw-slide-out: cubic-bezier(0.4, 0, 1, 1);
+            --iw-in-ms: 480ms;
+            --iw-out-ms: 280ms;
+            --iw-offscreen: translate3d(calc(100% + 40px), 0, 0);
             opacity: 0;
-            transform: translateX(28px) translateY(10px) scale(0.96);
+            visibility: hidden;
+            transform: var(--iw-offscreen);
             pointer-events: none;
+            transition: transform var(--iw-out-ms) var(--iw-slide-out),
+                        opacity 180ms ease-in 100ms,
+                        visibility 0s linear var(--iw-out-ms);
             will-change: opacity, transform;
         }
         .info-window.visible {
             opacity: 1;
-            transform: translateX(0) translateY(0) scale(1);
+            visibility: visible;
+            transform: translate3d(0, 0, 0);
             pointer-events: auto;
+            transition: transform var(--iw-in-ms) var(--iw-slide-in),
+                        opacity 220ms ease-out,
+                        visibility 0s linear 0s;
         }
 
         /* --- CONTENT SWAP ---------------------------------------------------
@@ -3912,9 +4113,10 @@ function injectCustomStyles() {
            .iw-morphing is only present while a swap is in flight, so the
            height transition can never interfere with the sheet's own motion
            on mobile or with the entrance transform above. */
-        .info-window.iw-morphing {
-            transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-                        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+        .info-window.visible.iw-morphing {
+            transition: transform var(--iw-in-ms) var(--iw-slide-in),
+                        opacity 220ms ease-out,
+                        visibility 0s linear 0s,
                         height 0.42s cubic-bezier(0.22, 1, 0.36, 1);
         }
         /* Direct children rather than a wrapper: content is written as raw
@@ -3931,10 +4133,126 @@ function injectCustomStyles() {
            honest to size to while the fetch is in flight. */
         .info-window.iw-loading { overflow: hidden; }
 
+        /* Simple / card frame: hidden until it has painted the flight, then
+           faded in over the spinner the host keeps showing meanwhile. */
+        #simple-flight-window-frame {
+            transition: opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        /* !important, and no content-in animation on the frame: a running
+           animation outranks a plain declaration, so the swap's fade-up used
+           to show the frame's placeholder for a moment anyway. */
+        #simple-flight-window-frame.iw-frame-waiting { opacity: 0 !important; }
+        .info-window.iw-swapping > #simple-flight-window-frame { animation: none; }
+        .info-window.iw-frame-pending::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 22px;
+            height: 22px;
+            margin: -11px 0 0 -11px;
+            border-radius: 50%;
+            border: 2px solid rgba(148, 163, 184, 0.25);
+            border-top-color: #60a5fa;
+            animation: iw-frame-spin 0.8s linear infinite;
+            pointer-events: none;
+        }
+        @keyframes iw-frame-spin { to { transform: rotate(360deg); } }
+
+        /* Plane-to-plane switch: the old card is covered by a neutral grey
+           loading sheet — skeleton blocks in the card's rough shape with a
+           soft sheen sweeping across — so none of the previous flight's
+           numbers are left on show while the next one loads. The sheet sits
+           in a zero-height sticky element sized to the window's visible box,
+           so it covers whatever part of the panel is on screen (scrolled
+           legacy panel, peeking phone sheet) and never moves the content
+           under it. Solid rather than a backdrop blur: iframe and canvas
+           content showed through a blur in patches, and it is cheaper. */
+        .info-window.iw-switching > *:not(.iw-switch-status) { pointer-events: none; }
+        .info-window > .iw-switch-status {
+            position: sticky;
+            top: 0;
+            display: block;
+            height: 0;
+            margin: 0;
+            padding: 0;
+            overflow: visible;
+            z-index: 50; /* above the panels' own sticky headers (z 10-20) */
+            pointer-events: none;
+            border-radius: inherit;
+        }
+        .iw-switch-status .iw-switch-veil {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: var(--iw-veil-h, 100vh);
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 22px 18px;
+            overflow: hidden;
+            border-radius: inherit;
+            background: #27272a; /* solid: any see-through let the old card's text read through */
+            animation: iw-veil-in 0.16s ease-out both;
+        }
+        .mobile-legacy-sheet > .iw-switch-status .iw-switch-veil { padding-top: 30px; }
+        .iw-switch-veil .iw-skel {
+            flex: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.06);
+        }
+        .iw-switch-veil .iw-skel-title { height: 26px; width: 44%; }
+        .iw-switch-veil .iw-skel-sub { height: 12px; width: 28%; margin-bottom: 6px; }
+        .iw-switch-veil .iw-skel-hero { height: 150px; border-radius: 12px; }
+        .iw-switch-veil .iw-skel-row { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .iw-switch-veil .iw-skel-row .iw-skel { height: 58px; }
+        .iw-switch-veil::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: 60%;
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.06) 50%, rgba(255, 255, 255, 0) 100%);
+            transform: translate3d(-100%, 0, 0);
+            animation: iw-veil-sheen 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+        .iw-switch-status.iw-switch-leaving .iw-switch-veil { animation: iw-veil-out 0.24s ease-out both; }
+        .iw-switch-status .iw-switch-label {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+        }
+        @keyframes iw-veil-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes iw-veil-out { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes iw-veil-sheen {
+            from { transform: translate3d(-100%, 0, 0); }
+            to   { transform: translate3d(270%, 0, 0); }
+        }
+        .iw-value-in { animation: iw-value-in 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+        @keyframes iw-value-in {
+            from { opacity: 0.2; }
+            to   { opacity: 1; }
+        }
+
         @media (prefers-reduced-motion: reduce) {
-            .info-window,
-            .info-window.iw-morphing { transition: none; }
+            /* No travel: the panel simply fades in and out in place. */
+            .info-window:not(.mobile-legacy-sheet) { --iw-offscreen: none; }
+            .info-window:not(.mobile-legacy-sheet),
+            .info-window.visible:not(.mobile-legacy-sheet),
+            .info-window.visible.iw-morphing {
+                transition: opacity 150ms linear, visibility 0s linear 150ms;
+            }
+            .info-window.visible:not(.mobile-legacy-sheet) {
+                transition: opacity 150ms linear, visibility 0s linear 0s;
+            }
             .info-window.iw-swapping > * { animation: none; }
+            .iw-switch-veil::after { animation: none; opacity: 0; }
         }
         /* --- MOBILE SHEET GUARD --- */
         /* On phones the same windows are re-presented as a bottom sheet
@@ -3950,9 +4268,10 @@ function injectCustomStyles() {
            whichever stylesheet loads last. */
         .info-window.mobile-legacy-sheet {
             opacity: 1;
+            visibility: visible;
             transform: translateY(100%);
             transform-origin: center bottom;
-            transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
             pointer-events: auto;
         }
         .info-window-header {
@@ -7175,15 +7494,11 @@ function injectCustomStyles() {
 
         /* --- DOCKING WINDOW & TOGGLE BUTTON STYLES --- */
         @media (min-width: 993px) {
+            /* Docked left: slide in from, and out to, the left edge. */
             .info-window.dock-left {
                 right: auto !important;
                 left: 20px !important;
-                transform-origin: top left;
-                transform: translateX(-28px) translateY(10px) scale(0.96);
-            }
-
-            .info-window.dock-left.visible {
-                transform: translateX(0) translateY(0) scale(1);
+                --iw-offscreen: translate3d(calc(-100% - 40px), 0, 0);
             }
         }
 
@@ -7501,16 +7816,28 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
         const style = document.createElement('style');
         style.id = 'ac-premium-status-styles';
         style.innerHTML = `
+            /* The ring is a scaled copy of the dot rather than an animated
+               box-shadow: transform + opacity run on the compositor, where
+               box-shadow repainted the dot every frame the panel was open. */
             @keyframes ac-pulse-ring {
-                0% { box-shadow: 0 0 0 0 rgba(var(--status-rgb), 0.8); }
-                70% { box-shadow: 0 0 0 5px rgba(var(--status-rgb), 0); }
-                100% { box-shadow: 0 0 0 0 rgba(var(--status-rgb), 0); }
+                0% { transform: scale(1); opacity: 0.8; }
+                70%, 100% { transform: scale(2.667); opacity: 0; }
             }
             .ac-status-dot {
+                position: relative;
                 width: 6px;
                 height: 6px;
                 border-radius: 50%;
                 background-color: currentColor;
+            }
+            .ac-status-dot::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border-radius: inherit;
+                background: inherit;
+                opacity: 0;
+                pointer-events: none;
                 animation: ac-pulse-ring 2.5s infinite cubic-bezier(0.2, 0.8, 0.2, 1);
             }
         `;
@@ -7713,17 +8040,12 @@ function injectGateInfoUI(departureIcao, flownPath, arrivalIcao, flightProps) {
         const depGateEl = document.getElementById('ac-dep-gate');
         const arrGateEl = document.getElementById('ac-arr-gate');
 
-        if (depGateEl) {
-            depGateEl.innerHTML = gates.departureGate !== '---'
-                ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}`
-                : `<i class="fa-solid fa-door-open"></i> Gate ---`;
-        }
-
-        if (arrGateEl) {
-            arrGateEl.innerHTML = gates.arrivalGate !== '---'
-                ? `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`
-                : `<i class="fa-solid fa-door-closed"></i> Gate ---`;
-        }
+        iwSettleValue(depGateEl, { html: gates.departureGate !== '---'
+            ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}`
+            : `<i class="fa-solid fa-door-open"></i> Gate ---` });
+        iwSettleValue(arrGateEl, { html: gates.arrivalGate !== '---'
+            ? `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`
+            : `<i class="fa-solid fa-door-closed"></i> Gate ---` });
     });
 }
 
@@ -8940,6 +9262,8 @@ function iwClearMorph(windowEl) {
  */
 function setInfoWindowLoading(windowEl, html) {
     if (!windowEl) return;
+    windowEl.classList.remove('iw-frame-pending'); // a previous frame's spinner
+    iwEndSwitch(windowEl);
     if (!iwShouldAnimate(windowEl)) {
         windowEl.innerHTML = html;
         return;
@@ -8947,7 +9271,94 @@ function setInfoWindowLoading(windowEl, html) {
     const current = windowEl.getBoundingClientRect().height;
     windowEl.innerHTML = html;
     windowEl.classList.add('iw-loading');
-    windowEl.style.height = Math.max(current, IW_MIN_LOADING_HEIGHT) + 'px';
+    windowEl.style.height = Math.max(current, iwExpectedHeight(windowEl)) + 'px';
+}
+
+/**
+ * Plane-to-plane switch: the current card is covered by a grey frosted veil
+ * (see .iw-switch-status) until the next flight has been painted
+ * (iwEndSwitch). Content swaps through setInfoWindowContent end it too, and
+ * the veil lifts off the new card.
+ */
+function iwBeginSwitch(windowEl, label) {
+    windowEl.classList.remove('iw-frame-pending');
+    windowEl.classList.add('iw-switching');
+    // Cover the old card so its numbers can't pass for the next flight's.
+    let status = windowEl.querySelector(':scope > .iw-switch-status');
+    if (!status) {
+        status = document.createElement('div');
+        status.className = 'iw-switch-status';
+        status.setAttribute('role', 'status');
+        status.setAttribute('aria-live', 'polite');
+        const row = '<div class="iw-skel-row"><div class="iw-skel"></div><div class="iw-skel"></div></div>';
+        status.innerHTML = '<div class="iw-switch-veil">'
+            + '<div class="iw-skel iw-skel-title"></div><div class="iw-skel iw-skel-sub"></div>'
+            + '<div class="iw-skel iw-skel-hero"></div>' + row + row + row + row
+            + '</div><span class="iw-switch-label"></span>';
+    }
+    clearTimeout(status._leaveTimer);
+    status.classList.remove('iw-switch-leaving');
+    status.querySelector('.iw-switch-label').textContent = label ? `Loading ${label}` : 'Loading flight';
+    status.style.setProperty('--iw-veil-h', windowEl.clientHeight + 'px');
+    windowEl.prepend(status);
+    clearTimeout(windowEl._iwSwitchTimer);
+    // Never leave a card covered if every completion path is skipped.
+    windowEl._iwSwitchTimer = setTimeout(() => iwEndSwitch(windowEl), 6000);
+}
+
+/** Lifts the veil off the (now current) card. */
+function iwEndSwitch(windowEl) {
+    if (!windowEl) return;
+    clearTimeout(windowEl._iwSwitchTimer);
+    windowEl.classList.remove('iw-switching');
+    iwLiftVeil(windowEl.querySelector(':scope > .iw-switch-status'));
+}
+
+function iwLiftVeil(status) {
+    if (!status || status.classList.contains('iw-switch-leaving')) return;
+    status.classList.add('iw-switch-leaving');
+    status._leaveTimer = setTimeout(() => status.remove(), 260);
+}
+
+/**
+ * Writes a value that arrives after the window is already showing (route
+ * times, gates) — only when it actually changed, and with a short fade so it
+ * settles in rather than snapping from a placeholder. Not for per-tick live
+ * values, which would flicker.
+ */
+function iwSettleValue(el, { text, html } = {}) {
+    if (!el) return;
+    if (html !== undefined) {
+        if (el.innerHTML === html) return;
+        el.innerHTML = html;
+    } else {
+        if (el.textContent === text) return;
+        el.textContent = text;
+    }
+    el.classList.remove('iw-value-in');
+    void el.offsetWidth;
+    el.classList.add('iw-value-in');
+}
+
+/** Route-history response → points sorted by time ([] when unusable). */
+function routePointsFrom(routeData) {
+    const historyArray = routeData?.path || routeData?.route || [];
+    if (routeData && routeData.ok && Array.isArray(historyArray)) {
+        return historyArray.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+    return [];
+}
+
+/**
+ * The height a freshly opened window should enter at. The flight panel —
+ * legacy, simple or card — virtually always fills the viewport to its
+ * max-height, so it enters at that size: a spinner box that then stretched to
+ * full height was two movements where there should be one. Other windows
+ * (airports) keep the compact spinner box, since their content varies.
+ */
+function iwExpectedHeight(windowEl) {
+    if (windowEl.id !== 'aircraft-info-window') return IW_MIN_LOADING_HEIGHT;
+    return Math.max(IW_MIN_LOADING_HEIGHT, Math.min(760, window.innerHeight - 40));
 }
 
 /**
@@ -8956,6 +9367,11 @@ function setInfoWindowLoading(windowEl, html) {
  */
 function setInfoWindowContent(windowEl, html) {
     if (!windowEl) return;
+    // A plane-to-plane switch ends here: the veil is carried over onto the
+    // new content and lifts off it, instead of vanishing with the old card.
+    const veil = windowEl.querySelector(':scope > .iw-switch-status');
+    iwEndSwitch(windowEl);
+    const keepVeil = () => { if (veil) windowEl.prepend(veil); };
     // Content that is not the simple/embed iframe sizes itself, so swapping to
     // it also hands back the box applySimpleWindowPhase pinned on the window.
     const keepsPhaseSize = /<iframe/i.test(html);
@@ -8965,12 +9381,14 @@ function setInfoWindowContent(windowEl, html) {
         if (windowEl.style.height && !iwPhaseManaged(windowEl)) windowEl.style.height = '';
         windowEl.classList.remove('iw-loading');
         windowEl.innerHTML = html;
+        keepVeil();
         return;
     }
 
     const from = windowEl.getBoundingClientRect().height;
     windowEl.innerHTML = html;
     windowEl.classList.remove('iw-loading');
+    keepVeil();
 
     // An iframe sized at 100% has no natural height to measure against — there
     // is nothing to morph towards, so this just drops the loading lock. The
@@ -10312,6 +10730,7 @@ function handleSearchInput(searchText) {
 function runGlobalSearch(query) {
     const engine = window.GlobalSearchEngine;
     if (!engine) return { routes: [], flights: [], airports: [], airlines: [], query: query || '' };
+    ensureSupplementaryAirports();
     return engine.runSearch(query, {
         airportsData: airportsData,
         flights: Object.values(currentMapFeatures),
@@ -11731,12 +12150,7 @@ function retagAirportRadius() {
         f.properties.__inRadius = (km <= radiusKm) ? 1 : 0;
     });
 
-    if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-            type: 'FeatureCollection',
-            features: Object.values(currentMapFeatures)
-        });
-    }
+    pushLiveTrafficNow();
 }
 
 // ── Single-VA map focus ─────────────────────────────────────────────────────
@@ -11756,12 +12170,7 @@ function retagVaFilter() {
         if (!f || !f.properties) return;
         f.properties.__vaMatch = computeVaMatch(f.properties.callsign, f.properties.username);
     });
-    if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-            type: 'FeatureCollection',
-            features: Object.values(currentMapFeatures)
-        });
-    }
+    pushLiveTrafficNow();
 }
 
 // Focus the map on one VA (or clear with a falsy id). Resolves the VA ad,
@@ -12254,15 +12663,31 @@ function invalidateAirportDerivedCaches() {
  * local identifiers, heliports and private strips. Failure is silently
  * tolerated — the app is fully functional on the core tier alone.
  */
+let supplementaryAirportsEnabled = false;
+let supplementaryAirportsPromise = null;
+function ensureSupplementaryAirports() {
+    if (!supplementaryAirportsEnabled) return null;
+    return supplementaryAirportsPromise || (supplementaryAirportsPromise = loadSupplementaryAirports());
+}
+
 async function loadSupplementaryAirports() {
     try {
         const response = await fetch('airports-extra.json');
         if (!response.ok) return;
         const extra = indexAirportRecords(await response.json());
-        const added = Object.keys(extra).length;
+        const keys = Object.keys(extra);
+        const added = keys.length;
         if (!added) return;
 
-        Object.assign(airportsData, extra);
+        // ~63k entries: merged a slice at a time rather than in one ~60 ms
+        // Object.assign, so a pan or a packet never queues behind it.
+        const target = airportsData;
+        for (let i = 0; i < added; i += 8000) {
+            const end = Math.min(added, i + 8000);
+            for (let k = i; k < end; k++) target[keys[k]] = extra[keys[k]];
+            if (end < added) await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        if (target !== airportsData) return; // the core tier was reloaded meanwhile
         invalidateAirportDerivedCaches();
         console.log(`Airports: +${added.toLocaleString()} supplementary entries (search only).`);
     } catch (_) {
@@ -12303,8 +12728,18 @@ async function fetchAirportsData() {
 
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
 
-        // Fire-and-forget: boot must not wait on the search-only tier.
-        if (usedSplit) loadSupplementaryAirports();
+        // Boot must not wait on the search-only tier, and shouldn't share the
+        // main thread with it either (5.7 MB to parse and merge): it loads
+        // once the page has gone idle, or at the first search, whichever
+        // comes first.
+        if (usedSplit) {
+            supplementaryAirportsEnabled = true;
+            const kick = () => ensureSupplementaryAirports();
+            setTimeout(() => {
+                if (typeof requestIdleCallback === 'function') requestIdleCallback(kick, { timeout: 4000 });
+                else kick();
+            }, 3000);
+        }
 
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
@@ -12326,6 +12761,7 @@ async function fetchAirportsData() {
 // once into parallel typed arrays, and lookups reject on a cheap lat/lon box
 // before spending a haversine.
 let _airportIndex = null;
+let _navAirportIndex = null;   // see buildNavAirportIndex
 
 function buildAirportIndex() {
     const icaos = [];
@@ -12352,7 +12788,7 @@ function buildAirportIndex() {
 }
 
 // Called after airportsData is (re)populated so the index can't go stale.
-function invalidateAirportIndex() { _airportIndex = null; }
+function invalidateAirportIndex() { _airportIndex = null; _navAirportIndex = null; }
 
 window.findNearestAirports = (lat, lon, count = 4) => {
     if (lat == null || lon == null || !airportsData) return [];
@@ -13812,11 +14248,11 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
     function applyRouteTimeInfoToDom(suffix, info) {
         const timeText = info.time === '--:--' ? info.time : `${info.time} Z`;
         document.querySelectorAll(`#ac-bar-${suffix}`).forEach(el => {
-            el.textContent = timeText;
+            iwSettleValue(el, { text: timeText });
             el.style.color = info.color;
         });
         document.querySelectorAll(`#ac-bar-${suffix}-label`).forEach(el => {
-            el.textContent = info.label;
+            iwSettleValue(el, { text: info.label });
             el.style.color = info.color;
         });
     }
@@ -14028,49 +14464,57 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             }
         }
 
+        // The tapes' tick marks are drawn as one <path> per tape rather than
+        // one <line> each — same coordinates, stroke and pixels. The altitude
+        // tape alone was 2,501 lines (every 20 ft to FL500), most of the
+        // ~4,300 nodes this window built on every open.
+        function appendTickPath(group, d, strokeWidth) {
+            const path = document.createElementNS(SVG_NS, 'path');
+            path.setAttribute('d', d);
+            path.setAttribute('stroke', 'white');
+            path.setAttribute('stroke-width', strokeWidth);
+            path.setAttribute('fill', 'none');
+            group.appendChild(path);
+        }
+
         // 2. Generate Speed Tape (Existing Logic)
         function generateSpeedTape() {
             const MIN_SPEED = 0, MAX_SPEED = 999;
+            let d = '';
             for (let s = MIN_SPEED; s <= MAX_SPEED; s += 5) {
                 const yPos = PFD_SPEED_CENTER_Y - (s - PFD_SPEED_REF_VALUE) * PFD_SPEED_SCALE;
-                const tick = document.createElementNS(SVG_NS, 'line');
-                tick.setAttribute('y1', yPos); tick.setAttribute('y2', yPos);
-                tick.setAttribute('stroke', 'white'); tick.setAttribute('stroke-width', '2');
                 if (s % 10 === 0) {
-                    tick.setAttribute('x1', '67'); tick.setAttribute('x2', '52');
+                    d += `M67 ${yPos}H52`;
                     const text = document.createElementNS(SVG_NS, 'text');
                     text.setAttribute('x', '37'); text.setAttribute('y', yPos + 5);
                     text.setAttribute('fill', 'white'); text.setAttribute('font-size', '18');
                     text.setAttribute('text-anchor', 'middle'); text.textContent = s;
                     speedTapeGroup.appendChild(text);
                 } else {
-                    tick.setAttribute('x1', '67'); tick.setAttribute('x2', '60');
+                    d += `M67 ${yPos}H60`;
                 }
-                speedTapeGroup.appendChild(tick);
             }
+            appendTickPath(speedTapeGroup, d, '2');
         }
 
         // 3. Generate Altitude Tape (Existing Logic)
         function generateAltitudeTape() {
             const MIN_ALTITUDE = 0, MAX_ALTITUDE = 50000;
+            let d = '';
             for (let alt = MIN_ALTITUDE; alt <= MAX_ALTITUDE; alt += 20) {
                 const yPos = PFD_ALTITUDE_CENTER_Y - (alt - PFD_ALTITUDE_REF_VALUE) * PFD_ALTITUDE_SCALE;
-                const tick = document.createElementNS(SVG_NS, 'line');
-                tick.setAttribute('y1', yPos); tick.setAttribute('y2', yPos);
-                tick.setAttribute('stroke', 'white'); tick.setAttribute('stroke-width', '2');
-                tick.setAttribute('x1', '72');
                 if (alt % 100 === 0) {
-                    tick.setAttribute('x2', '52');
+                    d += `M72 ${yPos}H52`;
                     const text = document.createElementNS(SVG_NS, 'text');
                     text.setAttribute('x', '25'); text.setAttribute('y', yPos + 5);
                     text.setAttribute('fill', 'white'); text.setAttribute('font-size', '18');
                     text.setAttribute('text-anchor', 'middle'); text.textContent = alt / 100;
                     altitudeTapeGroup.appendChild(text);
                 } else {
-                    tick.setAttribute('x2', '62');
+                    d += `M72 ${yPos}H62`;
                 }
-                altitudeTapeGroup.appendChild(tick);
             }
+            appendTickPath(altitudeTapeGroup, d, '2');
         }
 
         // 4. Generate Reels (Existing Logic)
@@ -14091,16 +14535,14 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
         // 5. Generate Heading Tape (Existing Logic)
         function generateHeadingTape() {
             const y_text = 650, y_tick_top = 620, y_tick_bottom_major = 635, y_tick_bottom_minor = 628;
+            let d = '';
             for (let h = -360; h <= 720; h += 5) {
                 const xPos = PFD_HEADING_CENTER_X + (h - PFD_HEADING_REF_VALUE) * PFD_HEADING_SCALE;
                 const normalizedH = (h + 360) % 360;
                 if (normalizedH % 90 === 0) continue;
-                const tick = document.createElementNS(SVG_NS, 'line');
-                tick.setAttribute('x1', xPos); tick.setAttribute('x2', xPos);
-                tick.setAttribute('stroke', 'white'); tick.setAttribute('stroke-width', '1.5');
-                tick.setAttribute('y1', y_tick_top); tick.setAttribute('y2', (h % 10 === 0) ? y_tick_bottom_major : y_tick_bottom_minor);
-                headingTapeGroup.appendChild(tick);
+                d += `M${xPos} ${y_tick_top}V${(h % 10 === 0) ? y_tick_bottom_major : y_tick_bottom_minor}`;
             }
+            appendTickPath(headingTapeGroup, d, '1.5');
             for (let h = 0; h < 360; h += 10) {
                 for (let offset of [-360, 0, 360]) {
                     const currentH = h + offset;
@@ -16228,12 +16670,7 @@ function applyTrafficHighlighting() {
     applyAircraftLayerStyles();
 
     // 2. Sync the updated data to the Mapbox source
-    if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-            type: 'FeatureCollection',
-            features: Object.values(currentMapFeatures)
-        });
-    }
+    pushLiveTrafficNow();
 }
 
 function updateTrafficLegendUI() {
@@ -16841,9 +17278,10 @@ function setupAircraftWindowEvents() {
             if (currentFlightInWindow) {
                 const layer = sectorOpsMap.getLayer('sector-ops-live-flights-layer');
                 if (layer) {
-                    const source = sectorOpsMap.getSource('sector-ops-live-flights-source');
-                    const features = source._data.features;
-                    const feature = features.find(f => f.properties.flightId === currentFlightInWindow);
+                    // The cache, not the source: the map holds lean render
+                    // copies (see MapAnimator) and, after a glide update,
+                    // source._data is only the last diff.
+                    const feature = currentMapFeatures[currentFlightInWindow];
                     if (feature) {
                         const props = feature.properties;
                         const flightProps = {
@@ -16881,7 +17319,12 @@ function initializeAircraftLayer() {
                     type: 'FeatureCollection',
                     features: []
                 },
-                generateId: true
+                // Every feature carries its own numeric id (flightNumericIdMap),
+                // which `dynamic` needs so MapAnimator can glide aircraft with
+                // per-feature updateData() instead of re-sending the whole
+                // collection. MapLibre (free mode) rejects the option, and
+                // MapAnimator only glides on a Mapbox dynamic source.
+                ...(isFreeMap() ? {} : { dynamic: true })
             });
         }
 
@@ -16892,6 +17335,10 @@ function initializeAircraftLayer() {
             // blink out and back as the retiled data swaps in — see
             // bindInteraction() for why setData() is expensive.
             mapAnimator.bindInteraction(sectorOpsMap);
+            // No gliding while the 3D field has the flat icons hidden, or if
+            // the pilot has switched smooth motion off.
+            mapAnimator.setGlideGate(() => mapFilters.smoothMotion !== false
+                && !(typeof LiveTraffic3D !== 'undefined' && LiveTraffic3D.isVisible()));
         }
 
         // 3D live-traffic dot field (toggled from the map toolbar / Settings).
@@ -16991,16 +17438,8 @@ function initializeAircraftLayer() {
             if (!aircraftLayerListenersBound) {
                 aircraftLayerListenersBound = true;
 
-                sectorOpsMap.on('click', (e) => {
-                    console.log("📍 Raw map tap at:", e.point);
-                    const features = sectorOpsMap.queryRenderedFeatures(e.point);
-                    const layerNames = features.map(f => f.layer.id);
-                    console.log("🔍 Layers under this tap:", layerNames);
-                });
-
                 const onLiveFlightClick = async (e) => {
-                    console.log("✈️ Plane click listener fired!", e.features[0].properties.callsign);
-                    const props = e.features[0].properties;
+                    const props = liveFlightProps(e.features[0].properties);
                     const flightProps = {
                         ...props,
                         position: JSON.parse(props.position),
@@ -17024,7 +17463,7 @@ function initializeAircraftLayer() {
                     sectorOpsMap.getCanvas().style.cursor = 'pointer';
                     const feature = e.features[0];
                     if (typeof generateHoverCardHTML !== 'undefined') {
-                        hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(feature.properties)).addTo(sectorOpsMap);
+                        hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(liveFlightProps(feature.properties))).addTo(sectorOpsMap);
                     }
                 };
                 sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', onLiveFlightEnter);
@@ -17173,6 +17612,11 @@ function applySimpleWindowPhase(phase) {
         && window.MobileUIHandler.isMobile());
 
     if (onMobile && window.MobileUIHandler && typeof window.MobileUIHandler.setLegacySheetState === 'function') {
+        // Not presented yet: MobileUIHandler slides the sheet up itself once
+        // the frame has painted the flight (observeOriginalWindow). Snapping
+        // to a detent here ran before the frame even existed and slid an
+        // empty slab into view.
+        if (!windowEl.classList.contains('visible')) return;
         // The mobile sheet owns sizing; just snap it to the matching detent.
         // iPads have no peek bar (phones only) — they stay on the expanded "second state".
         const tabletExpandedOnly = typeof window.MobileUIHandler.isSimpleSheetExpandedOnly === 'function'
@@ -17329,8 +17773,45 @@ function ensureWindsAloft(depIcao, arrIcao, pos, spanHours) {
  * Returns null (and the windows hide the panel) when the estimator isn't
  * loaded or the flight has nothing to work from.
  */
+// Trail-wide computations (fuel model, leg detection) walk the whole flown
+// trail — thousands of points on a long-haul — and ran on every packet while
+// a flight window was open: ~12 ms a packet at 6,000 points, for results that
+// move slowly. They are reused for a short while unless an input that changes
+// the answer outright (another flight, a new plan or wind field, a different
+// trail) says otherwise.
+const _trailMemo = new Map();
+
+function memoOverTrail(name, deps, routePoints, maxAgeMs, compute) {
+    const now = Date.now();
+    const len = (routePoints && routePoints.length) || 0;
+    const first = len ? (routePoints[0].date || routePoints[0].timestamp || '') : '';
+    const m = _trailMemo.get(name);
+    if (m && now - m.at < maxAgeMs && m.first === first && len >= m.len
+        && m.deps.length === deps.length && m.deps.every((d, i) => d === deps[i])) {
+        return m.value;
+    }
+    const value = compute();
+    _trailMemo.set(name, { at: now, first, len, deps, value });
+    return value;
+}
+
+function detectLegsCached(routePoints) {
+    if (typeof FlightLegs === 'undefined' || !FlightLegs) return null;
+    const apts = (typeof airportsData !== 'undefined') ? airportsData : {};
+    return memoOverTrail('legs', [currentFlightInWindow, apts], routePoints, 30000,
+        () => FlightLegs.detect(routePoints, apts));
+}
+
 function buildFuelEstimate(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData) {
     if (typeof window === 'undefined' || !window.FuelEstimator || !flightProps) return null;
+    // The wind field arrives asynchronously; it is part of the key so the
+    // estimate is redone the moment it lands.
+    const windKey = (typeof _fuelWindField !== 'undefined') ? _fuelWindField : null;
+    return memoOverTrail('fuel', [flightProps.flightId, plan, filedPlanData, windKey], routePoints, 10000,
+        () => buildFuelEstimateNow(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData));
+}
+
+function buildFuelEstimateNow(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData) {
     try {
         const pos = (typeof flightProps.position === 'string')
             ? JSON.parse(flightProps.position) : (flightProps.position || {});
@@ -17684,6 +18165,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             end: mapFilters.themeEndColor || '#18181b',
             opacity: mapFilters.themeOpacity || 90
         },
+        flightId: flightProps.flightId,
         username: flightProps.username,
         callsign: flightProps.callsign,
         isVAMember: !!flightProps.isVAMember,
@@ -17699,9 +18181,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         chart: (typeof FlightGraph !== 'undefined' && FlightGraph) ? FlightGraph.extractSeries(routePoints) : null,
         // Previous flights / multi-leg journey reconstructed from the trail.
         // Detected here (where the airport DB lives) and rendered in the iframe.
-        legs: (typeof FlightLegs !== 'undefined' && FlightLegs)
-            ? FlightLegs.detect(routePoints, (typeof airportsData !== 'undefined') ? airportsData : {})
-            : null,
+        legs: detectLegsCached(routePoints),
         // Hypothetical fuel burn, integrated over the flown profile. Computed
         // here (the trail and the weather sample both live on this side) and
         // rendered from the plain result inside the iframe.
@@ -21182,6 +21662,14 @@ window.globalNatTracks = natTracks;
             if (event.data && event.data.type === 'ND_READY') {
                 refreshNavDisplayFromCache();
             }
+            // The simple / card frame has painted its first flight: reveal it.
+            if (event.data && event.data.type === 'SIMPLE_WINDOW_RENDERED') {
+                const frame = document.getElementById('simple-flight-window-frame');
+                if (frame && frame.contentWindow === event.source && typeof frame._iwReveal === 'function') {
+                    frame._iwReveal();
+                }
+                return;
+            }
             // Route simple-flight-window iframe messages (pilot stats request, etc.)
             if (event.data && (
                 event.data.type === 'REQUEST_PILOT_STATS' ||
@@ -22426,29 +22914,42 @@ function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
 function generateSmoothPath(points, tension = 0.5) {
     if (points.length < 4) return points;
     const result = [];
-    const interpolate = (p0, p1, p2, p3, t) => {
-        const t2 = t * t;
-        const t3 = t2 * t;
-        // Standard Catmull-Rom Spline formula
-        return 0.5 * (
-            (2 * p1) +
-            (-p0 + p2) * t +
-            (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-            (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-        );
-    };
+    smoothSegmentsInto(points, 0, points.length - 2, result);
+    result.push(points[points.length - 1]);
+    return result;
+}
 
-    // Turn angle at vertex b (degrees) — how sharply the path bends there.
-    const turnDeg = (a, b, c) => {
-        const v1x = b.unwrappedLon - a.unwrappedLon, v1y = b.lat - a.lat;
-        const v2x = c.unwrappedLon - b.unwrappedLon, v2y = c.lat - b.lat;
-        const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
-        if (m1 === 0 || m2 === 0) return 0;
-        const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)));
-        return Math.acos(cos) * 180 / Math.PI;
-    };
+// Standard Catmull-Rom spline formula.
+function _crInterpolate(p0, p1, p2, p3, t) {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return 0.5 * (
+        (2 * p1) +
+        (-p0 + p2) * t +
+        (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+        (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+    );
+}
 
-    for (let i = 0; i < points.length - 1; i++) {
+// Turn angle at vertex b (degrees) — how sharply the path bends there.
+function _crTurnDeg(a, b, c) {
+    const v1x = b.unwrappedLon - a.unwrappedLon, v1y = b.lat - a.lat;
+    const v2x = c.unwrappedLon - b.unwrappedLon, v2y = c.lat - b.lat;
+    const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
+    if (m1 === 0 || m2 === 0) return 0;
+    const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)));
+    return Math.acos(cos) * 180 / Math.PI;
+}
+
+/**
+ * Appends the smoothed output of segments [from, to] of `points` to `result`.
+ * Segment i runs from points[i] to points[i + 1] and reads points[i - 1] and
+ * points[i + 2] (clamped at the ends of `points`). Split out of
+ * generateSmoothPath so a long trail can be smoothed in pieces
+ * (smoothTrailIncremental) with results identical to a single pass.
+ */
+function smoothSegmentsInto(points, from, to, result) {
+    for (let i = from; i <= to; i++) {
         const p0 = points[i === 0 ? i : i - 1];
         const p1 = points[i];
         const p2 = points[i + 1];
@@ -22462,19 +22963,17 @@ function generateSmoothPath(points, tension = 0.5) {
         // 24–64 steps per sample blew a long-haul trail up to 30k+ points —
         // tens of thousands of sub-pixel segments that rendered fuzzy when
         // zoomed out and made every re-tile expensive.
-        const bend = Math.max(turnDeg(p0, p1, p2), turnDeg(p1, p2, p3));
+        const bend = Math.max(_crTurnDeg(p0, p1, p2), _crTurnDeg(p1, p2, p3));
         const steps = Math.max(1, Math.min(64, Math.ceil(bend / 2)));
 
         for (let t = 0; t < 1 - 1e-6; t += 1 / steps) {
             result.push({
-                unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
-                lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
+                unwrappedLon: _crInterpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
+                lat: _crInterpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
                 alt: p1.alt + (p2.alt - p1.alt) * t
             });
         }
     }
-    result.push(points[points.length - 1]);
-    return result;
 }
 
 // Append a live packet to a trail ONLY if it's newer than the cached tip.
@@ -22649,52 +23148,9 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     // distance or longitude delta, so the drawn path follows the real
     // geometry (the renderer clips above ~±85°, so a true pole crossing
     // correctly runs up to the polar cap and back down the far side).
-    const densified = [raw[0]];
-    for (let i = 1; i < raw.length; i++) {
-        const a = raw[i - 1], b = raw[i];
-        let dLon = Math.abs(b.lon - a.lon);
-        if (dLon > 180) dLon = 360 - dLon; // the plane took the short way round
-        const distKm = getDistanceKm(a.lat, a.lon, b.lat, b.lon);
-        const steps = Math.min(200, Math.max(Math.ceil(distKm / 100), Math.ceil(dLon / 3)));
-        if (steps > 1) {
-            for (let s = 1; s < steps; s++) {
-                const f = s / steps;
-                const gp = getIntermediatePoint(a.lat, a.lon, b.lat, b.lon, f);
-                densified.push({ lat: gp.lat, lon: gp.lon, alt: a.alt + (b.alt - a.alt) * f });
-            }
-        }
-        densified.push(b);
-    }
-
-    // Unwrap longitudes to prevent the line from stretching across the globe at the anti-meridian.
-    // We carry the unwrapped longitude on each point (as `unwrappedLon`) so generateSmoothPath
-    // can interpolate without hopping the dateline.
-    const unwrappedPoints = [];
-    let prevLon = densified[0].lon;
-
-    unwrappedPoints.push({
-        unwrappedLon: prevLon,
-        lat: densified[0].lat,
-        alt: densified[0].alt
-    });
-
-    for (let i = 1; i < densified.length; i++) {
-        let lon = densified[i].lon;
-
-        while (lon - prevLon > 180) lon -= 360;
-        while (prevLon - lon > 180) lon += 360;
-
-        unwrappedPoints.push({ unwrappedLon: lon, lat: densified[i].lat, alt: densified[i].alt });
-        prevLon = lon;
-    }
-
-    // --- Bend-it-like-Beckham: Catmull-Rom smoothing ---
-    // Subdivides each segment into an interpolated curve passing through every sample point.
-    // Altitude is linearly interpolated between samples, preserving the altitude→color relation.
-    // generateSmoothPath needs >= 4 points; with fewer (very early in a flight), draw raw.
-    const smoothedPoints = unwrappedPoints.length >= 4
-        ? generateSmoothPath(unwrappedPoints, 0.5)
-        : unwrappedPoints;
+    // Densify (great-circle), unwrap longitudes and Catmull-Rom smooth —
+    // incrementally for long trails, see smoothTrailIncremental.
+    const smoothedPoints = smoothTrailIncremental(raw, trailPoints);
 
     // ONE continuous LineString, coloured along its length by a line-gradient
     // (see buildFlownPathGradient). The old approach — a distinct 2-point
@@ -22706,7 +23162,15 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     // expression rides along as a foreign member (__altGradient — valid
     // GeoJSON, ignored by Mapbox) so callers can apply it to the layer via
     // applyFlownPathGradient after setData.
-    const coordinates = smoothedPoints.map(p => [p.unwrappedLon, p.lat]);
+    // Rounded to 1e-6° (~0.1 m, far below a pixel at any zoom): setData
+    // JSON-stringifies the whole line on every packet and the worker parses
+    // it back, and 6-decimal numbers print and parse in ~60% of the time and
+    // bytes of full 17-digit doubles.
+    const coordinates = new Array(smoothedPoints.length);
+    for (let i = 0; i < smoothedPoints.length; i++) {
+        const p = smoothedPoints[i];
+        coordinates[i] = [Math.round(p.unwrappedLon * 1e6) / 1e6, Math.round(p.lat * 1e6) / 1e6];
+    }
     const fc = {
         type: 'FeatureCollection',
         features: [{
@@ -22717,6 +23181,104 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     };
     fc.__altGradient = buildFlownPathGradient(smoothedPoints);
     return fc;
+}
+
+// --- Flown-trail geometry pipeline -------------------------------------------
+// Great-circle densification: rendered vertices are joined by STRAIGHT lines
+// in lon/lat (mercator) space. Near the poles that is badly wrong: a plane
+// barely moving on the ground swings tens of degrees of longitude (≈180°
+// crossing the pole itself), and the straight chord draws as a huge sideways
+// sweep AROUND the pole at constant latitude instead of the true track OVER
+// it. Long sparse-history gaps bend the same way in milder form. Points are
+// inserted along the actual great circle wherever a segment spans a big
+// ground distance or longitude delta, so the drawn path follows the real
+// geometry (the renderer clips above ~±85°, so a true pole crossing
+// correctly runs up to the polar cap and back down the far side).
+// Appends, for each i >= from, the points between raw[i-1] and raw[i] and
+// then raw[i] itself.
+function densifyTrailInto(raw, from, out) {
+    for (let i = Math.max(1, from); i < raw.length; i++) {
+        const a = raw[i - 1], b = raw[i];
+        let dLon = Math.abs(b.lon - a.lon);
+        if (dLon > 180) dLon = 360 - dLon; // the plane took the short way round
+        const distKm = getDistanceKm(a.lat, a.lon, b.lat, b.lon);
+        const steps = Math.min(200, Math.max(Math.ceil(distKm / 100), Math.ceil(dLon / 3)));
+        if (steps > 1) {
+            for (let s = 1; s < steps; s++) {
+                const f = s / steps;
+                const gp = getIntermediatePoint(a.lat, a.lon, b.lat, b.lon, f);
+                out.push({ lat: gp.lat, lon: gp.lon, alt: a.alt + (b.alt - a.alt) * f });
+            }
+        }
+        out.push(b);
+    }
+}
+
+// Unwrap longitudes so the line never stretches across the globe at the
+// anti-meridian; the unwrapped value rides on each point as `unwrappedLon`
+// so the smoother can interpolate without hopping the dateline.
+function unwrapTrailInto(points, from, prevLon, out) {
+    for (let i = from; i < points.length; i++) {
+        let lon = points[i].lon;
+        while (lon - prevLon > 180) lon -= 360;
+        while (prevLon - lon > 180) lon += 360;
+        out.push({ unwrappedLon: lon, lat: points[i].lat, alt: points[i].alt });
+        prevLon = lon;
+    }
+    return prevLon;
+}
+
+function smoothTrailFull(raw) {
+    const densified = [raw[0]];
+    densifyTrailInto(raw, 1, densified);
+    const unwrapped = [{ unwrappedLon: densified[0].lon, lat: densified[0].lat, alt: densified[0].alt }];
+    unwrapTrailInto(densified, 1, densified[0].lon, unwrapped);
+    // generateSmoothPath needs >= 4 points; with fewer (very early in a flight), draw raw.
+    return { unwrapped, smoothed: unwrapped.length >= 4 ? generateSmoothPath(unwrapped, 0.5) : unwrapped };
+}
+
+// The trail line is rebuilt on every packet while a flight is open, and a
+// long-haul trail is thousands of points — densifying and smoothing all of
+// them each time was ~6 ms a packet at 6,000 points. Only the end of the
+// trail ever changes (points are appended; the newest few may be trimmed
+// against the live fix), so the body is processed once and cached per trail
+// array, and each call does just the tail. The stitch overlaps the smoother's
+// window (each segment reads one point either side), so the result is
+// identical to a single full pass.
+const TRAIL_TAIL_RAW = 200;          // raw points always recomputed
+const TRAIL_BODY_REBUILD_AFTER = 400; // tail length that triggers a new body
+const TRAIL_INCREMENTAL_MIN = 800;   // below this a full pass is cheap enough
+const _trailBodies = new WeakMap();
+
+function smoothTrailIncremental(raw, src) {
+    const n = raw.length;
+    if (!src || typeof src !== 'object' || n < TRAIL_INCREMENTAL_MIN) return smoothTrailFull(raw).smoothed;
+
+    const first = (src[0] && src[0].date) || '';
+    let body = _trailBodies.get(src);
+    const same = (a, b) => a && b && a.lat === b.lat && a.lon === b.lon && a.alt === b.alt;
+    const valid = body && body.first === first && body.R + 3 <= n
+        && same(raw[body.R - 1], body.rawLast)
+        && (n - body.R) <= TRAIL_TAIL_RAW + TRAIL_BODY_REBUILD_AFTER;
+    if (!valid) {
+        const R = n - TRAIL_TAIL_RAW;
+        const U = smoothTrailFull(raw.slice(0, R)).unwrapped;
+        const S = [];
+        smoothSegmentsInto(U, 0, U.length - 3, S); // segments that never read past the body
+        body = { first, R, rawLast: { ...raw[R - 1] }, U, S };
+        _trailBodies.set(src, body);
+    }
+
+    const { R, U, S } = body;
+    const B = U.length;
+    const dens = [];
+    densifyTrailInto(raw, R, dens);
+    const T = [U[B - 3], U[B - 2], U[B - 1]];
+    unwrapTrailInto(dens, 0, U[B - 1].unwrappedLon, T);
+    const out = S.slice();
+    smoothSegmentsInto(T, 1, T.length - 2, out); // T[j] is global U index B-3+j
+    out.push(T[T.length - 1]);
+    return out;
 }
 
 // Apply the altitude gradient carried on a flown-path FeatureCollection to
@@ -22784,6 +23346,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     // on it. Warming it here — rather than blocking boot — means it is ready
     // by the time the window renders, without holding up first paint.
     ensureRunwaysData();
+    // Same for the nav readout's airport index: build it in idle time now so
+    // the first live packet after opening doesn't pay for it.
+    warmNavAirportIndex();
 
     LandingUI.update(false);
     localStorage.setItem('landingUI_visible', 'false');
@@ -22834,6 +23399,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         }
     }
 
+    // Already showing a flight → this is a switch, animated as one.
+    const switchingFlights = !!currentFlightInWindow && aircraftInfoWindow.classList.contains('visible');
+
     currentFlightInWindow = flightProps.flightId;
     markSelectedAircraft(currentFlightInWindow);
     currentAircraftPositionForGeocode = flightProps.position;
@@ -22849,7 +23417,12 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     }
 
     const windowEl = document.getElementById('aircraft-info-window');
-    if (windowEl) {
+    if (windowEl && switchingFlights && windowEl.children.length) {
+        // Plane to plane: keep the current card in place, covered by the
+        // switch veil, until the next one is ready, instead of wiping it to
+        // a spinner and back.
+        iwBeginSwitch(windowEl, String(flightProps.callsign || '').trim() || null);
+    } else if (windowEl) {
         // Height is held at whatever the window already occupies (see
         // setInfoWindowLoading) so re-opening on another flight does not
         // collapse the panel to a spinner box and grow it back.
@@ -22860,6 +23433,19 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             </div>
         `);
     }
+
+    // Let the entrance reach the screen before anything heavy runs. A CSS
+    // transition's clock starts on the main thread, but the frame carrying the
+    // window isn't shown until the thread is free; when the requests below
+    // answer instantly (cached), the whole panel build ran first and the
+    // window appeared ~300 ms late with its slide already over. Capped so a
+    // background tab (no animation frames) can't stall the open.
+    await new Promise((resolve) => {
+        let done = false;
+        const go = () => { if (!done) { done = true; resolve(); } };
+        requestAnimationFrame(() => setTimeout(go, 0));
+        setTimeout(go, 100);
+    });
 
     try {
         let sessionId = optionalSessionId;
@@ -22880,6 +23466,11 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         const aircraftLookupUrl = `${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`;
 
         const routePromise = fetch(historyUrl).catch(() => ({ ok: false }));
+        // Parsed once and shared: the simple frame's first payload and the
+        // trail/path code below both read it.
+        const routeDataPromise = routePromise
+            .then((res) => (res && res.ok ? res.json() : null))
+            .catch(() => null);
 
         const [planRes, aircraftLookupRes] = await Promise.all([
             fetch(planUrl).catch(() => ({ ok: false })),
@@ -22915,16 +23506,22 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
         // Feed the top-left weather pill (weatherWidget.js) — it only renders
         // while this window is displayed, so it just needs the route context
-        // and where the aircraft currently is.
-        window.dispatchEvent(new CustomEvent('flight-window-weather', {
-            detail: {
-                flightId: flightProps.flightId,
-                depIcao,
-                arrIcao,
-                lat: flightProps.position?.lat ?? flightProps.position?.latitude ?? null,
-                lon: flightProps.position?.lon ?? flightProps.position?.longitude ?? null,
-            }
-        }));
+        // and where the aircraft currently is. Deferred: setting it up (METAR
+        // fetches, nearest-station search, first-use airport index) cost ~30 ms
+        // inside the task that builds the window, right as it animates in.
+        const weatherDetail = {
+            flightId: flightProps.flightId,
+            depIcao,
+            arrIcao,
+            lat: flightProps.position?.lat ?? flightProps.position?.latitude ?? null,
+            lon: flightProps.position?.lon ?? flightProps.position?.longitude ?? null,
+        };
+        // A plane switch has no entrance to protect, and the pill should go
+        // to its dimmed "loading" look the moment the window changes flight.
+        setTimeout(() => {
+            if (currentFlightInWindow !== weatherDetail.flightId) return;
+            window.dispatchEvent(new CustomEvent('flight-window-weather', { detail: weatherDetail }));
+        }, switchingFlights ? 0 : 450);
 
         const filedPlanData = await FlightDispatchService.getFiledPlan(
             flightProps.username,
@@ -22957,22 +23554,94 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // display:block (overflow scroll), so flex-grow does nothing and the
             // iframe would collapse to the browser's ~150px default. On mobile
             // .mobile-legacy-sheet has its own !important rules that win anyway.
+            // Desktop boots the simple frame straight into its expanded layout;
+            // setting it after load animated a collapsed bar into the full card.
             const _fwSrc = _fwMode === 'embed'
                 ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
-                : 'flightinfo.html';
-            setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`);
-            const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
-            const iframe = document.getElementById('simple-flight-window-frame');
-            iframe.onload = () => {
-                iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+                : ('flightinfo.html' + (onMobile ? '' : '?phase=expanded'));
+            // The frame stays invisible (iw-frame-waiting) until it has painted
+            // this flight: it first renders its own placeholder and only gets
+            // the data on load, so revealing it straight away showed a blank
+            // slab, then placeholders, then the real card — three looks in half
+            // a second. The mobile sheet also waits for this before sliding up.
+            // First payload: carry the flown trail when the history request has
+            // already answered (it runs in parallel with the plan fetch), so
+            // progress, distance and the graph arrive with the card instead of
+            // filling in a moment after it appears. Never waits long for it.
+            const firstPayload = async () => {
+                const data = await Promise.race([
+                    routeDataPromise,
+                    new Promise((r) => setTimeout(() => r(null), 350))
+                ]);
+                return formatDataForSimpleWindow(flightProps, plan, routePointsFrom(data), communityAircraftData, filedPlanData);
+            };
+            const postPhase = (frame) => {
                 // The iframe defaults to its collapsed body class; on desktop force it
                 // into the expanded full-info layout to match the host phase above.
                 if (initialPhase === 'expanded') {
-                    iframe.contentWindow.postMessage({ type: 'SET_PHASE', phase: 'expanded' }, '*');
+                    frame.contentWindow.postMessage({ type: 'SET_PHASE', phase: 'expanded' }, '*');
                 }
             };
+
+            const liveFrame = document.getElementById('simple-flight-window-frame');
+            if (liveFrame && liveFrame._iwLoaded && liveFrame.contentWindow
+                && windowEl.contains(liveFrame) && liveFrame.getAttribute('src') === _fwSrc) {
+                // Switching planes: keep the loaded frame and hand it the new
+                // flight. Reloading it blanked the panel for half a second and
+                // replayed the whole entrance; the old card now stays (under
+                // the switch veil) until the new one has painted.
+                const payload = await firstPayload();
+                // Closed (or moved on) while the trail was awaited: nothing to show.
+                if (currentFlightInWindow === flightProps.flightId && liveFrame.contentWindow) {
+                    liveFrame.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload }, '*');
+                    postPhase(liveFrame);
+                    // The pilot panel belongs to the previous pilot until asked.
+                    handleIframeMessage({ data: { type: 'REQUEST_PILOT_STATS' } });
+                    const finish = () => {
+                        clearTimeout(liveFrame._iwRevealTimer);
+                        liveFrame._iwReveal = null;
+                        iwEndSwitch(windowEl);
+                    };
+                    liveFrame._iwReveal = finish;
+                    liveFrame._iwRevealTimer = setTimeout(finish, 800);
+                    liveFrame.contentWindow.postMessage({ type: 'REQUEST_RENDERED_ACK' }, '*');
+                } else {
+                    iwEndSwitch(windowEl);
+                }
+            } else {
+                windowEl.classList.add('iw-frame-pending');
+                setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" class="iw-frame-waiting" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`);
+                const iframe = document.getElementById('simple-flight-window-frame');
+                const revealFrame = () => {
+                    clearTimeout(iframe._iwRevealTimer);
+                    iframe._iwReveal = null;
+                    iframe.classList.remove('iw-frame-waiting');
+                    windowEl.classList.remove('iw-frame-pending');
+                };
+                // The frame posts SIMPLE_WINDOW_RENDERED once it has painted the
+                // flight (see handleIframeMessage). Never leave the card hidden if
+                // it is slow or fails to load.
+                iframe._iwReveal = revealFrame;
+                iframe._iwRevealTimer = setTimeout(revealFrame, 1500);
+                iframe.onload = async () => {
+                    iframe._iwLoaded = true;
+                    const payload = await firstPayload();
+                    if (!iframe.contentWindow) return;
+                    iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload }, '*');
+                    postPhase(iframe);
+                };
+            }
         } else if (typeof populateAircraftInfoWindow === 'function') {
-            populateAircraftInfoWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
+            // Same head start as the simple frame: build with the flown trail
+            // when it is already in, so times, graph and progress are right
+            // from the first frame rather than patched in a moment later.
+            const earlyRoute = await Promise.race([
+                routeDataPromise,
+                new Promise((r) => setTimeout(() => r(null), 350))
+            ]);
+            if (currentFlightInWindow === flightProps.flightId) {
+                populateAircraftInfoWindow(flightProps, plan, routePointsFrom(earlyRoute), communityAircraftData, filedPlanData);
+            }
         }
 
         if (typeof fetchAndDisplayGeocode === 'function') {
@@ -22983,14 +23652,8 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
 
-        const routeRes = await routePromise;
-        const routeData = routeRes.ok ? await routeRes.json() : null;
-
-        let sortedRoutePoints = [];
-        const historyArray = routeData?.path || routeData?.route || [];
-        if (routeData && routeData.ok && Array.isArray(historyArray)) {
-            sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
-        }
+        const routeData = await routeDataPromise;
+        const sortedRoutePoints = routePointsFrom(routeData);
 
         // Seed the live-trail cache CLAMPED to what the map marker currently
         // shows. The history endpoint often runs ahead of the socket
@@ -23126,6 +23789,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
     } catch (error) {
         console.error("Error fetching aircraft details:", error);
+        // Without this a single failed fetch left the flag set and every
+        // later tap on an aircraft was silently ignored.
+        isAircraftWindowLoading = false;
         closeAircraftWindow();
     }
 }
@@ -24394,7 +25060,7 @@ let totalDistanceNM = 0;
                                             <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
                                             <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 147Z" fill="#D9D9D9"/>
+                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
                                             <g id="Ellipse 3">
                                                 <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
                                                 <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
@@ -24764,6 +25430,9 @@ let totalDistanceNM = 0;
     }
 
     // --- SENSOR TIMER LOGIC ---
+    // HH:MM only changes once a minute; skipping identical writes saves a
+    // style/layout pass on the open panel every second.
+    const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
     const updateSensorTimers = () => {
         const elElapsed = document.getElementById('ac-sensor-elapsed');
         const elEte = document.getElementById('ac-sensor-ete');
@@ -24777,21 +25446,21 @@ let totalDistanceNM = 0;
             if (diff >= 0) {
                 const h = Math.floor(diff / 3600000);
                 const m = Math.floor((diff % 3600000) / 60000);
-                elElapsed.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                setText(elElapsed, `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
             }
         }
 
         if (elEte && sourceEte && elTotal) {
             const currentEte = sourceEte.textContent;
             if (currentEte && currentEte.includes(':')) {
-                elEte.textContent = currentEte;
+                setText(elEte, currentEte);
                 if (elElapsed && elElapsed.textContent !== '--:--') {
                     const [eH, eM] = elElapsed.textContent.split(':').map(Number);
                     const [rH, rM] = currentEte.split(':').map(Number);
                     let tM = eM + rM;
                     let tH = eH + rH + Math.floor(tM / 60);
                     tM = tM % 60;
-                    elTotal.textContent = `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`;
+                    setText(elTotal, `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`);
                 }
             }
         }
@@ -24954,38 +25623,84 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
     if (windEl) windEl.textContent = `${String(windDir).padStart(3, '0')}° / ${windSpd}`;
     if (oatEl) oatEl.textContent = `${oat}°C`;
 
-    // 3. Nearest Airport Logic (Unchanged, just targets)
-    if (airportsData && Object.keys(airportsData).length > 0) {
-        let nearestICAO = '---';
-        let minDist = Infinity;
-        
-        // Optimization: Only check airports within ~2 degrees lat/lon
-        for (const icao in airportsData) {
-            const apt = airportsData[icao];
-            if (!apt || apt.lat == null || apt.lon == null) continue;
-
-            const latDiff = Math.abs(apt.lat - lat);
-            const lonDiff = Math.abs(apt.lon - lon);
-
-            if (latDiff > 2 || lonDiff > 2) continue;
-
-            const dist = getDistanceKm(lat, lon, apt.lat, apt.lon);
-            if (dist < minDist) {
-                minDist = dist;
-                nearestICAO = icao;
-            }
-        }
-
+    // 3. Nearest airport (any field within 2° lat/lon). This runs on every
+    // packet while the window is open; it used to walk the whole airport
+    // object (19k–83k entries, plus an Object.keys() copy of it) each time —
+    // ~39 ms per packet. See nearestAirportWithin2Deg.
+    const nearest = nearestAirportWithin2Deg(lat, lon);
+    if (nearest) {
         const nearestEl = document.getElementById('ac-nearest-apt');
         const nearestDistEl = document.getElementById('ac-nearest-apt-dist');
-        
-        if (nearestEl && minDist !== Infinity) {
-            nearestEl.textContent = nearestICAO;
-            const distNM = (minDist / 1.852).toFixed(1);
+        if (nearestEl) {
+            nearestEl.textContent = nearest.icao;
             // The "NM" unit is rendered as a sibling <span> in the markup, so write only the number.
-            nearestDistEl.textContent = distNM;
+            if (nearestDistEl) nearestDistEl.textContent = (nearest.km / 1.852).toFixed(1);
         }
     }
+}
+
+// Every airport (not just proper ICAO codes — the nav readout has always
+// considered strips and heliports too), bucketed by whole degree of latitude
+// in typed arrays so a lookup scans only its ±2° band and never touches the
+// rest. A counting sort (two linear passes, no comparator) builds it — the
+// first packet after opening a window used to spend ~90 ms comparison-sorting
+// 83k airports. Rebuilt lazily after airportsData changes
+// (invalidateAirportIndex); the cache variable lives next to _airportIndex.
+function buildNavAirportIndex() {
+    const keys = Object.keys(airportsData);
+    const inLats = new Float64Array(keys.length);
+    const inLons = new Float64Array(keys.length);
+    const inIcaos = new Array(keys.length);
+    let n = 0;
+    for (let k = 0; k < keys.length; k++) {
+        const apt = airportsData[keys[k]];
+        if (!apt || apt.lat == null || apt.lon == null) continue;
+        const lat = +apt.lat, lon = +apt.lon;
+        if (!(lat >= -90 && lat <= 90) || !isFinite(lon)) continue;
+        inLats[n] = lat; inLons[n] = lon; inIcaos[n] = keys[k]; n++;
+    }
+    // Bucket b holds latitudes in [b - 90, b - 89); 90° shares the top bucket.
+    const bucketOf = lat => Math.min(179, Math.floor(lat) + 90);
+    const start = new Uint32Array(181);
+    for (let i = 0; i < n; i++) start[bucketOf(inLats[i]) + 1]++;
+    for (let b = 1; b <= 180; b++) start[b] += start[b - 1];
+    const fill = start.slice(0, 180);
+    const lats = new Float64Array(n);
+    const lons = new Float64Array(n);
+    const icaos = new Array(n);
+    for (let i = 0; i < n; i++) {
+        const j = fill[bucketOf(inLats[i])]++;
+        lats[j] = inLats[i]; lons[j] = inLons[i]; icaos[j] = inIcaos[i];
+    }
+    return { lats, lons, icaos, start, bucketOf };
+}
+
+function warmNavAirportIndex() {
+    if (_navAirportIndex || !airportsData) return;
+    const build = () => { if (!_navAirportIndex && airportsData) _navAirportIndex = buildNavAirportIndex(); };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(build, { timeout: 1500 });
+    else setTimeout(build, 200);
+}
+
+/** Nearest airport within 2° of lat and of lon, or null. */
+function nearestAirportWithin2Deg(lat, lon) {
+    if (!airportsData || lat == null || lon == null || isNaN(lat) || isNaN(lon)) return null;
+    if (!_navAirportIndex) _navAirportIndex = buildNavAirportIndex();
+    const { lats, lons, icaos, start, bucketOf } = _navAirportIndex;
+    if (!lats.length) return null;
+    const from = start[bucketOf(Math.max(-90, lat - 2))];
+    const to = start[bucketOf(Math.min(90, lat + 2)) + 1];
+    let bestIcao = null;
+    let bestKm = Infinity;
+    for (let i = from; i < to; i++) {
+        if (Math.abs(lats[i] - lat) > 2 || Math.abs(lons[i] - lon) > 2) continue;
+        const km = getDistanceKm(lat, lon, lats[i], lons[i]);
+        if (km < bestKm) {
+            bestKm = km;
+            bestIcao = icaos[i];
+        }
+    }
+    return bestIcao ? { icao: bestIcao, km: bestKm } : null;
 }
 
 function updateSeatSensor(flightProps) {
@@ -26565,7 +27280,7 @@ function setupFlightHoverPopups() {
 
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         const feature = e.features[0];
-        const props = feature.properties;
+        const props = liveFlightProps(feature.properties);
 
         // Remember which flight is under the cursor so the Shift+P shortcut
         // knows what to pin.

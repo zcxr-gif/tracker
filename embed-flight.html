@@ -565,6 +565,20 @@
 
     // ── Live data ────────────────────────────────────────────────────────────
     let lastPayload = null;
+
+    // The hero photo comes from the network and used to paint in progressively
+    // (or snap in) after the card was already showing. Hold it transparent
+    // until the image has decoded, then let .hero-photo's opacity transition
+    // bring it up.
+    function fadeInHeroPhoto() {
+        const hp = document.querySelector('#card .hero-photo');
+        const url = _photoList[0] && _photoList[0].url;
+        if (!hp || !url) return;
+        hp.style.opacity = '0';
+        const im = new Image();
+        im.onload = im.onerror = () => requestAnimationFrame(() => { hp.style.opacity = ''; });
+        im.src = url;
+    }
     let _renderKey = null;       // flight identity — full rebuild when it changes
     let _lastGraphAt = 0;
     let _lastLegsKey = null;
@@ -976,6 +990,7 @@
             _photoList = list;
             _photoIdx = 0;
             document.getElementById('card').innerHTML = buildCard(p);
+            fadeInHeroPhoto();
             startCarousel();
             const btn = document.getElementById('btn-collapse');
             if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); setPhase('collapsed', true); });
@@ -1118,10 +1133,27 @@
             </button>`;
     }
 
+    // Tell the host once the first flight has been painted, so it can reveal
+    // this frame with real data on it instead of the placeholder.
+    let renderedNotified = false;
+    function postRendered() {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_RENDERED' }, '*'); } catch (_) {}
+        }));
+    }
+    function notifyRendered() {
+        if (renderedNotified) return;
+        renderedNotified = true;
+        postRendered();
+    }
+
     window.addEventListener('message', (event) => {
         const d = event.data;
         if (!d || typeof d !== 'object') return;
-        if (d.type === 'FLIGHT_DATA_UPDATE') render(d.payload);
+        if (d.type === 'FLIGHT_DATA_UPDATE') { render(d.payload); notifyRendered(); }
+        // The host switched this frame to another flight and waits for it to
+        // be painted before bringing the card back up.
+        if (d.type === 'REQUEST_RENDERED_ACK') postRendered();
         if (d.type === 'SET_PHASE') setPhase(d.phase === 'expanded' ? 'expanded' : 'collapsed', false);
         if (d.type === 'AIRPORT_SUMMARY') renderDestInfo(d);
     });

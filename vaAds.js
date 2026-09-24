@@ -1301,13 +1301,18 @@
 
             /* Pulsing "live" dot, shared by the next-up card, event pills and legend */
             .va-live-dot {
+                position: relative;
                 width: 7px; height: 7px; border-radius: 50%; background: #4ade80; flex: 0 0 auto;
-                box-shadow: 0 0 0 0 rgba(74,222,128,0.55); animation: va-live-pulse 1.8s infinite;
+            }
+            /* Ring = scaled copy of the dot (compositor-only), not box-shadow. */
+            .va-live-dot::after {
+                content: ''; position: absolute; inset: 0; border-radius: inherit;
+                background: inherit; opacity: 0; pointer-events: none;
+                animation: va-live-pulse 1.8s infinite;
             }
             @keyframes va-live-pulse {
-                0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.55); }
-                70%  { box-shadow: 0 0 0 7px rgba(74,222,128,0); }
-                100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+                0%        { transform: scale(1); opacity: 0.55; }
+                70%, 100% { transform: scale(3); opacity: 0; }
             }
 
             /* Per-event status pill: countdown, or a green "Happening now" */

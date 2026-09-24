@@ -253,10 +253,14 @@ export async function registerPlaneMarkIcons(map, opts = {}) {
             const box = measure(entry.art, parts);
             if (!box) throw new Error(`"${entry.art}" measured as nothing`);
 
-            const silhouette = async () => {
-                const mask = await rasterise(parts, box, entry.scale, devicePx, false, useSdf ? 0 : pad);
-                return useSdf ? toSdf(mask) : mask;
-            };
+            // The plain and `_S` ids share one silhouette: addImage copies the
+            // pixels, and rasterising + distance-fielding it twice was a third
+            // of the icon work at boot.
+            let silhouetteOnce = null;
+            const silhouette = () => silhouetteOnce || (silhouetteOnce = (async () => {
+                    const mask = await rasterise(parts, box, entry.scale, devicePx, false, useSdf ? 0 : pad);
+                    return useSdf ? toSdf(mask) : mask;
+                })());
 
             if (!map.hasImage(`icon-${category}`)) {
                 const data = await silhouette();

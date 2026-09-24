@@ -100,8 +100,10 @@ export const PilotCardEditor = {
     _profile: null,
     _busy: false,
 
-    // variant: 'desktop' (a pui-card in the dashboard's Settings) or 'mobile'
-    // (an iOS-style section in MobileDashboardUI's Settings tab).
+    // variant: 'desktop' (a pui-card in the dashboard's Settings), 'mobile'
+    // (an iOS-style section in MobileDashboardUI's Settings tab) or 'prompt'
+    // (just the body, inside pilotCardPrompt.js's popup, which has its own
+    // title).
     mount(host, { supabase, isPro = false, user = null, variant = 'desktop' } = {}) {
         if (!host || !supabase) return;
         this._host = host;
@@ -120,6 +122,9 @@ export const PilotCardEditor = {
     },
 
     _frame(body) {
+        if (this._opts.variant === 'prompt') {
+            return `<div class="pce pce-prompt"><div id="pce-body">${body}</div></div>`;
+        }
         if (this._opts.variant === 'mobile') {
             return `
                 <div class="mdui-section pce pce-mobile">

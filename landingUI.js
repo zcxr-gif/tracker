@@ -1424,6 +1424,8 @@ export const LandingUI = {
         if (label) label.textContent = a ? a.name : 'Account';
         btn.title = a ? a.name : 'Account';
         btn.classList.toggle('is-signed-in', !!a);
+        // No picture yet: pilotCardPrompt.js marks the pill with a dot.
+        btn.classList.toggle('pcp-needs-picture', !!(a && window.__inflightNeedsPicture));
         if (!ini) return;
         if (a && a.avatarUrl) {
             const img = new Image();

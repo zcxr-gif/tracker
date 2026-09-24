@@ -61,6 +61,7 @@
     };
 
     let root = null, pill = null, popover = null;
+    let lastPillHTML = '';
 
     // ── Day / night at a coordinate ────────────────────────────────────────
     // Solar altitude via the standard low-precision solar position formulas
@@ -238,13 +239,46 @@
                 left: 14px;
                 z-index: 2050; /* above the map chrome, below the info window (2100) */
                 font-family: var(--font-ui, 'Inter', -apple-system, sans-serif);
-                display: none;
-                transition: left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-            }
-            #wx-widget-root.wx-shown {
                 display: flex;
                 flex-direction: column;
                 align-items: flex-start; /* pill keeps its own width when the popover is open */
+                /* Shown and hidden by motion rather than display: it drops in
+                   from just above its spot and lifts away, instead of popping.
+                   Leaving accelerates; arriving settles softly. visibility
+                   flips only once the fade-out has run. */
+                opacity: 0;
+                visibility: hidden;
+                pointer-events: none;
+                transform: translateY(-8px) scale(0.97);
+                transform-origin: top left;
+                transition: opacity 0.18s ease-in,
+                            transform 0.22s cubic-bezier(0.4, 0, 1, 1),
+                            visibility 0s linear 0.22s,
+                            left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            #wx-widget-root.wx-shown {
+                opacity: 1;
+                visibility: visible;
+                pointer-events: auto;
+                transform: none;
+                transition: opacity 0.26s ease-out,
+                            transform 0.42s cubic-bezier(0.32, 0.72, 0, 1),
+                            visibility 0s linear 0s,
+                            left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            /* Switching flights: the pill keeps showing the last reading,
+               dimmed, until the new flight's weather is in. */
+            #wx-pill.wx-pending > * { opacity: 0.45; transition: opacity 0.16s ease-out; }
+            /* New reading: contents fade up while the pill eases to its new
+               width (see setPillHTML). */
+            #wx-pill.wx-swap > * { animation: wx-content-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both; }
+            @keyframes wx-content-in {
+                from { opacity: 0; transform: translateY(3px); }
+                to   { opacity: 1; transform: none; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                #wx-widget-root, #wx-widget-root.wx-shown { transform: none; }
+                #wx-pill.wx-swap > * { animation: none; }
             }
             /* Flight window docked to the left edge — slide out of its way. */
             @media (min-width: 993px) {
@@ -269,7 +303,6 @@
                 user-select: none;
                 -webkit-tap-highlight-color: transparent;
                 transition: transform 0.18s ease, border-color 0.18s ease;
-                animation: wx-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             }
             #wx-pill:hover { border-color: var(--border-highlight, rgba(255,255,255,0.15)); }
             #wx-pill:active { transform: scale(0.96); }
@@ -711,10 +744,15 @@
         return icao ? { icao, parsed: null } : null;
     }
 
-    function renderPill() {
+    function renderPill(allowPlaceholder = false) {
         const st = primaryStation();
         if (!st) return;
         const p = st.parsed;
+        // No reading yet for this flight: keep what is on screen (hidden on a
+        // first open, dimmed on a switch) rather than flashing '--°' and then
+        // jumping to the real values. The fallback timer in setContext draws
+        // the placeholder if the reports never come.
+        if (!p && !allowPlaceholder && state.pillFor !== (state.ctx?.flightId || null)) return;
         const temp = (p && p.tempC !== null) ? `${p.tempC}°` : '--°';
         const wind = p ? fmtWind(p) : '';
         // The pill's sun/moon reflects the local time at the aircraft itself.
@@ -729,7 +767,7 @@
                    <i class="fa-solid fa-triangle-exclamation"></i>${haz.length > 1 ? `<span class="n">${haz.length}</span>` : ''}
                </span>`
             : '';
-        pill.innerHTML = `
+        setPillHTML(`
             <i class="fa-solid ${p ? iconFor(p, night) : 'fa-cloud'} wx-pill-icon"></i>
             <span class="wx-pill-temp">${temp}</span>
             <span class="wx-pill-meta">
@@ -737,7 +775,53 @@
                 ${wind && wind !== '—' ? `<span class="wx-pill-wind">${esc(wind)}</span>` : ''}
             </span>
             ${hazBadge}
-        `;
+        `);
+        // This flight's reading is on the pill now: it may appear (first
+        // time) or come back up from its dimmed switching state.
+        state.pillFor = state.ctx?.flightId || null;
+        state.keepPillDuringSwitch = false;
+        clearTimeout(state.pillFallbackTimer);
+        pill.classList.remove('wx-pending');
+        syncVisibility();
+    }
+
+    /**
+     * Writes the pill's contents, skipping identical renders (the position
+     * tick re-renders it every few seconds) and animating real changes: the
+     * contents fade up while the pill eases from its old width to the new
+     * one, instead of snapping to a different size.
+     */
+    function setPillHTML(html) {
+        if (html === lastPillHTML) return;
+        let reduce = false;
+        try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) {}
+        const animate = !!lastPillHTML && !reduce && root.classList.contains('wx-shown');
+        const from = animate ? pill.getBoundingClientRect().width : 0;
+        pill.innerHTML = html;
+        lastPillHTML = html;
+        if (!animate) return;
+
+        pill.classList.remove('wx-swap');
+        void pill.offsetWidth; // restart the fade if a change lands mid-run
+        pill.classList.add('wx-swap');
+        clearTimeout(pill._wxSwapTimer);
+        pill._wxSwapTimer = setTimeout(() => pill.classList.remove('wx-swap'), 340);
+
+        const to = pill.getBoundingClientRect().width;
+        if (Math.abs(to - from) < 1) return;
+        pill.style.boxSizing = 'border-box';
+        pill.style.overflow = 'hidden';
+        pill.style.width = from + 'px';
+        void pill.offsetWidth;
+        pill.style.transition = 'width 0.32s cubic-bezier(0.32, 0.72, 0, 1), transform 0.18s ease, border-color 0.18s ease';
+        pill.style.width = to + 'px';
+        clearTimeout(pill._wxWidthTimer);
+        pill._wxWidthTimer = setTimeout(() => {
+            pill.style.width = '';
+            pill.style.transition = '';
+            pill.style.overflow = '';
+            pill.style.boxSizing = '';
+        }, 360);
     }
 
     /**
@@ -927,7 +1011,9 @@
         }
         state.windowShown = shown;
 
-        const show = shown && !!state.ctx && !!(state.ctx.depIcao || state.ctx.arrIcao);
+        if (!shown) state.keepPillDuringSwitch = false;
+        const ready = !!state.ctx && (state.pillFor === state.ctx.flightId || state.keepPillDuringSwitch);
+        const show = shown && ready && !!(state.ctx.depIcao || state.ctx.arrIcao);
         root.classList.toggle('wx-shown', show);
         root.classList.toggle('wx-shifted', !!win && win.classList.contains('dock-left'));
         if (!show && state.popoverOpen) setPopover(false);
@@ -1069,6 +1155,13 @@
             // not on its route and quietly fall back — so it is cleared here.
             state.focusIcao = '';
             setPopover(false);
+            // A pill already on screen stays there, dimmed, until this
+            // flight's weather arrives; otherwise it appears only once it has
+            // something to say. Placeholder after 2.5 s if nothing comes.
+            state.keepPillDuringSwitch = root.classList.contains('wx-shown');
+            if (state.keepPillDuringSwitch) pill.classList.add('wx-pending');
+            clearTimeout(state.pillFallbackTimer);
+            state.pillFallbackTimer = setTimeout(() => renderPill(true), 2500);
             renderPill();
             fetchMetars();
             resolveNowStation();

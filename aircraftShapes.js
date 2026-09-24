@@ -293,10 +293,14 @@ export async function registerAircraftShapeIcons(map, opts = {}) {
         try {
             const prepared = await loadShape(file);
 
-            const silhouette = async () => {
-                const mask = await rasterise(prepared, devicePx, false, useSdf ? 0 : pad);
-                return useSdf ? toSdf(mask) : mask;
-            };
+            // The plain and `_S` ids share one silhouette: addImage copies the
+            // pixels, and rasterising + distance-fielding it twice was a third
+            // of the icon work at boot.
+            let silhouetteOnce = null;
+            const silhouette = () => silhouetteOnce || (silhouetteOnce = (async () => {
+                    const mask = await rasterise(prepared, devicePx, false, useSdf ? 0 : pad);
+                    return useSdf ? toSdf(mask) : mask;
+                })());
 
             if (!map.hasImage(`icon-${category}`)) {
                 const data = await silhouette();

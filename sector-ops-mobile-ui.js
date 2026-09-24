@@ -982,9 +982,16 @@ disableHudControls() {
 
                 /* --- Animation & State --- */
                 will-change: transform;
+                visibility: visible;
                 /* Resting (closed) state: parked just below the bottom edge */
                 transform: translateY(100%);
-                transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+                /* Leaving: accelerate away rather than crawl off the bottom. */
+                transition: transform 0.3s cubic-bezier(0.4, 0, 1, 1);
+            }
+            /* Arriving / moving between detents: long, soft deceleration (the
+               iOS sheet curve). Out-ranks the desktop panel's .visible timing. */
+            .info-window.mobile-legacy-sheet.visible {
+                transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
             }
 
             /* "Peek" State (Default visible state) */
@@ -1203,6 +1210,17 @@ disableHudControls() {
     openWindow(windowElement) {
         if (!this.isMobile()) return;
 
+        // Switching planes: this window's sheet is already up. Keep it exactly
+        // where it is (peek or expanded) while the content swaps underneath,
+        // instead of force-closing it and sliding a new sheet up — the old
+        // sheet vanished in one frame and the new one replayed the entrance.
+        if (this.activeWindow === windowElement && this.activeMode === 'legacy'
+            && windowElement.classList.contains('mobile-legacy-sheet')
+            && windowElement.classList.contains('visible')) {
+            this.observeOriginalWindow(windowElement, { keepState: true });
+            return;
+        }
+
         if (this.activeWindow) {
             this.closeActiveWindow(true); 
         }
@@ -1285,6 +1303,10 @@ disableHudControls() {
         // sheet always presents from below the bottom edge instead of popping
         // in already expanded.
         this.activeWindow.classList.add('sheet-preparing');
+        // A previous close leaves its (accelerating) inline transition behind;
+        // clear it so this sheet slides in on the stylesheet's entrance curve.
+        this.activeWindow.style.transition = '';
+        this.activeWindow.style.transform = '';
         this.activeWindow.classList.remove('visible', 'peek');
         this.activeWindow.classList.add('mobile-legacy-sheet');
         this.activeWindow.style.display = 'flex';
@@ -1351,8 +1373,9 @@ disableHudControls() {
      * Now calls the correct "populate" function based on the active mode
      * AND triggers the animation *after* population is complete.
      */
-    observeOriginalWindow(windowElement) {
+    observeOriginalWindow(windowElement, opts = {}) {
         if (this.contentObserver) this.contentObserver.disconnect();
+        const keepState = !!opts.keepState;
 
         // Populates the active sheet/HUD once the window's content is ready and
         // animates it in. Returns true once it has run so the caller can stop
@@ -1375,10 +1398,29 @@ disableHudControls() {
 
             // Condition 1: Standard PFD is built
             const isStandardReady = mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true';
-            // Condition 2: Simple Iframe is present
-            const isSimpleReady = !!simpleIframe;
+            // Condition 2: Simple Iframe is present and has painted the flight.
+            // flight.js holds it at iw-frame-waiting until then (with a timeout),
+            // so the sheet slides up with the card on it rather than as an
+            // empty slab that fills in afterwards.
+            const isSimpleReady = !!simpleIframe && !simpleIframe.classList.contains('iw-frame-waiting');
 
             if (!(isStandardReady || isSimpleReady || isAirportReady)) return false;
+
+            // Sheet already on screen (plane switch): never move it; only
+            // restore the drag handle once the content swap has removed it.
+            if (keepState) {
+                if (windowElement.querySelector('.universal-handle')) {
+                    // A reused simple frame is updated in place — nothing is
+                    // swapped, so nothing to restore. Anything else is still
+                    // the previous flight's panel: wait for its replacement.
+                    if (!simpleIframe) return false;
+                    populated = true;
+                    return true;
+                }
+                populated = true;
+                this.populateLegacySheet(windowElement);
+                return true;
+            }
 
             populated = true;
 
@@ -1568,12 +1610,16 @@ populateLegacySheet(sourceWindow) {
 
 wireUpLegacySheetInteractions(sheetElement, handleElement) {
         handleElement.addEventListener('touchstart', this.handleLegacyTouchStart.bind(this), { passive: false });
-        
-        document.addEventListener('touchmove', this.boundLegacyTouchMove, { passive: false });
-        document.addEventListener('touchend', this.boundLegacyTouchEnd);
-        document.addEventListener('touchcancel', this.boundLegacyTouchEnd);
-        
-        if (this.overlayEl) {
+
+        // The document-level move/end listeners are attached only for the
+        // length of a handle drag (see setLegacyDragListeners). A standing
+        // non-passive touchmove on document made every touch on the page — map
+        // pans, pinches, sheet scrolls — wait on the main thread before the
+        // compositor could move, which is where the gesture stutter came from.
+
+        // Re-populating after a plane switch must not stack a second listener.
+        if (this.overlayEl && !this.overlayEl._legacyWired) {
+            this.overlayEl._legacyWired = true;
             this.overlayEl.addEventListener('click', () => {
                 if (this.legacySheetState.currentState === 'expanded'
                     && !this.isSimpleSheetExpandedOnly()) {
@@ -1827,7 +1873,12 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         if (this.isSimpleSheet() && this.activeWindow) {
             // Inline custom property wins over the stylesheet's --legacy-peek-height.
             this.activeWindow.style.setProperty('--legacy-peek-height', h + 'px');
-            if (this.legacySheetState.currentState === 'peek' && !this.isSimpleSheetExpandedOnly()) {
+            // Only re-snap a sheet that is already on screen. The frame reports
+            // its height as it loads, before the sheet is presented, and
+            // currentState can still read 'peek' from the previous flight —
+            // snapping then slid the sheet up ahead of its content.
+            if (this.legacySheetState.currentState === 'peek' && !this.isSimpleSheetExpandedOnly()
+                && this.activeWindow.classList.contains('visible')) {
                 this.setLegacySheetState('peek');
             }
         }
@@ -1852,7 +1903,11 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         if (!this.activeWindow) return;
 
         this.legacySheetState.currentState = targetState;
-        this.activeWindow.style.transition = 'transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)';
+        // Settling on a detent decelerates softly; closing accelerates away,
+        // so the sheet leaves decisively instead of crawling off the bottom.
+        this.activeWindow.style.transition = (targetState === 'closed')
+            ? 'transform 0.3s cubic-bezier(0.4, 0, 1, 1)'
+            : 'transform 0.5s cubic-bezier(0.32, 0.72, 0, 1)';
         this.activeWindow.style.transform = ''; // Remove inline style from dragging
 
         if (targetState === 'expanded') {
@@ -1954,6 +2009,7 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         
         this.legacySheetState.isDragging = true;
         this.legacySheetState.touchStartY = e.touches[0].clientY;
+        this.setLegacyDragListeners(true);
         
         // [THE NEW FIX]: WebKitCSSMatrix fails on mobile when reading `calc()` percentages.
         // Instead, we mathematically calculate the exact starting pixel translation using the element's actual rendered height.
@@ -1994,7 +2050,20 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         this.legacySheetState.currentTranslateY = newTranslateY; 
     },
 
+    setLegacyDragListeners(on) {
+        if (on) {
+            document.addEventListener('touchmove', this.boundLegacyTouchMove, { passive: false });
+            document.addEventListener('touchend', this.boundLegacyTouchEnd);
+            document.addEventListener('touchcancel', this.boundLegacyTouchEnd);
+        } else {
+            document.removeEventListener('touchmove', this.boundLegacyTouchMove);
+            document.removeEventListener('touchend', this.boundLegacyTouchEnd);
+            document.removeEventListener('touchcancel', this.boundLegacyTouchEnd);
+        }
+    },
+
     handleLegacyTouchEnd(e) {
+        this.setLegacyDragListeners(false);
         if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging || !this.activeWindow) return;
         
         this.legacySheetState.isDragging = false;
@@ -2062,7 +2131,8 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         const hudControls = document.getElementById('mobile-hud-controls');
         if (hudControls) hudControls.style.opacity = '1';
 
-        const animationDuration = force ? 0 : 500;
+        // Matches the 0.3s closing slide, plus a frame of slack.
+        const animationDuration = force ? 0 : 340;
         
         // --- Fork the teardown logic ---
         if (this.activeMode === 'hud') {
@@ -2076,11 +2146,9 @@ teardownLegacySheetView(force, duration) {
         const overlayToRemove = this.overlayEl;
         const sheetToClose = this.activeWindow;
         
-        // Remove document listeners
-        document.removeEventListener('touchmove', this.boundLegacyTouchMove);
-        document.removeEventListener('touchend', this.boundLegacyTouchEnd);
-        document.removeEventListener('touchcancel', this.boundLegacyTouchEnd);
-        
+        // Remove document listeners (in case the sheet closes mid-drag)
+        this.setLegacyDragListeners(false);
+
         const resetState = () => {
             this.activeWindow = null;
             this.overlayEl = null;
