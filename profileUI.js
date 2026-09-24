@@ -24,7 +24,7 @@ import { StripeCheckoutModal } from './stripeCheckoutModal.js';
 import { CareerModule } from './careerModule.js';
 import { formatGrade } from './ifGrade.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
-import { socketDataHub } from './SocketDataHub.js';
+import { socketDataHub, flightsByUsername } from './SocketDataHub.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { TelemetryAnalyticsEngine } from './TelemetryAnalyticsEngine.js';
@@ -652,22 +652,9 @@ init(supabaseClient) {
 
                 const ifUsername = this._currentUser?.user_metadata?.if_username;
 
-                // One pass to index the packet by lowercased username, shared
-                // by the lookups below. They previously scanned all of
-                // payload.flights independently — the watchlist loop ran a
-                // full .find() per watched pilot — and each scan lowercased
-                // every username again, so a 40-entry watchlist against a busy
-                // server meant ~48,000 comparisons and as many throwaway
-                // strings on every packet.
-                const flightsByUser = new Map();
-                for (let i = 0; i < payload.flights.length; i++) {
-                    const f = payload.flights[i];
-                    const un = f.username && f.username.toLowerCase();
-                    if (!un) continue;
-                    const bucket = flightsByUser.get(un);
-                    if (bucket) bucket.push(f);
-                    else flightsByUser.set(un, [f]);
-                }
+                // Username index for this packet, built once and shared with the other
+                // subscribers (see flightsByUsername in SocketDataHub.js).
+                const flightsByUser = flightsByUsername(payload);
 
                 if (ifUsername) {
                     const myFlights = flightsByUser.get(ifUsername.toLowerCase()) || [];

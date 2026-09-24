@@ -24800,6 +24800,9 @@ let totalDistanceNM = 0;
     }
 
     // --- SENSOR TIMER LOGIC ---
+    // HH:MM only changes once a minute; skipping identical writes saves a
+    // style/layout pass on the open panel every second.
+    const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
     const updateSensorTimers = () => {
         const elElapsed = document.getElementById('ac-sensor-elapsed');
         const elEte = document.getElementById('ac-sensor-ete');
@@ -24813,21 +24816,21 @@ let totalDistanceNM = 0;
             if (diff >= 0) {
                 const h = Math.floor(diff / 3600000);
                 const m = Math.floor((diff % 3600000) / 60000);
-                elElapsed.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                setText(elElapsed, `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
             }
         }
 
         if (elEte && sourceEte && elTotal) {
             const currentEte = sourceEte.textContent;
             if (currentEte && currentEte.includes(':')) {
-                elEte.textContent = currentEte;
+                setText(elEte, currentEte);
                 if (elElapsed && elElapsed.textContent !== '--:--') {
                     const [eH, eM] = elElapsed.textContent.split(':').map(Number);
                     const [rH, rM] = currentEte.split(':').map(Number);
                     let tM = eM + rM;
                     let tH = eH + rH + Math.floor(tM / 60);
                     tM = tM % 60;
-                    elTotal.textContent = `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`;
+                    setText(elTotal, `${String(tH).padStart(2, '0')}:${String(tM).padStart(2, '0')}`);
                 }
             }
         }

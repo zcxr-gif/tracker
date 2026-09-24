@@ -66,10 +66,51 @@
  * ============================================================================
  */
 
+// Each delivery runs as its own macrotask. Microtasks (the old
+// Promise.resolve().then) drain inside the same task as the socket handler
+// and the map update, so every subscriber still landed in one long task and
+// the frame could not be painted until all of them had finished. A
+// MessageChannel post is a real task boundary without setTimeout's clamping.
+const scheduleTask = (() => {
+    if (typeof MessageChannel !== 'function') return (fn) => setTimeout(fn, 0);
+    const queue = [];
+    const mc = new MessageChannel();
+    mc.port1.onmessage = () => { const fn = queue.shift(); if (fn) fn(); };
+    return (fn) => { queue.push(fn); mc.port2.postMessage(null); };
+})();
+
+// Per-packet index of flights by lowercased username. Several subscribers
+// (profile, mobile dashboard) need the same lookup; building it once per
+// packet instead of once per subscriber halves that work on a busy server.
+const _usernameIndex = new WeakMap();
+
+/**
+ * @param {AllFlightsUpdatePayload} payload
+ * @returns {Map<string, FlightData[]>} lowercased username -> that pilot's flights
+ */
+export function flightsByUsername(payload) {
+    let index = _usernameIndex.get(payload);
+    if (index) return index;
+    index = new Map();
+    const flights = payload.flights || [];
+    for (let i = 0; i < flights.length; i++) {
+        const f = flights[i];
+        const un = f.username && f.username.toLowerCase();
+        if (!un) continue;
+        const bucket = index.get(un);
+        if (bucket) bucket.push(f);
+        else index.set(un, [f]);
+    }
+    _usernameIndex.set(payload, index);
+    return index;
+}
+
 class SocketDistributor {
     constructor() {
         this.channels = new Map();
-        this.metrics = { published: 0, errors: 0 };
+        // channel -> Map(listener -> newest undelivered payload)
+        this.pending = new Map();
+        this.metrics = { published: 0, errors: 0, coalesced: 0 };
     }
 
     /**
@@ -89,6 +130,7 @@ class SocketDistributor {
         return () => {
             const subs = this.channels.get(channel);
             if (subs) subs.delete(listener);
+            this.pending.get(channel)?.delete(listener);
         };
     }
 
@@ -98,18 +140,42 @@ class SocketDistributor {
      * @param {any} payload - The raw data from the WebSocket.
      */
     publish(channel, payload) {
-        if (!this.channels.has(channel)) return;
+        const subs = this.channels.get(channel);
+        if (!subs || !subs.size) return;
 
         this.metrics.published++;
-        
-        for (const listener of this.channels.get(channel)) {
-            try {
-                // Execute listeners asynchronously to prevent blocking the main socket/map thread
-                Promise.resolve().then(() => listener(payload));
-            } catch (err) {
-                this.metrics.errors++;
-                console.error(`[SocketDataHub] Uncaught exception in channel '${channel}':`, err);
+
+        let pending = this.pending.get(channel);
+        if (!pending) this.pending.set(channel, pending = new Map());
+
+        for (const listener of subs) {
+            // Every channel carries full state, so a subscriber that hasn't
+            // run yet only needs the newest packet — replace rather than
+            // queue, and a slow consumer can never fall behind.
+            if (pending.has(listener)) {
+                this.metrics.coalesced++;
+                pending.set(listener, payload);
+                continue;
             }
+            pending.set(listener, payload);
+            scheduleTask(() => this._deliver(channel, listener));
+        }
+    }
+
+    _deliver(channel, listener) {
+        const pending = this.pending.get(channel);
+        if (!pending || !pending.has(listener)) return;
+        const payload = pending.get(listener);
+        pending.delete(listener);
+
+        // Unsubscribed between publish and delivery.
+        if (!this.channels.get(channel)?.has(listener)) return;
+
+        try {
+            listener(payload);
+        } catch (err) {
+            this.metrics.errors++;
+            console.error(`[SocketDataHub] Uncaught exception in channel '${channel}':`, err);
         }
     }
     
