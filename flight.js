@@ -4024,20 +4024,16 @@ function injectCustomStyles() {
         }
         @keyframes iw-frame-spin { to { transform: rotate(360deg); } }
 
-        /* Plane-to-plane switch: the current card dims under a spinner while
-           the next flight loads, then comes back up (iw-switch-in) — or the
-           new content fades up over it — rather than being wiped to an empty
-           panel. The sheet's drag handle stays live throughout. */
-        .info-window.iw-switching > *:not(.legacy-sheet-handle):not(.iw-switch-status) {
-            opacity: 0.35;
-            transition: opacity 0.16s ease-out;
-            pointer-events: none;
-        }
-        /* The loading cue rides the window's top edge — a sweeping bar and a
-           "Loading <callsign>" chip — so it is on screen however the panel is
-           scrolled and however little of a peeking sheet is showing (a
-           centred spinner fell below the fold in both). Sticky with no
-           height, so it never moves the content under it. */
+        /* Plane-to-plane switch: the old card is covered by a neutral grey
+           loading sheet — skeleton blocks in the card's rough shape with a
+           soft sheen sweeping across — so none of the previous flight's
+           numbers are left on show while the next one loads. The sheet sits
+           in a zero-height sticky element sized to the window's visible box,
+           so it covers whatever part of the panel is on screen (scrolled
+           legacy panel, peeking phone sheet) and never moves the content
+           under it. Solid rather than a backdrop blur: iframe and canvas
+           content showed through a blur in patches, and it is cheaper. */
+        .info-window.iw-switching > *:not(.iw-switch-status) { pointer-events: none; }
         .info-window > .iw-switch-status {
             position: sticky;
             top: 0;
@@ -4046,77 +4042,66 @@ function injectCustomStyles() {
             margin: 0;
             padding: 0;
             overflow: visible;
-            z-index: 6;
+            z-index: 50; /* above the panels' own sticky headers (z 10-20) */
             pointer-events: none;
+            border-radius: inherit;
         }
-        .iw-switch-status .iw-switch-bar {
+        .iw-switch-status .iw-switch-veil {
             position: absolute;
             top: 0;
             left: 0;
             right: 0;
-            height: 3px;
+            height: var(--iw-veil-h, 100vh);
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 22px 18px;
             overflow: hidden;
-            background: rgba(96, 165, 250, 0.16);
+            border-radius: inherit;
+            background: #27272a; /* solid: any see-through let the old card's text read through */
+            animation: iw-veil-in 0.16s ease-out both;
         }
-        .iw-switch-status .iw-switch-bar::before {
+        .mobile-legacy-sheet > .iw-switch-status .iw-switch-veil { padding-top: 30px; }
+        .iw-switch-veil .iw-skel {
+            flex: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.06);
+        }
+        .iw-switch-veil .iw-skel-title { height: 26px; width: 44%; }
+        .iw-switch-veil .iw-skel-sub { height: 12px; width: 28%; margin-bottom: 6px; }
+        .iw-switch-veil .iw-skel-hero { height: 150px; border-radius: 12px; }
+        .iw-switch-veil .iw-skel-row { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .iw-switch-veil .iw-skel-row .iw-skel { height: 58px; }
+        .iw-switch-veil::after {
             content: '';
             position: absolute;
             top: 0;
             bottom: 0;
             left: 0;
-            width: 40%;
-            background: linear-gradient(90deg, rgba(96, 165, 250, 0), #60a5fa 50%, rgba(96, 165, 250, 0));
-            animation: iw-switch-bar 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            width: 60%;
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.06) 50%, rgba(255, 255, 255, 0) 100%);
+            transform: translate3d(-100%, 0, 0);
+            animation: iw-veil-sheen 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
         }
-        @keyframes iw-switch-bar {
-            from { transform: translate3d(-100%, 0, 0); }
-            to   { transform: translate3d(250%, 0, 0); }
-        }
-        .iw-switch-status .iw-switch-chip {
+        .iw-switch-status.iw-switch-leaving .iw-switch-veil { animation: iw-veil-out 0.24s ease-out both; }
+        .iw-switch-status .iw-switch-label {
             position: absolute;
-            top: 16px;
-            left: 50%;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            max-width: calc(100% - 32px);
-            padding: 7px 13px 7px 10px;
-            border-radius: 999px;
-            background: rgba(15, 23, 42, 0.9);
-            border: 1px solid rgba(148, 163, 184, 0.28);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.38);
-            color: #e2e8f0;
-            font: 600 12px/1.1 'Inter', system-ui, sans-serif;
-            letter-spacing: 0.01em;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
             white-space: nowrap;
-            transform: translate3d(-50%, 0, 0);
-            animation: iw-switch-chip-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
         }
-        .mobile-legacy-sheet > .iw-switch-status .iw-switch-chip { top: 22px; } /* clear the drag handle */
-        .iw-switch-chip .iw-switch-text { overflow: hidden; text-overflow: ellipsis; }
-        .iw-switch-chip .iw-switch-spin {
-            flex: none;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: 2px solid rgba(148, 163, 184, 0.3);
-            border-top-color: #60a5fa;
-            animation: iw-frame-spin 0.8s linear infinite;
-        }
-        @keyframes iw-switch-chip-in {
-            from { opacity: 0; transform: translate3d(-50%, -6px, 0); }
-            to   { opacity: 1; transform: translate3d(-50%, 0, 0); }
-        }
-        .info-window.iw-switch-in > *:not(.legacy-sheet-handle):not(.iw-switch-status) {
-            animation: iw-switch-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+        @keyframes iw-veil-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes iw-veil-out { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes iw-veil-sheen {
+            from { transform: translate3d(-100%, 0, 0); }
+            to   { transform: translate3d(270%, 0, 0); }
         }
         .iw-value-in { animation: iw-value-in 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
         @keyframes iw-value-in {
             from { opacity: 0.2; }
-            to   { opacity: 1; }
-        }
-        @keyframes iw-switch-in {
-            from { opacity: 0.35; }
             to   { opacity: 1; }
         }
 
@@ -4132,9 +4117,7 @@ function injectCustomStyles() {
                 transition: opacity 150ms linear, visibility 0s linear 0s;
             }
             .info-window.iw-swapping > * { animation: none; }
-            .info-window.iw-switch-in > * { animation: none; }
-            .iw-switch-status .iw-switch-chip { animation: none; }
-            .iw-switch-status .iw-switch-bar::before { animation-duration: 2.4s; }
+            .iw-switch-veil::after { animation: none; opacity: 0; }
         }
         /* --- MOBILE SHEET GUARD --- */
         /* On phones the same windows are re-presented as a bottom sheet
@@ -9157,38 +9140,49 @@ function setInfoWindowLoading(windowEl, html) {
 }
 
 /**
- * Plane-to-plane switch: the current card stays, dimmed under a spinner,
- * until the next flight has been painted (iwEndSwitch). Content swaps through
- * setInfoWindowContent end it too, and fade the new card in.
+ * Plane-to-plane switch: the current card is covered by a grey frosted veil
+ * (see .iw-switch-status) until the next flight has been painted
+ * (iwEndSwitch). Content swaps through setInfoWindowContent end it too, and
+ * the veil lifts off the new card.
  */
 function iwBeginSwitch(windowEl, label) {
     windowEl.classList.remove('iw-frame-pending');
     windowEl.classList.add('iw-switching');
-    // Say what is loading, so a dimmed card reads as "the next flight is on
-    // its way" rather than as the old flight's data being current.
+    // Cover the old card so its numbers can't pass for the next flight's.
     let status = windowEl.querySelector(':scope > .iw-switch-status');
     if (!status) {
         status = document.createElement('div');
         status.className = 'iw-switch-status';
         status.setAttribute('role', 'status');
         status.setAttribute('aria-live', 'polite');
-        status.innerHTML = '<div class="iw-switch-bar"></div>'
-            + '<div class="iw-switch-chip"><span class="iw-switch-spin"></span><span class="iw-switch-text"></span></div>';
+        const row = '<div class="iw-skel-row"><div class="iw-skel"></div><div class="iw-skel"></div></div>';
+        status.innerHTML = '<div class="iw-switch-veil">'
+            + '<div class="iw-skel iw-skel-title"></div><div class="iw-skel iw-skel-sub"></div>'
+            + '<div class="iw-skel iw-skel-hero"></div>' + row + row + row + row
+            + '</div><span class="iw-switch-label"></span>';
     }
-    status.querySelector('.iw-switch-text').textContent = label ? `Loading ${label}…` : 'Loading flight…';
+    clearTimeout(status._leaveTimer);
+    status.classList.remove('iw-switch-leaving');
+    status.querySelector('.iw-switch-label').textContent = label ? `Loading ${label}` : 'Loading flight';
+    status.style.setProperty('--iw-veil-h', windowEl.clientHeight + 'px');
     windowEl.prepend(status);
     clearTimeout(windowEl._iwSwitchTimer);
-    // Never leave a card dimmed if every completion path is skipped.
+    // Never leave a card covered if every completion path is skipped.
     windowEl._iwSwitchTimer = setTimeout(() => iwEndSwitch(windowEl), 6000);
 }
 
-function iwEndSwitch(windowEl, fadeIn = true) {
+/** Lifts the veil off the (now current) card. */
+function iwEndSwitch(windowEl) {
     if (!windowEl) return;
     clearTimeout(windowEl._iwSwitchTimer);
-    windowEl.querySelector(':scope > .iw-switch-status')?.remove();
-    if (!windowEl.classList.contains('iw-switching')) return;
     windowEl.classList.remove('iw-switching');
-    if (fadeIn) iwPlaySwitchIn(windowEl);
+    iwLiftVeil(windowEl.querySelector(':scope > .iw-switch-status'));
+}
+
+function iwLiftVeil(status) {
+    if (!status || status.classList.contains('iw-switch-leaving')) return;
+    status.classList.add('iw-switch-leaving');
+    status._leaveTimer = setTimeout(() => status.remove(), 260);
 }
 
 /**
@@ -9209,15 +9203,6 @@ function iwSettleValue(el, { text, html } = {}) {
     el.classList.remove('iw-value-in');
     void el.offsetWidth;
     el.classList.add('iw-value-in');
-}
-
-/** Brings a dimmed card back up to full strength (see .iw-switch-in). */
-function iwPlaySwitchIn(windowEl) {
-    windowEl.classList.remove('iw-switch-in');
-    void windowEl.offsetWidth; // restart the animation if it is mid-run
-    windowEl.classList.add('iw-switch-in');
-    clearTimeout(windowEl._iwSwitchInTimer);
-    windowEl._iwSwitchInTimer = setTimeout(() => windowEl.classList.remove('iw-switch-in'), 360);
 }
 
 /** Route-history response → points sorted by time ([] when unusable). */
@@ -9247,11 +9232,11 @@ function iwExpectedHeight(windowEl) {
  */
 function setInfoWindowContent(windowEl, html) {
     if (!windowEl) return;
-    // A plane-to-plane switch ends here. When this swap animates, the new
-    // content's own fade-up (iw-swapping) is the transition; otherwise the
-    // freshly written card is brought up from the dimmed level instead.
-    const wasSwitching = windowEl.classList.contains('iw-switching');
-    iwEndSwitch(windowEl, false);
+    // A plane-to-plane switch ends here: the veil is carried over onto the
+    // new content and lifts off it, instead of vanishing with the old card.
+    const veil = windowEl.querySelector(':scope > .iw-switch-status');
+    iwEndSwitch(windowEl);
+    const keepVeil = () => { if (veil) windowEl.prepend(veil); };
     // Content that is not the simple/embed iframe sizes itself, so swapping to
     // it also hands back the box applySimpleWindowPhase pinned on the window.
     const keepsPhaseSize = /<iframe/i.test(html);
@@ -9261,17 +9246,14 @@ function setInfoWindowContent(windowEl, html) {
         if (windowEl.style.height && !iwPhaseManaged(windowEl)) windowEl.style.height = '';
         windowEl.classList.remove('iw-loading');
         windowEl.innerHTML = html;
-        if (wasSwitching) iwPlaySwitchIn(windowEl);
+        keepVeil();
         return;
     }
 
     const from = windowEl.getBoundingClientRect().height;
     windowEl.innerHTML = html;
     windowEl.classList.remove('iw-loading');
-    // Switching planes: the new card rises from the dimmed level the old one
-    // was held at (iw-switch-in outranks the swap's fade-from-zero), so there
-    // is no dark dip between the two.
-    if (wasSwitching) iwPlaySwitchIn(windowEl);
+    keepVeil();
 
     // An iframe sized at 100% has no natural height to measure against — there
     // is nothing to morph towards, so this just drops the loading lock. The
@@ -23301,8 +23283,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
     const windowEl = document.getElementById('aircraft-info-window');
     if (windowEl && switchingFlights && windowEl.children.length) {
-        // Plane to plane: keep the current card on screen, dimmed, until the
-        // next one is ready, instead of wiping it to a spinner and back.
+        // Plane to plane: keep the current card in place, covered by the
+        // switch veil, until the next one is ready, instead of wiping it to
+        // a spinner and back.
         iwBeginSwitch(windowEl, String(flightProps.callsign || '').trim() || null);
     } else if (windowEl) {
         // Height is held at whatever the window already occupies (see
@@ -23470,8 +23453,8 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 && windowEl.contains(liveFrame) && liveFrame.getAttribute('src') === _fwSrc) {
                 // Switching planes: keep the loaded frame and hand it the new
                 // flight. Reloading it blanked the panel for half a second and
-                // replayed the whole entrance; the old card now stays (dimmed,
-                // see iw-switching) until the new one has painted.
+                // replayed the whole entrance; the old card now stays (under
+                // the switch veil) until the new one has painted.
                 const payload = await firstPayload();
                 // Closed (or moved on) while the trail was awaited: nothing to show.
                 if (currentFlightInWindow === flightProps.flightId && liveFrame.contentWindow) {
