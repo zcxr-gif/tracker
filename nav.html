@@ -422,12 +422,20 @@
             grey: '#666666'
         };
 
+        // Redraw on demand. The display used to repaint its whole canvas on
+        // every animation frame (~60/s) for as long as it was open, although
+        // inside the flight window its picture only changes when the host
+        // posts new data. Anything that changes what is drawn calls this.
+        let needsDraw = true;
+        function requestDraw() { needsDraw = true; }
+
         function resize() {
             const rect = canvas.getBoundingClientRect();
             const width = rect.width;
             const height = rect.height;
             canvas.width = width * 2;
             canvas.height = height * 2;
+            requestDraw(); // resizing clears the canvas
         }
         window.addEventListener('resize', resize);
         setTimeout(resize, 0);
@@ -590,6 +598,11 @@
             ctx.lineWidth = 2; 
             ctx.font = `bold ${outerRadius * 0.09}px 'Inconsolata', monospace`;
 
+            // All tick marks go into one path with a single stroke(): the
+            // compass redraws on every position update, and 72 separate
+            // beginPath/stroke pairs were most of its cost. Same pixels.
+            const labels = [];
+            ctx.beginPath();
             for (let d = 0; d < 360; d += 5) {
                 if (!isRoseMode) {
                     let rel = Math.abs(d - state.heading);
@@ -607,12 +620,16 @@
                 const x2 = Math.sin(rad) * (innerRadius + currentTickLen);
                 const y2 = -Math.cos(rad) * (innerRadius + currentTickLen);
 
-                ctx.beginPath();
                 ctx.moveTo(x1, y1);
                 ctx.lineTo(x2, y2);
-                ctx.stroke();
 
-                if (d % 30 === 0) {
+                if (d % 30 === 0) labels.push(d);
+            }
+            ctx.stroke();
+
+            for (const d of labels) {
+                const rad = d * Math.PI / 180;
+                {
                     const textPadding = 18; 
                     const textRadius = outerRadius + textPadding;
                     const tx = Math.sin(rad) * textRadius;
@@ -887,16 +904,19 @@
             state.heading = parseInt(e.target.value);
             state.track = parseInt(e.target.value);
             document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
+            requestDraw();
         });
 
         document.getElementById('tasInput').addEventListener('input', (e) => {
             state.tas = parseInt(e.target.value);
             state.gs = state.tas; 
             document.getElementById('tasVal').innerText = state.tas;
+            requestDraw();
         });
         
         window.setMode = function(mode) {
             state.mode = mode;
+            requestDraw();
             const btnRose = document.getElementById('mode-ROSE');
             const btnArc = document.getElementById('mode-ARC');
             
@@ -915,6 +935,7 @@
 
         window.setRange = function(r) {
             state.range = r;
+            requestDraw();
             [10, 20, 40, 80, 160, 320].forEach(val => {
                 const btn = document.getElementById(`btn-${val}`);
                 if(btn) {
@@ -935,11 +956,20 @@
 
         function animate() {
             if (window.self === window.top) {
+                // Standalone page: the clock ticks, so keep repainting.
                 updatePhysics();
+                needsDraw = true;
             }
-            draw();
+            if (needsDraw) {
+                needsDraw = false;
+                draw();
+            }
             requestAnimationFrame(animate);
         }
+
+        // Canvas text doesn't re-render when a web font arrives late.
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(requestDraw);
+        if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', requestDraw);
 
         animate();
 
@@ -962,6 +992,7 @@
             if (data.flightPlan && Array.isArray(data.flightPlan)) {
                 state.flightPlan = data.flightPlan;
             }
+            requestDraw();
         });
 
         // --- NEW: SIGNAL READY TO PARENT ---

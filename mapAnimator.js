@@ -655,11 +655,17 @@ export class MapAnimator {
             // Glide was paused (camera move, hidden tab, a load in flight):
             // continue from where the plane was last drawn and ease onto its
             // track, instead of jumping by however far it travelled meanwhile.
-            if (now - r.drawT > 250) {
+            // "Stale" is relative to the current push interval: at low
+            // on-screen speeds pushes are legitimately ~1 s apart, and a fixed
+            // threshold treated every one of them as a resume — each started a
+            // new 1.2 s ease that forced 30 pushes a second for a single plane.
+            if (now - r.drawT > Math.max(250, this._glideInterval * 2.5)) {
                 const b = this._base(m, now);
                 const oLon = angleDelta(b[0], r.drawLon);
                 const oLat = r.drawLat - b[1];
-                if (Math.abs(oLon) <= MapAnimator.SNAP_DEG && Math.abs(oLat) <= MapAnimator.SNAP_DEG) {
+                const tiny = 1e-6; // ~0.1 m: nothing to ease
+                if ((Math.abs(oLon) > tiny || Math.abs(oLat) > tiny)
+                    && Math.abs(oLon) <= MapAnimator.SNAP_DEG && Math.abs(oLat) <= MapAnimator.SNAP_DEG) {
                     m.offLon = oLon; m.offLat = oLat; m.offT0 = now;
                     easing = true;
                 }

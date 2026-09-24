@@ -12542,6 +12542,7 @@ async function fetchAirportsData() {
 // once into parallel typed arrays, and lookups reject on a cheap lat/lon box
 // before spending a haversine.
 let _airportIndex = null;
+let _navAirportIndex = null;   // see buildNavAirportIndex
 
 function buildAirportIndex() {
     const icaos = [];
@@ -12568,7 +12569,7 @@ function buildAirportIndex() {
 }
 
 // Called after airportsData is (re)populated so the index can't go stale.
-function invalidateAirportIndex() { _airportIndex = null; }
+function invalidateAirportIndex() { _airportIndex = null; _navAirportIndex = null; }
 
 window.findNearestAirports = (lat, lon, count = 4) => {
     if (lat == null || lon == null || !airportsData) return [];
@@ -14244,49 +14245,57 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
             }
         }
 
+        // The tapes' tick marks are drawn as one <path> per tape rather than
+        // one <line> each — same coordinates, stroke and pixels. The altitude
+        // tape alone was 2,501 lines (every 20 ft to FL500), most of the
+        // ~4,300 nodes this window built on every open.
+        function appendTickPath(group, d, strokeWidth) {
+            const path = document.createElementNS(SVG_NS, 'path');
+            path.setAttribute('d', d);
+            path.setAttribute('stroke', 'white');
+            path.setAttribute('stroke-width', strokeWidth);
+            path.setAttribute('fill', 'none');
+            group.appendChild(path);
+        }
+
         // 2. Generate Speed Tape (Existing Logic)
         function generateSpeedTape() {
             const MIN_SPEED = 0, MAX_SPEED = 999;
+            let d = '';
             for (let s = MIN_SPEED; s <= MAX_SPEED; s += 5) {
                 const yPos = PFD_SPEED_CENTER_Y - (s - PFD_SPEED_REF_VALUE) * PFD_SPEED_SCALE;
-                const tick = document.createElementNS(SVG_NS, 'line');
-                tick.setAttribute('y1', yPos); tick.setAttribute('y2', yPos);
-                tick.setAttribute('stroke', 'white'); tick.setAttribute('stroke-width', '2');
                 if (s % 10 === 0) {
-                    tick.setAttribute('x1', '67'); tick.setAttribute('x2', '52');
+                    d += `M67 ${yPos}H52`;
                     const text = document.createElementNS(SVG_NS, 'text');
                     text.setAttribute('x', '37'); text.setAttribute('y', yPos + 5);
                     text.setAttribute('fill', 'white'); text.setAttribute('font-size', '18');
                     text.setAttribute('text-anchor', 'middle'); text.textContent = s;
                     speedTapeGroup.appendChild(text);
                 } else {
-                    tick.setAttribute('x1', '67'); tick.setAttribute('x2', '60');
+                    d += `M67 ${yPos}H60`;
                 }
-                speedTapeGroup.appendChild(tick);
             }
+            appendTickPath(speedTapeGroup, d, '2');
         }
 
         // 3. Generate Altitude Tape (Existing Logic)
         function generateAltitudeTape() {
             const MIN_ALTITUDE = 0, MAX_ALTITUDE = 50000;
+            let d = '';
             for (let alt = MIN_ALTITUDE; alt <= MAX_ALTITUDE; alt += 20) {
                 const yPos = PFD_ALTITUDE_CENTER_Y - (alt - PFD_ALTITUDE_REF_VALUE) * PFD_ALTITUDE_SCALE;
-                const tick = document.createElementNS(SVG_NS, 'line');
-                tick.setAttribute('y1', yPos); tick.setAttribute('y2', yPos);
-                tick.setAttribute('stroke', 'white'); tick.setAttribute('stroke-width', '2');
-                tick.setAttribute('x1', '72');
                 if (alt % 100 === 0) {
-                    tick.setAttribute('x2', '52');
+                    d += `M72 ${yPos}H52`;
                     const text = document.createElementNS(SVG_NS, 'text');
                     text.setAttribute('x', '25'); text.setAttribute('y', yPos + 5);
                     text.setAttribute('fill', 'white'); text.setAttribute('font-size', '18');
                     text.setAttribute('text-anchor', 'middle'); text.textContent = alt / 100;
                     altitudeTapeGroup.appendChild(text);
                 } else {
-                    tick.setAttribute('x2', '62');
+                    d += `M72 ${yPos}H62`;
                 }
-                altitudeTapeGroup.appendChild(tick);
             }
+            appendTickPath(altitudeTapeGroup, d, '2');
         }
 
         // 4. Generate Reels (Existing Logic)
@@ -14307,16 +14316,14 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
         // 5. Generate Heading Tape (Existing Logic)
         function generateHeadingTape() {
             const y_text = 650, y_tick_top = 620, y_tick_bottom_major = 635, y_tick_bottom_minor = 628;
+            let d = '';
             for (let h = -360; h <= 720; h += 5) {
                 const xPos = PFD_HEADING_CENTER_X + (h - PFD_HEADING_REF_VALUE) * PFD_HEADING_SCALE;
                 const normalizedH = (h + 360) % 360;
                 if (normalizedH % 90 === 0) continue;
-                const tick = document.createElementNS(SVG_NS, 'line');
-                tick.setAttribute('x1', xPos); tick.setAttribute('x2', xPos);
-                tick.setAttribute('stroke', 'white'); tick.setAttribute('stroke-width', '1.5');
-                tick.setAttribute('y1', y_tick_top); tick.setAttribute('y2', (h % 10 === 0) ? y_tick_bottom_major : y_tick_bottom_minor);
-                headingTapeGroup.appendChild(tick);
+                d += `M${xPos} ${y_tick_top}V${(h % 10 === 0) ? y_tick_bottom_major : y_tick_bottom_minor}`;
             }
+            appendTickPath(headingTapeGroup, d, '1.5');
             for (let h = 0; h < 360; h += 10) {
                 for (let offset of [-360, 0, 360]) {
                     const currentH = h + offset;
@@ -25283,38 +25290,72 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
     if (windEl) windEl.textContent = `${String(windDir).padStart(3, '0')}° / ${windSpd}`;
     if (oatEl) oatEl.textContent = `${oat}°C`;
 
-    // 3. Nearest Airport Logic (Unchanged, just targets)
-    if (airportsData && Object.keys(airportsData).length > 0) {
-        let nearestICAO = '---';
-        let minDist = Infinity;
-        
-        // Optimization: Only check airports within ~2 degrees lat/lon
-        for (const icao in airportsData) {
-            const apt = airportsData[icao];
-            if (!apt || apt.lat == null || apt.lon == null) continue;
-
-            const latDiff = Math.abs(apt.lat - lat);
-            const lonDiff = Math.abs(apt.lon - lon);
-
-            if (latDiff > 2 || lonDiff > 2) continue;
-
-            const dist = getDistanceKm(lat, lon, apt.lat, apt.lon);
-            if (dist < minDist) {
-                minDist = dist;
-                nearestICAO = icao;
-            }
-        }
-
+    // 3. Nearest airport (any field within 2° lat/lon). This runs on every
+    // packet while the window is open; it used to walk the whole airport
+    // object (19k–83k entries, plus an Object.keys() copy of it) each time —
+    // ~39 ms per packet. See nearestAirportWithin2Deg.
+    const nearest = nearestAirportWithin2Deg(lat, lon);
+    if (nearest) {
         const nearestEl = document.getElementById('ac-nearest-apt');
         const nearestDistEl = document.getElementById('ac-nearest-apt-dist');
-        
-        if (nearestEl && minDist !== Infinity) {
-            nearestEl.textContent = nearestICAO;
-            const distNM = (minDist / 1.852).toFixed(1);
+        if (nearestEl) {
+            nearestEl.textContent = nearest.icao;
             // The "NM" unit is rendered as a sibling <span> in the markup, so write only the number.
-            nearestDistEl.textContent = distNM;
+            if (nearestDistEl) nearestDistEl.textContent = (nearest.km / 1.852).toFixed(1);
         }
     }
+}
+
+// Every airport (not just proper ICAO codes — the nav readout has always
+// considered strips and heliports too), sorted by latitude in typed arrays so
+// a lookup binary-searches to its ±2° band and never touches the rest.
+// Rebuilt lazily after airportsData changes (invalidateAirportIndex); the
+// cache variable lives next to _airportIndex.
+function buildNavAirportIndex() {
+    const rows = [];
+    for (const icao in airportsData) {
+        const apt = airportsData[icao];
+        if (!apt || apt.lat == null || apt.lon == null) continue;
+        rows.push([apt.lat, apt.lon, icao]);
+    }
+    rows.sort((a, b) => a[0] - b[0]);
+    const n = rows.length;
+    const lats = new Float64Array(n);
+    const lons = new Float64Array(n);
+    const icaos = new Array(n);
+    for (let i = 0; i < n; i++) {
+        lats[i] = rows[i][0];
+        lons[i] = rows[i][1];
+        icaos[i] = rows[i][2];
+    }
+    return { lats, lons, icaos };
+}
+
+/** Nearest airport within 2° of lat and of lon, or null. */
+function nearestAirportWithin2Deg(lat, lon) {
+    if (!airportsData || lat == null || lon == null || isNaN(lat) || isNaN(lon)) return null;
+    if (!_navAirportIndex) _navAirportIndex = buildNavAirportIndex();
+    const { lats, lons, icaos } = _navAirportIndex;
+    if (!lats.length) return null;
+    // First index with latitude >= lat - 2.
+    let lo = 0, hi = lats.length;
+    const floor = lat - 2;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (lats[mid] < floor) lo = mid + 1; else hi = mid;
+    }
+    let bestIcao = null;
+    let bestKm = Infinity;
+    const ceil = lat + 2;
+    for (let i = lo; i < lats.length && lats[i] <= ceil; i++) {
+        if (Math.abs(lons[i] - lon) > 2) continue;
+        const km = getDistanceKm(lat, lon, lats[i], lons[i]);
+        if (km < bestKm) {
+            bestKm = km;
+            bestIcao = icaos[i];
+        }
+    }
+    return bestIcao ? { icao: bestIcao, km: bestKm } : null;
 }
 
 function updateSeatSensor(flightProps) {
