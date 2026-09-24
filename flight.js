@@ -24505,6 +24505,9 @@ const SERENE_WINDOW_CSS = (() => {
             --sr-surface-hi: rgba(var(--sr-ink-rgb),0.06);
             --sr-line: rgba(var(--sr-ink-rgb),0.07);
             --text-primary: var(--sr-text);
+            /* Ambient tint: the window colour lightly mixed with the photo's
+               own colour (sampleSereneGlow). Plain window colour without it. */
+            --sr-tint: var(--sr-bg);
             --sr-radius: 18px;
             /* The Fuel and Cabin cards (fuelEstimator.js, cabinMap.js) paint
                with these host variables, so they follow the skin too. */
@@ -24513,7 +24516,11 @@ const SERENE_WINDOW_CSS = (() => {
             --color-brand: var(--sr-accent);
             --text-secondary: var(--sr-muted);
             --text-dim: var(--sr-faint);
-            background: var(--sr-bg) !important;
+            /* The tint sits behind the header and fades into the window
+               colour over the first screen; it scrolls with the content. */
+            background:
+                linear-gradient(180deg, var(--sr-tint) 0, var(--sr-tint) 420px, var(--sr-bg) 900px) 0 0 / 100% 900px no-repeat local,
+                var(--sr-bg) !important;
             color: var(--sr-text);
             border: 1px solid rgba(var(--sr-ink-rgb),0.06) !important;
             box-shadow: 0 24px 60px rgba(0,0,0,0.42), 0 2px 10px rgba(0,0,0,0.22) !important;
@@ -24521,7 +24528,14 @@ const SERENE_WINDOW_CSS = (() => {
             scrollbar-color: rgba(var(--sr-ink-rgb),0.12) transparent;
         }
         ${S}:not(.mobile-legacy-sheet) { border-radius: 22px !important; }
-        ${S}.mobile-legacy-sheet { background: rgba(var(--sr-bg-rgb),0.97) !important; color: var(--sr-text) !important; }
+        ${S}.mobile-legacy-sheet {
+            background:
+                linear-gradient(180deg, var(--sr-tint) 0, var(--sr-tint) 420px, var(--sr-bg) 900px) 0 0 / 100% 900px no-repeat local,
+                var(--sr-bg) !important;
+            color: var(--sr-text) !important;
+        }
+        ${S}.sr-ambient { --sr-tint: color-mix(in srgb, var(--sr-bg) 82%, rgb(var(--sr-glow-rgb))); }
+        ${S}.sr-ambient.sr-light { --sr-tint: color-mix(in srgb, var(--sr-bg) 88%, rgb(var(--sr-glow-rgb))); }
         ${S}::-webkit-scrollbar { width: 6px; }
         ${S}::-webkit-scrollbar-thumb { background: rgba(var(--sr-ink-rgb),0.12); border-radius: 3px; }
         ${S}::-webkit-scrollbar-track { background: transparent; }
@@ -24540,7 +24554,7 @@ const SERENE_WINDOW_CSS = (() => {
            window colour exactly where the photo ends. */
         ${S} .ac-header-modern {
             min-height: calc(var(--sr-photo-h, 220px) + 64px) !important;
-            background-color: var(--sr-bg) !important;
+            background-color: var(--sr-tint) !important;
             background-size: 100% auto !important; background-position: center top !important;
             background-repeat: no-repeat !important;
         }
@@ -24548,14 +24562,14 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .ac-header-overlay {
             background: linear-gradient(180deg,
                 rgba(12,14,18,0.34) 0px, rgba(12,14,18,0) 72px,
-                rgba(var(--sr-bg-rgb),0) calc(var(--sr-photo-h, 220px) * 0.36),
-                rgba(var(--sr-bg-rgb),0.06) calc(var(--sr-photo-h, 220px) * 0.46),
-                rgba(var(--sr-bg-rgb),0.16) calc(var(--sr-photo-h, 220px) * 0.56),
-                rgba(var(--sr-bg-rgb),0.32) calc(var(--sr-photo-h, 220px) * 0.66),
-                rgba(var(--sr-bg-rgb),0.52) calc(var(--sr-photo-h, 220px) * 0.76),
-                rgba(var(--sr-bg-rgb),0.72) calc(var(--sr-photo-h, 220px) * 0.85),
-                rgba(var(--sr-bg-rgb),0.89) calc(var(--sr-photo-h, 220px) * 0.93),
-                var(--sr-bg) var(--sr-photo-h, 220px)) !important;
+                color-mix(in srgb, var(--sr-tint) 0%, transparent) calc(var(--sr-photo-h, 220px) * 0.36),
+                color-mix(in srgb, var(--sr-tint) 6%, transparent) calc(var(--sr-photo-h, 220px) * 0.46),
+                color-mix(in srgb, var(--sr-tint) 16%, transparent) calc(var(--sr-photo-h, 220px) * 0.56),
+                color-mix(in srgb, var(--sr-tint) 32%, transparent) calc(var(--sr-photo-h, 220px) * 0.66),
+                color-mix(in srgb, var(--sr-tint) 52%, transparent) calc(var(--sr-photo-h, 220px) * 0.76),
+                color-mix(in srgb, var(--sr-tint) 72%, transparent) calc(var(--sr-photo-h, 220px) * 0.85),
+                color-mix(in srgb, var(--sr-tint) 89%, transparent) calc(var(--sr-photo-h, 220px) * 0.93),
+                var(--sr-tint) var(--sr-photo-h, 220px)) !important;
         }
         ${S} .ac-partner-hero { order: 2; margin: auto 20px 8px !important; max-width: calc(100% - 40px) !important; }
         ${S} .ac-header-top { order: 3; padding: 0 20px 12px !important; }
@@ -24679,7 +24693,9 @@ const SERENE_WINDOW_CSS = (() => {
         }
         ${S} .route-visual > .flight-progress-track {
             order: 0; flex: 0 0 100%;
-            height: 4px !important; border-radius: 2px !important; background: rgba(var(--sr-ink-rgb),0.08) !important;
+            height: 4px !important; border-radius: 2px !important;
+            /* The distance still to fly, drawn dashed under the solid fill. */
+            background: repeating-linear-gradient(90deg, rgba(var(--sr-ink-rgb),0.26) 0 6px, transparent 6px 11px) center / 100% 2px no-repeat !important;
             margin: 0 4px 8px;
             flex-basis: calc(100% - 8px);
         }
@@ -24688,7 +24704,7 @@ const SERENE_WINDOW_CSS = (() => {
             transform: translate(-50%, -50%); box-sizing: border-box;
         }
         ${S} .flight-progress-track::before { left: 0; background: var(--sr-accent); z-index: 2; }
-        ${S} .flight-progress-track::after { left: 100%; background: var(--sr-bg); border: 1.5px solid rgba(var(--sr-ink-rgb),0.35); }
+        ${S} .flight-progress-track::after { left: 100%; background: var(--sr-tint); border: 1.5px solid rgba(var(--sr-ink-rgb),0.35); }
         ${S} .flight-progress-fill { border-radius: 2px !important; background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)) !important; z-index: 1; }
         ${S} .flight-progress-plane { filter: none !important; font-size: 13px !important; color: var(--sr-text) !important; right: -7px !important; }
         /* The aircraft's own map silhouette (setSereneProgressPlane), turned
@@ -24928,6 +24944,66 @@ const SERENE_WINDOW_CSS = (() => {
             ${S} .sr-g:nth-child(3) { border-left: 0; }
         }
 
+        /* ---- Design pass: headings, card material, icons ---- */
+        /* Section headings: an accent icon tile, the title, and a hairline
+           that runs out to the edge. */
+        ${S} h2.acx-sec {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 13.5px; font-weight: 600; color: var(--sr-text); letter-spacing: 0.005em;
+            margin: 18px 2px 0;
+        }
+        ${S} h2.acx-sec::after {
+            content: ''; flex: 1; height: 1px; min-width: 20px;
+            background: linear-gradient(90deg, var(--sr-line), transparent);
+        }
+        ${S} .sr-sec-ic {
+            width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+            display: grid; place-items: center;
+            color: var(--sr-accent); background: color-mix(in srgb, var(--sr-accent) 14%, transparent);
+        }
+        ${S} .sr-sec-ic svg, ${S} .sr-g-ic svg { width: 15px; height: 15px; display: block; }
+
+        /* Card material: a faint top-lit gradient, an inner highlight on the
+           top edge and a soft drop, so cards sit on the window rather than
+           being cut into it. A small lift on hover (mouse only). */
+        ${S} .acx-card, ${S} .sr-glance, ${S} .sr-status, ${S} .dest-card,
+        ${S} .fuel-card, ${S} .cabin-card {
+            background: linear-gradient(180deg, rgba(var(--sr-ink-rgb),0.055), rgba(var(--sr-ink-rgb),0.025)) !important;
+            box-shadow: inset 0 1px 0 rgba(var(--sr-ink-rgb),0.06), 0 10px 26px rgba(0,0,0,0.14) !important;
+            transition: transform .25s ease, box-shadow .25s ease;
+        }
+        ${S}.sr-light .acx-card, ${S}.sr-light .sr-glance, ${S}.sr-light .sr-status, ${S}.sr-light .dest-card,
+        ${S}.sr-light .fuel-card, ${S}.sr-light .cabin-card {
+            background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,255,255,0.45)) !important;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.8), 0 8px 22px rgba(0,0,0,0.06) !important;
+        }
+        @media (hover: hover) and (pointer: fine) {
+            ${S} .acx-card:hover, ${S} .sr-glance:hover, ${S} .sr-status:hover, ${S} .dest-card:hover {
+                transform: translateY(-1px);
+                box-shadow: inset 0 1px 0 rgba(var(--sr-ink-rgb),0.07), 0 14px 32px rgba(0,0,0,0.2) !important;
+            }
+        }
+
+        /* Glance: a small icon beside each label; the heading needle turns
+           with the aircraft (wireSereneGlance sets --sr-hdg). */
+        ${S} .sr-g-top { display: flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; }
+        ${S} .sr-g-ic { color: var(--sr-accent); flex: 0 0 auto; opacity: 0.9; }
+        ${S} .sr-g-ic svg { width: 12px; height: 12px; }
+        ${S} .sr-g-hdg svg { transform: rotate(var(--sr-hdg, 0deg)); transition: transform .8s ease; }
+        ${S} .sr-g-v { font-size: 17px; }
+
+        /* Pilot status tile takes its state colour (active green, away
+           amber, cloud blue…) as a soft wash behind the icon. */
+        ${S} .modern-status-card > div > div:first-child > div:first-child {
+            background: color-mix(in srgb, currentColor 16%, transparent) !important;
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
+        }
+        ${S} .modern-status-card .tech-ping span.animate { animation: sr-ping 2.4s ease-out infinite; }
+        @keyframes sr-ping { 0% { transform: scale(1); opacity: 0.6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
+
+        /* Photo credit and swipe dots: quieter glass. */
+        ${S} .hero-photo-credit { -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important; }
+
         /* ---- Text that other stylesheets paint white ---- */
         ${S} .acx-v, ${S} .acx-row .v, ${S} .acx-hero-num, ${S} #ac-location,
         ${S} .dest-toggle, ${S} .dest-cell .v, ${S} .dest-mgrid .v, ${S} .dest-open-btn,
@@ -25131,11 +25207,38 @@ function ensureSereneWindowStyle() {
 // Live readouts shown in Serene's "at a glance" strip. Each cell mirrors the
 // Navigation card's element of the same id, which the live-update path keeps
 // current, so the strip needs no update code of its own.
+// Small line icons for Serene's section headings and glance labels (24px
+// grid, stroked in currentColor so they take the accent).
+const SR_ICON = (() => {
+    const svg = (inner, fill) => `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+    return {
+        gauge: svg('<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 14.5l4-4.5"/><circle cx="12" cy="15" r="1.2"/>'),
+        chart: svg('<path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/>'),
+        compass: svg('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>'),
+        drop: svg('<path d="M12 3.5c3.4 4 5.8 7.1 5.8 10.1a5.8 5.8 0 0 1-11.6 0c0-3 2.4-6.1 5.8-10.1z"/>'),
+        cabin: svg('<circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9" r="2.3"/><path d="M16 14.3a4.6 4.6 0 0 1 4.6 5.7"/>'),
+        plane: svg('<path d="M12 2c.8 0 1.3 1 1.3 2.2V9l7.7 4.6v2l-7.7-2.3V18l2.2 1.7V21L12 20l-3.5 1v-1.3L10.7 18v-4.7L3 15.6v-2L10.7 9V4.2C10.7 3 11.2 2 12 2z"/>', true),
+        up: svg('<path d="M12 19V5"/><path d="M6.5 10.5L12 5l5.5 5.5"/>'),
+        speed: svg('<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 15l3.5-4"/>'),
+        vs: svg('<path d="M8 20V4"/><path d="M5 7l3-3 3 3"/><path d="M16 4v16"/><path d="M13 17l3 3 3-3"/>'),
+        needle: svg('<path d="M12 3l4.2 16L12 16l-4.2 3z"/>', true),
+    };
+})();
+
+const SERENE_SECTION_ICONS = {
+    'Instruments': 'gauge',
+    'Speed & altitude': 'chart',
+    'Navigation': 'compass',
+    'Fuel': 'drop',
+    'Cabin': 'cabin',
+    'Aircraft': 'plane',
+};
+
 const SERENE_GLANCE = [
-    ['ac-alt', 'Altitude'],
-    ['ac-gs', 'Ground speed'],
-    ['ac-vs', 'Vertical speed'],
-    ['ac-heading', 'Heading'],
+    ['ac-alt', 'Altitude', 'up'],
+    ['ac-gs', 'Ground speed', 'speed'],
+    ['ac-vs', 'Vertical speed', 'vs'],
+    ['ac-heading', 'Heading', 'needle'],
 ];
 
 /**
@@ -25206,8 +25309,8 @@ function arrangeSereneWindow(html) {
         if (t === 'Departure' || t === 'Arrival') el.classList.add('sr-hidden');
     });
 
-    const glance = make('div', 'sr-glance', SERENE_GLANCE.map(([id, label]) =>
-        `<div class="sr-g"><span class="sr-g-l">${label}</span><span class="sr-g-v" data-sr-mirror="${id}">---</span></div>`
+    const glance = make('div', 'sr-glance', SERENE_GLANCE.map(([id, label, icon]) =>
+        `<div class="sr-g${id === 'ac-heading' ? ' sr-g-hdg' : ''}"><span class="sr-g-top"><span class="sr-g-ic">${SR_ICON[icon]}</span><span class="sr-g-l">${label}</span></span><span class="sr-g-v" data-sr-mirror="${id}">---</span></div>`
     ).join(''));
 
     // "This flight" is left out of Serene. It stays in the DOM, hidden,
@@ -25233,6 +25336,12 @@ function arrangeSereneWindow(html) {
         ...withHeading(q('.aircraft-card')),
     ].filter(Boolean);
     order.forEach((el) => pane.appendChild(el));
+
+    // Every section heading gets its icon tile.
+    pane.querySelectorAll(':scope > h2.acx-sec').forEach((h) => {
+        const icon = SR_ICON[SERENE_SECTION_ICONS[h.textContent.trim()]];
+        if (icon) h.insertAdjacentHTML('afterbegin', `<span class="sr-sec-ic">${icon}</span>`);
+    });
     return tpl.innerHTML;
 }
 
@@ -25284,13 +25393,77 @@ function fitSereneHero(panel) {
     panel._srHeroObserver = mo;
 }
 
+/**
+ * Ambient tint for Serene: the photo's own colour, averaged with weight on
+ * saturated pixels and settled to a mid, gentle tone, is mixed a little into
+ * the window colour behind the header (--sr-tint). Grey photos and photos
+ * the browser won't let us read (no CORS) simply get no tint.
+ */
+function sampleSereneGlow(windowEl, panel) {
+    windowEl.classList.remove('sr-ambient');
+    const m = /url\(["']?([^"')]+)["']?\)/.exec(panel.style.backgroundImage || '');
+    if (!m) return;
+    const token = {};
+    windowEl._srGlowToken = token;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+        if (windowEl._srGlowToken !== token) return;
+        try {
+            const N = 24;
+            const c = document.createElement('canvas');
+            c.width = c.height = N;
+            const g = c.getContext('2d', { willReadFrequently: true });
+            g.drawImage(img, 0, 0, N, N);
+            const d = g.getImageData(0, 0, N, N).data;
+            let r = 0, gr = 0, b = 0, w = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]);
+                const sat = mx ? (mx - mn) / mx : 0;
+                const wt = 0.1 + sat * sat;
+                r += d[i] * wt; gr += d[i + 1] * wt; b += d[i + 2] * wt; w += wt;
+            }
+            r /= w; gr /= w; b /= w;
+            // To HSL, keep the hue, settle saturation and lightness.
+            const R = r / 255, G = gr / 255, B = b / 255;
+            const mx = Math.max(R, G, B), mn = Math.min(R, G, B), l = (mx + mn) / 2;
+            const sat = mx === mn ? 0 : (l > 0.5 ? (mx - mn) / (2 - mx - mn) : (mx - mn) / (mx + mn));
+            if (sat < 0.08) return;
+            let h;
+            if (mx === R) h = ((G - B) / (mx - mn) + (G < B ? 6 : 0));
+            else if (mx === G) h = (B - R) / (mx - mn) + 2;
+            else h = (R - G) / (mx - mn) + 4;
+            h /= 6;
+            const S2 = Math.min(0.7, Math.max(0.4, sat)), L2 = 0.55;
+            const q = L2 < 0.5 ? L2 * (1 + S2) : L2 + S2 - L2 * S2, p = 2 * L2 - q;
+            const hue = (t) => {
+                t = (t + 1) % 1;
+                if (t < 1 / 6) return p + (q - p) * 6 * t;
+                if (t < 1 / 2) return q;
+                if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                return p;
+            };
+            const rgb = [hue(h + 1 / 3), hue(h), hue(h - 1 / 3)].map((v) => Math.round(v * 255));
+            windowEl.style.setProperty('--sr-glow-rgb', rgb.join(','));
+            windowEl.classList.add('sr-ambient');
+        } catch (_) { /* unreadable (cross-origin) photo: no tint */ }
+    };
+    img.src = m[1];
+}
+
 function wireSereneGlance(windowEl) {
     (windowEl._srMirrors || []).forEach((o) => o.disconnect());
     windowEl._srMirrors = [];
     windowEl.querySelectorAll('[data-sr-mirror]').forEach((cell) => {
         const src = windowEl.querySelector('#' + cell.dataset.srMirror);
         if (!src) return;
-        const copy = () => { if (cell.innerHTML !== src.innerHTML) cell.innerHTML = src.innerHTML; };
+        const copy = () => {
+            if (cell.innerHTML !== src.innerHTML) cell.innerHTML = src.innerHTML;
+            if (cell.dataset.srMirror === 'ac-heading') {
+                const deg = parseFloat(src.textContent);
+                if (!isNaN(deg)) cell.closest('.sr-g').style.setProperty('--sr-hdg', deg + 'deg');
+            }
+        };
         copy();
         const mo = new MutationObserver(copy);
         mo.observe(src, { childList: true, subtree: true, characterData: true });
@@ -26266,7 +26439,10 @@ let totalDistanceNM = 0;
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
         buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
-        if (sereneSkin) fitSereneHero(overviewPanel);
+        if (sereneSkin) {
+            fitSereneHero(overviewPanel);
+            sampleSereneGlow(windowEl, overviewPanel);
+        }
 
         // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
         // it to a logo-only chip a few seconds after the window opens (hovering or
