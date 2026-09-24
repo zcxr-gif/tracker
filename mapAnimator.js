@@ -41,8 +41,9 @@ const HEAVY_PROPS = new Set([
     'position', 'aircraft', '__acSig', 'last_update',
     'communityImageUrl', 'communityImageUrls', 'imageContributors', 'contributorName',
     // Read only by handlers (via liveFlightProps, from the cache), never by
-    // a layer expression — ~20% of what every flush serialised per aircraft.
-    'verticalSpeed', 'userId', 'isStaff', 'isVAMember', 'pilotState', '__lastUpdateMs'
+    // a layer expression. (isStaff / isVAMember stay: the Staff-only and
+    // VA-only filters read them in the legacy ['==', 'isStaff', true] form.)
+    'verticalSpeed', 'userId', 'pilotState', '__lastUpdateMs'
 ]);
 
 function slimPropsGeneric(props) {

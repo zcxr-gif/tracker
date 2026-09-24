@@ -1965,7 +1965,10 @@ window.getPilotRelation = function (username) {
     async function saveFiltersToLocalStorage(options) {
         const immediate = options === true || (options && options.immediate);
         try {
-            // 1. Instant Local Commit (Zero Latency UI)
+            // 1. Instant Local Commit (Zero Latency UI). Stamped, so the
+            // local copy and the Pro cloud copy can be told apart by age
+            // (see loadFiltersFromLocalStorage).
+            mapFilters.__savedAt = Date.now();
             const filtersJson = JSON.stringify(mapFilters);
             localStorage.setItem('mapFilters', filtersJson);
 
@@ -2041,7 +2044,123 @@ window.getPilotRelation = function (username) {
         }
     }
 
-    async function loadFiltersFromLocalStorage() {
+    // --- Filters across visits ---------------------------------------------
+    // Filters are saved, and that used to mean a filter set once stayed on for
+    // good: come back hours later and the map was empty with nothing on screen
+    // saying why. Three rules now:
+    //
+    //  1. Session-only state is never restored. Pins live in memory, so
+    //     "show only pinned" has nothing to show after a reload; the old quick
+    //     search has no visible box left to clear it from.
+    //  2. Anything that narrows which aircraft are drawn is cleared once the
+    //     pilot has been away for AWAY_RESET_MS — on a reopen, or on coming
+    //     back to a tab left in the background — with a notice that can put
+    //     them back.
+    //  3. The Pro cloud copy only replaces the local one when it is newer
+    //     (both are stamped with __savedAt on save). It used to win whenever
+    //     the two differed, and the cloud write is debounced and rarely lands
+    //     when a tab is closed, so a filter switched off could come back.
+    const LAST_ACTIVE_KEY = 'inflight_last_active_at';
+    const AWAY_RESET_MS = 60 * 60 * 1000;
+    const TRAFFIC_FILTER_DEFAULTS = {
+        tactical: {}, tacticalExclude: {}, trafficPresets: [],
+        airborneOnly: false, onGroundOnly: false, hasPlanOnly: false,
+        showStaffOnly: false, showVaOnly: false, vaFilterId: null,
+        hideAllAircraft: false, showOnlyPinned: false, quickSearch: ''
+    };
+
+    function sanitizeSessionFilters() {
+        mapFilters.showOnlyPinned = false;
+        mapFilters.quickSearch = '';
+    }
+
+    function trafficFiltersActive() {
+        const t = mapFilters.tactical || {};
+        const tacticalOn = Object.keys(t).some((k) => {
+            if (k === 'group') return false; // group-flight overlay, not a filter
+            const v = t[k];
+            if (v == null || v === '' || v === 'All Countries') return false;
+            if (typeof v === 'object') return Object.values(v).some(x => x != null && x !== '');
+            return true;
+        });
+        return tacticalOn
+            || (Array.isArray(mapFilters.trafficPresets) && mapFilters.trafficPresets.length > 0)
+            || !!(mapFilters.airborneOnly || mapFilters.onGroundOnly || mapFilters.hasPlanOnly
+                || mapFilters.showStaffOnly || mapFilters.showVaOnly || mapFilters.vaFilterId
+                || mapFilters.hideAllAircraft || mapFilters.quickSearch);
+    }
+
+    // Clears the traffic filters, returning what they were so they can be put back.
+    function clearTrafficFilters() {
+        const before = JSON.parse(JSON.stringify(
+            Object.fromEntries(Object.keys(TRAFFIC_FILTER_DEFAULTS).map(k => [k, mapFilters[k]]))));
+        Object.assign(mapFilters, JSON.parse(JSON.stringify(TRAFFIC_FILTER_DEFAULTS)));
+        if (before.vaFilterId && typeof setVaFilter === 'function') setVaFilter(null);
+        return before;
+    }
+
+    function refilterMap() {
+        if (typeof updateMapFilters === 'function') updateMapFilters();
+        if (typeof updateAircraftLayerFilter === 'function') updateAircraftLayerFilter();
+    }
+
+    function resetFiltersAfterAway() {
+        if (!trafficFiltersActive()) return;
+        const before = clearTrafficFilters();
+        refilterMap();
+        saveFiltersToLocalStorage(true);
+        // The notification module can register after this runs at boot.
+        setTimeout(() => {
+            if (typeof window.showNotification !== 'function') return;
+            window.showNotification('Your map filters were cleared while you were away.', 'info', {
+                timeout: 9000,
+                action: {
+                    label: 'Restore',
+                    onClick: () => {
+                        Object.assign(mapFilters, before);
+                        mapFilters.showOnlyPinned = false;
+                        if (before.vaFilterId && typeof setVaFilter === 'function') setVaFilter(before.vaFilterId);
+                        refilterMap();
+                        saveFiltersToLocalStorage(true);
+                    }
+                }
+            });
+        }, 1500);
+    }
+
+    function markActive() {
+        try { localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now())); } catch (_) { /* storage unavailable */ }
+    }
+    // Read before anything re-stamps it: how long since this site was last in use.
+    const awayOnArrival = (() => {
+        try {
+            const last = Number(localStorage.getItem(LAST_ACTIVE_KEY)) || 0;
+            return last > 0 && Date.now() - last >= AWAY_RESET_MS;
+        } catch (_) { return false; }
+    })();
+    markActive();
+    let hiddenSince = null;
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            hiddenSince = Date.now();
+            markActive();
+            return;
+        }
+        const away = hiddenSince ? Date.now() - hiddenSince : 0;
+        hiddenSince = null;
+        markActive();
+        if (away >= AWAY_RESET_MS) resetFiltersAfterAway();
+    });
+    window.addEventListener('pagehide', markActive);
+    setInterval(() => { if (document.visibilityState === 'visible') markActive(); }, 60000);
+
+    // Both boot paths call this; the first call does the work.
+    let filtersLoadPromise = null;
+    function loadFiltersFromLocalStorage() {
+        return filtersLoadPromise || (filtersLoadPromise = loadFiltersOnce());
+    }
+
+    async function loadFiltersOnce() {
         // 1. Instant Local Paint
         const savedFilters = localStorage.getItem('mapFilters');
         if (savedFilters) {
@@ -2058,8 +2177,11 @@ window.getPilotRelation = function (username) {
                 console.warn("Local storage parse failed.", e);
             }
         }
+        sanitizeSessionFilters();
 
         migrateIconSet();
+        if (awayOnArrival) resetFiltersAfterAway();
+        const localAt = Number(mapFilters.__savedAt) || 0;
 
         // 2. Seamless Background Cloud Reconciliation
         try {
@@ -2076,20 +2198,30 @@ window.getPilotRelation = function (username) {
                 // Only overwrite if Pro is active AND cloud settings exist
                 if (profile && profile.is_pro && profile.map_filters) {
                     const cloudJson = JSON.stringify(profile.map_filters);
-                    
-                    // Compare cloud state with local state to prevent unnecessary repaints
-                    if (cloudJson !== savedFilters) {
+                    const cloudAt = Number(profile.map_filters.__savedAt) || 0;
+                    // An unstamped local copy (nothing saved since stamping
+                    // began) still defers to the cloud, as it always did.
+                    const cloudNewer = localAt ? cloudAt > localAt : true;
+
+                    if (!cloudNewer) {
+                        // This device has the newer settings: correct the cloud
+                        // rather than let its stale copy come back next time.
+                        if (cloudJson !== JSON.stringify(mapFilters)) pushFiltersToCloud();
+                    } else if (cloudJson !== savedFilters) {
+                        // Compare cloud state with local state to prevent unnecessary repaints
                         Object.assign(mapFilters, profile.map_filters);
                         mapFilters.labelConfig = Object.assign({}, DEFAULT_LABEL_CONFIG, mapFilters.labelConfig || {});
-                        
+                        sanitizeSessionFilters();
+
                         // Re-sync local storage to match the authoritative cloud state
-                        localStorage.setItem('mapFilters', cloudJson);
+                        localStorage.setItem('mapFilters', JSON.stringify(mapFilters));
                         applyFreeMapConstraints();
                         applyMapStyleMapping();
                         // After that write, not before: the cloud copy can be
                         // older than the migration, and it has just overwritten
                         // both the setting and the stamp that says it ran.
                         migrateIconSet();
+                        if (awayOnArrival) resetFiltersAfterAway();
                         
                         // Force Mapbox and UI to visually update seamlessly
                         if (typeof updateMapFilters === 'function') {
