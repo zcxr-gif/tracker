@@ -1568,11 +1568,13 @@ populateLegacySheet(sourceWindow) {
 
 wireUpLegacySheetInteractions(sheetElement, handleElement) {
         handleElement.addEventListener('touchstart', this.handleLegacyTouchStart.bind(this), { passive: false });
-        
-        document.addEventListener('touchmove', this.boundLegacyTouchMove, { passive: false });
-        document.addEventListener('touchend', this.boundLegacyTouchEnd);
-        document.addEventListener('touchcancel', this.boundLegacyTouchEnd);
-        
+
+        // The document-level move/end listeners are attached only for the
+        // length of a handle drag (see setLegacyDragListeners). A standing
+        // non-passive touchmove on document made every touch on the page — map
+        // pans, pinches, sheet scrolls — wait on the main thread before the
+        // compositor could move, which is where the gesture stutter came from.
+
         if (this.overlayEl) {
             this.overlayEl.addEventListener('click', () => {
                 if (this.legacySheetState.currentState === 'expanded'
@@ -1954,6 +1956,7 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         
         this.legacySheetState.isDragging = true;
         this.legacySheetState.touchStartY = e.touches[0].clientY;
+        this.setLegacyDragListeners(true);
         
         // [THE NEW FIX]: WebKitCSSMatrix fails on mobile when reading `calc()` percentages.
         // Instead, we mathematically calculate the exact starting pixel translation using the element's actual rendered height.
@@ -1994,7 +1997,20 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         this.legacySheetState.currentTranslateY = newTranslateY; 
     },
 
+    setLegacyDragListeners(on) {
+        if (on) {
+            document.addEventListener('touchmove', this.boundLegacyTouchMove, { passive: false });
+            document.addEventListener('touchend', this.boundLegacyTouchEnd);
+            document.addEventListener('touchcancel', this.boundLegacyTouchEnd);
+        } else {
+            document.removeEventListener('touchmove', this.boundLegacyTouchMove);
+            document.removeEventListener('touchend', this.boundLegacyTouchEnd);
+            document.removeEventListener('touchcancel', this.boundLegacyTouchEnd);
+        }
+    },
+
     handleLegacyTouchEnd(e) {
+        this.setLegacyDragListeners(false);
         if (this.activeMode !== 'legacy' || !this.legacySheetState.isDragging || !this.activeWindow) return;
         
         this.legacySheetState.isDragging = false;
@@ -2076,11 +2092,9 @@ teardownLegacySheetView(force, duration) {
         const overlayToRemove = this.overlayEl;
         const sheetToClose = this.activeWindow;
         
-        // Remove document listeners
-        document.removeEventListener('touchmove', this.boundLegacyTouchMove);
-        document.removeEventListener('touchend', this.boundLegacyTouchEnd);
-        document.removeEventListener('touchcancel', this.boundLegacyTouchEnd);
-        
+        // Remove document listeners (in case the sheet closes mid-drag)
+        this.setLegacyDragListeners(false);
+
         const resetState = () => {
             this.activeWindow = null;
             this.overlayEl = null;

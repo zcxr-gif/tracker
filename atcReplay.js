@@ -17,6 +17,7 @@
 // rest of the app gates its Pro controls on (see flight.js). Used by the 3D
 // (free-look) Pro gate so a signed-in pilot is recognised on every platform.
 import { ProfileUI } from './profileUI.js';
+import { loadThree } from './threeLoader.js';
 
 const ATC_SPEED_OPTIONS = [1, 2, 5, 10, 60, 240, 480];
 
@@ -672,7 +673,9 @@ export const AtcReplay = (() => {
             });
         }
 
-        ensureTraffic3D();
+        // three.js is fetched on demand; start it now so free-look is ready
+        // by the time the controller reaches for it.
+        loadThree().then(ensureTraffic3D, () => {});
         bindMapInteractions();
         applyPathMode();
     }
@@ -1799,6 +1802,7 @@ export const AtcReplay = (() => {
         // reads as the button "not working".
         ensureTraffic3D();
         if (!three) {
+            loadThree().then(ensureTraffic3D, () => {}); // retries a failed load
             showToast('3D traffic is still loading — try again in a moment.', 'error');
             return;
         }

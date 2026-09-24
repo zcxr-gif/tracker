@@ -3,6 +3,8 @@
  * Handles the rendering of 3D flight trails, vertical curtains, and 3D path-aligned labels.
  */
 
+import { loadThree } from './threeLoader.js';
+
 export const FlownPath3D = {
     flightObjects: {},
     font: null,
@@ -13,13 +15,21 @@ export const FlownPath3D = {
     RADIAL_SEGMENTS: 6,   
     BASE_THICKNESS: 0.0000035,
 
-    // Altitude Color Config (Feet)
-    ALTITUDE_STOPS: [
-        { alt: 0, color: new window.THREE.Color(0xf97316) },     
-        { alt: 10000, color: new window.THREE.Color(0xfacc15) }, 
-        { alt: 25000, color: new window.THREE.Color(0x38bdf8) }, 
-        { alt: 40000, color: new window.THREE.Color(0x818cf8) }  
-    ],
+    // Altitude Color Config (Feet). Built on first use — three.js is loaded
+    // on demand, so it doesn't exist yet when this module is evaluated.
+    _altitudeStops: null,
+    get ALTITUDE_STOPS() {
+        if (!this._altitudeStops) {
+            const THREE = window.THREE;
+            this._altitudeStops = [
+                { alt: 0, color: new THREE.Color(0xf97316) },
+                { alt: 10000, color: new THREE.Color(0xfacc15) },
+                { alt: 25000, color: new THREE.Color(0x38bdf8) },
+                { alt: 40000, color: new THREE.Color(0x818cf8) }
+            ];
+        }
+        return this._altitudeStops;
+    },
 
     /**
      * Loads the font required for 3D labels.
@@ -73,6 +83,13 @@ export const FlownPath3D = {
 
         if (!is3DEnabled || !trailData || trailData.length < 2) {
             this.clearPath(map, flightId);
+            return;
+        }
+
+        try {
+            await loadThree();
+        } catch (e) {
+            console.error("Failed to load three.js for the 3D path", e);
             return;
         }
 

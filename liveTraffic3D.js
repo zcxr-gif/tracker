@@ -38,6 +38,8 @@
  *                                after each live data update)
  */
 
+import { loadThree } from './threeLoader.js';
+
 export const LiveTraffic3D = (() => {
     const LYR_3D = 'live-traffic-3d';
     // Live traffic can be large; cap the buffers so a packed server can't
@@ -76,6 +78,7 @@ export const LiveTraffic3D = (() => {
     let map = null;
     let three = null;
     let visible = false;
+    let wantVisible = false;     // last requested state, while three.js loads
     let featuresProvider = null;
     let selectedProvider = null;
     // Per-flight motion state, keyed by flightId. See refresh()/animate().
@@ -459,6 +462,14 @@ export const LiveTraffic3D = (() => {
     // Swap between the flat 2D icons and the 3D field.
     function setVisible(on) {
         on = !!on;
+        wantVisible = on;
+        // three.js is loaded on demand. Until it arrives, leave the flat icons
+        // up (hiding them first would blank the map) and finish the switch
+        // once it lands — unless the view was turned off in the meantime.
+        if (on && !window.THREE) {
+            loadThree().then(() => { if (wantVisible && !visible) setVisible(true); }, () => {});
+            return visible;
+        }
         if (on) ensureLayer();
         visible = on;
         if (three) three.visible = on;

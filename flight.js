@@ -10,7 +10,7 @@ import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
-import { spriteUVs } from './plane-D2OPBxWC.js';
+import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
@@ -23,8 +23,32 @@ import { FlightDeltaClient } from './FlightDeltaClient.js';
 import { FlightDispatchService } from './FlightDispatchService.js';
 import { MobileDashboardUI } from './MobileDashboardUI.js';
 import { trackManager } from './proTrackManager.js';
-import { FlightReplay } from './flightReplay.js';
-import { AtcReplay } from './atcReplay.js';
+// The replay players (~185 KB between them) are only needed once someone
+// opens a replay, so they are fetched then rather than parsed on every boot.
+// These stand-ins expose the one method this file calls; `open` is already
+// async in both modules, so callers can't tell the difference.
+function lazyReplay(load, label) {
+    let pending = null;
+    return {
+        async open(opts) {
+            pending = pending || load();
+            let impl;
+            try {
+                impl = await pending;
+            } catch (err) {
+                pending = null; // let the next attempt retry the import
+                console.error(`[${label}] failed to load:`, err);
+                if (typeof showNotification === 'function') {
+                    showNotification('Replay could not be loaded. Check your connection and try again.', 'error');
+                }
+                return false;
+            }
+            return impl.open(opts);
+        }
+    };
+}
+const FlightReplay = lazyReplay(() => import('./flightReplay.js').then(m => m.FlightReplay), 'FlightReplay');
+const AtcReplay = lazyReplay(() => import('./atcReplay.js').then(m => m.AtcReplay), 'AtcReplay');
 // The preset traffic rail's vocabulary, kept in one place so every surface that
 // filters traffic by kind reads Cargo, Heavies and the rest the same way.
 import { classTags, presetFilterExpression, TRAFFIC_PRESETS } from './trafficClasses.js';
@@ -7501,16 +7525,28 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
         const style = document.createElement('style');
         style.id = 'ac-premium-status-styles';
         style.innerHTML = `
+            /* The ring is a scaled copy of the dot rather than an animated
+               box-shadow: transform + opacity run on the compositor, where
+               box-shadow repainted the dot every frame the panel was open. */
             @keyframes ac-pulse-ring {
-                0% { box-shadow: 0 0 0 0 rgba(var(--status-rgb), 0.8); }
-                70% { box-shadow: 0 0 0 5px rgba(var(--status-rgb), 0); }
-                100% { box-shadow: 0 0 0 0 rgba(var(--status-rgb), 0); }
+                0% { transform: scale(1); opacity: 0.8; }
+                70%, 100% { transform: scale(2.667); opacity: 0; }
             }
             .ac-status-dot {
+                position: relative;
                 width: 6px;
                 height: 6px;
                 border-radius: 50%;
                 background-color: currentColor;
+            }
+            .ac-status-dot::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border-radius: inherit;
+                background: inherit;
+                opacity: 0;
+                pointer-events: none;
                 animation: ac-pulse-ring 2.5s infinite cubic-bezier(0.2, 0.8, 0.2, 1);
             }
         `;

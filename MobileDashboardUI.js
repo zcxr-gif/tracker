@@ -5354,8 +5354,10 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
             .mdui-live-shell { border: 0.5px solid var(--mdui-border-light); border-radius: 16px; background: var(--mdui-surface); overflow: hidden; margin-bottom: 4px; }
             .mdui-live-toggle { width: 100%; display: flex; align-items: center; gap: 11px; padding: 13px 15px; background: none; border: none; text-align: left; color: var(--mdui-text); }
             .mdui-live-toggle:active { opacity: 0.7; }
-            .mdui-live-dot { width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0; background: var(--mdui-success, #34c759); animation: mdui-live-pulse 1.8s infinite; }
-            @keyframes mdui-live-pulse { 0% { box-shadow: 0 0 0 0 rgba(52,199,89,0.45); } 70% { box-shadow: 0 0 0 7px rgba(52,199,89,0); } 100% { box-shadow: 0 0 0 0 rgba(52,199,89,0); } }
+            .mdui-live-dot { position: relative; width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0; background: var(--mdui-success, #34c759); }
+            /* Ring = scaled copy of the dot (compositor-only), not box-shadow. */
+            .mdui-live-dot::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: inherit; opacity: 0; pointer-events: none; animation: mdui-live-pulse 1.8s infinite; }
+            @keyframes mdui-live-pulse { 0% { transform: scale(1); opacity: 0.45; } 70%, 100% { transform: scale(2.556); opacity: 0; } }
             .mdui-live-toggle-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
             .mdui-live-toggle-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--mdui-success, #34c759); }
             .mdui-live-toggle-sub { font-size: 14px; font-weight: 600; color: var(--mdui-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -5545,14 +5547,19 @@ document.getElementById('mdui-billing-cancel')?.addEventListener('click', () => 
                 font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em;
             }
             .mdui-live-pulse {
+                position: relative;
                 width: 7px; height: 7px; border-radius: 50%;
-                background: #ff453a; box-shadow: 0 0 0 0 rgba(255,69,58,0.6);
-                animation: mdui-live-pulse 1.6s ease-out infinite;
+                background: #ff453a;
             }
-            @keyframes mdui-live-pulse {
-                0%   { box-shadow: 0 0 0 0   rgba(255,69,58,0.7); }
-                70%  { box-shadow: 0 0 0 10px rgba(255,69,58,0); }
-                100% { box-shadow: 0 0 0 0   rgba(255,69,58,0); }
+            /* Ring = scaled copy of the dot (compositor-only), not box-shadow. */
+            .mdui-live-pulse::after {
+                content: ''; position: absolute; inset: 0; border-radius: inherit;
+                background: #ff453a; opacity: 0; pointer-events: none;
+                animation: mdui-live-pulse-red 1.6s ease-out infinite;
+            }
+            @keyframes mdui-live-pulse-red {
+                0%        { transform: scale(1); opacity: 0.7; }
+                70%, 100% { transform: scale(3.857); opacity: 0; }
             }
             .mdui-live-image-meta {
                 position: absolute; left: 16px; right: 16px; bottom: 13px; z-index: 4;

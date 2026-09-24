@@ -6539,8 +6539,12 @@ const contentRoot = document.getElementById('pui-content');
                 50%      { opacity: 0.85; }
             }
             @keyframes puiPulseDot {
-                0%, 100% { transform: scale(1);   box-shadow: 0 0 0 0 var(--pui-pos-soft); }
-                50%      { transform: scale(1.1); box-shadow: 0 0 0 6px transparent; }
+                0%, 100% { transform: scale(1); }
+                50%      { transform: scale(1.1); }
+            }
+            @keyframes puiPulseDotRing {
+                0%, 100% { transform: scale(1);   opacity: 1; }
+                50%      { transform: scale(2.2); opacity: 0; }
             }
 
             /* ═══════════════════════════════════════════════════════════════
@@ -8013,15 +8017,19 @@ const contentRoot = document.getElementById('pui-content');
                 color: var(--pui-text-primary);
             }
             .pui-live-dot {
+                position: relative;
                 width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0;
                 background: var(--pui-pos);
-                box-shadow: 0 0 0 0 rgba(74,140,90,0.5);
+            }
+            /* Ring = scaled copy of the dot (compositor-only), not box-shadow. */
+            .pui-live-dot::after {
+                content: ''; position: absolute; inset: 0; border-radius: inherit;
+                background: inherit; opacity: 0; pointer-events: none;
                 animation: pui-live-pulse 1.8s infinite;
             }
             @keyframes pui-live-pulse {
-                0% { box-shadow: 0 0 0 0 rgba(74,140,90,0.45); }
-                70% { box-shadow: 0 0 0 7px rgba(74,140,90,0); }
-                100% { box-shadow: 0 0 0 0 rgba(74,140,90,0); }
+                0%        { transform: scale(1); opacity: 0.45; }
+                70%, 100% { transform: scale(2.556); opacity: 0; }
             }
             .pui-live-toggle-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
             .pui-live-toggle-title { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--pui-pos); }
@@ -8844,8 +8852,15 @@ const contentRoot = document.getElementById('pui-content');
                 flex-shrink: 0;
             }
             .pui-wl-dot.live {
+                position: relative;
                 background: var(--pui-pos);
                 animation: puiPulseDot 2s ease-in-out infinite;
+            }
+            /* The ring half of puiPulseDot, as a compositor-only layer. */
+            .pui-wl-dot.live::after {
+                content: ''; position: absolute; inset: 0; border-radius: inherit;
+                background: var(--pui-pos-soft); pointer-events: none;
+                animation: puiPulseDotRing 2s ease-in-out infinite;
             }
             .pui-wl-dot.offline {
                 background: var(--pui-text-tertiary);
@@ -9647,7 +9662,8 @@ const contentRoot = document.getElementById('pui-content');
                 .pui-fade-in,
                 .pui-toast,
                 .pui-skeleton,
-                .pui-wl-dot.live {
+                .pui-wl-dot.live,
+                .pui-wl-dot.live::after {
                     animation: none !important;
                 }
                 .pui-wrapper-layer,
