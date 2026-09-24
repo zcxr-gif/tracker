@@ -7628,6 +7628,14 @@ function getGateLabel(gate) {
     return gate.name || gate.ident || gate.gateName || gate.id || 'GATE';
 }
 
+// Route-bar gate tag text. Airport data often names stands "Gate B47" or
+// "Stand F15" already, which read "Gate Gate B47" behind a fixed prefix.
+function gateTagText(gate) {
+    const g = String(gate == null ? '' : gate).trim();
+    if (!g || g === '---') return 'Gate ---';
+    return /^(gate|stand|parking|ramp|remote|apron)\b/i.test(g) ? g : `Gate ${g}`;
+}
+
 // Stable per-gate key (name + coords) so occupants map 1:1 to a gate even when
 // two stands share a name.
 function gateKey(gate) {
@@ -7864,7 +7872,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
             depGateEl.style.cssText = premiumGateCss;
             depNode.appendChild(depGateEl);
         }
-        depGateEl.innerHTML = filedPlan.dep_gate ? `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.dep_gate}` : `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+        depGateEl.innerHTML = filedPlan.dep_gate ? `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> ${gateTagText(filedPlan.dep_gate)}` : `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
     }
 
     // 3. Inject the Arrival Gate HTML
@@ -7880,7 +7888,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
             arrGateEl.style.cssText = premiumGateCss;
             arrNode.appendChild(arrGateEl);
         }
-        arrGateEl.innerHTML = filedPlan.arr_gate ? `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.arr_gate}` : `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+        arrGateEl.innerHTML = filedPlan.arr_gate ? `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> ${gateTagText(filedPlan.arr_gate)}` : `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
 
         // If the pilot never filed an arrival gate, fall back to the stand the
         // aircraft actually parked at (nearest gate to the end of the trail).
@@ -7888,7 +7896,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
             determineGatesForFlight(null, flownPath, arrivalIcao, buildArrivalStateSnapshot(flightProps)).then(gates => {
                 if (gates.arrivalGate && gates.arrivalGate !== '---') {
                     const el = document.getElementById('ac-arr-gate');
-                    if (el) el.innerHTML = `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${gates.arrivalGate}`;
+                    if (el) el.innerHTML = `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> ${gateTagText(gates.arrivalGate)}`;
                 }
             });
         }
@@ -8042,10 +8050,10 @@ function injectGateInfoUI(departureIcao, flownPath, arrivalIcao, flightProps) {
         const arrGateEl = document.getElementById('ac-arr-gate');
 
         iwSettleValue(depGateEl, { html: gates.departureGate !== '---'
-            ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}`
+            ? `<i class="fa-solid fa-door-open"></i> ${gateTagText(gates.departureGate)}`
             : `<i class="fa-solid fa-door-open"></i> Gate ---` });
         iwSettleValue(arrGateEl, { html: gates.arrivalGate !== '---'
-            ? `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`
+            ? `<i class="fa-solid fa-door-closed"></i> ${gateTagText(gates.arrivalGate)}`
             : `<i class="fa-solid fa-door-closed"></i> Gate ---` });
     });
 }
@@ -24591,44 +24599,113 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .hero-btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.22); }
         ${S} .hero-btn.pinged { color: var(--sr-accent); border-color: rgba(140,200,238,0.55); }
 
-        /* ---- Route strip: part of the header, not a separate card ---- */
+        /* ---- Route strip: part of the header, not a separate card ----
+           Two airports side by side, one full-width progress line under
+           them, then distance · phase · status · time left in a single row.
+           Grid/flex re-flows the existing nodes; nothing is re-rendered. */
         ${S} .ac-route-bar-backdrop {
             background: transparent !important; box-shadow: none !important; display: flow-root;
             border-bottom: 1px solid var(--sr-line);
         }
         ${S} .ac-route-info-bar {
-            margin: 0 !important; padding: 4px 20px 16px !important;
+            display: grid !important; grid-template-columns: 1fr 1fr; column-gap: 16px !important; row-gap: 0 !important;
+            margin: 0 !important; padding: 6px 20px 18px !important;
             background: transparent !important; border: 0 !important; border-radius: 0 !important;
             -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
-            box-shadow: none !important; gap: 14px !important;
+            box-shadow: none !important;
         }
-        ${S} .ac-route-info-bar .city-name {
-            color: var(--sr-faint) !important; font-size: 10px !important; font-weight: 500 !important;
+        ${S} .ac-route-info-bar > .route-node { grid-row: 1; min-width: 0; }
+        ${S} .ac-route-info-bar > .route-node:not(.end) { grid-column: 1; }
+        ${S} .ac-route-info-bar > .route-node.end { grid-column: 2; }
+        ${S} .ac-route-info-bar > .route-visual { grid-row: 2; grid-column: 1 / -1; max-width: none !important; }
+
+        /* Airport: ICAO + flag, city, "21:37 Z · estimated", gate tag */
+        ${S} .route-node {
+            display: flex !important; flex-direction: row !important; flex-wrap: wrap !important;
+            align-items: baseline !important; align-content: flex-start; column-gap: 6px;
+        }
+        ${S} .route-node.end { justify-content: flex-end; text-align: right; }
+        ${S} .route-node .icao-large {
+            order: 1; flex-basis: 100%;
+            font-family: var(--font-ui) !important; font-size: 22px !important; font-weight: 600 !important;
+            letter-spacing: 0.03em; line-height: 1.15 !important;
+        }
+        ${S} .route-node.end .icao-large { justify-content: flex-start; }
+        ${S} .route-node .icao-large img { height: 12px !important; border-radius: 2px; opacity: 0.9 !important; }
+        ${S} .route-node .city-name {
+            order: 2; flex-basis: 100%; margin: 2px 0 6px;
+            color: var(--sr-muted) !important; font-size: 11.5px !important; font-weight: 500 !important;
             text-transform: none !important; letter-spacing: 0 !important;
-            max-width: 110px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        ${S} .ac-route-info-bar .icao-large {
-            font-family: var(--font-ui) !important; font-size: 18px !important; font-weight: 600 !important;
-            letter-spacing: 0.04em; margin: 1px 0 2px;
+        ${S} .route-node .time-small {
+            order: 3; font-family: var(--font-ui) !important; font-size: 13px !important; font-weight: 500 !important;
+            font-variant-numeric: tabular-nums;
         }
-        ${S} .ac-route-info-bar .icao-large img { height: 11px !important; border-radius: 2px; }
-        ${S} .ac-route-info-bar .time-small { font-family: var(--font-ui) !important; font-size: 11.5px !important; font-weight: 500 !important; font-variant-numeric: tabular-nums; }
-        ${S} .ac-route-info-bar .time-source-label { font-size: 8px !important; font-weight: 600 !important; letter-spacing: 0.08em !important; opacity: 0.55 !important; }
+        ${S} .route-node .time-source-label {
+            order: 4; margin: 0 !important; font-size: 11px !important; font-weight: 500 !important;
+            letter-spacing: 0 !important; text-transform: lowercase !important; opacity: 0.7 !important;
+        }
+        ${S} .route-node .time-source-label::before { content: '·'; margin-right: 6px; }
+        /* A zero-height full-width item forces the gate tag onto its own line. */
+        ${S} .route-node::after { content: ''; order: 5; flex-basis: 100%; height: 0; }
         ${S} #ac-dep-gate, ${S} #ac-arr-gate {
-            margin-top: 7px !important; padding: 2px 8px !important; border-radius: 999px !important;
+            order: 6;
+            margin-top: 8px !important; padding: 3px 9px !important; border-radius: 999px !important;
             background: rgba(255,255,255,0.06) !important; color: var(--sr-muted) !important;
-            font-size: 9.5px !important; font-weight: 600 !important; letter-spacing: 0.04em;
+            font-size: 10.5px !important; font-weight: 500 !important; letter-spacing: 0 !important;
         }
+        ${S} #ac-dep-gate i, ${S} #ac-arr-gate i { color: var(--sr-faint) !important; margin-right: 3px; }
+
+        /* Progress: one full-width line, origin dot filled, destination
+           dot hollow, the plane riding the end of the fill. */
+        ${S} .route-visual {
+            display: flex !important; flex-direction: row !important; flex-wrap: wrap !important;
+            align-items: center !important; justify-content: space-between !important;
+            gap: 8px; margin-top: 16px;
+        }
+        ${S} .route-visual > .flight-progress-track {
+            order: 0; flex: 0 0 100%;
+            height: 4px !important; border-radius: 2px !important; background: rgba(255,255,255,0.08) !important;
+            margin: 0 4px 8px;
+            flex-basis: calc(100% - 8px);
+        }
+        ${S} .flight-progress-track::before, ${S} .flight-progress-track::after {
+            content: ''; position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%;
+            transform: translate(-50%, -50%); box-sizing: border-box;
+        }
+        ${S} .flight-progress-track::before { left: 0; background: var(--sr-accent); z-index: 2; }
+        ${S} .flight-progress-track::after { left: 100%; background: var(--sr-bg); border: 1.5px solid rgba(255,255,255,0.35); }
+        ${S} .flight-progress-fill { border-radius: 2px !important; background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)) !important; z-index: 1; }
+        ${S} .flight-progress-plane { filter: none !important; font-size: 13px !important; color: #fff !important; right: -7px !important; }
+        /* distance | phase · status | time left */
+        ${S} .route-visual > div:nth-child(3) { display: contents !important; }
+        ${S} .route-visual > div:nth-child(3) > span {
+            font-size: 11.5px; font-weight: 500; color: var(--sr-muted); font-variant-numeric: tabular-nums; white-space: nowrap;
+        }
+        ${S} .route-visual > div:nth-child(3) > span:first-child { order: 1; }
+        ${S} .route-visual > div:nth-child(3) > span:last-child { order: 4; }
         ${S} .phase-badge-route {
-            width: fit-content; margin: 0 auto 10px !important; padding: 4px 11px;
+            order: 2; margin: 0 0 0 auto !important; width: auto !important; padding: 4px 10px;
             border-radius: 999px; background: rgba(255,255,255,0.06);
         }
-        ${S} #ac-phase-dot { box-shadow: none !important; }
-        ${S} #ac-phase-text { font-weight: 600 !important; letter-spacing: 0.1em !important; color: rgba(255,255,255,0.86) !important; }
-        ${S} .flight-progress-track { height: 3px !important; background: rgba(255,255,255,0.08) !important; }
-        ${S} .flight-progress-fill { background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)) !important; }
-        ${S} .flight-progress-plane { filter: none !important; font-size: 11px !important; color: #fff !important; }
-        ${S} .route-visual > div:last-child { color: var(--sr-muted) !important; font-weight: 500 !important; font-size: 10px !important; margin-top: 8px !important; }
+        ${S} #ac-phase-dot { box-shadow: none !important; width: 6px !important; height: 6px !important; }
+        ${S} #ac-phase-text {
+            display: inline-block; font-size: 11px !important; font-weight: 600 !important;
+            letter-spacing: 0.01em !important; color: rgba(255,255,255,0.88) !important; text-transform: lowercase !important;
+        }
+        ${S} #ac-phase-text::first-letter { text-transform: uppercase; }
+        ${S} #ac-flight-status-badge {
+            order: 3; margin: 0 auto 0 0 !important; padding: 4px 10px !important;
+            border: 0 !important; border-radius: 999px !important; box-shadow: none !important;
+            background: rgba(255,255,255,0.06) !important;
+            -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+            font-size: 11px !important; font-weight: 600 !important; letter-spacing: 0.01em !important;
+        }
+        ${S} #ac-flight-status-badge span { display: inline-block; text-transform: lowercase; }
+        ${S} #ac-flight-status-badge span::first-letter { text-transform: uppercase; }
+        /* Only the phase pill: it centres itself between the two numbers. */
+        ${S} .route-visual:not(:has(#ac-flight-status-badge)) .phase-badge-route { margin: 0 auto !important; }
         ${S} #ac-route-map-strip {
             margin: 12px 14px 0 !important; border-radius: var(--sr-radius) !important;
             border-color: var(--sr-line) !important; box-shadow: 0 10px 28px rgba(0,0,0,0.22) !important;
@@ -24921,6 +24998,13 @@ function arrangeSereneWindow(html) {
             ...(chips.childNodes.length ? [chips] : [])
         );
     }
+
+    // The route strip shows city names; the 'Departure'/'Arrival'
+    // placeholders (airport without a city on file) just add noise.
+    tpl.content.querySelectorAll('.ac-route-info-bar .city-name').forEach((el) => {
+        const t = el.textContent.trim();
+        if (t === 'Departure' || t === 'Arrival') el.classList.add('sr-hidden');
+    });
 
     const glance = make('div', 'sr-glance', SERENE_GLANCE.map(([id, label]) =>
         `<div class="sr-g"><span class="sr-g-l">${label}</span><span class="sr-g-v" data-sr-mirror="${id}">---</span></div>`
