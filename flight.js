@@ -24311,6 +24311,10 @@ function closeAircraftWindow() {
 // How long each aircraft photo is shown before the carousel softly advances.
 const HERO_PHOTO_CYCLE_MS = 5000;
 
+// The per-photo credit tag on the hero (the carousel's, and Serene's for a
+// single photo).
+const HERO_CREDIT_CSS = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
+
 function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (!panel) return;
     // A previous open may have left an auto-cycle timer running on a now-detached
@@ -24348,7 +24352,7 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     // mistaken for pilot info — so it's deliberately see-through with no border.
     const credit = document.createElement('div');
     credit.className = 'hero-photo-credit';
-    credit.style.cssText = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
+    credit.style.cssText = HERO_CREDIT_CSS;
 
     let index = 0;
     let fadeCommit = null;
@@ -26442,6 +26446,18 @@ let totalDistanceNM = 0;
         if (sereneSkin) {
             fitSereneHero(overviewPanel);
             sampleSereneGlow(windowEl, overviewPanel);
+            // A single photo gets no carousel, and so no credit tag; give it
+            // the same one the carousel shows, so every contributor is named
+            // on their photo.
+            const onlyPhoto = techCardPhotos.length === 1 ? techCardPhotos[0] : null;
+            const by = onlyPhoto && onlyPhoto.photographer;
+            if (by && by !== 'IF Community' && !overviewPanel.querySelector('.hero-photo-credit')) {
+                const credit = document.createElement('div');
+                credit.className = 'hero-photo-credit';
+                credit.style.cssText = HERO_CREDIT_CSS;
+                credit.textContent = `© ${by}`;
+                overviewPanel.appendChild(credit);
+            }
         }
 
         // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
