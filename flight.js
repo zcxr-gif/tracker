@@ -1683,6 +1683,30 @@ function getUnderAircraftAnchor() {
     return 'sector-ops-live-flights-layer';
 }
 
+// Re-push live traffic immediately after its properties were re-tagged in
+// place (pilot relations, airport radius, VA focus, traffic highlight).
+function pushLiveTrafficNow() {
+    if (mapAnimator) {
+        mapAnimator.invalidateProps();
+        mapAnimator.flushNow();
+        return;
+    }
+    const source = (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && sectorOpsMap.getSource)
+        ? sectorOpsMap.getSource('sector-ops-live-flights-source') : null;
+    if (source) {
+        source.setData({ type: 'FeatureCollection', features: Object.values(currentMapFeatures) });
+    }
+}
+
+// Map queries on the aircraft layers return the lean render copy, which omits
+// the position/aircraft JSON and photo fields (see MapAnimator). Resolve the
+// full cached record by flightId; fall back to what the map returned.
+function liveFlightProps(renderProps) {
+    const fid = renderProps && renderProps.flightId;
+    const cached = fid != null ? currentMapFeatures[fid] : null;
+    return (cached && cached.properties) || renderProps;
+}
+
 function scheduleMapSourceUpdate() {
     if (mapSourceUpdateTimeout) return;
 
@@ -1692,6 +1716,8 @@ function scheduleMapSourceUpdate() {
         // lookups resolve at arbitrary times, and rebuilding the source in the
         // middle of a zoom is exactly what makes aircraft blink out and back.
         if (mapAnimator) {
+            // The lookups wrote tailNumber (read by the label layer) in place.
+            mapAnimator.invalidateProps();
             mapAnimator.scheduleUpdate();
             return;
         }
@@ -1783,12 +1809,7 @@ function refreshPilotRelations() {
         });
 
         // Push the re-tagged features so Mapbox re-evaluates the color expression.
-        if (typeof sectorOpsMap !== 'undefined' && sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-            sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-                type: 'FeatureCollection',
-                features: Object.values(currentMapFeatures)
-            });
-        }
+        pushLiveTrafficNow();
     } catch (err) {
         console.warn('refreshPilotRelations failed:', err);
     }
@@ -11767,12 +11788,7 @@ function retagAirportRadius() {
         f.properties.__inRadius = (km <= radiusKm) ? 1 : 0;
     });
 
-    if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-            type: 'FeatureCollection',
-            features: Object.values(currentMapFeatures)
-        });
-    }
+    pushLiveTrafficNow();
 }
 
 // ── Single-VA map focus ─────────────────────────────────────────────────────
@@ -11792,12 +11808,7 @@ function retagVaFilter() {
         if (!f || !f.properties) return;
         f.properties.__vaMatch = computeVaMatch(f.properties.callsign, f.properties.username);
     });
-    if (sectorOpsMap && sectorOpsMap.getSource && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-            type: 'FeatureCollection',
-            features: Object.values(currentMapFeatures)
-        });
-    }
+    pushLiveTrafficNow();
 }
 
 // Focus the map on one VA (or clear with a falsy id). Resolves the VA ad,
@@ -16264,12 +16275,7 @@ function applyTrafficHighlighting() {
     applyAircraftLayerStyles();
 
     // 2. Sync the updated data to the Mapbox source
-    if (sectorOpsMap && sectorOpsMap.getSource('sector-ops-live-flights-source')) {
-        sectorOpsMap.getSource('sector-ops-live-flights-source').setData({
-            type: 'FeatureCollection',
-            features: Object.values(currentMapFeatures)
-        });
-    }
+    pushLiveTrafficNow();
 }
 
 function updateTrafficLegendUI() {
@@ -16877,9 +16883,10 @@ function setupAircraftWindowEvents() {
             if (currentFlightInWindow) {
                 const layer = sectorOpsMap.getLayer('sector-ops-live-flights-layer');
                 if (layer) {
-                    const source = sectorOpsMap.getSource('sector-ops-live-flights-source');
-                    const features = source._data.features;
-                    const feature = features.find(f => f.properties.flightId === currentFlightInWindow);
+                    // The cache, not the source: the map holds lean render
+                    // copies (see MapAnimator) and, after a glide update,
+                    // source._data is only the last diff.
+                    const feature = currentMapFeatures[currentFlightInWindow];
                     if (feature) {
                         const props = feature.properties;
                         const flightProps = {
@@ -16917,7 +16924,12 @@ function initializeAircraftLayer() {
                     type: 'FeatureCollection',
                     features: []
                 },
-                generateId: true
+                // Every feature carries its own numeric id (flightNumericIdMap),
+                // which `dynamic` needs so MapAnimator can glide aircraft with
+                // per-feature updateData() instead of re-sending the whole
+                // collection. MapLibre (free mode) rejects the option, and
+                // MapAnimator only glides on a Mapbox dynamic source.
+                ...(isFreeMap() ? {} : { dynamic: true })
             });
         }
 
@@ -16928,6 +16940,10 @@ function initializeAircraftLayer() {
             // blink out and back as the retiled data swaps in — see
             // bindInteraction() for why setData() is expensive.
             mapAnimator.bindInteraction(sectorOpsMap);
+            // No gliding while the 3D field has the flat icons hidden, or if
+            // the pilot has switched smooth motion off.
+            mapAnimator.setGlideGate(() => mapFilters.smoothMotion !== false
+                && !(typeof LiveTraffic3D !== 'undefined' && LiveTraffic3D.isVisible()));
         }
 
         // 3D live-traffic dot field (toggled from the map toolbar / Settings).
@@ -17027,16 +17043,8 @@ function initializeAircraftLayer() {
             if (!aircraftLayerListenersBound) {
                 aircraftLayerListenersBound = true;
 
-                sectorOpsMap.on('click', (e) => {
-                    console.log("📍 Raw map tap at:", e.point);
-                    const features = sectorOpsMap.queryRenderedFeatures(e.point);
-                    const layerNames = features.map(f => f.layer.id);
-                    console.log("🔍 Layers under this tap:", layerNames);
-                });
-
                 const onLiveFlightClick = async (e) => {
-                    console.log("✈️ Plane click listener fired!", e.features[0].properties.callsign);
-                    const props = e.features[0].properties;
+                    const props = liveFlightProps(e.features[0].properties);
                     const flightProps = {
                         ...props,
                         position: JSON.parse(props.position),
@@ -17060,7 +17068,7 @@ function initializeAircraftLayer() {
                     sectorOpsMap.getCanvas().style.cursor = 'pointer';
                     const feature = e.features[0];
                     if (typeof generateHoverCardHTML !== 'undefined') {
-                        hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(feature.properties)).addTo(sectorOpsMap);
+                        hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(liveFlightProps(feature.properties))).addTo(sectorOpsMap);
                     }
                 };
                 sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', onLiveFlightEnter);
@@ -26604,7 +26612,7 @@ function setupFlightHoverPopups() {
 
         sectorOpsMap.getCanvas().style.cursor = 'pointer';
         const feature = e.features[0];
-        const props = feature.properties;
+        const props = liveFlightProps(feature.properties);
 
         // Remember which flight is under the cursor so the Shift+P shortcut
         // knows what to pin.
