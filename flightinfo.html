@@ -1553,6 +1553,13 @@
             }
         }
 
+        // Opened straight into the full layout (the desktop window asks for
+        // this in the URL): start there, before first paint, rather than
+        // animating over from the collapsed bar once the host says so.
+        try {
+            if (new URLSearchParams(location.search).get('phase') === 'expanded') setPhase('expanded');
+        } catch (e) {}
+
         document.getElementById('collapsed-bar').addEventListener('click', () => setPhase('expanded'));
         document.getElementById('hero-collapse-btn').addEventListener('click', (e) => { e.stopPropagation(); setPhase('collapsed'); });
         document.getElementById('btn-collapse').addEventListener('click', () => setPhase('collapsed'));
@@ -2492,11 +2499,22 @@
         // =========================================================
         // MESSAGES
         // =========================================================
+        // Tell the host once the first flight has been painted, so it can
+        // reveal this frame with real data on it instead of the placeholder.
+        let renderedNotified = false;
+        function notifyRendered() {
+            if (renderedNotified) return;
+            renderedNotified = true;
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_RENDERED' }, '*'); } catch (e) {}
+            }));
+        }
         window.addEventListener('message', (event) => {
             const d = event.data;
             if (!d) return;
             if (d.type === 'FLIGHT_DATA_UPDATE') {
                 window.updateFlightInterface(d.payload);
+                notifyRendered();
                 // Background/theme is owned by the layout studio (applyStyle), so
                 // the host's per-tick theme payload is intentionally ignored here.
             }

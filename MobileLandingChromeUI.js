@@ -1229,6 +1229,34 @@ export const MobileLandingChromeUI = {
                 pointer-events: none;
                 opacity: 0;
             }
+            /* Opening a flight or airport deactivates the chrome. visibility
+               flips instantly, so on its own it cut the bars away in one frame
+               however the opacity was eased. Delay the visibility flip until
+               the fade has run, and let both bars drift a few pixels toward
+               their edge so they get out of the way of the sheet instead of
+               vanishing. \`translate\` rather than \`transform\`: the tab bar
+               already animates transform for its own states. */
+            #ios-landing-topbar {
+                transition: opacity 0.22s ease, translate 0.3s cubic-bezier(0.16,1,0.3,1), visibility 0s linear 0s;
+            }
+            #ios-landing-tabbar {
+                transition: transform 0.34s cubic-bezier(0.16,1,0.3,1), opacity 0.22s ease,
+                            translate 0.3s cubic-bezier(0.16,1,0.3,1), visibility 0s linear 0s !important;
+            }
+            #inflight-tactical-ui:not(.active) #ios-landing-topbar {
+                translate: 0 -10px;
+                transition: opacity 0.18s ease, translate 0.22s ease-in, visibility 0s linear 0.22s;
+            }
+            #inflight-tactical-ui:not(.active) #ios-landing-tabbar {
+                translate: 0 12px;
+                transition: transform 0.34s cubic-bezier(0.16,1,0.3,1), opacity 0.18s ease,
+                            translate 0.22s ease-in, visibility 0s linear 0.22s !important;
+            }
+            @media (prefers-reduced-motion: reduce) {
+                #ios-landing-topbar, #ios-landing-tabbar,
+                #inflight-tactical-ui:not(.active) #ios-landing-topbar,
+                #inflight-tactical-ui:not(.active) #ios-landing-tabbar { translate: none; }
+            }
             .ios-topbar-inner {
                 position: relative;
                 display: flex;

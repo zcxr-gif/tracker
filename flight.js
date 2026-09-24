@@ -3976,6 +3976,32 @@ function injectCustomStyles() {
            honest to size to while the fetch is in flight. */
         .info-window.iw-loading { overflow: hidden; }
 
+        /* Simple / card frame: hidden until it has painted the flight, then
+           faded in over the spinner the host keeps showing meanwhile. */
+        #simple-flight-window-frame {
+            transition: opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        /* !important, and no content-in animation on the frame: a running
+           animation outranks a plain declaration, so the swap's fade-up used
+           to show the frame's placeholder for a moment anyway. */
+        #simple-flight-window-frame.iw-frame-waiting { opacity: 0 !important; }
+        .info-window.iw-swapping > #simple-flight-window-frame { animation: none; }
+        .info-window.iw-frame-pending::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 22px;
+            height: 22px;
+            margin: -11px 0 0 -11px;
+            border-radius: 50%;
+            border: 2px solid rgba(148, 163, 184, 0.25);
+            border-top-color: #60a5fa;
+            animation: iw-frame-spin 0.8s linear infinite;
+            pointer-events: none;
+        }
+        @keyframes iw-frame-spin { to { transform: rotate(360deg); } }
+
         @media (prefers-reduced-motion: reduce) {
             .info-window,
             .info-window.iw-morphing { transition: none; }
@@ -8997,6 +9023,7 @@ function iwClearMorph(windowEl) {
  */
 function setInfoWindowLoading(windowEl, html) {
     if (!windowEl) return;
+    windowEl.classList.remove('iw-frame-pending'); // a previous frame's spinner
     if (!iwShouldAnimate(windowEl)) {
         windowEl.innerHTML = html;
         return;
@@ -9004,7 +9031,19 @@ function setInfoWindowLoading(windowEl, html) {
     const current = windowEl.getBoundingClientRect().height;
     windowEl.innerHTML = html;
     windowEl.classList.add('iw-loading');
-    windowEl.style.height = Math.max(current, IW_MIN_LOADING_HEIGHT) + 'px';
+    windowEl.style.height = Math.max(current, iwExpectedHeight(windowEl)) + 'px';
+}
+
+/**
+ * The height a freshly opened window should enter at. The flight panel —
+ * legacy, simple or card — virtually always fills the viewport to its
+ * max-height, so it enters at that size: a spinner box that then stretched to
+ * full height was two movements where there should be one. Other windows
+ * (airports) keep the compact spinner box, since their content varies.
+ */
+function iwExpectedHeight(windowEl) {
+    if (windowEl.id !== 'aircraft-info-window') return IW_MIN_LOADING_HEIGHT;
+    return Math.max(IW_MIN_LOADING_HEIGHT, Math.min(760, window.innerHeight - 40));
 }
 
 /**
@@ -17217,6 +17256,11 @@ function applySimpleWindowPhase(phase) {
         && window.MobileUIHandler.isMobile());
 
     if (onMobile && window.MobileUIHandler && typeof window.MobileUIHandler.setLegacySheetState === 'function') {
+        // Not presented yet: MobileUIHandler slides the sheet up itself once
+        // the frame has painted the flight (observeOriginalWindow). Snapping
+        // to a detent here ran before the frame even existed and slid an
+        // empty slab into view.
+        if (!windowEl.classList.contains('visible')) return;
         // The mobile sheet owns sizing; just snap it to the matching detent.
         // iPads have no peek bar (phones only) — they stay on the expanded "second state".
         const tabletExpandedOnly = typeof window.MobileUIHandler.isSimpleSheetExpandedOnly === 'function'
@@ -21226,6 +21270,14 @@ window.globalNatTracks = natTracks;
             if (event.data && event.data.type === 'ND_READY') {
                 refreshNavDisplayFromCache();
             }
+            // The simple / card frame has painted its first flight: reveal it.
+            if (event.data && event.data.type === 'SIMPLE_WINDOW_RENDERED') {
+                const frame = document.getElementById('simple-flight-window-frame');
+                if (frame && frame.contentWindow === event.source && typeof frame._iwReveal === 'function') {
+                    frame._iwReveal();
+                }
+                return;
+            }
             // Route simple-flight-window iframe messages (pilot stats request, etc.)
             if (event.data && (
                 event.data.type === 'REQUEST_PILOT_STATS' ||
@@ -22905,6 +22957,19 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         `);
     }
 
+    // Let the entrance reach the screen before anything heavy runs. A CSS
+    // transition's clock starts on the main thread, but the frame carrying the
+    // window isn't shown until the thread is free; when the requests below
+    // answer instantly (cached), the whole panel build ran first and the
+    // window appeared ~300 ms late with its slide already over. Capped so a
+    // background tab (no animation frames) can't stall the open.
+    await new Promise((resolve) => {
+        let done = false;
+        const go = () => { if (!done) { done = true; resolve(); } };
+        requestAnimationFrame(() => setTimeout(go, 0));
+        setTimeout(go, 100);
+    });
+
     try {
         let sessionId = optionalSessionId;
         if (!sessionId || sessionId === 'default') {
@@ -22959,16 +23024,20 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
         // Feed the top-left weather pill (weatherWidget.js) — it only renders
         // while this window is displayed, so it just needs the route context
-        // and where the aircraft currently is.
-        window.dispatchEvent(new CustomEvent('flight-window-weather', {
-            detail: {
-                flightId: flightProps.flightId,
-                depIcao,
-                arrIcao,
-                lat: flightProps.position?.lat ?? flightProps.position?.latitude ?? null,
-                lon: flightProps.position?.lon ?? flightProps.position?.longitude ?? null,
-            }
-        }));
+        // and where the aircraft currently is. Deferred: setting it up (METAR
+        // fetches, nearest-station search, first-use airport index) cost ~30 ms
+        // inside the task that builds the window, right as it animates in.
+        const weatherDetail = {
+            flightId: flightProps.flightId,
+            depIcao,
+            arrIcao,
+            lat: flightProps.position?.lat ?? flightProps.position?.latitude ?? null,
+            lon: flightProps.position?.lon ?? flightProps.position?.longitude ?? null,
+        };
+        setTimeout(() => {
+            if (currentFlightInWindow !== weatherDetail.flightId) return;
+            window.dispatchEvent(new CustomEvent('flight-window-weather', { detail: weatherDetail }));
+        }, 450);
 
         const filedPlanData = await FlightDispatchService.getFiledPlan(
             flightProps.username,
@@ -23001,12 +23070,30 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // display:block (overflow scroll), so flex-grow does nothing and the
             // iframe would collapse to the browser's ~150px default. On mobile
             // .mobile-legacy-sheet has its own !important rules that win anyway.
+            // Desktop boots the simple frame straight into its expanded layout;
+            // setting it after load animated a collapsed bar into the full card.
             const _fwSrc = _fwMode === 'embed'
                 ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
-                : 'flightinfo.html';
-            setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`);
+                : ('flightinfo.html' + (onMobile ? '' : '?phase=expanded'));
+            // The frame stays invisible (iw-frame-waiting) until it has painted
+            // this flight: it first renders its own placeholder and only gets
+            // the data on load, so revealing it straight away showed a blank
+            // slab, then placeholders, then the real card — three looks in half
+            // a second. The mobile sheet also waits for this before sliding up.
+            windowEl.classList.add('iw-frame-pending');
+            setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" class="iw-frame-waiting" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`);
             const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
             const iframe = document.getElementById('simple-flight-window-frame');
+            const revealFrame = () => {
+                clearTimeout(iframe._iwRevealTimer);
+                iframe.classList.remove('iw-frame-waiting');
+                windowEl.classList.remove('iw-frame-pending');
+            };
+            // The frame posts SIMPLE_WINDOW_RENDERED once it has painted the
+            // flight (see handleIframeMessage). Never leave the card hidden if
+            // it is slow or fails to load.
+            iframe._iwReveal = revealFrame;
+            iframe._iwRevealTimer = setTimeout(revealFrame, 1500);
             iframe.onload = () => {
                 iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
                 // The iframe defaults to its collapsed body class; on desktop force it

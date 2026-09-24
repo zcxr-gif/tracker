@@ -1118,10 +1118,21 @@
             </button>`;
     }
 
+    // Tell the host once the first flight has been painted, so it can reveal
+    // this frame with real data on it instead of the placeholder.
+    let renderedNotified = false;
+    function notifyRendered() {
+        if (renderedNotified) return;
+        renderedNotified = true;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_RENDERED' }, '*'); } catch (_) {}
+        }));
+    }
+
     window.addEventListener('message', (event) => {
         const d = event.data;
         if (!d || typeof d !== 'object') return;
-        if (d.type === 'FLIGHT_DATA_UPDATE') render(d.payload);
+        if (d.type === 'FLIGHT_DATA_UPDATE') { render(d.payload); notifyRendered(); }
         if (d.type === 'SET_PHASE') setPhase(d.phase === 'expanded' ? 'expanded' : 'collapsed', false);
         if (d.type === 'AIRPORT_SUMMARY') renderDestInfo(d);
     });

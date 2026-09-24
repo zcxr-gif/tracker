@@ -1375,8 +1375,11 @@ disableHudControls() {
 
             // Condition 1: Standard PFD is built
             const isStandardReady = mainContent && attitudeGroup && attitudeGroup.dataset.initialized === 'true';
-            // Condition 2: Simple Iframe is present
-            const isSimpleReady = !!simpleIframe;
+            // Condition 2: Simple Iframe is present and has painted the flight.
+            // flight.js holds it at iw-frame-waiting until then (with a timeout),
+            // so the sheet slides up with the card on it rather than as an
+            // empty slab that fills in afterwards.
+            const isSimpleReady = !!simpleIframe && !simpleIframe.classList.contains('iw-frame-waiting');
 
             if (!(isStandardReady || isSimpleReady || isAirportReady)) return false;
 
@@ -1829,7 +1832,12 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         if (this.isSimpleSheet() && this.activeWindow) {
             // Inline custom property wins over the stylesheet's --legacy-peek-height.
             this.activeWindow.style.setProperty('--legacy-peek-height', h + 'px');
-            if (this.legacySheetState.currentState === 'peek' && !this.isSimpleSheetExpandedOnly()) {
+            // Only re-snap a sheet that is already on screen. The frame reports
+            // its height as it loads, before the sheet is presented, and
+            // currentState can still read 'peek' from the previous flight —
+            // snapping then slid the sheet up ahead of its content.
+            if (this.legacySheetState.currentState === 'peek' && !this.isSimpleSheetExpandedOnly()
+                && this.activeWindow.classList.contains('visible')) {
                 this.setLegacySheetState('peek');
             }
         }
