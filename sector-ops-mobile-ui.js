@@ -982,9 +982,16 @@ disableHudControls() {
 
                 /* --- Animation & State --- */
                 will-change: transform;
+                visibility: visible;
                 /* Resting (closed) state: parked just below the bottom edge */
                 transform: translateY(100%);
-                transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+                /* Leaving: accelerate away rather than crawl off the bottom. */
+                transition: transform 0.3s cubic-bezier(0.4, 0, 1, 1);
+            }
+            /* Arriving / moving between detents: long, soft deceleration (the
+               iOS sheet curve). Out-ranks the desktop panel's .visible timing. */
+            .info-window.mobile-legacy-sheet.visible {
+                transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
             }
 
             /* "Peek" State (Default visible state) */
@@ -1285,6 +1292,10 @@ disableHudControls() {
         // sheet always presents from below the bottom edge instead of popping
         // in already expanded.
         this.activeWindow.classList.add('sheet-preparing');
+        // A previous close leaves its (accelerating) inline transition behind;
+        // clear it so this sheet slides in on the stylesheet's entrance curve.
+        this.activeWindow.style.transition = '';
+        this.activeWindow.style.transform = '';
         this.activeWindow.classList.remove('visible', 'peek');
         this.activeWindow.classList.add('mobile-legacy-sheet');
         this.activeWindow.style.display = 'flex';
@@ -1862,7 +1873,11 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         if (!this.activeWindow) return;
 
         this.legacySheetState.currentState = targetState;
-        this.activeWindow.style.transition = 'transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)';
+        // Settling on a detent decelerates softly; closing accelerates away,
+        // so the sheet leaves decisively instead of crawling off the bottom.
+        this.activeWindow.style.transition = (targetState === 'closed')
+            ? 'transform 0.3s cubic-bezier(0.4, 0, 1, 1)'
+            : 'transform 0.5s cubic-bezier(0.32, 0.72, 0, 1)';
         this.activeWindow.style.transform = ''; // Remove inline style from dragging
 
         if (targetState === 'expanded') {
@@ -2086,7 +2101,8 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         const hudControls = document.getElementById('mobile-hud-controls');
         if (hudControls) hudControls.style.opacity = '1';
 
-        const animationDuration = force ? 0 : 500;
+        // Matches the 0.3s closing slide, plus a frame of slack.
+        const animationDuration = force ? 0 : 340;
         
         // --- Fork the teardown logic ---
         if (this.activeMode === 'hud') {

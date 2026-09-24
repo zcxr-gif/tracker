@@ -3932,18 +3932,39 @@ function injectCustomStyles() {
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-                        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-            transform-origin: top right;
+
+            /* --- SLIDE IN / OUT ---------------------------------------------
+               The panel slides in from the edge it is docked to and back out
+               the same way. Each direction has its own curve: in, a long
+               deceleration that settles softly (the iOS sheet curve); out, a
+               short acceleration, so the panel leaves decisively instead of
+               crawling off-screen on an ease-out. A browser uses the
+               transition declared on the state being entered, so the closed
+               rule below carries the exit timing and .visible the entrance.
+               Once off-screen the panel is visibility:hidden, so its 40px
+               backdrop blur stops being composited over the map. */
+            --iw-slide-in: cubic-bezier(0.32, 0.72, 0, 1);
+            --iw-slide-out: cubic-bezier(0.4, 0, 1, 1);
+            --iw-in-ms: 480ms;
+            --iw-out-ms: 280ms;
+            --iw-offscreen: translate3d(calc(100% + 40px), 0, 0);
             opacity: 0;
-            transform: translateX(28px) translateY(10px) scale(0.96);
+            visibility: hidden;
+            transform: var(--iw-offscreen);
             pointer-events: none;
+            transition: transform var(--iw-out-ms) var(--iw-slide-out),
+                        opacity 180ms ease-in 100ms,
+                        visibility 0s linear var(--iw-out-ms);
             will-change: opacity, transform;
         }
         .info-window.visible {
             opacity: 1;
-            transform: translateX(0) translateY(0) scale(1);
+            visibility: visible;
+            transform: translate3d(0, 0, 0);
             pointer-events: auto;
+            transition: transform var(--iw-in-ms) var(--iw-slide-in),
+                        opacity 220ms ease-out,
+                        visibility 0s linear 0s;
         }
 
         /* --- CONTENT SWAP ---------------------------------------------------
@@ -3957,9 +3978,10 @@ function injectCustomStyles() {
            .iw-morphing is only present while a swap is in flight, so the
            height transition can never interfere with the sheet's own motion
            on mobile or with the entrance transform above. */
-        .info-window.iw-morphing {
-            transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-                        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+        .info-window.visible.iw-morphing {
+            transition: transform var(--iw-in-ms) var(--iw-slide-in),
+                        opacity 220ms ease-out,
+                        visibility 0s linear 0s,
                         height 0.42s cubic-bezier(0.22, 1, 0.36, 1);
         }
         /* Direct children rather than a wrapper: content is written as raw
@@ -4003,8 +4025,16 @@ function injectCustomStyles() {
         @keyframes iw-frame-spin { to { transform: rotate(360deg); } }
 
         @media (prefers-reduced-motion: reduce) {
-            .info-window,
-            .info-window.iw-morphing { transition: none; }
+            /* No travel: the panel simply fades in and out in place. */
+            .info-window:not(.mobile-legacy-sheet) { --iw-offscreen: none; }
+            .info-window:not(.mobile-legacy-sheet),
+            .info-window.visible:not(.mobile-legacy-sheet),
+            .info-window.visible.iw-morphing {
+                transition: opacity 150ms linear, visibility 0s linear 150ms;
+            }
+            .info-window.visible:not(.mobile-legacy-sheet) {
+                transition: opacity 150ms linear, visibility 0s linear 0s;
+            }
             .info-window.iw-swapping > * { animation: none; }
         }
         /* --- MOBILE SHEET GUARD --- */
@@ -4021,9 +4051,10 @@ function injectCustomStyles() {
            whichever stylesheet loads last. */
         .info-window.mobile-legacy-sheet {
             opacity: 1;
+            visibility: visible;
             transform: translateY(100%);
             transform-origin: center bottom;
-            transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
             pointer-events: auto;
         }
         .info-window-header {
@@ -7246,15 +7277,11 @@ function injectCustomStyles() {
 
         /* --- DOCKING WINDOW & TOGGLE BUTTON STYLES --- */
         @media (min-width: 993px) {
+            /* Docked left: slide in from, and out to, the left edge. */
             .info-window.dock-left {
                 right: auto !important;
                 left: 20px !important;
-                transform-origin: top left;
-                transform: translateX(-28px) translateY(10px) scale(0.96);
-            }
-
-            .info-window.dock-left.visible {
-                transform: translateX(0) translateY(0) scale(1);
+                --iw-offscreen: translate3d(calc(-100% - 40px), 0, 0);
             }
         }
 
