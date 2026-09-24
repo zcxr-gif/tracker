@@ -22942,7 +22942,15 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     // expression rides along as a foreign member (__altGradient — valid
     // GeoJSON, ignored by Mapbox) so callers can apply it to the layer via
     // applyFlownPathGradient after setData.
-    const coordinates = smoothedPoints.map(p => [p.unwrappedLon, p.lat]);
+    // Rounded to 1e-6° (~0.1 m, far below a pixel at any zoom): setData
+    // JSON-stringifies the whole line on every packet and the worker parses
+    // it back, and 6-decimal numbers print and parse in ~60% of the time and
+    // bytes of full 17-digit doubles.
+    const coordinates = new Array(smoothedPoints.length);
+    for (let i = 0; i < smoothedPoints.length; i++) {
+        const p = smoothedPoints[i];
+        coordinates[i] = [Math.round(p.unwrappedLon * 1e6) / 1e6, Math.round(p.lat * 1e6) / 1e6];
+    }
     const fc = {
         type: 'FeatureCollection',
         features: [{
@@ -23118,6 +23126,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     // on it. Warming it here — rather than blocking boot — means it is ready
     // by the time the window renders, without holding up first paint.
     ensureRunwaysData();
+    // Same for the nav readout's airport index: build it in idle time now so
+    // the first live packet after opening doesn't pay for it.
+    warmNavAirportIndex();
 
     LandingUI.update(false);
     localStorage.setItem('landingUI_visible', 'false');
@@ -24828,7 +24839,7 @@ let totalDistanceNM = 0;
                                             <line id="Line 6" x1="746.5" y1="263" x2="746.5" y2="281" stroke="#ECED06" stroke-width="3"/>
                                             <line id="Line 4" x1="746.5" y1="329" x2="746.5" y2="347" stroke="#ECED06" stroke-width="3"/>
                                             <path id="Ellipse 1" d="M636 481C636 484.866 632.866 488 629 488C625.134 488 622 484.866 622 481C622 477.134 625.134 474 629 474C632.866 474 636 477.134 636 481Z" fill="#D9D9D9"/>
-                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 147Z" fill="#D9D9D9"/>
+                                            <path id="Ellipse 4" d="M636 147C636 150.866 632.866 154 629 154C625.134 154 622 150.866 622 147C622 143.134 625.134 140 629 140C632.866 140 636 143.134 636 147Z" fill="#D9D9D9"/>
                                             <g id="Ellipse 3">
                                                 <path d="M636 229C636 232.866 632.866 236 629 236C625.134 236 622 232.866 622 229C622 225.134 625.134 222 629 222C632.866 222 636 225.134 636 229Z" fill="#D9D9D9"/>
                                                 <path d="M636 395C636 398.866 632.866 402 629 402C625.134 402 622 398.866 622 395C622 391.134 625.134 388 629 388C632.866 388 636 391.134 636 395Z" fill="#D9D9D9"/>
@@ -25408,48 +25419,60 @@ function updateNavPanelData(lat, lon, heading, oat, windDir, windSpd) {
 }
 
 // Every airport (not just proper ICAO codes — the nav readout has always
-// considered strips and heliports too), sorted by latitude in typed arrays so
-// a lookup binary-searches to its ±2° band and never touches the rest.
-// Rebuilt lazily after airportsData changes (invalidateAirportIndex); the
-// cache variable lives next to _airportIndex.
+// considered strips and heliports too), bucketed by whole degree of latitude
+// in typed arrays so a lookup scans only its ±2° band and never touches the
+// rest. A counting sort (two linear passes, no comparator) builds it — the
+// first packet after opening a window used to spend ~90 ms comparison-sorting
+// 83k airports. Rebuilt lazily after airportsData changes
+// (invalidateAirportIndex); the cache variable lives next to _airportIndex.
 function buildNavAirportIndex() {
-    const rows = [];
-    for (const icao in airportsData) {
-        const apt = airportsData[icao];
+    const keys = Object.keys(airportsData);
+    const inLats = new Float64Array(keys.length);
+    const inLons = new Float64Array(keys.length);
+    const inIcaos = new Array(keys.length);
+    let n = 0;
+    for (let k = 0; k < keys.length; k++) {
+        const apt = airportsData[keys[k]];
         if (!apt || apt.lat == null || apt.lon == null) continue;
-        rows.push([apt.lat, apt.lon, icao]);
+        const lat = +apt.lat, lon = +apt.lon;
+        if (!(lat >= -90 && lat <= 90) || !isFinite(lon)) continue;
+        inLats[n] = lat; inLons[n] = lon; inIcaos[n] = keys[k]; n++;
     }
-    rows.sort((a, b) => a[0] - b[0]);
-    const n = rows.length;
+    // Bucket b holds latitudes in [b - 90, b - 89); 90° shares the top bucket.
+    const bucketOf = lat => Math.min(179, Math.floor(lat) + 90);
+    const start = new Uint32Array(181);
+    for (let i = 0; i < n; i++) start[bucketOf(inLats[i]) + 1]++;
+    for (let b = 1; b <= 180; b++) start[b] += start[b - 1];
+    const fill = start.slice(0, 180);
     const lats = new Float64Array(n);
     const lons = new Float64Array(n);
     const icaos = new Array(n);
     for (let i = 0; i < n; i++) {
-        lats[i] = rows[i][0];
-        lons[i] = rows[i][1];
-        icaos[i] = rows[i][2];
+        const j = fill[bucketOf(inLats[i])]++;
+        lats[j] = inLats[i]; lons[j] = inLons[i]; icaos[j] = inIcaos[i];
     }
-    return { lats, lons, icaos };
+    return { lats, lons, icaos, start, bucketOf };
+}
+
+function warmNavAirportIndex() {
+    if (_navAirportIndex || !airportsData) return;
+    const build = () => { if (!_navAirportIndex && airportsData) _navAirportIndex = buildNavAirportIndex(); };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(build, { timeout: 1500 });
+    else setTimeout(build, 200);
 }
 
 /** Nearest airport within 2° of lat and of lon, or null. */
 function nearestAirportWithin2Deg(lat, lon) {
     if (!airportsData || lat == null || lon == null || isNaN(lat) || isNaN(lon)) return null;
     if (!_navAirportIndex) _navAirportIndex = buildNavAirportIndex();
-    const { lats, lons, icaos } = _navAirportIndex;
+    const { lats, lons, icaos, start, bucketOf } = _navAirportIndex;
     if (!lats.length) return null;
-    // First index with latitude >= lat - 2.
-    let lo = 0, hi = lats.length;
-    const floor = lat - 2;
-    while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (lats[mid] < floor) lo = mid + 1; else hi = mid;
-    }
+    const from = start[bucketOf(Math.max(-90, lat - 2))];
+    const to = start[bucketOf(Math.min(90, lat + 2)) + 1];
     let bestIcao = null;
     let bestKm = Infinity;
-    const ceil = lat + 2;
-    for (let i = lo; i < lats.length && lats[i] <= ceil; i++) {
-        if (Math.abs(lons[i] - lon) > 2) continue;
+    for (let i = from; i < to; i++) {
+        if (Math.abs(lats[i] - lat) > 2 || Math.abs(lons[i] - lon) > 2) continue;
         const km = getDistanceKm(lat, lon, lats[i], lons[i]);
         if (km < bestKm) {
             bestKm = km;
