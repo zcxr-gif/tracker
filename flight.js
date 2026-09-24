@@ -4028,27 +4028,86 @@ function injectCustomStyles() {
            the next flight loads, then comes back up (iw-switch-in) — or the
            new content fades up over it — rather than being wiped to an empty
            panel. The sheet's drag handle stays live throughout. */
-        .info-window.iw-switching > *:not(.legacy-sheet-handle) {
+        .info-window.iw-switching > *:not(.legacy-sheet-handle):not(.iw-switch-status) {
             opacity: 0.35;
             transition: opacity 0.16s ease-out;
             pointer-events: none;
         }
-        .info-window.iw-switching::after {
+        /* The loading cue rides the window's top edge — a sweeping bar and a
+           "Loading <callsign>" chip — so it is on screen however the panel is
+           scrolled and however little of a peeking sheet is showing (a
+           centred spinner fell below the fold in both). Sticky with no
+           height, so it never moves the content under it. */
+        .info-window > .iw-switch-status {
+            position: sticky;
+            top: 0;
+            display: block;
+            height: 0;
+            margin: 0;
+            padding: 0;
+            overflow: visible;
+            z-index: 6;
+            pointer-events: none;
+        }
+        .iw-switch-status .iw-switch-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            overflow: hidden;
+            background: rgba(96, 165, 250, 0.16);
+        }
+        .iw-switch-status .iw-switch-bar::before {
             content: '';
             position: absolute;
-            top: 50%;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: 40%;
+            background: linear-gradient(90deg, rgba(96, 165, 250, 0), #60a5fa 50%, rgba(96, 165, 250, 0));
+            animation: iw-switch-bar 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+        @keyframes iw-switch-bar {
+            from { transform: translate3d(-100%, 0, 0); }
+            to   { transform: translate3d(250%, 0, 0); }
+        }
+        .iw-switch-status .iw-switch-chip {
+            position: absolute;
+            top: 16px;
             left: 50%;
-            width: 22px;
-            height: 22px;
-            margin: -11px 0 0 -11px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            max-width: calc(100% - 32px);
+            padding: 7px 13px 7px 10px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.38);
+            color: #e2e8f0;
+            font: 600 12px/1.1 'Inter', system-ui, sans-serif;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+            transform: translate3d(-50%, 0, 0);
+            animation: iw-switch-chip-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        .mobile-legacy-sheet > .iw-switch-status .iw-switch-chip { top: 22px; } /* clear the drag handle */
+        .iw-switch-chip .iw-switch-text { overflow: hidden; text-overflow: ellipsis; }
+        .iw-switch-chip .iw-switch-spin {
+            flex: none;
+            width: 12px;
+            height: 12px;
             border-radius: 50%;
-            border: 2px solid rgba(148, 163, 184, 0.25);
+            border: 2px solid rgba(148, 163, 184, 0.3);
             border-top-color: #60a5fa;
             animation: iw-frame-spin 0.8s linear infinite;
-            pointer-events: none;
-            z-index: 5;
         }
-        .info-window.iw-switch-in > *:not(.legacy-sheet-handle) {
+        @keyframes iw-switch-chip-in {
+            from { opacity: 0; transform: translate3d(-50%, -6px, 0); }
+            to   { opacity: 1; transform: translate3d(-50%, 0, 0); }
+        }
+        .info-window.iw-switch-in > *:not(.legacy-sheet-handle):not(.iw-switch-status) {
             animation: iw-switch-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
         }
         .iw-value-in { animation: iw-value-in 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
@@ -4074,6 +4133,8 @@ function injectCustomStyles() {
             }
             .info-window.iw-swapping > * { animation: none; }
             .info-window.iw-switch-in > * { animation: none; }
+            .iw-switch-status .iw-switch-chip { animation: none; }
+            .iw-switch-status .iw-switch-bar::before { animation-duration: 2.4s; }
         }
         /* --- MOBILE SHEET GUARD --- */
         /* On phones the same windows are re-presented as a bottom sheet
@@ -9100,9 +9161,22 @@ function setInfoWindowLoading(windowEl, html) {
  * until the next flight has been painted (iwEndSwitch). Content swaps through
  * setInfoWindowContent end it too, and fade the new card in.
  */
-function iwBeginSwitch(windowEl) {
+function iwBeginSwitch(windowEl, label) {
     windowEl.classList.remove('iw-frame-pending');
     windowEl.classList.add('iw-switching');
+    // Say what is loading, so a dimmed card reads as "the next flight is on
+    // its way" rather than as the old flight's data being current.
+    let status = windowEl.querySelector(':scope > .iw-switch-status');
+    if (!status) {
+        status = document.createElement('div');
+        status.className = 'iw-switch-status';
+        status.setAttribute('role', 'status');
+        status.setAttribute('aria-live', 'polite');
+        status.innerHTML = '<div class="iw-switch-bar"></div>'
+            + '<div class="iw-switch-chip"><span class="iw-switch-spin"></span><span class="iw-switch-text"></span></div>';
+    }
+    status.querySelector('.iw-switch-text').textContent = label ? `Loading ${label}…` : 'Loading flight…';
+    windowEl.prepend(status);
     clearTimeout(windowEl._iwSwitchTimer);
     // Never leave a card dimmed if every completion path is skipped.
     windowEl._iwSwitchTimer = setTimeout(() => iwEndSwitch(windowEl), 6000);
@@ -9111,6 +9185,7 @@ function iwBeginSwitch(windowEl) {
 function iwEndSwitch(windowEl, fadeIn = true) {
     if (!windowEl) return;
     clearTimeout(windowEl._iwSwitchTimer);
+    windowEl.querySelector(':scope > .iw-switch-status')?.remove();
     if (!windowEl.classList.contains('iw-switching')) return;
     windowEl.classList.remove('iw-switching');
     if (fadeIn) iwPlaySwitchIn(windowEl);
@@ -17973,6 +18048,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             end: mapFilters.themeEndColor || '#18181b',
             opacity: mapFilters.themeOpacity || 90
         },
+        flightId: flightProps.flightId,
         username: flightProps.username,
         callsign: flightProps.callsign,
         isVAMember: !!flightProps.isVAMember,
@@ -23227,7 +23303,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     if (windowEl && switchingFlights && windowEl.children.length) {
         // Plane to plane: keep the current card on screen, dimmed, until the
         // next one is ready, instead of wiping it to a spinner and back.
-        iwBeginSwitch(windowEl);
+        iwBeginSwitch(windowEl, String(flightProps.callsign || '').trim() || null);
     } else if (windowEl) {
         // Height is held at whatever the window already occupies (see
         // setInfoWindowLoading) so re-opening on another flight does not

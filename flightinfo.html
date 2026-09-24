@@ -553,6 +553,46 @@
     .skeleton { background:rgba(255,255,255,.03); border-radius:4px; color:transparent !important; animation:pulse 2s infinite; }
     @keyframes pulse { 0%{opacity:.4;} 50%{opacity:.7;} 100%{opacity:.4;} }
 
+    /* LOADING — when the window moves to another flight, whatever still
+       belongs to the previous one (pilot stats, photo) is cleared and
+       shimmers until the new flight's value arrives, instead of passing the
+       old pilot's numbers off as current. */
+    .profile-card.fi-loading .grade-val,
+    .profile-card.fi-loading .p-val,
+    .profile-card.fi-loading .p-stat-val,
+    .profile-card.fi-loading .vio-count,
+    .profile-card.fi-loading .vio-date,
+    .fi-skel-row {
+        color: transparent !important;
+        border-radius: 4px;
+        background: linear-gradient(90deg, rgba(255,255,255,.05) 25%, rgba(255,255,255,.14) 50%, rgba(255,255,255,.05) 75%);
+        background-size: 200% 100%;
+        animation: fi-shimmer 1.2s ease-in-out infinite;
+    }
+    .profile-card.fi-loading .grade-val,
+    .profile-card.fi-loading .p-val,
+    .profile-card.fi-loading .p-stat-val,
+    .profile-card.fi-loading .vio-count,
+    .profile-card.fi-loading .vio-date { display: inline-block; min-width: 3.4em; }
+    .profile-card.fi-loading .grade-val { min-width: 1.8em; }
+    .fi-skel-row { height: 10px; margin: 6px 0 14px; }
+    .fi-skel-row:nth-child(2) { width: 82%; }
+    .fi-skel-row:nth-child(3) { width: 64%; }
+    @keyframes fi-shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+    .mission-visual-section.hero-pending::before {
+        content: ''; position: absolute; inset: 0; pointer-events: none;
+        background: linear-gradient(100deg, rgba(255,255,255,0) 30%, rgba(255,255,255,.07) 50%, rgba(255,255,255,0) 70%);
+        transform: translate3d(-100%,0,0);
+        animation: fi-hero-sweep 1.3s ease-in-out infinite;
+    }
+    @keyframes fi-hero-sweep { to { transform: translate3d(100%,0,0); } }
+    @media (prefers-reduced-motion: reduce) {
+        .profile-card.fi-loading .grade-val, .profile-card.fi-loading .p-val,
+        .profile-card.fi-loading .p-stat-val, .profile-card.fi-loading .vio-count,
+        .profile-card.fi-loading .vio-date, .fi-skel-row,
+        .mission-visual-section.hero-pending::before { animation: none; }
+    }
+
     /* --- Wider hosts (iPad / desktop): keep everything in a centered,
        phone-width column so the card never stretches or looks sparse.
        Phones (< 560px) are untouched. --- */
@@ -2106,8 +2146,72 @@
         // =========================================================
         // DATA UPDATE
         // =========================================================
+        // Which flight the card shows, and whose pilot stats the manifest
+        // holds — so a switch can clear what belongs to the previous flight
+        // and a late stats reply for the previous pilot is not painted.
+        let shownFlightKey = null;
+        let shownUser = null;
+        let profileUser = null;
+        let pilotLoadingTimer = null;
+        let statsReplied = false;
+        const PROFILE_FIELDS = ['prof-grade', 'prof-va', 'prof-atc', 'prof-xp', 'prof-total-vio',
+            'prof-time-90', 'prof-land-90', 'prof-v1', 'prof-v2', 'prof-v3', 'prof-last-vio'];
+
+        function setPilotLoading(on) {
+            const card = document.querySelector('.profile-card');
+            clearTimeout(pilotLoadingTimer);
+            if (!card) return;
+            card.classList.toggle('fi-loading', on);
+            if (!on) return;
+            PROFILE_FIELDS.forEach((id) => updateText(id, '\u00a0'));
+            const link = document.getElementById('prof-community-link');
+            if (link) link.style.display = 'none';
+            const prog = document.getElementById('progression-list');
+            if (prog) prog.innerHTML = '<div class="fi-skel-row"></div>'.repeat(3);
+            // Never shimmer forever if the stats reply is lost.
+            pilotLoadingTimer = setTimeout(() => {
+                if (card.classList.contains('fi-loading')) window.showPilotProfileError();
+            }, 10000);
+        }
+
+        function beginFlight(data, isSwitch) {
+            shownUser = String(data.username || '').toLowerCase();
+            if (shownUser !== profileUser) {
+                updateText('prof-username', data.username || 'Pilot');
+                setPilotLoading(true);
+                // The host re-sends stats on a switch itself; on first paint,
+                // ask again only if the boot request already came back empty.
+                if (!isSwitch && statsReplied) {
+                    try { window.parent.postMessage({ type: 'REQUEST_PILOT_STATS' }, '*'); } catch (_) {}
+                }
+            }
+            if (!isSwitch) return;
+            // The previous flight's route list: renderWaypoints leaves the list
+            // alone when the new flight has none.
+            const wp = document.getElementById('wp-list');
+            if (wp) { wp.innerHTML = ''; delete wp.dataset.scrolled; }
+            // No photo for this airframe: don't keep showing the last one's.
+            const imgs = data.images || {};
+            const hasPhoto = !!((Array.isArray(imgs.list) && imgs.list.length) || imgs.url);
+            if (!hasPhoto) {
+                teardownSimpleHeroCarousel();
+                const img = document.getElementById('ac-photo');
+                if (img) { img.removeAttribute('src'); img.style.display = 'none'; img.classList.remove('hero-loading'); }
+                document.getElementById('hero-container')?.classList.remove('hero-pending');
+                ['c-thumb', 'c-hero'].forEach((id) => { const el = document.getElementById(id); if (el) el.style.backgroundImage = ''; });
+                ['ac-credit', 'c-hero-credit'].forEach((id) => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+            }
+        }
+
         window.updateFlightInterface = function(data) {
             if (!data) return;
+
+            const flightKey = data.flightId || `${data.callsign || ''}|${data.username || ''}`;
+            if (flightKey !== shownFlightKey) {
+                const isSwitch = shownFlightKey !== null;
+                shownFlightKey = flightKey;
+                beginFlight(data, isSwitch);
+            }
 
             const callsign = data.callsign || 'N/A';
             updateText('callsign', callsign);
@@ -2209,10 +2313,13 @@
                         // Fade the new photo in once it has loaded instead of
                         // painting it progressively / snapping it over the last one.
                         img.classList.add('hero-loading');
+                        document.getElementById('hero-container')?.classList.add('hero-pending');
                         if (!img._fadeWired) {
                             img._fadeWired = true;
-                            const settle = () => requestAnimationFrame(() => requestAnimationFrame(
-                                () => img.classList.remove('hero-loading')));
+                            const settle = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+                                img.classList.remove('hero-loading');
+                                document.getElementById('hero-container')?.classList.remove('hero-pending');
+                            }));
                             img.addEventListener('load', settle);
                             img.addEventListener('error', settle);
                         }
@@ -2429,6 +2536,12 @@
 
         window.updatePilotProfile = function(profile) {
             if (!profile) return;
+            // A reply for the pilot we just switched away from.
+            const forUser = String(profile.username || '').toLowerCase();
+            if (forUser && shownUser && forUser !== shownUser) return;
+            statsReplied = true;
+            profileUser = forUser || shownUser;
+            setPilotLoading(false);
 
             // Pilot identity + Community profile link (mirrors the profile UI).
             if (profile.username) updateText('prof-username', profile.username);
@@ -2476,6 +2589,9 @@
         // Graceful fallback when the pilot grade lookup fails — show a state
         // instead of leaving silent placeholders.
         window.showPilotProfileError = function(message) {
+            statsReplied = true;
+            profileUser = shownUser;
+            setPilotLoading(false);
             updateText('prof-grade', '--');
             updateText('prof-atc', 'Unavailable');
             updateText('prof-va', '—');
