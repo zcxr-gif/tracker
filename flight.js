@@ -24318,6 +24318,7 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     panel.insertBefore(fadeLayer, panel.firstChild);
 
     const dots = document.createElement('div');
+    dots.className = 'hero-photo-dots';
     dots.style.cssText = 'position:absolute;bottom:48px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
     const dotEls = photos.map((_, i) => {
         const d = document.createElement('span');
@@ -24331,6 +24332,7 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     // read as a faint photo watermark — not a solid UI badge that could be
     // mistaken for pilot info — so it's deliberately see-through with no border.
     const credit = document.createElement('div');
+    credit.className = 'hero-photo-credit';
     credit.style.cssText = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
 
     let index = 0;
@@ -24509,32 +24511,56 @@ const SERENE_WINDOW_CSS = (() => {
            stops following a smooth curve — so it melts into the window
            colour with no visible band or line. */
         ${S} .ac-header-modern {
-            min-height: 248px !important; background-color: var(--sr-bg) !important;
-            background-size: cover !important; background-position: center 42% !important;
+            min-height: 272px !important; background-color: var(--sr-bg) !important;
+            background-size: cover !important; background-position: center 40% !important;
             background-repeat: no-repeat !important;
         }
         ${S} .ac-header-overlay {
             background: linear-gradient(180deg,
-                rgba(12,14,18,0.46) 0%, rgba(12,14,18,0.26) 10%,
-                rgba(12,14,18,0.08) 22%, rgba(22,24,28,0) 34%,
-                rgba(22,24,28,0.02) 40%, rgba(22,24,28,0.06) 46%,
-                rgba(22,24,28,0.13) 52%, rgba(22,24,28,0.22) 58%,
-                rgba(22,24,28,0.33) 64%, rgba(22,24,28,0.46) 70%,
-                rgba(22,24,28,0.60) 76%, rgba(22,24,28,0.73) 82%,
-                rgba(22,24,28,0.85) 88%, rgba(22,24,28,0.94) 94%,
+                rgba(12,14,18,0.34) 0%, rgba(12,14,18,0.14) 12%,
+                rgba(22,24,28,0) 26%, rgba(22,24,28,0.02) 34%,
+                rgba(22,24,28,0.07) 41%, rgba(22,24,28,0.15) 48%,
+                rgba(22,24,28,0.26) 55%, rgba(22,24,28,0.40) 62%,
+                rgba(22,24,28,0.55) 69%, rgba(22,24,28,0.70) 76%,
+                rgba(22,24,28,0.83) 83%, rgba(22,24,28,0.93) 91%,
                 var(--sr-bg) 100%) !important;
         }
+
+        /* Header: the photo stays clear at the top (only the action buttons
+           sit there) and the identity rests at the bottom-left, on the
+           darkest part of the fade: the callsign on one line, then aircraft
+           · airline on one line. The VA badge, when present, sits just above. */
+        ${S} .ac-partner-hero { order: 2; margin: auto 20px 8px !important; max-width: calc(100% - 40px) !important; }
+        ${S} .ac-header-top { order: 3; padding: 0 20px 14px !important; }
+        ${S} .ac-identity-group { max-width: 100% !important; min-width: 0; width: 100%; }
         ${S} .ac-header-top h1 {
-            font-size: 26px !important; font-weight: 700 !important;
-            letter-spacing: -0.02em; text-shadow: 0 1px 14px rgba(0,0,0,0.45) !important;
-            display: flex; align-items: center; gap: 10px;
+            display: block !important; font-size: 25px !important; font-weight: 700 !important;
+            line-height: 1.15 !important; letter-spacing: -0.02em;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            text-shadow: 0 1px 12px rgba(0,0,0,0.35) !important;
         }
-        ${S} .ac-header-logo { filter: drop-shadow(0 1px 6px rgba(0,0,0,0.35)); }
+        ${S} .ac-header-logo {
+            height: 24px !important; max-width: 84px !important; vertical-align: -4px;
+            margin-right: 8px; filter: drop-shadow(0 1px 6px rgba(0,0,0,0.35));
+        }
         ${S} .ac-sub-identity {
-            font-size: 12px !important; color: rgba(255,255,255,0.8) !important;
-            text-shadow: 0 1px 8px rgba(0,0,0,0.5) !important; margin-top: 7px !important;
+            flex-wrap: nowrap !important; min-width: 0; gap: 7px !important;
+            font-size: 13px !important; font-weight: 500 !important; color: rgba(255,255,255,0.72) !important;
+            text-shadow: 0 1px 8px rgba(0,0,0,0.4) !important; margin-top: 5px !important;
         }
-        ${S} .ac-sub-identity > span:nth-child(2) { background: rgba(255,255,255,0.5) !important; }
+        ${S} .ac-sub-identity > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        ${S} .ac-sub-identity > span:first-child { flex: 0 0 auto; max-width: 60%; }
+        ${S} .ac-sub-identity > span:nth-child(2) { flex: 0 0 auto; width: 3px !important; background: rgba(255,255,255,0.45) !important; }
+        ${S} .ac-sub-identity > span:nth-child(2):has(+ span:empty) { display: none; }
+        /* Photo carousel: dots bottom-right beside the identity, the credit
+           a faint tag top-left, clear of the callsign. */
+        ${S} .hero-photo-dots { left: auto !important; right: 20px !important; bottom: 22px !important; gap: 5px !important; }
+        ${S} .hero-photo-dots span { width: 6px !important; height: 6px !important; box-shadow: none !important; }
+        ${S} .hero-photo-credit {
+            top: 18px !important; left: 18px !important; right: auto !important; bottom: auto !important;
+            font-size: 10px !important; background: rgba(12,14,18,0.3) !important;
+        }
+        ${S}:has(.hero-photo-dots) .ac-identity-group { padding-right: 56px; }
         ${S} .hero-btn {
             width: 34px; height: 34px;
             background: rgba(18,20,24,0.34);
@@ -24547,10 +24573,10 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .hero-btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.22); }
         ${S} .hero-btn.pinged { color: var(--sr-accent); border-color: rgba(140,200,238,0.55); }
 
-        /* ---- Route card: frosted glass resting on the bottom of the photo ---- */
+        /* ---- Route card: sits just under the photo's fade ---- */
         ${S} .ac-route-bar-backdrop { background: transparent !important; box-shadow: none !important; display: flow-root; }
         ${S} .ac-route-info-bar {
-            margin: -38px 14px 0 !important;
+            margin: 2px 14px 0 !important;
             padding: 16px 20px !important;
             background: rgba(30,33,39,0.62) !important;
             -webkit-backdrop-filter: blur(22px) saturate(150%) !important;
@@ -24636,47 +24662,67 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} #pfd-container [fill="#C477C6"] { fill: #c7a3d9; }
         ${S} #nav-display-frame { filter: saturate(0.7) brightness(0.97); }
 
-        /* Pilot status + timers beside the PFD */
+        /* Pilot status + timers: moved out from beside the PFD into one
+           card under the glance row (arrangeSereneWindow adds .sr-status).
+           Status on top, the three timers in a row beneath a hairline. */
+        ${S} .pfd-and-location-grid { grid-template-columns: 1fr !important; }
+        ${S} .sr-status {
+            height: auto !important; overflow: visible !important; gap: 0 !important;
+            justify-content: flex-start !important;
+            background: var(--sr-surface); border: 1px solid var(--sr-line);
+            border-radius: 20px; padding: 16px 18px;
+        }
         ${S} .modern-status-card {
-            background: var(--sr-surface) !important; border: 1px solid var(--sr-line) !important;
-            border-radius: 16px !important; box-shadow: none !important;
+            background: transparent !important; border: 0 !important; border-radius: 0 !important;
+            padding: 0 !important; box-shadow: none !important; overflow: visible !important;
             -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
         }
-        ${S} .modern-status-card .status-glow { opacity: 0.1 !important; }
+        ${S} .modern-status-card .status-glow { display: none !important; }
+        /* icon | text | live dot, on one line */
+        ${S} .modern-status-card > div { flex-direction: row !important; align-items: center !important; gap: 12px !important; }
+        ${S} .modern-status-card > div > div:first-child { display: contents !important; }
+        ${S} .modern-status-card > div > div:last-child { order: 1; flex: 1; min-width: 0; }
+        ${S} .modern-status-card .tech-ping { order: 2; }
         ${S} .modern-status-card > div > div:first-child > div:first-child {
-            background: rgba(255,255,255,0.05) !important; border-color: transparent !important; border-radius: 10px !important;
+            width: 38px !important; height: 38px !important; flex: 0 0 auto;
+            background: rgba(255,255,255,0.05) !important; border-color: transparent !important; border-radius: 12px !important;
         }
         ${S} .modern-status-card i { filter: none !important; }
         ${S} .modern-status-card > div > div:last-child > span:nth-child(1) {
-            font-size: 10.5px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
-            text-transform: none !important; letter-spacing: 0 !important; margin-bottom: 2px !important;
+            font-size: 11px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
+            text-transform: none !important; letter-spacing: 0 !important; margin-bottom: 1px !important;
         }
-        ${S} .modern-status-card > div > div:last-child > span:nth-child(2) { font-size: 15px !important; font-weight: 600 !important; letter-spacing: 0.02em !important; }
-        ${S} .modern-status-card > div > div:last-child > span:nth-child(3) { color: var(--sr-faint) !important; font-size: 10px !important; }
-        ${S} .modern-timer-stack { gap: 6px !important; }
-        ${S} .timer-node {
-            background: var(--sr-surface) !important; border: 1px solid var(--sr-line) !important;
-            border-radius: 14px !important; padding: 9px 12px !important;
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(2) {
+            font-size: 16px !important; font-weight: 600 !important; letter-spacing: 0 !important;
+            text-transform: lowercase;
         }
-        ${S} .timer-node > div > span {
-            font-size: 10.5px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(2)::first-letter { text-transform: uppercase; }
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(3) { color: var(--sr-faint) !important; font-size: 11px !important; }
+        ${S} .modern-timer-stack {
+            display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 0 !important;
+            margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--sr-line);
+        }
+        ${S} .timer-node, ${S} .timer-node:last-child {
+            display: flex !important; flex-direction: column !important; align-items: flex-start !important;
+            justify-content: flex-start !important; gap: 3px;
+            background: transparent !important; border: 0 !important; border-radius: 0 !important;
+            padding: 0 12px !important; min-width: 0;
+        }
+        ${S} .timer-node:first-child { padding-left: 0 !important; }
+        ${S} .timer-node + .timer-node { border-left: 1px solid var(--sr-line) !important; }
+        ${S} .timer-node > div { margin: 0 !important; }
+        ${S} .timer-node > div > span, ${S} .timer-node:last-child > span:first-child {
+            font-size: 11px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
             text-transform: none !important; letter-spacing: 0 !important;
         }
         ${S} .timer-node i { color: var(--sr-faint) !important; font-size: 9px !important; }
         ${S} .timer-node:nth-child(2) i, ${S} .timer-node:nth-child(2) > div > span { color: var(--sr-accent) !important; }
-        ${S} #ac-sensor-elapsed, ${S} #ac-sensor-ete {
+        ${S} #ac-sensor-elapsed, ${S} #ac-sensor-ete, ${S} #ac-sensor-total {
             font-family: var(--font-ui) !important; font-size: 17px !important; font-weight: 500 !important;
-            font-variant-numeric: tabular-nums; margin-top: 2px;
+            color: var(--sr-text) !important; font-variant-numeric: tabular-nums;
         }
         ${S} #ac-sensor-ete { color: var(--sr-accent) !important; }
-        ${S} .timer-node:last-child {
-            background: transparent !important; border: 0 !important; border-radius: 0 !important;
-            border-top: 1px solid var(--sr-line) !important; padding: 7px 4px 2px !important;
-        }
-        ${S} .timer-node:last-child > span:first-child {
-            font-size: 10.5px !important; font-weight: 500 !important; color: var(--sr-faint) !important; text-transform: none !important;
-        }
-        ${S} #ac-sensor-total { font-family: var(--font-ui) !important; color: var(--sr-muted) !important; font-variant-numeric: tabular-nums; }
+        ${S} .sr-hidden { display: none !important; }
 
         /* Navigation / Flight plan switch */
         ${S} .nd-full-width-section .modern-view-switcher {
@@ -24794,7 +24840,7 @@ const SERENE_GLANCE = [
 
 /**
  * Serene reads top-down as a story rather than a cockpit: the live numbers
- * and the journey first, then where the flight is going, then the
+ * and the pilot's status first, then where the flight is going, then the
  * instruments, then the detail. Same nodes (ids, listeners, live updates are
  * unaffected), only moved; anything not named keeps its place at the top of
  * the column (the hidden legacy spans).
@@ -24823,9 +24869,16 @@ function arrangeSereneWindow(html) {
         `<div class="sr-g"><span class="sr-g-l">${label}</span><span class="sr-g-v" data-sr-mirror="${id}">---</span></div>`
     ).join(''));
 
+    // "This flight" is left out of Serene. It stays in the DOM, hidden,
+    // because the live-update path writes to its ids.
+    withHeading(q('.stats-card')).forEach((el) => el.classList.add('sr-hidden'));
+    // Pilot status + timers leave the PFD's side column for their own card.
+    const status = pane.querySelector('.pfd-and-location-grid .info-right-col');
+    if (status) status.classList.add('sr-status');
+
     const order = [
         glance,
-        ...withHeading(q('.stats-card')),
+        status,
         q('#legacy-dest-card'),
         make('h2', 'acx-sec', 'Instruments'),
         q('.pfd-and-location-grid'),
