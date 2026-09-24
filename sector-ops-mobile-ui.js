@@ -1210,6 +1210,17 @@ disableHudControls() {
     openWindow(windowElement) {
         if (!this.isMobile()) return;
 
+        // Switching planes: this window's sheet is already up. Keep it exactly
+        // where it is (peek or expanded) while the content swaps underneath,
+        // instead of force-closing it and sliding a new sheet up — the old
+        // sheet vanished in one frame and the new one replayed the entrance.
+        if (this.activeWindow === windowElement && this.activeMode === 'legacy'
+            && windowElement.classList.contains('mobile-legacy-sheet')
+            && windowElement.classList.contains('visible')) {
+            this.observeOriginalWindow(windowElement, { keepState: true });
+            return;
+        }
+
         if (this.activeWindow) {
             this.closeActiveWindow(true); 
         }
@@ -1362,8 +1373,9 @@ disableHudControls() {
      * Now calls the correct "populate" function based on the active mode
      * AND triggers the animation *after* population is complete.
      */
-    observeOriginalWindow(windowElement) {
+    observeOriginalWindow(windowElement, opts = {}) {
         if (this.contentObserver) this.contentObserver.disconnect();
+        const keepState = !!opts.keepState;
 
         // Populates the active sheet/HUD once the window's content is ready and
         // animates it in. Returns true once it has run so the caller can stop
@@ -1393,6 +1405,22 @@ disableHudControls() {
             const isSimpleReady = !!simpleIframe && !simpleIframe.classList.contains('iw-frame-waiting');
 
             if (!(isStandardReady || isSimpleReady || isAirportReady)) return false;
+
+            // Sheet already on screen (plane switch): never move it; only
+            // restore the drag handle once the content swap has removed it.
+            if (keepState) {
+                if (windowElement.querySelector('.universal-handle')) {
+                    // A reused simple frame is updated in place — nothing is
+                    // swapped, so nothing to restore. Anything else is still
+                    // the previous flight's panel: wait for its replacement.
+                    if (!simpleIframe) return false;
+                    populated = true;
+                    return true;
+                }
+                populated = true;
+                this.populateLegacySheet(windowElement);
+                return true;
+            }
 
             populated = true;
 
@@ -1589,7 +1617,9 @@ wireUpLegacySheetInteractions(sheetElement, handleElement) {
         // pans, pinches, sheet scrolls — wait on the main thread before the
         // compositor could move, which is where the gesture stutter came from.
 
-        if (this.overlayEl) {
+        // Re-populating after a plane switch must not stack a second listener.
+        if (this.overlayEl && !this.overlayEl._legacyWired) {
+            this.overlayEl._legacyWired = true;
             this.overlayEl.addEventListener('click', () => {
                 if (this.legacySheetState.currentState === 'expanded'
                     && !this.isSimpleSheetExpandedOnly()) {

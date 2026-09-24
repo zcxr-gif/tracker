@@ -335,6 +335,8 @@
         position: relative; width: 100%; aspect-ratio: 21 / 9; flex: 0 0 auto;
         background: #0f172a; overflow: hidden;
     }
+    #ac-photo { transition: opacity 0.4s ease, transform 8s ease; }
+    #ac-photo.hero-loading { opacity: 0; }
     .hero-img {
         width: 100%; height: 100%; object-fit: cover; object-position: center;
         display: block; transition: transform 8s ease; transform: scale(1);
@@ -2203,7 +2205,19 @@
                 } else {
                     teardownSimpleHeroCarousel();
                     const img = document.getElementById('ac-photo');
-                    if (heroUrl && img.src !== heroUrl) img.src = heroUrl;
+                    if (heroUrl && img.src !== heroUrl) {
+                        // Fade the new photo in once it has loaded instead of
+                        // painting it progressively / snapping it over the last one.
+                        img.classList.add('hero-loading');
+                        if (!img._fadeWired) {
+                            img._fadeWired = true;
+                            const settle = () => requestAnimationFrame(() => requestAnimationFrame(
+                                () => img.classList.remove('hero-loading')));
+                            img.addEventListener('load', settle);
+                            img.addEventListener('error', settle);
+                        }
+                        img.src = heroUrl;
+                    }
                     if (heroCredit) { creditEl.textContent = '© ' + heroCredit; creditEl.style.display = 'block'; }
                     else { creditEl.style.display = 'none'; }
                 }
@@ -2502,12 +2516,15 @@
         // Tell the host once the first flight has been painted, so it can
         // reveal this frame with real data on it instead of the placeholder.
         let renderedNotified = false;
-        function notifyRendered() {
-            if (renderedNotified) return;
-            renderedNotified = true;
+        function postRendered() {
             requestAnimationFrame(() => requestAnimationFrame(() => {
                 try { window.parent.postMessage({ type: 'SIMPLE_WINDOW_RENDERED' }, '*'); } catch (e) {}
             }));
+        }
+        function notifyRendered() {
+            if (renderedNotified) return;
+            renderedNotified = true;
+            postRendered();
         }
         window.addEventListener('message', (event) => {
             const d = event.data;
@@ -2518,6 +2535,9 @@
                 // Background/theme is owned by the layout studio (applyStyle), so
                 // the host's per-tick theme payload is intentionally ignored here.
             }
+            // The host switched this frame to another flight and waits for it
+            // to be painted before bringing the card back up.
+            if (d.type === 'REQUEST_RENDERED_ACK') postRendered();
             if (d.type === 'PILOT_STATS_DATA') window.updatePilotProfile(d.payload && d.payload.profile);
             if (d.type === 'PILOT_STATS_ERROR') window.showPilotProfileError(d.message);
             // Parent can force a phase (e.g. mobile sheet swipe).

@@ -4024,6 +4024,43 @@ function injectCustomStyles() {
         }
         @keyframes iw-frame-spin { to { transform: rotate(360deg); } }
 
+        /* Plane-to-plane switch: the current card dims under a spinner while
+           the next flight loads, then comes back up (iw-switch-in) — or the
+           new content fades up over it — rather than being wiped to an empty
+           panel. The sheet's drag handle stays live throughout. */
+        .info-window.iw-switching > *:not(.legacy-sheet-handle) {
+            opacity: 0.35;
+            transition: opacity 0.16s ease-out;
+            pointer-events: none;
+        }
+        .info-window.iw-switching::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 22px;
+            height: 22px;
+            margin: -11px 0 0 -11px;
+            border-radius: 50%;
+            border: 2px solid rgba(148, 163, 184, 0.25);
+            border-top-color: #60a5fa;
+            animation: iw-frame-spin 0.8s linear infinite;
+            pointer-events: none;
+            z-index: 5;
+        }
+        .info-window.iw-switch-in > *:not(.legacy-sheet-handle) {
+            animation: iw-switch-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        .iw-value-in { animation: iw-value-in 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+        @keyframes iw-value-in {
+            from { opacity: 0.2; }
+            to   { opacity: 1; }
+        }
+        @keyframes iw-switch-in {
+            from { opacity: 0.35; }
+            to   { opacity: 1; }
+        }
+
         @media (prefers-reduced-motion: reduce) {
             /* No travel: the panel simply fades in and out in place. */
             .info-window:not(.mobile-legacy-sheet) { --iw-offscreen: none; }
@@ -4036,6 +4073,7 @@ function injectCustomStyles() {
                 transition: opacity 150ms linear, visibility 0s linear 0s;
             }
             .info-window.iw-swapping > * { animation: none; }
+            .info-window.iw-switch-in > * { animation: none; }
         }
         /* --- MOBILE SHEET GUARD --- */
         /* On phones the same windows are re-presented as a bottom sheet
@@ -7823,17 +7861,12 @@ function injectGateInfoUI(departureIcao, flownPath, arrivalIcao, flightProps) {
         const depGateEl = document.getElementById('ac-dep-gate');
         const arrGateEl = document.getElementById('ac-arr-gate');
 
-        if (depGateEl) {
-            depGateEl.innerHTML = gates.departureGate !== '---'
-                ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}`
-                : `<i class="fa-solid fa-door-open"></i> Gate ---`;
-        }
-
-        if (arrGateEl) {
-            arrGateEl.innerHTML = gates.arrivalGate !== '---'
-                ? `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`
-                : `<i class="fa-solid fa-door-closed"></i> Gate ---`;
-        }
+        iwSettleValue(depGateEl, { html: gates.departureGate !== '---'
+            ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}`
+            : `<i class="fa-solid fa-door-open"></i> Gate ---` });
+        iwSettleValue(arrGateEl, { html: gates.arrivalGate !== '---'
+            ? `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`
+            : `<i class="fa-solid fa-door-closed"></i> Gate ---` });
     });
 }
 
@@ -9051,6 +9084,7 @@ function iwClearMorph(windowEl) {
 function setInfoWindowLoading(windowEl, html) {
     if (!windowEl) return;
     windowEl.classList.remove('iw-frame-pending'); // a previous frame's spinner
+    iwEndSwitch(windowEl);
     if (!iwShouldAnimate(windowEl)) {
         windowEl.innerHTML = html;
         return;
@@ -9059,6 +9093,65 @@ function setInfoWindowLoading(windowEl, html) {
     windowEl.innerHTML = html;
     windowEl.classList.add('iw-loading');
     windowEl.style.height = Math.max(current, iwExpectedHeight(windowEl)) + 'px';
+}
+
+/**
+ * Plane-to-plane switch: the current card stays, dimmed under a spinner,
+ * until the next flight has been painted (iwEndSwitch). Content swaps through
+ * setInfoWindowContent end it too, and fade the new card in.
+ */
+function iwBeginSwitch(windowEl) {
+    windowEl.classList.remove('iw-frame-pending');
+    windowEl.classList.add('iw-switching');
+    clearTimeout(windowEl._iwSwitchTimer);
+    // Never leave a card dimmed if every completion path is skipped.
+    windowEl._iwSwitchTimer = setTimeout(() => iwEndSwitch(windowEl), 6000);
+}
+
+function iwEndSwitch(windowEl, fadeIn = true) {
+    if (!windowEl) return;
+    clearTimeout(windowEl._iwSwitchTimer);
+    if (!windowEl.classList.contains('iw-switching')) return;
+    windowEl.classList.remove('iw-switching');
+    if (fadeIn) iwPlaySwitchIn(windowEl);
+}
+
+/**
+ * Writes a value that arrives after the window is already showing (route
+ * times, gates) — only when it actually changed, and with a short fade so it
+ * settles in rather than snapping from a placeholder. Not for per-tick live
+ * values, which would flicker.
+ */
+function iwSettleValue(el, { text, html } = {}) {
+    if (!el) return;
+    if (html !== undefined) {
+        if (el.innerHTML === html) return;
+        el.innerHTML = html;
+    } else {
+        if (el.textContent === text) return;
+        el.textContent = text;
+    }
+    el.classList.remove('iw-value-in');
+    void el.offsetWidth;
+    el.classList.add('iw-value-in');
+}
+
+/** Brings a dimmed card back up to full strength (see .iw-switch-in). */
+function iwPlaySwitchIn(windowEl) {
+    windowEl.classList.remove('iw-switch-in');
+    void windowEl.offsetWidth; // restart the animation if it is mid-run
+    windowEl.classList.add('iw-switch-in');
+    clearTimeout(windowEl._iwSwitchInTimer);
+    windowEl._iwSwitchInTimer = setTimeout(() => windowEl.classList.remove('iw-switch-in'), 360);
+}
+
+/** Route-history response → points sorted by time ([] when unusable). */
+function routePointsFrom(routeData) {
+    const historyArray = routeData?.path || routeData?.route || [];
+    if (routeData && routeData.ok && Array.isArray(historyArray)) {
+        return historyArray.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+    return [];
 }
 
 /**
@@ -9079,6 +9172,11 @@ function iwExpectedHeight(windowEl) {
  */
 function setInfoWindowContent(windowEl, html) {
     if (!windowEl) return;
+    // A plane-to-plane switch ends here. When this swap animates, the new
+    // content's own fade-up (iw-swapping) is the transition; otherwise the
+    // freshly written card is brought up from the dimmed level instead.
+    const wasSwitching = windowEl.classList.contains('iw-switching');
+    iwEndSwitch(windowEl, false);
     // Content that is not the simple/embed iframe sizes itself, so swapping to
     // it also hands back the box applySimpleWindowPhase pinned on the window.
     const keepsPhaseSize = /<iframe/i.test(html);
@@ -9088,12 +9186,17 @@ function setInfoWindowContent(windowEl, html) {
         if (windowEl.style.height && !iwPhaseManaged(windowEl)) windowEl.style.height = '';
         windowEl.classList.remove('iw-loading');
         windowEl.innerHTML = html;
+        if (wasSwitching) iwPlaySwitchIn(windowEl);
         return;
     }
 
     const from = windowEl.getBoundingClientRect().height;
     windowEl.innerHTML = html;
     windowEl.classList.remove('iw-loading');
+    // Switching planes: the new card rises from the dimmed level the old one
+    // was held at (iw-switch-in outranks the swap's fade-from-zero), so there
+    // is no dark dip between the two.
+    if (wasSwitching) iwPlaySwitchIn(windowEl);
 
     // An iframe sized at 100% has no natural height to measure against — there
     // is nothing to morph towards, so this just drops the loading lock. The
@@ -13925,11 +14028,11 @@ function getNearestRunway(aircraftPos, airportIcao, maxDistanceNM = 2.0) {
     function applyRouteTimeInfoToDom(suffix, info) {
         const timeText = info.time === '--:--' ? info.time : `${info.time} Z`;
         document.querySelectorAll(`#ac-bar-${suffix}`).forEach(el => {
-            el.textContent = timeText;
+            iwSettleValue(el, { text: timeText });
             el.style.color = info.color;
         });
         document.querySelectorAll(`#ac-bar-${suffix}-label`).forEach(el => {
-            el.textContent = info.label;
+            iwSettleValue(el, { text: info.label });
             el.style.color = info.color;
         });
     }
@@ -22957,6 +23060,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         }
     }
 
+    // Already showing a flight → this is a switch, animated as one.
+    const switchingFlights = !!currentFlightInWindow && aircraftInfoWindow.classList.contains('visible');
+
     currentFlightInWindow = flightProps.flightId;
     markSelectedAircraft(currentFlightInWindow);
     currentAircraftPositionForGeocode = flightProps.position;
@@ -22972,7 +23078,11 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
     }
 
     const windowEl = document.getElementById('aircraft-info-window');
-    if (windowEl) {
+    if (windowEl && switchingFlights && windowEl.children.length) {
+        // Plane to plane: keep the current card on screen, dimmed, until the
+        // next one is ready, instead of wiping it to a spinner and back.
+        iwBeginSwitch(windowEl);
+    } else if (windowEl) {
         // Height is held at whatever the window already occupies (see
         // setInfoWindowLoading) so re-opening on another flight does not
         // collapse the panel to a spinner box and grow it back.
@@ -23016,6 +23126,11 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         const aircraftLookupUrl = `${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`;
 
         const routePromise = fetch(historyUrl).catch(() => ({ ok: false }));
+        // Parsed once and shared: the simple frame's first payload and the
+        // trail/path code below both read it.
+        const routeDataPromise = routePromise
+            .then((res) => (res && res.ok ? res.json() : null))
+            .catch(() => null);
 
         const [planRes, aircraftLookupRes] = await Promise.all([
             fetch(planUrl).catch(() => ({ ok: false })),
@@ -23061,10 +23176,12 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             lat: flightProps.position?.lat ?? flightProps.position?.latitude ?? null,
             lon: flightProps.position?.lon ?? flightProps.position?.longitude ?? null,
         };
+        // A plane switch has no entrance to protect, and the pill should go
+        // to its dimmed "loading" look the moment the window changes flight.
         setTimeout(() => {
             if (currentFlightInWindow !== weatherDetail.flightId) return;
             window.dispatchEvent(new CustomEvent('flight-window-weather', { detail: weatherDetail }));
-        }, 450);
+        }, switchingFlights ? 0 : 450);
 
         const filedPlanData = await FlightDispatchService.getFiledPlan(
             flightProps.username,
@@ -23107,30 +23224,84 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // the data on load, so revealing it straight away showed a blank
             // slab, then placeholders, then the real card — three looks in half
             // a second. The mobile sheet also waits for this before sliding up.
-            windowEl.classList.add('iw-frame-pending');
-            setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" class="iw-frame-waiting" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`);
-            const simpleData = formatDataForSimpleWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
-            const iframe = document.getElementById('simple-flight-window-frame');
-            const revealFrame = () => {
-                clearTimeout(iframe._iwRevealTimer);
-                iframe.classList.remove('iw-frame-waiting');
-                windowEl.classList.remove('iw-frame-pending');
+            // First payload: carry the flown trail when the history request has
+            // already answered (it runs in parallel with the plan fetch), so
+            // progress, distance and the graph arrive with the card instead of
+            // filling in a moment after it appears. Never waits long for it.
+            const firstPayload = async () => {
+                const data = await Promise.race([
+                    routeDataPromise,
+                    new Promise((r) => setTimeout(() => r(null), 350))
+                ]);
+                return formatDataForSimpleWindow(flightProps, plan, routePointsFrom(data), communityAircraftData, filedPlanData);
             };
-            // The frame posts SIMPLE_WINDOW_RENDERED once it has painted the
-            // flight (see handleIframeMessage). Never leave the card hidden if
-            // it is slow or fails to load.
-            iframe._iwReveal = revealFrame;
-            iframe._iwRevealTimer = setTimeout(revealFrame, 1500);
-            iframe.onload = () => {
-                iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: simpleData }, '*');
+            const postPhase = (frame) => {
                 // The iframe defaults to its collapsed body class; on desktop force it
                 // into the expanded full-info layout to match the host phase above.
                 if (initialPhase === 'expanded') {
-                    iframe.contentWindow.postMessage({ type: 'SET_PHASE', phase: 'expanded' }, '*');
+                    frame.contentWindow.postMessage({ type: 'SET_PHASE', phase: 'expanded' }, '*');
                 }
             };
+
+            const liveFrame = document.getElementById('simple-flight-window-frame');
+            if (liveFrame && liveFrame._iwLoaded && liveFrame.contentWindow
+                && windowEl.contains(liveFrame) && liveFrame.getAttribute('src') === _fwSrc) {
+                // Switching planes: keep the loaded frame and hand it the new
+                // flight. Reloading it blanked the panel for half a second and
+                // replayed the whole entrance; the old card now stays (dimmed,
+                // see iw-switching) until the new one has painted.
+                const payload = await firstPayload();
+                // Closed (or moved on) while the trail was awaited: nothing to show.
+                if (currentFlightInWindow === flightProps.flightId && liveFrame.contentWindow) {
+                    liveFrame.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload }, '*');
+                    postPhase(liveFrame);
+                    // The pilot panel belongs to the previous pilot until asked.
+                    handleIframeMessage({ data: { type: 'REQUEST_PILOT_STATS' } });
+                    const finish = () => {
+                        clearTimeout(liveFrame._iwRevealTimer);
+                        liveFrame._iwReveal = null;
+                        iwEndSwitch(windowEl);
+                    };
+                    liveFrame._iwReveal = finish;
+                    liveFrame._iwRevealTimer = setTimeout(finish, 800);
+                    liveFrame.contentWindow.postMessage({ type: 'REQUEST_RENDERED_ACK' }, '*');
+                } else {
+                    iwEndSwitch(windowEl);
+                }
+            } else {
+                windowEl.classList.add('iw-frame-pending');
+                setInfoWindowContent(windowEl, `<iframe id="simple-flight-window-frame" class="iw-frame-waiting" src="${_fwSrc}" style="width:100%; height:100%; border:none; display:block;" scrolling="no"></iframe>`);
+                const iframe = document.getElementById('simple-flight-window-frame');
+                const revealFrame = () => {
+                    clearTimeout(iframe._iwRevealTimer);
+                    iframe._iwReveal = null;
+                    iframe.classList.remove('iw-frame-waiting');
+                    windowEl.classList.remove('iw-frame-pending');
+                };
+                // The frame posts SIMPLE_WINDOW_RENDERED once it has painted the
+                // flight (see handleIframeMessage). Never leave the card hidden if
+                // it is slow or fails to load.
+                iframe._iwReveal = revealFrame;
+                iframe._iwRevealTimer = setTimeout(revealFrame, 1500);
+                iframe.onload = async () => {
+                    iframe._iwLoaded = true;
+                    const payload = await firstPayload();
+                    if (!iframe.contentWindow) return;
+                    iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload }, '*');
+                    postPhase(iframe);
+                };
+            }
         } else if (typeof populateAircraftInfoWindow === 'function') {
-            populateAircraftInfoWindow(flightProps, plan, [], communityAircraftData, filedPlanData);
+            // Same head start as the simple frame: build with the flown trail
+            // when it is already in, so times, graph and progress are right
+            // from the first frame rather than patched in a moment later.
+            const earlyRoute = await Promise.race([
+                routeDataPromise,
+                new Promise((r) => setTimeout(() => r(null), 350))
+            ]);
+            if (currentFlightInWindow === flightProps.flightId) {
+                populateAircraftInfoWindow(flightProps, plan, routePointsFrom(earlyRoute), communityAircraftData, filedPlanData);
+            }
         }
 
         if (typeof fetchAndDisplayGeocode === 'function') {
@@ -23141,14 +23312,8 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             updateFlightPlanLayer(flightProps.flightId, plan, flightProps.position);
         }
 
-        const routeRes = await routePromise;
-        const routeData = routeRes.ok ? await routeRes.json() : null;
-
-        let sortedRoutePoints = [];
-        const historyArray = routeData?.path || routeData?.route || [];
-        if (routeData && routeData.ok && Array.isArray(historyArray)) {
-            sortedRoutePoints = historyArray.sort((a, b) => new Date(a.date) - new Date(b.date));
-        }
+        const routeData = await routeDataPromise;
+        const sortedRoutePoints = routePointsFrom(routeData);
 
         // Seed the live-trail cache CLAMPED to what the map marker currently
         // shows. The history endpoint often runs ahead of the socket
@@ -23284,6 +23449,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 
     } catch (error) {
         console.error("Error fetching aircraft details:", error);
+        // Without this a single failed fetch left the flag set and every
+        // later tap on an aircraft was silently ignored.
+        isAircraftWindowLoading = false;
         closeAircraftWindow();
     }
 }
