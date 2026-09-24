@@ -24511,61 +24511,74 @@ const SERENE_WINDOW_CSS = (() => {
            ending in a hard edge above the fade). The fade is eased — many
            stops following a smooth curve — so it melts into the window
            colour with no visible band or line. */
-        /* Photo fills the width and is never zoomed past it (fitSereneHero
-           sizes the header to the photo): a wide shot shows whole, a tall
-           one is cropped top and bottom. */
+        /* ---- Cinematic header ----
+           The photo spans the full width at its own height (fitSereneHero
+           sets --sr-photo-h), never zoomed, so nose and tail stay in. The
+           header runs 64px past the photo; the identity sits on the photo's
+           lower edge and flows onto that band, and the fade reaches the
+           window colour exactly where the photo ends. */
         ${S} .ac-header-modern {
-            min-height: var(--sr-hero-h, 240px) !important; background-color: var(--sr-bg) !important;
-            background-size: 100% auto !important; background-position: center 40% !important;
+            min-height: calc(var(--sr-photo-h, 220px) + 64px) !important;
+            background-color: var(--sr-bg) !important;
+            background-size: 100% auto !important; background-position: center top !important;
             background-repeat: no-repeat !important;
         }
-        ${S} .hero-photo-fade { background-size: 100% auto !important; background-position: center 40% !important; }
+        ${S} .hero-photo-fade { background-size: 100% auto !important; background-position: center top !important; }
         ${S} .ac-header-overlay {
             background: linear-gradient(180deg,
-                rgba(12,14,18,0.34) 0%, rgba(12,14,18,0.14) 12%,
-                rgba(22,24,28,0) 26%, rgba(22,24,28,0.02) 34%,
-                rgba(22,24,28,0.07) 41%, rgba(22,24,28,0.15) 48%,
-                rgba(22,24,28,0.26) 55%, rgba(22,24,28,0.40) 62%,
-                rgba(22,24,28,0.55) 69%, rgba(22,24,28,0.70) 76%,
-                rgba(22,24,28,0.83) 83%, rgba(22,24,28,0.93) 91%,
-                var(--sr-bg) 100%) !important;
+                rgba(12,14,18,0.34) 0px, rgba(12,14,18,0) 72px,
+                rgba(22,24,28,0) calc(var(--sr-photo-h, 220px) * 0.36),
+                rgba(22,24,28,0.06) calc(var(--sr-photo-h, 220px) * 0.46),
+                rgba(22,24,28,0.16) calc(var(--sr-photo-h, 220px) * 0.56),
+                rgba(22,24,28,0.32) calc(var(--sr-photo-h, 220px) * 0.66),
+                rgba(22,24,28,0.52) calc(var(--sr-photo-h, 220px) * 0.76),
+                rgba(22,24,28,0.72) calc(var(--sr-photo-h, 220px) * 0.85),
+                rgba(22,24,28,0.89) calc(var(--sr-photo-h, 220px) * 0.93),
+                var(--sr-bg) var(--sr-photo-h, 220px)) !important;
         }
-
-        /* Header: the photo stays clear at the top (only the action buttons
-           sit there) and the identity rests at the bottom-left, on the
-           darkest part of the fade: the callsign on one line, then aircraft
-           · airline on one line. The VA badge, when present, sits just above. */
         ${S} .ac-partner-hero { order: 2; margin: auto 20px 8px !important; max-width: calc(100% - 40px) !important; }
-        ${S} .ac-header-top { order: 3; padding: 0 20px 14px !important; }
+        ${S} .ac-header-top { order: 3; padding: 0 20px 12px !important; }
         ${S} .ac-identity-group { max-width: 100% !important; min-width: 0; width: 100%; }
-        ${S} .ac-header-top h1 {
-            display: block !important; font-size: 25px !important; font-weight: 700 !important;
-            line-height: 1.15 !important; letter-spacing: -0.02em;
+        ${S}:has(.hero-photo-dots) .ac-identity-group { padding-right: 52px; }
+
+        /* Identity (built by arrangeSereneWindow): airline eyebrow with its
+           logo, a modest callsign, then aircraft and registration chips. */
+        ${S} .sr-eyebrow {
+            display: flex; align-items: center; gap: 8px; min-width: 0;
+            font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+            color: rgba(255,255,255,0.72); text-shadow: 0 1px 8px rgba(0,0,0,0.4);
+        }
+        ${S} .sr-eyebrow span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        ${S} .sr-eyebrow .ac-header-logo {
+            height: 18px !important; width: auto; max-width: 72px !important; margin: 0 !important;
+            object-fit: contain; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.4));
+        }
+        ${S} .ac-header-top h1.sr-callsign {
+            display: block !important; margin: 5px 0 9px !important;
+            font-size: 21px !important; font-weight: 600 !important; line-height: 1.2 !important;
+            letter-spacing: -0.01em !important; color: #fff !important;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            text-shadow: 0 1px 12px rgba(0,0,0,0.35) !important;
+            text-shadow: 0 1px 10px rgba(0,0,0,0.35) !important;
         }
-        ${S} .ac-header-logo {
-            height: 24px !important; max-width: 84px !important; vertical-align: -4px;
-            margin-right: 8px; filter: drop-shadow(0 1px 6px rgba(0,0,0,0.35));
+        ${S} .sr-chips { display: flex; gap: 6px; min-width: 0; }
+        ${S} .sr-chip {
+            display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto;
+            padding: 3px 10px; border-radius: 999px;
+            font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.86);
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        ${S} .ac-sub-identity {
-            flex-wrap: nowrap !important; min-width: 0; gap: 7px !important;
-            font-size: 13px !important; font-weight: 500 !important; color: rgba(255,255,255,0.72) !important;
-            text-shadow: 0 1px 8px rgba(0,0,0,0.4) !important; margin-top: 5px !important;
-        }
-        ${S} .ac-sub-identity > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-        ${S} .ac-sub-identity > span:first-child { flex: 0 0 auto; max-width: 60%; }
-        ${S} .ac-sub-identity > span:nth-child(2) { flex: 0 0 auto; width: 3px !important; background: rgba(255,255,255,0.45) !important; }
-        ${S} .ac-sub-identity > span:nth-child(2):has(+ span:empty) { display: none; }
-        /* Photo carousel: dots bottom-right beside the identity, the credit
-           a faint tag top-left, clear of the callsign. */
-        ${S} .hero-photo-dots { left: auto !important; right: 20px !important; bottom: 22px !important; gap: 5px !important; }
+        ${S} .sr-chip-reg { flex: 0 0 auto; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.7); }
+
+        /* Photo carousel: dots bottom-right level with the chips, the credit
+           a faint tag top-left. */
+        ${S} .hero-photo-dots { left: auto !important; right: 20px !important; bottom: 20px !important; gap: 5px !important; }
         ${S} .hero-photo-dots span { width: 6px !important; height: 6px !important; box-shadow: none !important; }
         ${S} .hero-photo-credit {
             top: 18px !important; left: 18px !important; right: auto !important; bottom: auto !important;
             font-size: 10px !important; background: rgba(12,14,18,0.3) !important;
         }
-        ${S}:has(.hero-photo-dots) .ac-identity-group { padding-right: 56px; }
         ${S} .hero-btn {
             width: 34px; height: 34px;
             background: rgba(18,20,24,0.34);
@@ -24578,29 +24591,34 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .hero-btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.22); }
         ${S} .hero-btn.pinged { color: var(--sr-accent); border-color: rgba(140,200,238,0.55); }
 
-        /* ---- Route card: sits just under the photo's fade ---- */
-        ${S} .ac-route-bar-backdrop { background: transparent !important; box-shadow: none !important; display: flow-root; }
+        /* ---- Route strip: part of the header, not a separate card ---- */
+        ${S} .ac-route-bar-backdrop {
+            background: transparent !important; box-shadow: none !important; display: flow-root;
+            border-bottom: 1px solid var(--sr-line);
+        }
         ${S} .ac-route-info-bar {
-            margin: 2px 14px 0 !important;
-            padding: 16px 20px !important;
-            background: rgba(30,33,39,0.62) !important;
-            -webkit-backdrop-filter: blur(22px) saturate(150%) !important;
-            backdrop-filter: blur(22px) saturate(150%) !important;
-            border: 1px solid rgba(255,255,255,0.08) !important;
-            border-radius: var(--sr-radius) !important;
-            box-shadow: 0 12px 32px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+            margin: 0 !important; padding: 4px 20px 16px !important;
+            background: transparent !important; border: 0 !important; border-radius: 0 !important;
+            -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+            box-shadow: none !important; gap: 14px !important;
         }
         ${S} .ac-route-info-bar .city-name {
-            color: var(--sr-muted) !important; font-size: 10.5px !important; font-weight: 500 !important;
+            color: var(--sr-faint) !important; font-size: 10px !important; font-weight: 500 !important;
             text-transform: none !important; letter-spacing: 0 !important;
             max-width: 110px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         ${S} .ac-route-info-bar .icao-large {
-            font-family: var(--font-ui) !important; font-size: 22px !important; font-weight: 600 !important;
-            letter-spacing: 0.03em; margin: 2px 0 3px;
+            font-family: var(--font-ui) !important; font-size: 18px !important; font-weight: 600 !important;
+            letter-spacing: 0.04em; margin: 1px 0 2px;
         }
-        ${S} .ac-route-info-bar .time-small { font-family: var(--font-ui) !important; font-size: 12px !important; font-weight: 500 !important; font-variant-numeric: tabular-nums; }
-        ${S} .ac-route-info-bar .time-source-label { font-size: 8.5px !important; font-weight: 600 !important; letter-spacing: 0.08em !important; opacity: 0.6 !important; }
+        ${S} .ac-route-info-bar .icao-large img { height: 11px !important; border-radius: 2px; }
+        ${S} .ac-route-info-bar .time-small { font-family: var(--font-ui) !important; font-size: 11.5px !important; font-weight: 500 !important; font-variant-numeric: tabular-nums; }
+        ${S} .ac-route-info-bar .time-source-label { font-size: 8px !important; font-weight: 600 !important; letter-spacing: 0.08em !important; opacity: 0.55 !important; }
+        ${S} #ac-dep-gate, ${S} #ac-arr-gate {
+            margin-top: 7px !important; padding: 2px 8px !important; border-radius: 999px !important;
+            background: rgba(255,255,255,0.06) !important; color: var(--sr-muted) !important;
+            font-size: 9.5px !important; font-weight: 600 !important; letter-spacing: 0.04em;
+        }
         ${S} .phase-badge-route {
             width: fit-content; margin: 0 auto 10px !important; padding: 4px 11px;
             border-radius: 999px; background: rgba(255,255,255,0.06);
@@ -24870,6 +24888,40 @@ function arrangeSereneWindow(html) {
         return el;
     };
 
+    // Cinematic identity: airline eyebrow (with its logo), callsign, then
+    // aircraft and registration chips. Built from the legacy header's own
+    // nodes and text, so nothing new needs passing in.
+    const idGroup = tpl.content.querySelector('.ac-identity-group');
+    const h1 = idGroup && idGroup.querySelector('h1');
+    if (h1) {
+        const logo = h1.querySelector('img');
+        const callsign = h1.textContent.trim();
+        const sub = [...idGroup.querySelectorAll('.ac-sub-identity > span')].map((el) => el.textContent.trim());
+        const aircraft = sub[0] || '';
+        const airline = sub[2] || '';
+        const regEl = pane.querySelector('.aircraft-card .acx-row .v');
+        const reg = regEl ? regEl.textContent.trim() : '';
+
+        const text = (tag, cls, value) => {
+            const el = document.createElement(tag);
+            el.className = cls;
+            el.textContent = value;
+            return el;
+        };
+        const eyebrow = make('div', 'sr-eyebrow', '');
+        if (logo) eyebrow.appendChild(logo);
+        if (airline) eyebrow.appendChild(text('span', '', airline));
+        const chips = make('div', 'sr-chips', '');
+        if (aircraft) chips.appendChild(text('span', 'sr-chip', aircraft));
+        if (reg && reg !== 'N/A') chips.appendChild(text('span', 'sr-chip sr-chip-reg', reg));
+
+        idGroup.replaceChildren(
+            ...(eyebrow.childNodes.length ? [eyebrow] : []),
+            text('h1', 'sr-callsign', callsign),
+            ...(chips.childNodes.length ? [chips] : [])
+        );
+    }
+
     const glance = make('div', 'sr-glance', SERENE_GLANCE.map(([id, label]) =>
         `<div class="sr-g"><span class="sr-g-l">${label}</span><span class="sr-g-v" data-sr-mirror="${id}">---</span></div>`
     ).join(''));
@@ -24901,17 +24953,16 @@ function arrangeSereneWindow(html) {
 }
 
 /**
- * Serene hero photo sizing. The header takes the photo's own height at the
- * window's width (clamped), so a wide photo shows whole with no side crop,
- * and a tall photo fills the width and is cropped top and bottom. It is
- * never zoomed past the width (that cut off nose and tail): a photo too
- * flat to fill the header sits at the top and the fade covers the rest. The
+ * Serene hero photo sizing. The photo band takes the photo's own height at
+ * the window's width (clamped), so a wide photo shows whole with no side
+ * crop, and a tall photo fills the width and is cropped top and bottom. It
+ * is never zoomed past the width (that cut off nose and tail). The
  * carousel swaps photos by rewriting background-image on the header and its
  * crossfade layer, so each swap is re-checked; the height stays with the
  * first photo so the window doesn't jump.
  */
-const SR_HERO_MIN_H = 150;
-const SR_HERO_MAX_H = 330;
+const SR_HERO_MIN_H = 120;
+const SR_HERO_MAX_H = 300;
 
 function fitSereneHero(panel) {
     if (!panel) return;
@@ -24932,9 +24983,10 @@ function fitSereneHero(panel) {
             const shown = panel.clientWidth * img.naturalHeight / img.naturalWidth;
             if (setHeight) {
                 const h = Math.round(Math.min(SR_HERO_MAX_H, Math.max(SR_HERO_MIN_H, shown)));
-                panel.style.setProperty('--sr-hero-h', h + 'px');
+                panel.style.setProperty('--sr-photo-h', h + 'px');
             }
-            el.style.setProperty('background-position', shown >= panel.offsetHeight - 1 ? 'center 40%' : 'center top', 'important');
+            // Taller than the photo band: crop top and bottom, not the sides.
+            el.style.setProperty('background-position', shown > SR_HERO_MAX_H ? 'center 40%' : 'center top', 'important');
         };
         img.src = src;
     };
