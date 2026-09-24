@@ -17554,8 +17554,45 @@ function ensureWindsAloft(depIcao, arrIcao, pos, spanHours) {
  * Returns null (and the windows hide the panel) when the estimator isn't
  * loaded or the flight has nothing to work from.
  */
+// Trail-wide computations (fuel model, leg detection) walk the whole flown
+// trail — thousands of points on a long-haul — and ran on every packet while
+// a flight window was open: ~12 ms a packet at 6,000 points, for results that
+// move slowly. They are reused for a short while unless an input that changes
+// the answer outright (another flight, a new plan or wind field, a different
+// trail) says otherwise.
+const _trailMemo = new Map();
+
+function memoOverTrail(name, deps, routePoints, maxAgeMs, compute) {
+    const now = Date.now();
+    const len = (routePoints && routePoints.length) || 0;
+    const first = len ? (routePoints[0].date || routePoints[0].timestamp || '') : '';
+    const m = _trailMemo.get(name);
+    if (m && now - m.at < maxAgeMs && m.first === first && len >= m.len
+        && m.deps.length === deps.length && m.deps.every((d, i) => d === deps[i])) {
+        return m.value;
+    }
+    const value = compute();
+    _trailMemo.set(name, { at: now, first, len, deps, value });
+    return value;
+}
+
+function detectLegsCached(routePoints) {
+    if (typeof FlightLegs === 'undefined' || !FlightLegs) return null;
+    const apts = (typeof airportsData !== 'undefined') ? airportsData : {};
+    return memoOverTrail('legs', [currentFlightInWindow, apts], routePoints, 30000,
+        () => FlightLegs.detect(routePoints, apts));
+}
+
 function buildFuelEstimate(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData) {
     if (typeof window === 'undefined' || !window.FuelEstimator || !flightProps) return null;
+    // The wind field arrives asynchronously; it is part of the key so the
+    // estimate is redone the moment it lands.
+    const windKey = (typeof _fuelWindField !== 'undefined') ? _fuelWindField : null;
+    return memoOverTrail('fuel', [flightProps.flightId, plan, filedPlanData, windKey], routePoints, 10000,
+        () => buildFuelEstimateNow(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData));
+}
+
+function buildFuelEstimateNow(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData) {
     try {
         const pos = (typeof flightProps.position === 'string')
             ? JSON.parse(flightProps.position) : (flightProps.position || {});
@@ -17924,9 +17961,7 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         chart: (typeof FlightGraph !== 'undefined' && FlightGraph) ? FlightGraph.extractSeries(routePoints) : null,
         // Previous flights / multi-leg journey reconstructed from the trail.
         // Detected here (where the airport DB lives) and rendered in the iframe.
-        legs: (typeof FlightLegs !== 'undefined' && FlightLegs)
-            ? FlightLegs.detect(routePoints, (typeof airportsData !== 'undefined') ? airportsData : {})
-            : null,
+        legs: detectLegsCached(routePoints),
         // Hypothetical fuel burn, integrated over the flown profile. Computed
         // here (the trail and the weather sample both live on this side) and
         // rendered from the plain result inside the iframe.
@@ -22659,29 +22694,42 @@ function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
 function generateSmoothPath(points, tension = 0.5) {
     if (points.length < 4) return points;
     const result = [];
-    const interpolate = (p0, p1, p2, p3, t) => {
-        const t2 = t * t;
-        const t3 = t2 * t;
-        // Standard Catmull-Rom Spline formula
-        return 0.5 * (
-            (2 * p1) +
-            (-p0 + p2) * t +
-            (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-            (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-        );
-    };
+    smoothSegmentsInto(points, 0, points.length - 2, result);
+    result.push(points[points.length - 1]);
+    return result;
+}
 
-    // Turn angle at vertex b (degrees) — how sharply the path bends there.
-    const turnDeg = (a, b, c) => {
-        const v1x = b.unwrappedLon - a.unwrappedLon, v1y = b.lat - a.lat;
-        const v2x = c.unwrappedLon - b.unwrappedLon, v2y = c.lat - b.lat;
-        const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
-        if (m1 === 0 || m2 === 0) return 0;
-        const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)));
-        return Math.acos(cos) * 180 / Math.PI;
-    };
+// Standard Catmull-Rom spline formula.
+function _crInterpolate(p0, p1, p2, p3, t) {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return 0.5 * (
+        (2 * p1) +
+        (-p0 + p2) * t +
+        (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+        (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+    );
+}
 
-    for (let i = 0; i < points.length - 1; i++) {
+// Turn angle at vertex b (degrees) — how sharply the path bends there.
+function _crTurnDeg(a, b, c) {
+    const v1x = b.unwrappedLon - a.unwrappedLon, v1y = b.lat - a.lat;
+    const v2x = c.unwrappedLon - b.unwrappedLon, v2y = c.lat - b.lat;
+    const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
+    if (m1 === 0 || m2 === 0) return 0;
+    const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)));
+    return Math.acos(cos) * 180 / Math.PI;
+}
+
+/**
+ * Appends the smoothed output of segments [from, to] of `points` to `result`.
+ * Segment i runs from points[i] to points[i + 1] and reads points[i - 1] and
+ * points[i + 2] (clamped at the ends of `points`). Split out of
+ * generateSmoothPath so a long trail can be smoothed in pieces
+ * (smoothTrailIncremental) with results identical to a single pass.
+ */
+function smoothSegmentsInto(points, from, to, result) {
+    for (let i = from; i <= to; i++) {
         const p0 = points[i === 0 ? i : i - 1];
         const p1 = points[i];
         const p2 = points[i + 1];
@@ -22695,19 +22743,17 @@ function generateSmoothPath(points, tension = 0.5) {
         // 24–64 steps per sample blew a long-haul trail up to 30k+ points —
         // tens of thousands of sub-pixel segments that rendered fuzzy when
         // zoomed out and made every re-tile expensive.
-        const bend = Math.max(turnDeg(p0, p1, p2), turnDeg(p1, p2, p3));
+        const bend = Math.max(_crTurnDeg(p0, p1, p2), _crTurnDeg(p1, p2, p3));
         const steps = Math.max(1, Math.min(64, Math.ceil(bend / 2)));
 
         for (let t = 0; t < 1 - 1e-6; t += 1 / steps) {
             result.push({
-                unwrappedLon: interpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
-                lat: interpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
+                unwrappedLon: _crInterpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
+                lat: _crInterpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
                 alt: p1.alt + (p2.alt - p1.alt) * t
             });
         }
     }
-    result.push(points[points.length - 1]);
-    return result;
 }
 
 // Append a live packet to a trail ONLY if it's newer than the cached tip.
@@ -22882,52 +22928,9 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     // distance or longitude delta, so the drawn path follows the real
     // geometry (the renderer clips above ~±85°, so a true pole crossing
     // correctly runs up to the polar cap and back down the far side).
-    const densified = [raw[0]];
-    for (let i = 1; i < raw.length; i++) {
-        const a = raw[i - 1], b = raw[i];
-        let dLon = Math.abs(b.lon - a.lon);
-        if (dLon > 180) dLon = 360 - dLon; // the plane took the short way round
-        const distKm = getDistanceKm(a.lat, a.lon, b.lat, b.lon);
-        const steps = Math.min(200, Math.max(Math.ceil(distKm / 100), Math.ceil(dLon / 3)));
-        if (steps > 1) {
-            for (let s = 1; s < steps; s++) {
-                const f = s / steps;
-                const gp = getIntermediatePoint(a.lat, a.lon, b.lat, b.lon, f);
-                densified.push({ lat: gp.lat, lon: gp.lon, alt: a.alt + (b.alt - a.alt) * f });
-            }
-        }
-        densified.push(b);
-    }
-
-    // Unwrap longitudes to prevent the line from stretching across the globe at the anti-meridian.
-    // We carry the unwrapped longitude on each point (as `unwrappedLon`) so generateSmoothPath
-    // can interpolate without hopping the dateline.
-    const unwrappedPoints = [];
-    let prevLon = densified[0].lon;
-
-    unwrappedPoints.push({
-        unwrappedLon: prevLon,
-        lat: densified[0].lat,
-        alt: densified[0].alt
-    });
-
-    for (let i = 1; i < densified.length; i++) {
-        let lon = densified[i].lon;
-
-        while (lon - prevLon > 180) lon -= 360;
-        while (prevLon - lon > 180) lon += 360;
-
-        unwrappedPoints.push({ unwrappedLon: lon, lat: densified[i].lat, alt: densified[i].alt });
-        prevLon = lon;
-    }
-
-    // --- Bend-it-like-Beckham: Catmull-Rom smoothing ---
-    // Subdivides each segment into an interpolated curve passing through every sample point.
-    // Altitude is linearly interpolated between samples, preserving the altitude→color relation.
-    // generateSmoothPath needs >= 4 points; with fewer (very early in a flight), draw raw.
-    const smoothedPoints = unwrappedPoints.length >= 4
-        ? generateSmoothPath(unwrappedPoints, 0.5)
-        : unwrappedPoints;
+    // Densify (great-circle), unwrap longitudes and Catmull-Rom smooth —
+    // incrementally for long trails, see smoothTrailIncremental.
+    const smoothedPoints = smoothTrailIncremental(raw, trailPoints);
 
     // ONE continuous LineString, coloured along its length by a line-gradient
     // (see buildFlownPathGradient). The old approach — a distinct 2-point
@@ -22950,6 +22953,104 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     };
     fc.__altGradient = buildFlownPathGradient(smoothedPoints);
     return fc;
+}
+
+// --- Flown-trail geometry pipeline -------------------------------------------
+// Great-circle densification: rendered vertices are joined by STRAIGHT lines
+// in lon/lat (mercator) space. Near the poles that is badly wrong: a plane
+// barely moving on the ground swings tens of degrees of longitude (≈180°
+// crossing the pole itself), and the straight chord draws as a huge sideways
+// sweep AROUND the pole at constant latitude instead of the true track OVER
+// it. Long sparse-history gaps bend the same way in milder form. Points are
+// inserted along the actual great circle wherever a segment spans a big
+// ground distance or longitude delta, so the drawn path follows the real
+// geometry (the renderer clips above ~±85°, so a true pole crossing
+// correctly runs up to the polar cap and back down the far side).
+// Appends, for each i >= from, the points between raw[i-1] and raw[i] and
+// then raw[i] itself.
+function densifyTrailInto(raw, from, out) {
+    for (let i = Math.max(1, from); i < raw.length; i++) {
+        const a = raw[i - 1], b = raw[i];
+        let dLon = Math.abs(b.lon - a.lon);
+        if (dLon > 180) dLon = 360 - dLon; // the plane took the short way round
+        const distKm = getDistanceKm(a.lat, a.lon, b.lat, b.lon);
+        const steps = Math.min(200, Math.max(Math.ceil(distKm / 100), Math.ceil(dLon / 3)));
+        if (steps > 1) {
+            for (let s = 1; s < steps; s++) {
+                const f = s / steps;
+                const gp = getIntermediatePoint(a.lat, a.lon, b.lat, b.lon, f);
+                out.push({ lat: gp.lat, lon: gp.lon, alt: a.alt + (b.alt - a.alt) * f });
+            }
+        }
+        out.push(b);
+    }
+}
+
+// Unwrap longitudes so the line never stretches across the globe at the
+// anti-meridian; the unwrapped value rides on each point as `unwrappedLon`
+// so the smoother can interpolate without hopping the dateline.
+function unwrapTrailInto(points, from, prevLon, out) {
+    for (let i = from; i < points.length; i++) {
+        let lon = points[i].lon;
+        while (lon - prevLon > 180) lon -= 360;
+        while (prevLon - lon > 180) lon += 360;
+        out.push({ unwrappedLon: lon, lat: points[i].lat, alt: points[i].alt });
+        prevLon = lon;
+    }
+    return prevLon;
+}
+
+function smoothTrailFull(raw) {
+    const densified = [raw[0]];
+    densifyTrailInto(raw, 1, densified);
+    const unwrapped = [{ unwrappedLon: densified[0].lon, lat: densified[0].lat, alt: densified[0].alt }];
+    unwrapTrailInto(densified, 1, densified[0].lon, unwrapped);
+    // generateSmoothPath needs >= 4 points; with fewer (very early in a flight), draw raw.
+    return { unwrapped, smoothed: unwrapped.length >= 4 ? generateSmoothPath(unwrapped, 0.5) : unwrapped };
+}
+
+// The trail line is rebuilt on every packet while a flight is open, and a
+// long-haul trail is thousands of points — densifying and smoothing all of
+// them each time was ~6 ms a packet at 6,000 points. Only the end of the
+// trail ever changes (points are appended; the newest few may be trimmed
+// against the live fix), so the body is processed once and cached per trail
+// array, and each call does just the tail. The stitch overlaps the smoother's
+// window (each segment reads one point either side), so the result is
+// identical to a single full pass.
+const TRAIL_TAIL_RAW = 200;          // raw points always recomputed
+const TRAIL_BODY_REBUILD_AFTER = 400; // tail length that triggers a new body
+const TRAIL_INCREMENTAL_MIN = 800;   // below this a full pass is cheap enough
+const _trailBodies = new WeakMap();
+
+function smoothTrailIncremental(raw, src) {
+    const n = raw.length;
+    if (!src || typeof src !== 'object' || n < TRAIL_INCREMENTAL_MIN) return smoothTrailFull(raw).smoothed;
+
+    const first = (src[0] && src[0].date) || '';
+    let body = _trailBodies.get(src);
+    const same = (a, b) => a && b && a.lat === b.lat && a.lon === b.lon && a.alt === b.alt;
+    const valid = body && body.first === first && body.R + 3 <= n
+        && same(raw[body.R - 1], body.rawLast)
+        && (n - body.R) <= TRAIL_TAIL_RAW + TRAIL_BODY_REBUILD_AFTER;
+    if (!valid) {
+        const R = n - TRAIL_TAIL_RAW;
+        const U = smoothTrailFull(raw.slice(0, R)).unwrapped;
+        const S = [];
+        smoothSegmentsInto(U, 0, U.length - 3, S); // segments that never read past the body
+        body = { first, R, rawLast: { ...raw[R - 1] }, U, S };
+        _trailBodies.set(src, body);
+    }
+
+    const { R, U, S } = body;
+    const B = U.length;
+    const dens = [];
+    densifyTrailInto(raw, R, dens);
+    const T = [U[B - 3], U[B - 2], U[B - 1]];
+    unwrapTrailInto(dens, 0, U[B - 1].unwrappedLon, T);
+    const out = S.slice();
+    smoothSegmentsInto(T, 1, T.length - 2, out); // T[j] is global U index B-3+j
+    out.push(T[T.length - 1]);
+    return out;
 }
 
 // Apply the altitude gradient carried on a flown-path FeatureCollection to
