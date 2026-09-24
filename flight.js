@@ -10538,6 +10538,7 @@ function handleSearchInput(searchText) {
 function runGlobalSearch(query) {
     const engine = window.GlobalSearchEngine;
     if (!engine) return { routes: [], flights: [], airports: [], airlines: [], query: query || '' };
+    ensureSupplementaryAirports();
     return engine.runSearch(query, {
         airportsData: airportsData,
         flights: Object.values(currentMapFeatures),
@@ -12470,15 +12471,31 @@ function invalidateAirportDerivedCaches() {
  * local identifiers, heliports and private strips. Failure is silently
  * tolerated — the app is fully functional on the core tier alone.
  */
+let supplementaryAirportsEnabled = false;
+let supplementaryAirportsPromise = null;
+function ensureSupplementaryAirports() {
+    if (!supplementaryAirportsEnabled) return null;
+    return supplementaryAirportsPromise || (supplementaryAirportsPromise = loadSupplementaryAirports());
+}
+
 async function loadSupplementaryAirports() {
     try {
         const response = await fetch('airports-extra.json');
         if (!response.ok) return;
         const extra = indexAirportRecords(await response.json());
-        const added = Object.keys(extra).length;
+        const keys = Object.keys(extra);
+        const added = keys.length;
         if (!added) return;
 
-        Object.assign(airportsData, extra);
+        // ~63k entries: merged a slice at a time rather than in one ~60 ms
+        // Object.assign, so a pan or a packet never queues behind it.
+        const target = airportsData;
+        for (let i = 0; i < added; i += 8000) {
+            const end = Math.min(added, i + 8000);
+            for (let k = i; k < end; k++) target[keys[k]] = extra[keys[k]];
+            if (end < added) await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        if (target !== airportsData) return; // the core tier was reloaded meanwhile
         invalidateAirportDerivedCaches();
         console.log(`Airports: +${added.toLocaleString()} supplementary entries (search only).`);
     } catch (_) {
@@ -12519,8 +12536,18 @@ async function fetchAirportsData() {
 
         console.log(`Successfully loaded data for ${Object.keys(airportsData).length} airports.`);
 
-        // Fire-and-forget: boot must not wait on the search-only tier.
-        if (usedSplit) loadSupplementaryAirports();
+        // Boot must not wait on the search-only tier, and shouldn't share the
+        // main thread with it either (5.7 MB to parse and merge): it loads
+        // once the page has gone idle, or at the first search, whichever
+        // comes first.
+        if (usedSplit) {
+            supplementaryAirportsEnabled = true;
+            const kick = () => ensureSupplementaryAirports();
+            setTimeout(() => {
+                if (typeof requestIdleCallback === 'function') requestIdleCallback(kick, { timeout: 4000 });
+                else kick();
+            }, 3000);
+        }
 
     } catch (error) {
         console.error('Failed to fetch airport data:', error);
