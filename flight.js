@@ -24314,6 +24314,7 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     // the incoming photo fades in without ever covering the UI.
     // (background-image itself isn't CSS-animatable, hence a dedicated layer.)
     const fadeLayer = document.createElement('div');
+    fadeLayer.className = 'hero-photo-fade';
     fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
     panel.insertBefore(fadeLayer, panel.firstChild);
 
@@ -24510,11 +24511,15 @@ const SERENE_WINDOW_CSS = (() => {
            ending in a hard edge above the fade). The fade is eased — many
            stops following a smooth curve — so it melts into the window
            colour with no visible band or line. */
+        /* Photo fills the width and is never zoomed past it (fitSereneHero
+           sizes the header to the photo): a wide shot shows whole, a tall
+           one is cropped top and bottom. */
         ${S} .ac-header-modern {
-            min-height: 272px !important; background-color: var(--sr-bg) !important;
-            background-size: cover !important; background-position: center 40% !important;
+            min-height: var(--sr-hero-h, 240px) !important; background-color: var(--sr-bg) !important;
+            background-size: 100% auto !important; background-position: center 40% !important;
             background-repeat: no-repeat !important;
         }
+        ${S} .hero-photo-fade { background-size: 100% auto !important; background-position: center 40% !important; }
         ${S} .ac-header-overlay {
             background: linear-gradient(180deg,
                 rgba(12,14,18,0.34) 0%, rgba(12,14,18,0.14) 12%,
@@ -24893,6 +24898,53 @@ function arrangeSereneWindow(html) {
     ].filter(Boolean);
     order.forEach((el) => pane.appendChild(el));
     return tpl.innerHTML;
+}
+
+/**
+ * Serene hero photo sizing. The header takes the photo's own height at the
+ * window's width (clamped), so a wide photo shows whole with no side crop,
+ * and a tall photo fills the width and is cropped top and bottom. Only a
+ * panorama too flat to reach the minimum height falls back to cover. The
+ * carousel swaps photos by rewriting background-image on the header and its
+ * crossfade layer, so each swap is re-checked; the height stays with the
+ * first photo so the window doesn't jump.
+ */
+const SR_HERO_MIN_H = 210;
+const SR_HERO_MAX_H = 330;
+
+function fitSereneHero(panel) {
+    if (!panel) return;
+    if (panel._srHeroObserver) panel._srHeroObserver.disconnect();
+    const urlOf = (el) => {
+        const m = /url\(["']?([^"')]+)["']?\)/.exec(el.style.backgroundImage || '');
+        return m ? m[1] : null;
+    };
+    const fit = (el, setHeight) => {
+        const src = urlOf(el);
+        if (!src || el._srHeroSrc === src) return;
+        el._srHeroSrc = src;
+        const img = new Image();
+        img.onload = () => {
+            if (!panel.isConnected || !img.naturalWidth || el._srHeroSrc !== src) return;
+            // Not laid out (hidden sheet): keep the stylesheet defaults.
+            if (!panel.clientWidth) { el._srHeroSrc = null; return; }
+            const shown = panel.clientWidth * img.naturalHeight / img.naturalWidth;
+            if (setHeight) {
+                const h = Math.round(Math.min(SR_HERO_MAX_H, Math.max(SR_HERO_MIN_H, shown)));
+                panel.style.setProperty('--sr-hero-h', h + 'px');
+            }
+            el.style.setProperty('background-size', shown >= panel.offsetHeight - 1 ? '100% auto' : 'cover', 'important');
+        };
+        img.src = src;
+    };
+    const fadeLayer = panel.querySelector(':scope > .hero-photo-fade');
+    fit(panel, true);
+    const mo = new MutationObserver((records) => {
+        records.forEach((r) => fit(r.target, false));
+    });
+    mo.observe(panel, { attributes: true, attributeFilter: ['style'] });
+    if (fadeLayer) mo.observe(fadeLayer, { attributes: true, attributeFilter: ['style'] });
+    panel._srHeroObserver = mo;
 }
 
 function wireSereneGlance(windowEl) {
@@ -25871,6 +25923,7 @@ let totalDistanceNM = 0;
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
         buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
+        if (sereneSkin) fitSereneHero(overviewPanel);
 
         // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
         // it to a logo-only chip a few seconds after the window opens (hovering or
