@@ -18417,6 +18417,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             navIframe.contentWindow.postMessage({
                 heading: position.heading_deg,
                 track: position.heading_deg,
+                // For the ND's WXR / TERR layers.
+                lat: position.lat,
+                lon: position.lon,
+                altFt: position.alt_ft,
                 gs: Math.round(position.gs_kt),
                 tas: calculatedTas, 
                 windDir: cachedWindDir, 

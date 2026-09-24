@@ -246,7 +246,7 @@
             border: none;
             border-top: 2px solid var(--border-main);
             background: #111; 
-            grid-template-columns: 1fr 2.5fr; 
+            grid-template-columns: 1fr 1fr 2.5fr;
             gap: 8px;
             padding: 12px;
         }
@@ -331,6 +331,16 @@
                 </div>
             </div>
 
+            <!-- Weather radar / terrain, one at a time like the real ND
+                 (the TERR ON ND push-button takes over the WXR picture). -->
+            <div class="control-group">
+                <label class="label-text">Layer</label>
+                <div class="mode-group">
+                    <button onclick="setLayer('WXR')" class="range-btn btn-inactive" id="layer-WXR" title="Weather radar">WXR</button>
+                    <button onclick="setLayer('TERR')" class="range-btn btn-inactive" id="layer-TERR" title="Terrain">TERR</button>
+                </div>
+            </div>
+
             <div class="control-group" id="manual-controls-hdg">
                 <label class="label-text">Heading</label>
                 <div class="input-row">
@@ -394,7 +404,12 @@
             flightPlan: [],
             nextWp: "WYPT",
             nextWpDist: 0,
-            nextWpEte: "00:00"
+            nextWpEte: "00:00",
+            // Aircraft position for the WXR / TERR layers (posted by the host).
+            lat: null,
+            lon: null,
+            altFt: null,
+            layer: null   // null | 'WXR' | 'TERR'
         };
 
         // Check if embedded
@@ -480,6 +495,7 @@
             ctx.translate(arcCenterX, arcCenterY);
             ctx.rotate(-state.heading * Math.PI / 180);
             
+            drawLayer(arcRadius, isRoseMode);
             drawCompassRose(arcRadius, isRoseMode); 
             drawFlightPlan(arcRadius, isRoseMode);
             drawTraffic(arcRadius);
@@ -493,6 +509,7 @@
             drawHeadingPointers(arcCenterX, arcCenterY, arcRadius);
             
             drawOverlays(scaledW, scaledH); 
+            drawLayerLegend(scaledW, scaledH);
             
             ctx.restore();
         }
@@ -954,6 +971,316 @@
         document.getElementById('hdgVal').innerText = state.heading.toString().padStart(3, '0') + "°";
         document.getElementById('tasVal').innerText = state.tas;
 
+        /* ==========================================================
+         * WXR / TERR layers
+         * ==========================================================
+         * Both are drawn the way the real display draws them: a north-up
+         * raster of the area around the aircraft, rotated with the map and
+         * clipped to the compass fan, under the symbology.
+         *
+         * WXR  — RainViewer's composite radar (the source the map's rain
+         *        layer uses). Its free tier serves one colour scheme
+         *        (Universal Blue, zoom ≤ 7); each pixel's colour is read
+         *        back to an intensity band and repainted in radar colours:
+         *        green light, yellow moderate, red heavy, magenta extreme.
+         * TERR — Terrarium elevation tiles (AWS open data, as the 3D viewer
+         *        uses), coloured against the aircraft's altitude as EGPWS
+         *        does, in stippled densities: red more than 2000 ft above,
+         *        yellow 1000–2000 above, sparse yellow 500 below to 1000
+         *        above, green 500–1000 below, sparse green 1000–2000 below,
+         *        black beyond. Well clear of everything it switches to
+         *        "peaks": green shades of the terrain's own relief.
+         */
+        const LAYER_GRID = 200;           // raster cells across the square
+        const LAYER_KEY = 'ndLayer';
+        const TERRARIUM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+        const RAINVIEWER_INDEX = 'https://api.rainviewer.com/public/weather-maps.json';
+
+        const tileCache = new Map();      // key -> { data, size } | 'loading' | 'error'
+        const layerCanvas = document.createElement('canvas');
+        layerCanvas.width = layerCanvas.height = LAYER_GRID;
+        const layerCtx = layerCanvas.getContext('2d');
+        let layerBuilt = null;            // { layer, lat, lon, alt, range, stamp, maxFt, minFt, peaks }
+        let layerTimer = null;
+        let wxFrame = null;               // { host, path, fetchedAt }
+        let wxFetching = false;
+
+        function setLayer(layer) {
+            state.layer = (state.layer === layer) ? null : layer;
+            try { localStorage.setItem(LAYER_KEY, state.layer || ''); } catch (e) {}
+            ['WXR', 'TERR'].forEach((l) => {
+                const b = document.getElementById('layer-' + l);
+                if (!b) return;
+                b.classList.toggle('btn-active', state.layer === l);
+                b.classList.toggle('btn-inactive', state.layer !== l);
+            });
+            layerBuilt = null;
+            layerMaybeRebuild(true);
+            requestDraw();
+        }
+        window.setLayer = setLayer;
+
+        function lonLatToTile(lon, lat, z, size) {
+            const n = Math.pow(2, z);
+            const x = ((lon + 180) / 360) * n;
+            const r = lat * Math.PI / 180;
+            const y = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n;
+            return { tx: Math.floor(x), ty: Math.floor(y),
+                     px: Math.floor((x - Math.floor(x)) * size), py: Math.floor((y - Math.floor(y)) * size) };
+        }
+
+        function loadTile(key, url) {
+            const hit = tileCache.get(key);
+            if (hit) return hit;
+            tileCache.set(key, 'loading');
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                try {
+                    const c = document.createElement('canvas');
+                    c.width = img.naturalWidth; c.height = img.naturalHeight;
+                    const g = c.getContext('2d', { willReadFrequently: true });
+                    g.drawImage(img, 0, 0);
+                    tileCache.set(key, { data: g.getImageData(0, 0, c.width, c.height).data, size: c.width });
+                } catch (e) { tileCache.set(key, 'error'); }
+                if (tileCache.size > 160) tileCache.delete(tileCache.keys().next().value);
+                layerMaybeRebuild(true);
+            };
+            img.onerror = () => { tileCache.set(key, 'error'); };
+            img.src = url;
+            return 'loading';
+        }
+
+        // Sample one pixel (RGBA array) at a lat/lon, or null while loading.
+        function samplePixel(kind, lat, lon, z, size, urlFor) {
+            lon = ((lon + 540) % 360) - 180;
+            const t = lonLatToTile(lon, lat, z, size);
+            const n = Math.pow(2, z);
+            const tx = ((t.tx % n) + n) % n;
+            if (t.ty < 0 || t.ty >= n) return null;
+            const key = `${kind}/${z}/${tx}/${t.ty}`;
+            const tile = loadTile(key, urlFor(z, tx, t.ty));
+            if (!tile || typeof tile === 'string') return null;
+            const s = tile.size / size;   // 512px tiles read at 256 geometry
+            const i = ((Math.floor(t.py * s) * tile.size) + Math.floor(t.px * s)) * 4;
+            return [tile.data[i], tile.data[i + 1], tile.data[i + 2], tile.data[i + 3]];
+        }
+
+        function zoomFor(cellNM, lat, tilePx, maxZ) {
+            const nmPerPxAtZ0 = (360 * 60 * Math.cos(lat * Math.PI / 180)) / tilePx;
+            const z = Math.round(Math.log2(nmPerPxAtZ0 / Math.max(cellNM, 0.01)));
+            return Math.max(2, Math.min(maxZ, z));
+        }
+
+        // Radar colours, from a Universal Blue pixel. Light and mid blues are
+        // light returns, deep blue moderate, yellow/orange heavy, red and
+        // pink extreme.
+        const WX_GREEN = [0, 200, 60], WX_YELLOW = [240, 220, 0], WX_RED = [235, 30, 30], WX_MAGENTA = [230, 0, 230];
+        function wxColour(p) {
+            if (!p || p[3] < 60) return null;
+            const r = p[0] / 255, g = p[1] / 255, b = p[2] / 255;
+            const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+            if (mx - mn < 0.08) return l > 0.85 ? WX_MAGENTA : null;     // grey/white
+            let h;
+            if (mx === r) h = ((g - b) / (mx - mn) + (g < b ? 6 : 0)) * 60;
+            else if (mx === g) h = ((b - r) / (mx - mn) + 2) * 60;
+            else h = ((r - g) / (mx - mn) + 4) * 60;
+            if (h >= 160 && h < 265) return l >= 0.42 ? WX_GREEN : WX_YELLOW;   // blues
+            if (h >= 35 && h < 160) return WX_RED;                            // yellow / orange
+            if (h < 35 || h >= 330) return WX_MAGENTA;                        // red
+            return WX_MAGENTA;                                                // pink / purple
+        }
+
+        function terrainFt(p) {
+            if (!p || p[3] < 200) return null;
+            return ((p[0] * 256 + p[1] + p[2] / 256) - 32768) * 3.28084;
+        }
+
+        // EGPWS-style density stipple: a fixed pseudo-random dot pattern so
+        // a band reads as the same texture wherever it falls.
+        function dot(x, y) {
+            let h = (x * 374761393 + y * 668265263) >>> 0;
+            h = (h ^ (h >>> 13)) * 1274126177 >>> 0;
+            return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+        }
+        const T_RED = [230, 30, 30], T_YELLOW = [235, 215, 0], T_GREEN = [0, 200, 60], T_CYAN = [0, 150, 200];
+
+        async function ensureWxFrame() {
+            if (wxFetching) return;
+            if (wxFrame && Date.now() - wxFrame.fetchedAt < 5 * 60 * 1000) return;
+            wxFetching = true;
+            try {
+                const res = await fetch(RAINVIEWER_INDEX);
+                const j = await res.json();
+                const past = j && j.radar && j.radar.past;
+                if (j.host && past && past.length) {
+                    const f = past[past.length - 1];
+                    if (!wxFrame || wxFrame.path !== f.path) {
+                        for (const k of Array.from(tileCache.keys())) if (k.startsWith('wx/')) tileCache.delete(k);
+                    }
+                    wxFrame = { host: j.host, path: f.path, fetchedAt: Date.now() };
+                    layerMaybeRebuild(true);
+                }
+            } catch (e) { /* no radar: the layer stays empty */ }
+            wxFetching = false;
+        }
+        setInterval(() => { if (state.layer === 'WXR') ensureWxFrame(); }, 60 * 1000);
+
+        // Rebuild when the aircraft has moved a slice of the range, the range
+        // or layer changed, altitude moved a band's worth, or tiles arrived.
+        function layerMaybeRebuild(force) {
+            if (!state.layer || state.lat == null) return;
+            const b = layerBuilt;
+            if (!force && b && b.layer === state.layer && b.range === state.range) {
+                const movedNM = Math.hypot((state.lat - b.lat) * 60,
+                    (state.lon - b.lon) * 60 * Math.cos(state.lat * Math.PI / 180));
+                const climbed = Math.abs((state.altFt || 0) - (b.alt || 0));
+                if (movedNM < state.range / 25 && (state.layer !== 'TERR' || climbed < 150)) return;
+            }
+            clearTimeout(layerTimer);
+            layerTimer = setTimeout(buildLayer, force ? 60 : 0);
+        }
+
+        function buildLayer() {
+            if (!state.layer || state.lat == null) return;
+            const R = state.range * 1.08;
+            const cellNM = (2 * R) / LAYER_GRID;
+            const lat0 = state.lat, lon0 = state.lon;
+            const cosLat = Math.max(0.05, Math.cos(lat0 * Math.PI / 180));
+            const img = layerCtx.createImageData(LAYER_GRID, LAYER_GRID);
+            const d = img.data;
+            const put = (i, c, a) => { d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = a; };
+            let maxFt = -Infinity, minFt = Infinity, peaks = false;
+
+            if (state.layer === 'WXR') {
+                ensureWxFrame();
+                if (!wxFrame) { layerBuilt = null; return; }
+                const z = zoomFor(cellNM, lat0, 256, 7);
+                const url = (zz, x, y) => `${wxFrame.host}${wxFrame.path}/512/${zz}/${x}/${y}/2/1_1.png`;
+                for (let j = 0; j < LAYER_GRID; j++) {
+                    const lat = lat0 + (R - (j + 0.5) * cellNM) / 60;
+                    for (let i = 0; i < LAYER_GRID; i++) {
+                        const lon = lon0 + (-R + (i + 0.5) * cellNM) / (60 * cosLat);
+                        const c = wxColour(samplePixel('wx', lat, lon, z, 256, url));
+                        if (c) put((j * LAYER_GRID + i) * 4, c, 255);
+                    }
+                }
+            } else {
+                const z = zoomFor(cellNM, lat0, 256, 11);
+                const url = (zz, x, y) => TERRARIUM.replace('{z}', zz).replace('{x}', x).replace('{y}', y);
+                const elev = new Float32Array(LAYER_GRID * LAYER_GRID).fill(NaN);
+                for (let j = 0; j < LAYER_GRID; j++) {
+                    const lat = lat0 + (R - (j + 0.5) * cellNM) / 60;
+                    for (let i = 0; i < LAYER_GRID; i++) {
+                        const lon = lon0 + (-R + (i + 0.5) * cellNM) / (60 * cosLat);
+                        const ft = terrainFt(samplePixel('ter', lat, lon, z, 256, url));
+                        if (ft == null) continue;
+                        elev[j * LAYER_GRID + i] = ft;
+                        // Legend spans what the display actually shows.
+                        const dx = (i + 0.5) * cellNM - R, dy = R - (j + 0.5) * cellNM;
+                        if (dx * dx + dy * dy <= state.range * state.range && ft > 0) {
+                            if (ft > maxFt) maxFt = ft;
+                            if (ft < minFt) minFt = ft;
+                        }
+                    }
+                }
+                const alt = state.altFt || 0;
+                peaks = isFinite(maxFt) && maxFt < alt - 2000;
+                const span = Math.max(1, maxFt - minFt);
+                for (let k = 0; k < elev.length; k++) {
+                    const ft = elev[k];
+                    if (isNaN(ft)) continue;
+                    const i = k % LAYER_GRID, j = (k / LAYER_GRID) | 0;
+                    const n = dot(i, j);
+                    let c = null, dens = 0;
+                    if (ft <= 0) { c = T_CYAN; dens = 0.12; }                  // sea
+                    else if (peaks) {
+                        const rel = (ft - minFt) / span;                        // relief only
+                        if (rel > 0.8) { c = T_GREEN; dens = 0.6; }
+                        else if (rel > 0.5) { c = T_GREEN; dens = 0.3; }
+                        else if (rel > 0.3) { c = T_GREEN; dens = 0.12; }
+                    } else {
+                        const rel = ft - alt;
+                        if (rel > 2000) { c = T_RED; dens = 0.75; }
+                        else if (rel > 1000) { c = T_YELLOW; dens = 0.55; }
+                        else if (rel > -500) { c = T_YELLOW; dens = 0.25; }
+                        else if (rel > -1000) { c = T_GREEN; dens = 0.5; }
+                        else if (rel > -2000) { c = T_GREEN; dens = 0.18; }
+                    }
+                    if (c && n < dens) put(k * 4, c, 255);
+                }
+            }
+
+            layerCtx.putImageData(img, 0, 0);
+            layerBuilt = {
+                layer: state.layer, lat: lat0, lon: lon0, alt: state.altFt, range: state.range, R,
+                maxFt: isFinite(maxFt) ? maxFt : null, minFt: isFinite(minFt) ? minFt : null, peaks
+            };
+            requestDraw();
+        }
+
+        function drawLayer(radius, isRoseMode) {
+            if (!state.layer || !layerBuilt || layerBuilt.layer !== state.layer) return;
+            const b = layerBuilt;
+            const pxPerNM = radius / state.range;
+            // Offset for any movement since the raster was built.
+            const offX = (b.lon - state.lon) * 60 * Math.cos(state.lat * Math.PI / 180) * pxPerNM;
+            const offY = -(b.lat - state.lat) * 60 * pxPerNM;
+            const size = 2 * b.R * pxPerNM * (b.range === state.range ? 1 : state.range / b.range);
+
+            ctx.save();
+            ctx.beginPath();
+            if (isRoseMode) {
+                ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+            } else {
+                ctx.rotate(state.heading * Math.PI / 180);
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, radius, ARC_START_ANGLE, ARC_END_ANGLE);
+                ctx.closePath();
+                ctx.rotate(-state.heading * Math.PI / 180);
+            }
+            ctx.clip();
+            ctx.globalAlpha = state.layer === 'WXR' ? 0.9 : 1;
+            ctx.imageSmoothingEnabled = state.layer === 'WXR';
+            ctx.drawImage(layerCanvas, offX - size / 2, offY - size / 2, size, size);
+            ctx.restore();
+        }
+
+        // Mode annunciation and, for terrain, the highest / lowest elevation
+        // in view in hundreds of feet, coloured by their band, as on the ND.
+        function drawLayerLegend(w, h) {
+            if (!state.layer) return;
+            const fs = h * 0.04;
+            ctx.save();
+            ctx.font = `bold ${fs}px 'Inconsolata', monospace`;
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'alphabetic';
+            const x = w / 2 - fs * 0.6, y = h / 2 - fs * 0.8;
+            ctx.fillStyle = COLORS.cyan;
+            ctx.fillText(state.layer === 'WXR' ? 'WXR' : 'TERR', x, y);
+            if (state.layer === 'TERR' && layerBuilt && layerBuilt.maxFt != null) {
+                const alt = state.altFt || 0;
+                const band = (ft) => layerBuilt.peaks ? '#00c83c'
+                    : ft - alt > 2000 ? '#e61e1e' : ft - alt > -500 ? '#ebd700' : '#00c83c';
+                const hund = (ft) => String(Math.max(0, Math.round(ft / 100))).padStart(3, '0');
+                ctx.fillStyle = band(layerBuilt.maxFt);
+                ctx.fillText(hund(layerBuilt.maxFt), x, y - fs * 2.3);
+                ctx.fillStyle = band(layerBuilt.minFt);
+                ctx.fillText(hund(layerBuilt.minFt), x, y - fs * 1.15);
+            }
+            if (state.layer === 'WXR' && !wxFrame) {
+                ctx.fillStyle = COLORS.amber;
+                ctx.fillText('WXR DATA', x, y - fs * 1.15);
+            }
+            ctx.restore();
+        }
+
+        // Restore the last choice.
+        try {
+            const saved = localStorage.getItem(LAYER_KEY);
+            if (saved === 'WXR' || saved === 'TERR') setLayer(saved);
+        } catch (e) {}
+
         function animate() {
             if (window.self === window.top) {
                 // Standalone page: the clock ticks, so keep repainting.
@@ -992,6 +1319,12 @@
             if (data.flightPlan && Array.isArray(data.flightPlan)) {
                 state.flightPlan = data.flightPlan;
             }
+            if (typeof data.lat === 'number' && typeof data.lon === 'number') {
+                state.lat = data.lat;
+                state.lon = data.lon;
+            }
+            if (typeof data.altFt === 'number') state.altFt = data.altFt;
+            layerMaybeRebuild();
             requestDraw();
         });
 
