@@ -24903,13 +24903,14 @@ function arrangeSereneWindow(html) {
 /**
  * Serene hero photo sizing. The header takes the photo's own height at the
  * window's width (clamped), so a wide photo shows whole with no side crop,
- * and a tall photo fills the width and is cropped top and bottom. Only a
- * panorama too flat to reach the minimum height falls back to cover. The
+ * and a tall photo fills the width and is cropped top and bottom. It is
+ * never zoomed past the width (that cut off nose and tail): a photo too
+ * flat to fill the header sits at the top and the fade covers the rest. The
  * carousel swaps photos by rewriting background-image on the header and its
  * crossfade layer, so each swap is re-checked; the height stays with the
  * first photo so the window doesn't jump.
  */
-const SR_HERO_MIN_H = 210;
+const SR_HERO_MIN_H = 150;
 const SR_HERO_MAX_H = 330;
 
 function fitSereneHero(panel) {
@@ -24933,7 +24934,7 @@ function fitSereneHero(panel) {
                 const h = Math.round(Math.min(SR_HERO_MAX_H, Math.max(SR_HERO_MIN_H, shown)));
                 panel.style.setProperty('--sr-hero-h', h + 'px');
             }
-            el.style.setProperty('background-size', shown >= panel.offsetHeight - 1 ? '100% auto' : 'cover', 'important');
+            el.style.setProperty('background-position', shown >= panel.offsetHeight - 1 ? 'center 40%' : 'center top', 'important');
         };
         img.src = src;
     };
