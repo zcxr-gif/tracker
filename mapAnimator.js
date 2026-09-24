@@ -39,7 +39,10 @@
 // never serialised to the worker; handlers fetch them from the cache.
 const HEAVY_PROPS = new Set([
     'position', 'aircraft', '__acSig', 'last_update',
-    'communityImageUrl', 'communityImageUrls', 'imageContributors', 'contributorName'
+    'communityImageUrl', 'communityImageUrls', 'imageContributors', 'contributorName',
+    // Read only by handlers (via liveFlightProps, from the cache), never by
+    // a layer expression — ~20% of what every flush serialised per aircraft.
+    'verticalSpeed', 'userId', 'isStaff', 'isVAMember', 'pilotState', '__lastUpdateMs'
 ]);
 
 function slimPropsGeneric(props) {
