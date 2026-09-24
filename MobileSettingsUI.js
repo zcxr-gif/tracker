@@ -456,6 +456,11 @@ export const MobileSettingsUI = {
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-window-maximize"></i><span>Simple</span></button>
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="embed"><i class="fa-solid fa-id-card"></i><span>Card</span></button>
                             </div>
+                            <!-- Serene's colour; text and surfaces adapt to stay readable. -->
+                            <div class="m-serene-color">
+                                <div class="m-serene-color-label"><i class="fa-solid fa-palette"></i><span>Serene colour</span></div>
+                                ${(typeof window !== 'undefined' && window.buildSereneColorPicker) ? window.buildSereneColorPicker('m') : ''}
+                            </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
                                 ${this.renderToggle('use12hClock', '12-Hour Clock (AM/PM)', 'fa-clock')}
@@ -2414,6 +2419,8 @@ export const MobileSettingsUI = {
             });
         });
 
+        if (window.wireSereneColorPicker) window.wireSereneColorPicker(sheet);
+
         // Pro time-zone picker (flight-window times in the user's own zone).
         // Gated: ignore changes while the row is locked (non-Pro), and revert
         // the select back to Zulu so it can't stick on a picked value.
@@ -2725,6 +2732,9 @@ export const MobileSettingsUI = {
                 .m-fw-mode-grid .m-setting-pill span { font-size: 0.78rem; }
                 .m-fw-mode-grid-2 { grid-template-columns: repeat(2, 1fr); }
                 .m-fw-mode-grid-3 { grid-template-columns: repeat(3, 1fr); }
+                .m-serene-color { padding: 4px 20px 14px; }
+                .m-serene-color-label { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 0.9rem; color: #e4e4e7; }
+                .m-serene-color-label i { color: #a1a1aa; width: 18px; text-align: center; }
 
                 /* ---- Map style preview cards ---- */
                 .m-style-grid {

@@ -338,6 +338,27 @@ export async function registerAircraftShapeIcons(map, opts = {}) {
 // Exercised by tools/test-aircraft-shapes.js, which checks the mapping against
 // what flight.js can produce and against the files actually vendored — the two
 // ways this breaks without anyone noticing until somebody flies the type.
+/* =========================
+ * Silhouettes for UI
+ * =========================
+ * A solid silhouette of the map icon's airframe as an SVG data URL, for UI
+ * outside the map (the Serene flight window's progress bar). It goes through
+ * the same category → shape table as the map icons, so the two always show
+ * the same aircraft. Nose up, like the map icons; callers rotate it.
+ */
+const silhouetteCache = new Map();
+
+export function aircraftSilhouetteUrl(category) {
+    const file = SHAPE_FILE[category];
+    if (!file) return Promise.resolve(null);
+    if (!silhouetteCache.has(file)) {
+        silhouetteCache.set(file, loadShape(file)
+            .then((prepared) => 'data:image/svg+xml,' + encodeURIComponent(svgFor(prepared, '#000', false)))
+            .catch(() => null));
+    }
+    return silhouetteCache.get(file);
+}
+
 export const _internals = {
     SHAPE_FILE, SHAPES_DIR, LOGICAL_SIZE,
     REFERENCE_SPAN, SIZE_EXPONENT, MIN_SCALE, MAX_SCALE, BASE_FILL,

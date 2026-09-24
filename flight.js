@@ -1521,6 +1521,8 @@ let mapFilters = {
         // FR24-style card ported from the VA embed). useSimpleFlightWindow is
         // kept in sync (true only for 'simple') for backward compatibility.
         flightWindowMode: 'legacy',
+        // Serene window colour; text and surfaces adapt to it for contrast.
+        sereneColor: '#16181c',
         // Airport-info window presentation: 'standard' (the built-in tabbed
         // window) or 'embed' (embed-airport.html — the embed's airport card).
         airportWindowMode: 'standard',
@@ -19979,6 +19981,9 @@ renderCategory(catId) {
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'serene' ? ' active' : ''}" data-mode="serene" title="The Legacy window in a softer, calmer style"><i class="fa-solid fa-feather"></i> Serene</button>
                             </div>
+                            <!-- Serene's colour. Text and surfaces adapt so it stays readable. -->
+                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-palette"></i> Serene Colour</div>
+                            ${buildSereneColorPicker('set')}
                             <!-- Which side of the map the flight window opens on.
                                  Used to be a button in the window's own tab bar. -->
                             <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
@@ -20325,6 +20330,7 @@ renderCategory(catId) {
             });
         };
         wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
+        wireSereneColorPicker(document.getElementById('global-settings-modal-overlay') || document);
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
 
         // Window side: same preference the old move-window button kept, and
@@ -24483,15 +24489,22 @@ const SERENE_WINDOW_CSS = (() => {
     const S = 'html body #aircraft-info-window.iw-serene';
     return `
         ${S} {
+            /* Palette. applySereneColor() overrides these inline from the
+               user's chosen colour: --sr-ink-rgb is white on a dark colour
+               and black on a light one, and every overlay, hairline and
+               text tone below is drawn from it, so contrast follows. */
             --sr-bg: #16181c;
-            --sr-surface: rgba(255,255,255,0.035);
-            --sr-surface-hi: rgba(255,255,255,0.06);
-            --sr-line: rgba(255,255,255,0.065);
+            --sr-bg-rgb: 22,24,28;
+            --sr-ink-rgb: 255,255,255;
             --sr-text: #eef0f4;
-            --sr-muted: #9ba1ac;
-            --sr-faint: #6c727d;
+            --sr-muted: rgba(var(--sr-ink-rgb),0.6);
+            --sr-faint: rgba(var(--sr-ink-rgb),0.42);
             --sr-accent: #8cc8ee;
             --sr-accent-soft: rgba(140,200,238,0.32);
+            --sr-surface: rgba(var(--sr-ink-rgb),0.035);
+            --sr-surface-hi: rgba(var(--sr-ink-rgb),0.06);
+            --sr-line: rgba(var(--sr-ink-rgb),0.07);
+            --text-primary: var(--sr-text);
             --sr-radius: 18px;
             /* The Fuel and Cabin cards (fuelEstimator.js, cabinMap.js) paint
                with these host variables, so they follow the skin too. */
@@ -24502,15 +24515,15 @@ const SERENE_WINDOW_CSS = (() => {
             --text-dim: var(--sr-faint);
             background: var(--sr-bg) !important;
             color: var(--sr-text);
-            border: 1px solid rgba(255,255,255,0.06) !important;
+            border: 1px solid rgba(var(--sr-ink-rgb),0.06) !important;
             box-shadow: 0 24px 60px rgba(0,0,0,0.42), 0 2px 10px rgba(0,0,0,0.22) !important;
             scrollbar-width: thin;
-            scrollbar-color: rgba(255,255,255,0.12) transparent;
+            scrollbar-color: rgba(var(--sr-ink-rgb),0.12) transparent;
         }
         ${S}:not(.mobile-legacy-sheet) { border-radius: 22px !important; }
-        ${S}.mobile-legacy-sheet { background: rgba(22,24,28,0.97) !important; }
+        ${S}.mobile-legacy-sheet { background: rgba(var(--sr-bg-rgb),0.97) !important; color: var(--sr-text) !important; }
         ${S}::-webkit-scrollbar { width: 6px; }
-        ${S}::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+        ${S}::-webkit-scrollbar-thumb { background: rgba(var(--sr-ink-rgb),0.12); border-radius: 3px; }
         ${S}::-webkit-scrollbar-track { background: transparent; }
 
         /* ---- Hero photo: a soft top scrim for the callsign, a long fade
@@ -24535,13 +24548,13 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .ac-header-overlay {
             background: linear-gradient(180deg,
                 rgba(12,14,18,0.34) 0px, rgba(12,14,18,0) 72px,
-                rgba(22,24,28,0) calc(var(--sr-photo-h, 220px) * 0.36),
-                rgba(22,24,28,0.06) calc(var(--sr-photo-h, 220px) * 0.46),
-                rgba(22,24,28,0.16) calc(var(--sr-photo-h, 220px) * 0.56),
-                rgba(22,24,28,0.32) calc(var(--sr-photo-h, 220px) * 0.66),
-                rgba(22,24,28,0.52) calc(var(--sr-photo-h, 220px) * 0.76),
-                rgba(22,24,28,0.72) calc(var(--sr-photo-h, 220px) * 0.85),
-                rgba(22,24,28,0.89) calc(var(--sr-photo-h, 220px) * 0.93),
+                rgba(var(--sr-bg-rgb),0) calc(var(--sr-photo-h, 220px) * 0.36),
+                rgba(var(--sr-bg-rgb),0.06) calc(var(--sr-photo-h, 220px) * 0.46),
+                rgba(var(--sr-bg-rgb),0.16) calc(var(--sr-photo-h, 220px) * 0.56),
+                rgba(var(--sr-bg-rgb),0.32) calc(var(--sr-photo-h, 220px) * 0.66),
+                rgba(var(--sr-bg-rgb),0.52) calc(var(--sr-photo-h, 220px) * 0.76),
+                rgba(var(--sr-bg-rgb),0.72) calc(var(--sr-photo-h, 220px) * 0.85),
+                rgba(var(--sr-bg-rgb),0.89) calc(var(--sr-photo-h, 220px) * 0.93),
                 var(--sr-bg) var(--sr-photo-h, 220px)) !important;
         }
         ${S} .ac-partner-hero { order: 2; margin: auto 20px 8px !important; max-width: calc(100% - 40px) !important; }
@@ -24554,7 +24567,7 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .sr-eyebrow {
             display: flex; align-items: center; gap: 8px; min-width: 0;
             font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
-            color: rgba(255,255,255,0.72); text-shadow: 0 1px 8px rgba(0,0,0,0.4);
+            color: rgba(var(--sr-ink-rgb),0.72); text-shadow: 0 1px 8px rgba(0,0,0,0.4);
         }
         ${S} .sr-eyebrow span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         ${S} .sr-eyebrow .ac-header-logo {
@@ -24564,7 +24577,7 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .ac-header-top h1.sr-callsign {
             display: block !important; margin: 5px 0 9px !important;
             font-size: 21px !important; font-weight: 600 !important; line-height: 1.2 !important;
-            letter-spacing: -0.01em !important; color: #fff !important;
+            letter-spacing: -0.01em !important; color: var(--sr-text) !important;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             text-shadow: 0 1px 10px rgba(0,0,0,0.35) !important;
         }
@@ -24572,12 +24585,12 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .sr-chip {
             display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto;
             padding: 3px 10px; border-radius: 999px;
-            font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.86);
-            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+            font-size: 11px; font-weight: 500; color: rgba(var(--sr-ink-rgb),0.86);
+            background: rgba(var(--sr-ink-rgb),0.08); border: 1px solid rgba(var(--sr-ink-rgb),0.1);
             -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        ${S} .sr-chip-reg { flex: 0 0 auto; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.7); }
+        ${S} .sr-chip-reg { flex: 0 0 auto; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; color: rgba(var(--sr-ink-rgb),0.7); }
 
         /* Photo carousel: dots bottom-right level with the chips, the credit
            a faint tag top-left. */
@@ -24652,7 +24665,7 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} #ac-dep-gate, ${S} #ac-arr-gate {
             order: 6;
             margin-top: 8px !important; padding: 3px 9px !important; border-radius: 999px !important;
-            background: rgba(255,255,255,0.06) !important; color: var(--sr-muted) !important;
+            background: rgba(var(--sr-ink-rgb),0.06) !important; color: var(--sr-muted) !important;
             font-size: 10.5px !important; font-weight: 500 !important; letter-spacing: 0 !important;
         }
         ${S} #ac-dep-gate i, ${S} #ac-arr-gate i { color: var(--sr-faint) !important; margin-right: 3px; }
@@ -24666,7 +24679,7 @@ const SERENE_WINDOW_CSS = (() => {
         }
         ${S} .route-visual > .flight-progress-track {
             order: 0; flex: 0 0 100%;
-            height: 4px !important; border-radius: 2px !important; background: rgba(255,255,255,0.08) !important;
+            height: 4px !important; border-radius: 2px !important; background: rgba(var(--sr-ink-rgb),0.08) !important;
             margin: 0 4px 8px;
             flex-basis: calc(100% - 8px);
         }
@@ -24675,9 +24688,19 @@ const SERENE_WINDOW_CSS = (() => {
             transform: translate(-50%, -50%); box-sizing: border-box;
         }
         ${S} .flight-progress-track::before { left: 0; background: var(--sr-accent); z-index: 2; }
-        ${S} .flight-progress-track::after { left: 100%; background: var(--sr-bg); border: 1.5px solid rgba(255,255,255,0.35); }
+        ${S} .flight-progress-track::after { left: 100%; background: var(--sr-bg); border: 1.5px solid rgba(var(--sr-ink-rgb),0.35); }
         ${S} .flight-progress-fill { border-radius: 2px !important; background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)) !important; z-index: 1; }
-        ${S} .flight-progress-plane { filter: none !important; font-size: 13px !important; color: #fff !important; right: -7px !important; }
+        ${S} .flight-progress-plane { filter: none !important; font-size: 13px !important; color: var(--sr-text) !important; right: -7px !important; }
+        /* The aircraft's own map silhouette (setSereneProgressPlane), turned
+           to face along the line, in place of the generic plane glyph. */
+        ${S}.sr-has-plane .flight-progress-plane {
+            font-size: 0 !important; width: 24px; height: 24px; right: -12px !important;
+            background: var(--sr-text) !important;
+            -webkit-mask: var(--sr-plane) center / contain no-repeat;
+            mask: var(--sr-plane) center / contain no-repeat;
+            transform: translateY(-50%) rotate(90deg) !important;
+        }
+        ${S}.sr-has-plane .flight-progress-plane::before { content: none !important; }
         /* distance | phase · status | time left */
         ${S} .route-visual > div:nth-child(3) { display: contents !important; }
         ${S} .route-visual > div:nth-child(3) > span {
@@ -24687,18 +24710,18 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .route-visual > div:nth-child(3) > span:last-child { order: 4; }
         ${S} .phase-badge-route {
             order: 2; margin: 0 0 0 auto !important; width: auto !important; padding: 4px 10px;
-            border-radius: 999px; background: rgba(255,255,255,0.06);
+            border-radius: 999px; background: rgba(var(--sr-ink-rgb),0.06);
         }
         ${S} #ac-phase-dot { box-shadow: none !important; width: 6px !important; height: 6px !important; }
         ${S} #ac-phase-text {
             display: inline-block; font-size: 11px !important; font-weight: 600 !important;
-            letter-spacing: 0.01em !important; color: rgba(255,255,255,0.88) !important; text-transform: lowercase !important;
+            letter-spacing: 0.01em !important; color: rgba(var(--sr-ink-rgb),0.88) !important; text-transform: lowercase !important;
         }
         ${S} #ac-phase-text::first-letter { text-transform: uppercase; }
         ${S} #ac-flight-status-badge {
             order: 3; margin: 0 auto 0 0 !important; padding: 4px 10px !important;
             border: 0 !important; border-radius: 999px !important; box-shadow: none !important;
-            background: rgba(255,255,255,0.06) !important;
+            background: rgba(var(--sr-ink-rgb),0.06) !important;
             -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
             font-size: 11px !important; font-weight: 600 !important; letter-spacing: 0.01em !important;
         }
@@ -24785,7 +24808,7 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .modern-status-card .tech-ping { order: 2; }
         ${S} .modern-status-card > div > div:first-child > div:first-child {
             width: 38px !important; height: 38px !important; flex: 0 0 auto;
-            background: rgba(255,255,255,0.05) !important; border-color: transparent !important; border-radius: 12px !important;
+            background: rgba(var(--sr-ink-rgb),0.05) !important; border-color: transparent !important; border-radius: 12px !important;
         }
         ${S} .modern-status-card i { filter: none !important; }
         ${S} .modern-status-card > div > div:last-child > span:nth-child(1) {
@@ -24834,7 +24857,7 @@ const SERENE_WINDOW_CSS = (() => {
             font-size: 12.5px !important; font-weight: 600 !important;
         }
         ${S} .nd-full-width-section .switcher-highlight {
-            background: rgba(255,255,255,0.075) !important; border-color: rgba(255,255,255,0.07) !important;
+            background: rgba(var(--sr-ink-rgb),0.075) !important; border-color: rgba(var(--sr-ink-rgb),0.07) !important;
             border-radius: 10px !important; box-shadow: 0 2px 10px rgba(0,0,0,0.18) !important;
         }
         ${S} #fmc-view-container { background: #0e1013 !important; }
@@ -24865,7 +24888,7 @@ const SERENE_WINDOW_CSS = (() => {
             font-family: var(--font-ui); font-weight: 500; font-variant-numeric: tabular-nums;
         }
         ${S} .acx-hero-num { font-family: var(--font-ui); font-size: 30px; font-weight: 300; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-        ${S} .acx-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.07); margin: 16px 0 6px; }
+        ${S} .acx-bar { height: 4px; border-radius: 2px; background: rgba(var(--sr-ink-rgb),0.07); margin: 16px 0 6px; }
         ${S} .acx-bar-fill { border-radius: 2px; background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)); }
         ${S} .acx-row, ${S} .acx-rows .acx-row:first-child, ${S} .acx-group-label, ${S} .acx-foot { border-color: var(--sr-line); }
         ${S} .acx-group-label { color: var(--sr-faint); font-weight: 500; }
@@ -24879,7 +24902,7 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .dest-toggle-sub { font-size: 10.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--sr-muted); }
         ${S} .dest-hero { border-radius: 14px; }
         ${S} .dest-cell, ${S} .dest-metar, ${S} .dest-open-btn {
-            background: rgba(255,255,255,0.03); border-color: var(--sr-line); border-radius: 12px;
+            background: rgba(var(--sr-ink-rgb),0.03); border-color: var(--sr-line); border-radius: 12px;
         }
         ${S} .dest-cell .l, ${S} .dest-mgrid .l, ${S} .dest-metar-h {
             text-transform: none; letter-spacing: 0; font-size: 10px; font-weight: 500; color: var(--sr-muted);
@@ -24905,6 +24928,36 @@ const SERENE_WINDOW_CSS = (() => {
             ${S} .sr-g:nth-child(3) { border-left: 0; }
         }
 
+        /* ---- Text that other stylesheets paint white ---- */
+        ${S} .acx-v, ${S} .acx-row .v, ${S} .acx-hero-num, ${S} #ac-location,
+        ${S} .dest-toggle, ${S} .dest-cell .v, ${S} .dest-mgrid .v, ${S} .dest-open-btn,
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(2),
+        ${S} .route-node .icao-large { color: var(--sr-text) !important; }
+        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { color: var(--sr-text) !important; }
+        ${S} .dest-loc, ${S} .dest-status { color: var(--sr-muted) !important; }
+
+        /* ---- Light colours: dark text everywhere it sits on the window ----
+           The tokens already flip (applySereneColor); these catch the
+           legacy markup's inline white and slate text. The instrument
+           screens and the photo keep their own dark palette. */
+        ${S}.sr-light :not(.crt-container *):not(.ac-header-modern *):is([style*="color: #fff"], [style*="color:#fff"], [style*="color: #ffffff"], [style*="color: #e5e7eb"], [style*="color: #f4f4f5"], [style*="color: rgb(255, 255, 255)"]) {
+            color: var(--sr-text) !important;
+        }
+        ${S}.sr-light :not(.crt-container *):not(.ac-header-modern *):is([style*="color: #94a3b8"], [style*="color: #cbd5e1"], [style*="color: #64748b"], [style*="color: #475569"], [style*="color: #9a9aa2"]) {
+            color: var(--sr-muted) !important;
+        }
+        /* Status colours (times, on-time badge, V/S arrow) are pale tints
+           made for a dark window; deepen them on a light one. */
+        ${S}.sr-light .route-node .time-small, ${S}.sr-light .route-node .time-source-label,
+        ${S}.sr-light #ac-flight-status-badge, ${S}.sr-light .sr-g-v span:not([style*="font-size"]),
+        ${S}.sr-light .timer-node:nth-child(2) { filter: brightness(0.62) saturate(1.3); }
+        ${S}.sr-light .sr-eyebrow, ${S}.sr-light h1.sr-callsign { text-shadow: none !important; }
+        ${S}.sr-light .hero-photo-dots span { filter: invert(1); }
+        ${S}.sr-light .sr-chip { -webkit-backdrop-filter: none; backdrop-filter: none; }
+        ${S}.sr-light .ac-pilot-avatar { background: #d9dce2; color: #1b1e24; border-color: rgba(0,0,0,0.12); }
+        ${S}.sr-light #main-data-switcher { box-shadow: 0 6px 18px rgba(0,0,0,0.08) !important; }
+        ${S}.sr-light:not(.mobile-legacy-sheet) { box-shadow: 0 24px 60px rgba(0,0,0,0.22), 0 2px 10px rgba(0,0,0,0.1) !important; }
+
         /* ---- A gentle entrance for the content below the photo ---- */
         @keyframes sr-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
         ${S} .ac-route-info-bar,
@@ -24919,6 +24972,153 @@ const SERENE_WINDOW_CSS = (() => {
         }
     `;
 })();
+
+/**
+ * Serene window colour. The user picks any colour (Settings › Windows); the
+ * rest of the palette is derived from it so text always reads: on a dark
+ * colour the ink is white, on a light one it is black — whichever of the two
+ * contrasts more with the chosen colour (WCAG relative luminance) — and every
+ * text tone, surface and hairline is that ink at an opacity.
+ */
+const SERENE_DEFAULT_COLOR = '#16181c';
+const SERENE_PRESETS = [
+    { hex: '#16181c', name: 'Ink' },
+    { hex: '#101a2c', name: 'Midnight' },
+    { hex: '#0f2226', name: 'Deep sea' },
+    { hex: '#142019', name: 'Forest' },
+    { hex: '#1f1726', name: 'Plum' },
+    { hex: '#2a1a16', name: 'Ember' },
+    { hex: '#e9ecf1', name: 'Mist' },
+    { hex: '#f6f4ef', name: 'Paper' },
+];
+
+function sereneTokens(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+    const h = m ? m[1].toLowerCase() : SERENE_DEFAULT_COLOR.slice(1);
+    const rgb = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const L = 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+    // Contrast against black vs against white; the larger one wins.
+    const light = (L + 0.05) / 0.05 > 1.05 / (L + 0.05);
+    return {
+        light,
+        bg: '#' + h,
+        bgRgb: rgb.join(','),
+        inkRgb: light ? '0,0,0' : '255,255,255',
+        text: light ? '#15171b' : '#eef0f4',
+        muted: light ? 'rgba(0,0,0,0.62)' : 'rgba(255,255,255,0.6)',
+        faint: light ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.42)',
+        accent: light ? '#1f6fae' : '#8cc8ee',
+        accentSoft: light ? 'rgba(31,111,174,0.3)' : 'rgba(140,200,238,0.32)',
+        surface: light ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.035)',
+        surfaceHi: light ? 'rgba(0,0,0,0.055)' : 'rgba(255,255,255,0.06)',
+        line: light ? 'rgba(0,0,0,0.09)' : 'rgba(255,255,255,0.07)',
+    };
+}
+
+function getSereneColor() {
+    return (typeof mapFilters !== 'undefined' && mapFilters.sereneColor) || SERENE_DEFAULT_COLOR;
+}
+
+function applySereneColor(windowEl) {
+    if (!windowEl) return;
+    const t = sereneTokens(getSereneColor());
+    const vars = {
+        '--sr-bg': t.bg, '--sr-bg-rgb': t.bgRgb, '--sr-ink-rgb': t.inkRgb,
+        '--sr-text': t.text, '--sr-muted': t.muted, '--sr-faint': t.faint,
+        '--sr-accent': t.accent, '--sr-accent-soft': t.accentSoft,
+        '--sr-surface': t.surface, '--sr-surface-hi': t.surfaceHi, '--sr-line': t.line,
+    };
+    Object.entries(vars).forEach(([k, v]) => windowEl.style.setProperty(k, v));
+    windowEl.classList.toggle('sr-light', t.light);
+}
+
+function setSereneColor(hex) {
+    if (typeof mapFilters === 'undefined') return;
+    mapFilters.sereneColor = sereneTokens(hex).bg;
+    if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
+    const w = document.getElementById('aircraft-info-window');
+    if (w && w.classList.contains('iw-serene')) applySereneColor(w);
+}
+
+// Swatches + a free colour picker, shared by desktop and mobile Settings.
+function buildSereneColorPicker(idPrefix) {
+    if (!document.getElementById('sr-color-picker-style')) {
+        const st = document.createElement('style');
+        st.id = 'sr-color-picker-style';
+        st.textContent = `
+            .sr-color-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+            .sr-swatch {
+                position: relative; width: 30px; height: 30px; border-radius: 50%; padding: 0; cursor: pointer;
+                border: 1px solid rgba(255,255,255,0.18); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.25);
+                transition: transform .15s ease, box-shadow .15s ease;
+            }
+            .sr-swatch:hover { transform: scale(1.08); }
+            .sr-swatch.active { box-shadow: 0 0 0 2px #121214, 0 0 0 4px #8cc8ee; }
+            .sr-swatch-custom {
+                display: grid; place-items: center; overflow: hidden; color: #fff; font-size: 12px;
+                background: conic-gradient(#f87171, #fbbf24, #4ade80, #38bdf8, #a78bfa, #f472b6, #f87171);
+            }
+            .sr-swatch-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; border: 0; padding: 0; }
+        `;
+        document.head.appendChild(st);
+    }
+    const cur = getSereneColor().toLowerCase();
+    const isPreset = SERENE_PRESETS.some((p) => p.hex === cur);
+    return `<div class="sr-color-row" data-sr-color-row>
+        ${SERENE_PRESETS.map((p) => `<button type="button" class="sr-swatch${p.hex === cur ? ' active' : ''}" data-color="${p.hex}" title="${p.name}" aria-label="${p.name}" style="background:${p.hex}"></button>`).join('')}
+        <label class="sr-swatch sr-swatch-custom${isPreset ? '' : ' active'}" title="Custom colour" aria-label="Custom colour">
+            <input type="color" id="${idPrefix}-serene-color" value="${cur}">
+        </label>
+    </div>`;
+}
+
+function wireSereneColorPicker(root) {
+    const row = root && root.querySelector('[data-sr-color-row]');
+    if (!row || row.dataset.wired === '1') return;
+    row.dataset.wired = '1';
+    const mark = (el) => row.querySelectorAll('.sr-swatch').forEach((b) => b.classList.toggle('active', b === el));
+    row.querySelectorAll('button.sr-swatch').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            setSereneColor(btn.dataset.color);
+            mark(btn);
+            const input = row.querySelector('input[type="color"]');
+            if (input) input.value = btn.dataset.color;
+        });
+    });
+    const input = row.querySelector('input[type="color"]');
+    if (input) {
+        input.addEventListener('input', () => {
+            setSereneColor(input.value);
+            mark(input.closest('.sr-swatch'));
+        });
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.buildSereneColorPicker = buildSereneColorPicker;
+    window.wireSereneColorPicker = wireSereneColorPicker;
+    window.setSereneColor = setSereneColor;
+}
+
+// Swap the progress bar's generic plane glyph for the silhouette the map
+// draws for this aircraft (aircraftShapes.js). Stays the glyph if the type
+// has no shape or the file can't load.
+function setSereneProgressPlane(windowEl, aircraftName) {
+    windowEl.classList.remove('sr-has-plane');
+    const cat = aircraftName ? _resolveAircraftCategory(aircraftName) : null;
+    const token = {};
+    windowEl._srPlaneToken = token;
+    if (!cat) return;
+    import('./aircraftShapes.js')
+        .then((m) => m.aircraftSilhouetteUrl(cat))
+        .then((url) => {
+            if (!url || windowEl._srPlaneToken !== token) return;
+            windowEl.style.setProperty('--sr-plane', `url("${url}")`);
+            windowEl.classList.add('sr-has-plane');
+        })
+        .catch(() => { /* keep the glyph */ });
+}
 
 function ensureSereneWindowStyle() {
     if (document.getElementById('ac-serene-style')) return;
@@ -25105,7 +25305,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
 
     // Serene is this same window in a softer skin (see SERENE_WINDOW_CSS).
     const sereneSkin = getFlightWindowMode() === 'serene';
-    if (sereneSkin) ensureSereneWindowStyle();
+    if (sereneSkin) {
+        ensureSereneWindowStyle();
+        applySereneColor(windowEl);
+    }
     windowEl.classList.toggle('iw-serene', sereneSkin);
 
     // Clickable origin/destination ICAOs — inject the hover affordance once.
@@ -25983,7 +26186,10 @@ let totalDistanceNM = 0;
     // Serene rearranges the content column before it is written, so the
     // morph measures the final layout (see arrangeSereneWindow).
     setInfoWindowContent(windowEl, sereneSkin ? arrangeSereneWindow(windowHtml) : windowHtml);
-    if (sereneSkin) wireSereneGlance(windowEl);
+    if (sereneSkin) {
+        wireSereneGlance(windowEl);
+        setSereneProgressPlane(windowEl, baseProps.aircraft?.aircraftName || '');
+    }
 
     // --- POST-RENDER LOGIC ---
     // Destination dropdown: expand/collapse, fetching the airport summary
