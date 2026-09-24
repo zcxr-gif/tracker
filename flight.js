@@ -1516,6 +1516,7 @@ let mapFilters = {
         useFlatMap: false,
         useSimpleFlightWindow: false,
         // Flight-info window presentation: 'legacy' (full avionics window),
+        // 'serene' (the same avionics window in a softer, calmer skin),
         // 'simple' (flightinfo.html iframe) or 'embed' (embed-flight.html — the
         // FR24-style card ported from the VA embed). useSimpleFlightWindow is
         // kept in sync (true only for 'simple') for backward compatibility.
@@ -13669,7 +13670,7 @@ function handleSocketFlightUpdate(data) {
                 // serves both. Legacy stays on the avionics DOM path below.
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
                 const _liveFwMode = getFlightWindowMode();
-                if (_liveFwMode !== 'legacy' && simpleIframe && simpleIframe.contentWindow) {
+                if (!isNativeFlightWindowMode(_liveFwMode) && simpleIframe && simpleIframe.contentWindow) {
                      const freshData = formatDataForSimpleWindow(
                          fullFlightProps,
                          cachedFlightDataForStatsView.plan,
@@ -13686,7 +13687,7 @@ function handleSocketFlightUpdate(data) {
                          cachedFlightDataForStatsView.filedPlanData || null
                      );
                      simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
-                } else if (_liveFwMode === 'legacy') {
+                } else if (isNativeFlightWindowMode(_liveFwMode)) {
                     updatePfdDisplay(flight.position);
                     updateNavPanelData(
                         flight.position.lat, 
@@ -17541,22 +17542,32 @@ function initializeAircraftLayer() {
  */
 /**
  * --- Flight / airport window presentation mode helpers ---
- * `flightWindowMode` is the canonical store ('legacy' | 'simple' | 'embed');
- * the older `useSimpleFlightWindow` boolean is kept mirrored (true only for
- * 'simple') so existing code paths and saved settings still resolve correctly.
+ * `flightWindowMode` is the canonical store ('legacy' | 'serene' | 'simple' |
+ * 'embed'); the older `useSimpleFlightWindow` boolean is kept mirrored (true
+ * only for 'simple') so existing code paths and saved settings still resolve
+ * correctly. 'serene' is the Legacy window rendered by the same host-page
+ * code, only re-skinned (see SERENE_WINDOW_CSS), so every check that means
+ * "the native avionics window" should use isNativeFlightWindowMode().
  */
 function getFlightWindowMode() {
     if (typeof mapFilters === 'undefined') return 'legacy';
-    // 'embed' is the only mode tracked solely by flightWindowMode; the
+    // 'embed' and 'serene' are tracked solely by flightWindowMode; the
     // simple/legacy split stays keyed off useSimpleFlightWindow so any legacy
     // code path that flips that boolean keeps working.
     if (mapFilters.flightWindowMode === 'embed') return 'embed';
-    return mapFilters.useSimpleFlightWindow ? 'simple' : 'legacy';
+    if (mapFilters.useSimpleFlightWindow) return 'simple';
+    return mapFilters.flightWindowMode === 'serene' ? 'serene' : 'legacy';
+}
+
+// Legacy and Serene share the host-page window (populateAircraftInfoWindow /
+// updateAircraftInfoWindow); Simple and Card are iframes.
+function isNativeFlightWindowMode(mode = getFlightWindowMode()) {
+    return mode === 'legacy' || mode === 'serene';
 }
 
 function setFlightWindowMode(mode) {
     if (typeof mapFilters === 'undefined') return;
-    if (mode !== 'legacy' && mode !== 'simple' && mode !== 'embed') mode = 'legacy';
+    if (mode !== 'legacy' && mode !== 'serene' && mode !== 'simple' && mode !== 'embed') mode = 'legacy';
     mapFilters.flightWindowMode = mode;
     mapFilters.useSimpleFlightWindow = (mode === 'simple');
     if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
@@ -17577,6 +17588,7 @@ function setAirportWindowMode(mode) {
 if (typeof window !== 'undefined') {
     window.getFlightWindowMode = getFlightWindowMode;
     window.setFlightWindowMode = setFlightWindowMode;
+    window.isNativeFlightWindowMode = isNativeFlightWindowMode;
     window.getAirportWindowMode = getAirportWindowMode;
     window.setAirportWindowMode = setAirportWindowMode;
 }
@@ -19957,6 +19969,7 @@ renderCategory(catId) {
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'legacy' ? ' active' : ''}" data-mode="legacy"><i class="fa-solid fa-layer-group"></i> Legacy</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'simple' ? ' active' : ''}" data-mode="simple"><i class="fa-solid fa-window-maximize"></i> Simple</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
+                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'serene' ? ' active' : ''}" data-mode="serene" title="The Legacy window in a softer, calmer style"><i class="fa-solid fa-feather"></i> Serene</button>
                             </div>
                             <!-- Which side of the map the flight window opens on.
                                  Used to be a button in the window's own tab bar. -->
@@ -23532,6 +23545,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         cachedFlightDataForStatsView = { flightProps, plan };
 
         const _fwMode = getFlightWindowMode();
+        // The Serene skin hangs off the window itself; drop it for the
+        // iframe styles so it never tints their frame.
+        windowEl.classList.toggle('iw-serene', _fwMode === 'serene');
         if (_fwMode === 'simple' || _fwMode === 'embed') {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
@@ -23707,7 +23723,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // the live samples captured since the window was opened. Live ticks
             // keep extending it from here.
             try {
-                if (getFlightWindowMode() !== 'legacy') {
+                if (!isNativeFlightWindowMode()) {
                     const simpleIframe = document.getElementById('simple-flight-window-frame');
                     if (simpleIframe && simpleIframe.contentWindow) {
                         const freshData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData);
@@ -24442,10 +24458,305 @@ function openPilotProfile(username, userId) {
         .catch(err => console.error('Failed to load UserProfileUI:', err));
 }
 
+/**
+ * --- Serene flight window skin ---
+ * The "Serene" window style is the Legacy window — same markup, same live
+ * updates — dressed in a softer skin: one deep ink surface instead of grey
+ * bands, frosted glass over the photo, sentence-case labels, lighter number
+ * weights and muted avionics colours. Everything is scoped under
+ * #aircraft-info-window.iw-serene, so Legacy itself is untouched. Most of the
+ * window's markup carries inline styles, hence the !important overrides; the
+ * html/body prefix outranks the mobile sheet's id-scoped !important rules.
+ */
+const SERENE_WINDOW_CSS = (() => {
+    const S = 'html body #aircraft-info-window.iw-serene';
+    return `
+        ${S} {
+            --sr-bg: #16181c;
+            --sr-surface: rgba(255,255,255,0.035);
+            --sr-surface-hi: rgba(255,255,255,0.06);
+            --sr-line: rgba(255,255,255,0.065);
+            --sr-text: #eef0f4;
+            --sr-muted: #9ba1ac;
+            --sr-faint: #6c727d;
+            --sr-accent: #8cc8ee;
+            --sr-accent-soft: rgba(140,200,238,0.32);
+            --sr-radius: 18px;
+            /* The Fuel and Cabin cards (fuelEstimator.js, cabinMap.js) paint
+               with these host variables, so they follow the skin too. */
+            --card-bg: var(--sr-surface);
+            --border-glass: var(--sr-line);
+            --color-brand: var(--sr-accent);
+            --text-secondary: var(--sr-muted);
+            --text-dim: var(--sr-faint);
+            background: var(--sr-bg) !important;
+            color: var(--sr-text);
+            border: 1px solid rgba(255,255,255,0.06) !important;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.42), 0 2px 10px rgba(0,0,0,0.22) !important;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.12) transparent;
+        }
+        ${S}:not(.mobile-legacy-sheet) { border-radius: 22px !important; }
+        ${S}.mobile-legacy-sheet { background: rgba(22,24,28,0.97) !important; }
+        ${S}::-webkit-scrollbar { width: 6px; }
+        ${S}::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+        ${S}::-webkit-scrollbar-track { background: transparent; }
+
+        /* ---- Hero photo: a soft top scrim for the callsign, a long fade
+           into the window colour at the bottom ---- */
+        ${S} .ac-header-modern { min-height: 236px !important; background-color: var(--sr-bg) !important; }
+        ${S} .ac-header-overlay {
+            background: linear-gradient(180deg,
+                rgba(12,14,18,0.42) 0%, rgba(12,14,18,0.08) 30%,
+                rgba(22,24,28,0) 52%, rgba(22,24,28,0.62) 80%,
+                var(--sr-bg) 100%) !important;
+        }
+        ${S} .ac-header-top h1 {
+            font-size: 26px !important; font-weight: 700 !important;
+            letter-spacing: -0.02em; text-shadow: 0 1px 14px rgba(0,0,0,0.45) !important;
+            display: flex; align-items: center; gap: 10px;
+        }
+        ${S} .ac-header-logo { filter: drop-shadow(0 1px 6px rgba(0,0,0,0.35)); }
+        ${S} .ac-sub-identity {
+            font-size: 12px !important; color: rgba(255,255,255,0.8) !important;
+            text-shadow: 0 1px 8px rgba(0,0,0,0.5) !important; margin-top: 7px !important;
+        }
+        ${S} .ac-sub-identity > span:nth-child(2) { background: rgba(255,255,255,0.5) !important; }
+        ${S} .hero-btn {
+            width: 34px; height: 34px;
+            background: rgba(18,20,24,0.34);
+            border: 1px solid rgba(255,255,255,0.14);
+            color: rgba(255,255,255,0.92);
+            -webkit-backdrop-filter: blur(14px) saturate(140%);
+            backdrop-filter: blur(14px) saturate(140%);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.16);
+        }
+        ${S} .hero-btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.22); }
+        ${S} .hero-btn.pinged { color: var(--sr-accent); border-color: rgba(140,200,238,0.55); }
+
+        /* ---- Route card: frosted glass resting on the bottom of the photo ---- */
+        ${S} .ac-route-bar-backdrop { background: transparent !important; box-shadow: none !important; display: flow-root; }
+        ${S} .ac-route-info-bar {
+            margin: -38px 14px 0 !important;
+            padding: 16px 20px !important;
+            background: rgba(30,33,39,0.62) !important;
+            -webkit-backdrop-filter: blur(22px) saturate(150%) !important;
+            backdrop-filter: blur(22px) saturate(150%) !important;
+            border: 1px solid rgba(255,255,255,0.08) !important;
+            border-radius: var(--sr-radius) !important;
+            box-shadow: 0 12px 32px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+        }
+        ${S} .ac-route-info-bar .city-name {
+            color: var(--sr-muted) !important; font-size: 10.5px !important; font-weight: 500 !important;
+            text-transform: none !important; letter-spacing: 0 !important;
+            max-width: 110px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        ${S} .ac-route-info-bar .icao-large {
+            font-family: var(--font-ui) !important; font-size: 22px !important; font-weight: 600 !important;
+            letter-spacing: 0.03em; margin: 2px 0 3px;
+        }
+        ${S} .ac-route-info-bar .time-small { font-size: 12px !important; font-weight: 500 !important; font-variant-numeric: tabular-nums; }
+        ${S} .ac-route-info-bar .time-source-label { font-size: 8.5px !important; font-weight: 600 !important; letter-spacing: 0.08em !important; opacity: 0.6 !important; }
+        ${S} .phase-badge-route {
+            width: fit-content; margin: 0 auto 10px !important; padding: 4px 11px;
+            border-radius: 999px; background: rgba(255,255,255,0.06);
+        }
+        ${S} #ac-phase-dot { box-shadow: none !important; }
+        ${S} #ac-phase-text { font-weight: 600 !important; letter-spacing: 0.1em !important; color: rgba(255,255,255,0.86) !important; }
+        ${S} .flight-progress-track { height: 3px !important; background: rgba(255,255,255,0.08) !important; }
+        ${S} .flight-progress-fill { background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)) !important; }
+        ${S} .flight-progress-plane { filter: none !important; font-size: 11px !important; color: #fff !important; }
+        ${S} .route-visual > div:last-child { color: var(--sr-muted) !important; font-weight: 500 !important; font-size: 10px !important; margin-top: 8px !important; }
+        ${S} #ac-route-map-strip {
+            margin: 12px 14px 0 !important; border-radius: var(--sr-radius) !important;
+            border-color: var(--sr-line) !important; box-shadow: 0 10px 28px rgba(0,0,0,0.22) !important;
+        }
+        ${S} .ac-icao-link:hover { color: var(--sr-accent); text-shadow: none; }
+
+        /* ---- Pilot card ---- */
+        ${S} .ac-info-window-tabs {
+            background: transparent !important; border: 0 !important;
+            padding: 14px 14px 4px !important;
+        }
+        ${S} #main-data-switcher {
+            border-radius: var(--sr-radius) !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2) !important;
+        }
+        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
+            border-radius: var(--sr-radius) !important;
+            background: var(--sr-surface-hi) !important;
+            text-transform: none !important; letter-spacing: 0.01em !important;
+            font-size: 13.5px !important; font-weight: 600 !important;
+        }
+        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { box-shadow: inset 0 0 0 1px var(--sr-line); }
+        ${S} .ac-pilot-avatar { background: #3a404b; border-width: 1px; border-color: rgba(255,255,255,0.7); }
+        ${S} .ac-pilot-go { font-size: 11px; font-weight: 500; opacity: 0.75; }
+
+        /* ---- Content column ---- */
+        ${S} .unified-display-main-content {
+            background: transparent !important; border-top: 0 !important;
+            padding: 10px 14px 20px !important;
+        }
+        ${S} #ac-tab-flight-data { gap: 12px !important; }
+        ${S} .va-ad-banner-slot { border-radius: 16px; overflow: hidden; }
+
+        /* ---- Instruments: no bezel, no scanlines, muted colours ---- */
+        ${S} .display-bezel {
+            padding: 0 !important; background: var(--sr-surface) !important;
+            border: 1px solid var(--sr-line) !important; border-radius: var(--sr-radius) !important;
+            box-shadow: none !important;
+        }
+        ${S} .pfd-main-panel .display-bezel { background: #0e1013 !important; }
+        ${S} .crt-container { border: 0 !important; border-radius: calc(var(--sr-radius) - 1px) !important; box-shadow: none !important; background: #0e1013 !important; }
+        ${S} .scanlines::before { display: none !important; }
+        ${S} #pfd-container svg { background-color: #0e1013 !important; filter: saturate(0.82) contrast(0.97) !important; }
+        ${S} #pfd-container #Sky { fill: #4f8fc4; }
+        ${S} #pfd-container #Ground { fill: #7b563b; }
+        ${S} #pfd-container [fill="#030309"] { fill: #0e1013; }
+        ${S} #pfd-container [fill="#76767A"] { fill: #3b4049; }
+        ${S} #pfd-container [fill="#00FF00"] { fill: #86e0ad; }
+        ${S} #pfd-container [fill="#0CC704"] { fill: #6fcf97; }
+        ${S} #pfd-container [stroke="#029705"] { stroke: #6fcf97; }
+        ${S} #pfd-container [fill="#FDFD03"], ${S} #pfd-container [fill="#E7F013"] { fill: #f0d37a; }
+        ${S} #pfd-container [stroke="#FDFD03"], ${S} #pfd-container [stroke="#FEFE03"],
+        ${S} #pfd-container [stroke="#ECED06"], ${S} #pfd-container [stroke="#DDDF07"] { stroke: #f0d37a; }
+        ${S} #pfd-container [fill="#C477C6"] { fill: #c7a3d9; }
+        ${S} #nav-display-frame { filter: saturate(0.7) brightness(0.97); }
+
+        /* Pilot status + timers beside the PFD */
+        ${S} .modern-status-card {
+            background: var(--sr-surface) !important; border: 1px solid var(--sr-line) !important;
+            border-radius: 16px !important; box-shadow: none !important;
+            -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+        }
+        ${S} .modern-status-card .status-glow { opacity: 0.1 !important; }
+        ${S} .modern-status-card > div > div:first-child > div:first-child {
+            background: rgba(255,255,255,0.05) !important; border-color: transparent !important; border-radius: 10px !important;
+        }
+        ${S} .modern-status-card i { filter: none !important; }
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(1) {
+            font-size: 10.5px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
+            text-transform: none !important; letter-spacing: 0 !important; margin-bottom: 2px !important;
+        }
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(2) { font-size: 15px !important; font-weight: 600 !important; letter-spacing: 0.02em !important; }
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(3) { color: var(--sr-faint) !important; font-size: 10px !important; }
+        ${S} .modern-timer-stack { gap: 6px !important; }
+        ${S} .timer-node {
+            background: var(--sr-surface) !important; border: 1px solid var(--sr-line) !important;
+            border-radius: 14px !important; padding: 9px 12px !important;
+        }
+        ${S} .timer-node > div > span {
+            font-size: 10.5px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
+            text-transform: none !important; letter-spacing: 0 !important;
+        }
+        ${S} .timer-node i { color: var(--sr-faint) !important; font-size: 9px !important; }
+        ${S} .timer-node:nth-child(2) i, ${S} .timer-node:nth-child(2) > div > span { color: var(--sr-accent) !important; }
+        ${S} #ac-sensor-elapsed, ${S} #ac-sensor-ete {
+            font-family: var(--font-ui) !important; font-size: 17px !important; font-weight: 500 !important;
+            font-variant-numeric: tabular-nums; margin-top: 2px;
+        }
+        ${S} #ac-sensor-ete { color: var(--sr-accent) !important; }
+        ${S} .timer-node:last-child {
+            background: transparent !important; border: 0 !important; border-radius: 0 !important;
+            border-top: 1px solid var(--sr-line) !important; padding: 7px 4px 2px !important;
+        }
+        ${S} .timer-node:last-child > span:first-child {
+            font-size: 10.5px !important; font-weight: 500 !important; color: var(--sr-faint) !important; text-transform: none !important;
+        }
+        ${S} #ac-sensor-total { font-family: var(--font-ui) !important; color: var(--sr-muted) !important; font-variant-numeric: tabular-nums; }
+
+        /* Navigation / Flight plan switch */
+        ${S} .nd-full-width-section .modern-view-switcher {
+            background: var(--sr-surface) !important; border: 1px solid var(--sr-line) !important;
+            border-radius: 14px !important; margin-bottom: 10px !important;
+        }
+        ${S} .display-toggle-btn {
+            text-transform: none !important; letter-spacing: 0 !important;
+            font-size: 12.5px !important; font-weight: 600 !important;
+        }
+        ${S} .nd-full-width-section .switcher-highlight {
+            background: rgba(255,255,255,0.075) !important; border-color: rgba(255,255,255,0.07) !important;
+            border-radius: 10px !important; box-shadow: 0 2px 10px rgba(0,0,0,0.18) !important;
+        }
+        ${S} #fmc-view-container { background: #0e1013 !important; }
+        ${S} .fms-header { background: transparent !important; border-bottom-color: var(--sr-line) !important; }
+        ${S} .fms-header .tech-module-title { letter-spacing: 0.02em !important; font-weight: 600 !important; color: var(--sr-text); }
+        ${S} .fms-header .tech-module-title i { color: var(--sr-accent) !important; }
+        ${S} .fms-columns { background: transparent !important; border-bottom: 1px solid var(--sr-line) !important; }
+        ${S} .fms-columns span { text-transform: none !important; font-size: 10.5px !important; color: var(--sr-faint) !important; }
+        ${S} .fms-row { border-bottom-color: rgba(255,255,255,0.04) !important; }
+        ${S} .fms-row.active-leg { background: rgba(140,200,238,0.07); }
+        ${S} .fms-footer { background: var(--sr-surface) !important; border-top-color: var(--sr-line) !important; }
+        ${S} .fms-footer .stat-label { text-transform: none !important; font-size: 10.5px !important; color: var(--sr-muted) !important; }
+        ${S} .fms-footer .stat-value { font-weight: 500 !important; }
+        ${S} #fms-total-ete { color: var(--sr-accent) !important; }
+        ${S} .proc-tag { opacity: 0.8; }
+
+        /* ---- Stat cards (Speed & altitude, This flight, Navigation, Aircraft) ---- */
+        ${S} .acx-sec {
+            font-size: 13px; font-weight: 600; color: var(--sr-muted);
+            letter-spacing: 0.01em; margin: 14px 4px -2px;
+        }
+        ${S} .acx-card {
+            background: var(--sr-surface); border-color: var(--sr-line);
+            border-radius: 20px; padding: 18px;
+        }
+        ${S} .acx-l, ${S} .acx-row .l { color: var(--sr-muted); }
+        ${S} .acx-v, ${S} .acx-row .v {
+            font-family: var(--font-ui); font-weight: 500; font-variant-numeric: tabular-nums;
+        }
+        ${S} .acx-hero-num { font-family: var(--font-ui); font-size: 30px; font-weight: 300; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+        ${S} .acx-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.07); margin: 16px 0 6px; }
+        ${S} .acx-bar-fill { border-radius: 2px; background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)); }
+        ${S} .acx-row, ${S} .acx-rows .acx-row:first-child, ${S} .acx-group-label, ${S} .acx-foot { border-color: var(--sr-line); }
+        ${S} .acx-group-label { color: var(--sr-faint); font-weight: 500; }
+        ${S} .fuel-card, ${S} .cabin-card { border-radius: 20px !important; padding: 18px !important; }
+
+        /* ---- Destination dropdown ---- */
+        ${S} .dest-card { background: var(--sr-surface); border-color: var(--sr-line); border-radius: 20px; }
+        ${S} .dest-toggle { padding: 16px 18px; }
+        ${S} .dest-toggle-ic { color: #eec07e; }
+        ${S} .dest-toggle-code { font-family: var(--font-ui); font-weight: 600; letter-spacing: 0.03em; }
+        ${S} .dest-toggle-sub { font-size: 10.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--sr-muted); }
+        ${S} .dest-hero { border-radius: 14px; }
+        ${S} .dest-cell, ${S} .dest-metar, ${S} .dest-open-btn {
+            background: rgba(255,255,255,0.03); border-color: var(--sr-line); border-radius: 12px;
+        }
+        ${S} .dest-cell .l, ${S} .dest-mgrid .l, ${S} .dest-metar-h {
+            text-transform: none; letter-spacing: 0; font-size: 10px; font-weight: 500; color: var(--sr-muted);
+        }
+        ${S} .dest-cell .v, ${S} .dest-mgrid .v { font-family: var(--font-ui); font-weight: 500; }
+
+        /* ---- A gentle entrance for the content below the photo ---- */
+        @keyframes sr-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        ${S} .ac-route-info-bar,
+        ${S} .ac-info-window-tabs,
+        ${S} #ac-tab-flight-data > * { animation: sr-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+        ${S} .ac-info-window-tabs { animation-delay: 60ms; }
+        ${S} #ac-tab-flight-data > * { animation-delay: 120ms; }
+        @media (prefers-reduced-motion: reduce) {
+            ${S} .ac-route-info-bar, ${S} .ac-info-window-tabs, ${S} #ac-tab-flight-data > * { animation: none; }
+        }
+    `;
+})();
+
+function ensureSereneWindowStyle() {
+    if (document.getElementById('ac-serene-style')) return;
+    const s = document.createElement('style');
+    s.id = 'ac-serene-style';
+    s.textContent = SERENE_WINDOW_CSS;
+    document.head.appendChild(s);
+}
+
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
     // --- Safety Check: Ensure the container exists ---
     const windowEl = document.getElementById('aircraft-info-window');
     if (!windowEl) return;
+
+    // Serene is this same window in a softer skin (see SERENE_WINDOW_CSS).
+    const sereneSkin = getFlightWindowMode() === 'serene';
+    if (sereneSkin) ensureSereneWindowStyle();
+    windowEl.classList.toggle('iw-serene', sereneSkin);
 
     // Clickable origin/destination ICAOs — inject the hover affordance once.
     if (!document.getElementById('ac-icao-link-style')) {

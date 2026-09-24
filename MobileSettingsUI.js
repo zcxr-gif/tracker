@@ -450,8 +450,9 @@ export const MobileSettingsUI = {
                         <!-- ====================== GENERAL ====================== -->
                         <div class="m-panel" data-panel="general">
                             <div class="mobile-section-header">Flight Window</div>
-                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-3">
+                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="legacy"><i class="fa-solid fa-layer-group"></i><span>Legacy</span></button>
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="serene"><i class="fa-solid fa-feather"></i><span>Serene</span></button>
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-window-maximize"></i><span>Simple</span></button>
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="embed"><i class="fa-solid fa-id-card"></i><span>Card</span></button>
                             </div>
@@ -1340,17 +1341,18 @@ export const MobileSettingsUI = {
         `;
     },
 
-    // The mobile flight-window display mode: 'legacy', 'simple', or 'embed'
-    // (the FR24-style Card). Delegates to the shared helper in flight.js when
+    // The mobile flight-window display mode: 'legacy', 'serene' (Legacy in a
+    // softer skin), 'simple', or 'embed' (the FR24-style Card). Delegates to the shared helper in flight.js when
     // present so desktop and mobile resolve the mode identically.
     getFlightWindowMode(filters) {
         if (typeof window.getFlightWindowMode === 'function') return window.getFlightWindowMode();
         const f = filters || window.mapFilters || {};
         if (f.flightWindowMode === 'embed') return 'embed';
-        return f.useSimpleFlightWindow ? 'simple' : 'legacy';
+        if (f.useSimpleFlightWindow) return 'simple';
+        return f.flightWindowMode === 'serene' ? 'serene' : 'legacy';
     },
 
-    // Applies a Legacy / Simple / Card choice and lets the user know it takes
+    // Applies a Legacy / Serene / Simple / Card choice and lets the user know it takes
     // effect the next time a flight window is opened.
     setFlightWindowMode(mode) {
         if (!window.mapFilters) return;
@@ -1361,8 +1363,9 @@ export const MobileSettingsUI = {
             window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
             if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
         }
-        if (mode !== 'embed' && mode !== 'simple') {
-            try { localStorage.setItem('mobileDisplayMode', mode); } catch (e) {}
+        // Serene is the Legacy window re-skinned, so it rides the legacy sheet.
+        if (mode === 'legacy' || mode === 'serene') {
+            try { localStorage.setItem('mobileDisplayMode', 'legacy'); } catch (e) {}
         }
         if (window.showNotification) window.showNotification('Flight window mode updated — reopen the flight to apply.', 'info');
     },
