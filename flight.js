@@ -24593,11 +24593,11 @@ const HORIZON_WINDOW_CSS = (() => {
         /* ---- Cinematic header ----
            The photo spans the full width at its own height (fitHorizonHero
            sets --sr-photo-h), never zoomed, so nose and tail stay in. The
-           header runs 64px past the photo; the identity sits on the photo's
+           header runs 48px past the photo; the identity sits on the photo's
            lower edge and flows onto that band, and the fade reaches the
            window colour exactly where the photo ends. */
         ${S} .ac-header-modern {
-            min-height: calc(var(--sr-photo-h, 220px) + 64px) !important;
+            min-height: calc(var(--sr-photo-h, 220px) + 48px) !important;
             background-color: var(--sr-tint) !important;
             background-size: 100% auto !important; background-position: center top !important;
             background-repeat: no-repeat !important;
@@ -24619,40 +24619,40 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} .ac-header-top { order: 3; padding: 0 20px 12px !important; }
         ${S} .ac-identity-group { max-width: 100% !important; min-width: 0; width: 100%; }
 
-        /* Identity (built by arrangeHorizonWindow): airline eyebrow with its
-           logo, a modest callsign, then aircraft and registration chips. */
+        /* Identity (built by arrangeHorizonWindow): one eyebrow line —
+           airline logo chip, airline, aircraft type, all in the same small
+           capitals — then the callsign. */
         ${S} .sr-eyebrow {
-            display: flex; align-items: center; gap: 8px; min-width: 0;
+            display: flex; align-items: center; gap: 7px; min-width: 0;
             font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
             color: rgba(var(--sr-ink-rgb),0.72); text-shadow: 0 1px 8px rgba(0,0,0,0.4);
         }
-        ${S} .sr-eyebrow span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        ${S} .sr-eyebrow .ac-header-logo {
-            height: 18px !important; width: auto; max-width: 72px !important; margin: 0 !important;
-            object-fit: contain; filter: drop-shadow(0 1px 4px rgba(0,0,0,0.4));
+        ${S} .sr-eyebrow > span:not(.sr-logo) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        ${S} .sr-eb-airline { flex: 0 1 auto; }
+        ${S} .sr-eb-sep { flex: 0 0 auto; opacity: 0.6; }
+        ${S} .sr-eb-aircraft { flex: 0 1 auto; }
+        ${S} .sr-logo {
+            display: none; flex: 0 0 auto; width: 22px; height: 22px; padding: 2px; margin-right: 1px;
+            border-radius: 6px; background: #fff; box-sizing: border-box;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            place-items: center; overflow: hidden;
         }
+        ${S} .sr-logo.is-wide { width: 52px; padding: 2px 4px; }
+        ${S} .sr-logo.has-logo { display: grid; }
+        ${S} .sr-logo img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
         ${S} .ac-header-top h1.sr-callsign {
-            display: block !important; margin: 5px 0 9px !important;
+            display: block !important; margin: 5px 0 0 !important;
+            max-width: calc(100% - var(--sr-meta-w, 0px) - 12px);
             font-size: 21px !important; font-weight: 600 !important; line-height: 1.2 !important;
             letter-spacing: -0.01em !important; color: var(--sr-text) !important;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             text-shadow: 0 1px 10px rgba(0,0,0,0.35) !important;
         }
-        ${S} .sr-chips { display: flex; gap: 6px; min-width: 0; }
-        ${S} .sr-chip {
-            display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto;
-            padding: 3px 10px; border-radius: 999px;
-            font-size: 11px; font-weight: 500; color: rgba(var(--sr-ink-rgb),0.86);
-            background: rgba(var(--sr-ink-rgb),0.08); border: 1px solid rgba(var(--sr-ink-rgb),0.1);
-            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        ${S} .sr-chip-reg { flex: 0 0 auto; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; color: rgba(var(--sr-ink-rgb),0.7); }
 
         /* Photo meta: the swipe dots at the bottom-right, level with the
-           chips. The active dot stretches into a short pill. */
+           callsign. The active dot stretches into a short pill. */
         ${S} .sr-photo-meta {
-            position: absolute; right: 20px; bottom: 16px; z-index: 4;
+            position: absolute; right: 20px; bottom: 20px; z-index: 4;
             display: flex; align-items: center; gap: 9px; max-width: 46%;
             pointer-events: none;
         }
@@ -24698,7 +24698,6 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} .sr-photo-edge:active .sr-photo-chev { transform: scale(0.92); }
         ${S} .sr-photo-prev.is-used { background: linear-gradient(90deg, rgba(12,14,18,0.28), transparent); }
         ${S} .sr-photo-next.is-used { background: linear-gradient(270deg, rgba(12,14,18,0.28), transparent); }
-        ${S} .sr-chips { max-width: calc(100% - var(--sr-meta-w, 0px) - 10px); }
 
         /* Invisible "view photos" button over the photo band. Nothing shows
            until it is pressed; then the photo lifts with a soft light and an
@@ -24771,7 +24770,7 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} .route-node.end .icao-large { justify-content: flex-start; }
         ${S} .route-node .icao-large img { height: 12px !important; border-radius: 2px; opacity: 0.9 !important; }
         ${S} .route-node .city-name {
-            order: 2; flex-basis: 100%; margin: 2px 0 6px;
+            order: 2; flex-basis: 100%; max-width: none !important; margin: 2px 0 6px;
             color: var(--sr-muted) !important; font-size: 11.5px !important; font-weight: 500 !important;
             text-transform: none !important; letter-spacing: 0 !important;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -25038,7 +25037,7 @@ const HORIZON_WINDOW_CSS = (() => {
 
         /* ---- At a glance: the four live numbers, one quiet row ---- */
         ${S} .sr-glance {
-            display: grid; grid-template-columns: repeat(4, 1fr);
+            display: grid; grid-template-columns: 1fr 1fr 1.3fr 1fr;
             background: var(--sr-surface); border: 1px solid var(--sr-line);
             border-radius: 20px; padding: 14px 4px;
         }
@@ -25139,7 +25138,6 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S}.sr-light .timer-node:nth-child(2) { filter: brightness(0.62) saturate(1.3); }
         ${S}.sr-light .sr-eyebrow, ${S}.sr-light h1.sr-callsign { text-shadow: none !important; }
         ${S}.sr-light .hero-photo-dots span { filter: invert(1); }
-        ${S}.sr-light .sr-chip { -webkit-backdrop-filter: none; backdrop-filter: none; }
         ${S}.sr-light .ac-pilot-avatar { background: #d9dce2; color: #1b1e24; border-color: rgba(0,0,0,0.12); }
         ${S}.sr-light #main-data-switcher { box-shadow: 0 6px 18px rgba(0,0,0,0.08) !important; }
         ${S}.sr-light:not(.mobile-legacy-sheet) { box-shadow: 0 24px 60px rgba(0,0,0,0.22), 0 2px 10px rgba(0,0,0,0.1) !important; }
@@ -25380,19 +25378,17 @@ function arrangeHorizonWindow(html) {
         return el;
     };
 
-    // Cinematic identity: airline eyebrow (with its logo), callsign, then
-    // aircraft and registration chips. Built from the legacy header's own
-    // nodes and text, so nothing new needs passing in.
+    // Cinematic identity: one eyebrow line — airline logo, airline, aircraft
+    // type — then the callsign. The registration lives in the Aircraft card.
+    // Built from the legacy header's own text; the logo chip is filled in
+    // after render by setHorizonAirlineLogo().
     const idGroup = tpl.content.querySelector('.ac-identity-group');
     const h1 = idGroup && idGroup.querySelector('h1');
     if (h1) {
-        const logo = h1.querySelector('img');
         const callsign = h1.textContent.trim();
         const sub = [...idGroup.querySelectorAll('.ac-sub-identity > span')].map((el) => el.textContent.trim());
         const aircraft = sub[0] || '';
         const airline = sub[2] || '';
-        const regEl = pane.querySelector('.aircraft-card .acx-row .v');
-        const reg = regEl ? regEl.textContent.trim() : '';
 
         const text = (tag, cls, value) => {
             const el = document.createElement(tag);
@@ -25400,18 +25396,12 @@ function arrangeHorizonWindow(html) {
             el.textContent = value;
             return el;
         };
-        const eyebrow = make('div', 'sr-eyebrow', '');
-        if (logo) eyebrow.appendChild(logo);
-        if (airline) eyebrow.appendChild(text('span', '', airline));
-        const chips = make('div', 'sr-chips', '');
-        if (aircraft) chips.appendChild(text('span', 'sr-chip', aircraft));
-        if (reg && reg !== 'N/A') chips.appendChild(text('span', 'sr-chip sr-chip-reg', reg));
+        const eyebrow = make('div', 'sr-eyebrow', '<span class="sr-logo" aria-hidden="true"></span>');
+        if (airline) eyebrow.appendChild(text('span', 'sr-eb-airline', airline));
+        if (airline && aircraft) eyebrow.appendChild(text('span', 'sr-eb-sep', '·'));
+        if (aircraft) eyebrow.appendChild(text('span', 'sr-eb-aircraft', aircraft));
 
-        idGroup.replaceChildren(
-            ...(eyebrow.childNodes.length ? [eyebrow] : []),
-            text('h1', 'sr-callsign', callsign),
-            ...(chips.childNodes.length ? [chips] : [])
-        );
+        idGroup.replaceChildren(eyebrow, text('h1', 'sr-callsign', callsign));
     }
 
     // The route strip shows city names; the 'Departure'/'Arrival'
@@ -25757,6 +25747,33 @@ function openHorizonPhotoViewer(photos, startAt, fallbackPath) {
     render();
     requestAnimationFrame(() => v.classList.add('open'));
     v.querySelector('.spv-close').focus({ preventScroll: true });
+}
+
+// Horizon's eyebrow logo: the same airline match, sources and takedown
+// blocklist as the map's logo labels (getAirlineIcaoFromLivery,
+// AIRLINE_LOGO_SOURCES), but the emblem-only FlightAware set is tried first
+// since the airline's name is printed right beside it. Shown on a small
+// white chip, as on the map, because the marks are drawn for light
+// surfaces. No match or no image: the chip stays hidden.
+function setHorizonAirlineLogo(windowEl, liveryName) {
+    const slot = windowEl.querySelector('.sr-eyebrow .sr-logo');
+    if (!slot) return;
+    const icao = getAirlineIcaoFromLivery(liveryName);
+    if (!icao) return;
+    const [banner, square, emblem] = AIRLINE_LOGO_SOURCES;
+    const urls = [emblem, square, banner].filter(Boolean).map((f) => f(icao));
+    const img = new Image();
+    img.alt = '';
+    img.decoding = 'async';
+    let i = 0;
+    img.onload = () => {
+        if (!slot.isConnected) return;
+        slot.classList.toggle('is-wide', img.naturalWidth > img.naturalHeight * 1.4);
+        slot.replaceChildren(img);
+        slot.classList.add('has-logo');
+    };
+    img.onerror = () => { if (++i < urls.length) img.src = urls[i]; };
+    img.src = urls[0];
 }
 
 function wireHorizonGlance(windowEl) {
@@ -26669,6 +26686,7 @@ let totalDistanceNM = 0;
     setInfoWindowContent(windowEl, horizonSkin ? arrangeHorizonWindow(windowHtml) : windowHtml);
     if (horizonSkin) {
         wireHorizonGlance(windowEl);
+        setHorizonAirlineLogo(windowEl, baseProps.aircraft?.liveryName || '');
         setHorizonProgressPlane(windowEl, baseProps.aircraft?.aircraftName || '');
     }
 
