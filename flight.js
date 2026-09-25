@@ -25472,50 +25472,75 @@ function arrangeHorizonWindow(html) {
 }
 
 /**
- * Horizon hero photo sizing. The photo band takes the photo's own height at
- * the window's width (clamped), so a wide photo shows whole with no side
- * crop, and a tall photo fills the width and is cropped top and bottom. It
- * is never zoomed past the width (that cut off nose and tail). The
- * carousel swaps photos by rewriting background-image on the header and its
- * crossfade layer, so each swap is re-checked; the height stays with the
- * first photo so the window doesn't jump.
+ * Horizon hero photo sizing. Photos always span the window's width and are
+ * never zoomed past it (that cut off nose and tail). The photo band's height
+ * is the SHORTEST of the aircraft's photos at that width (clamped): the
+ * widest shot shows whole, and any taller one fills the same band, cropped
+ * top and bottom rather than leaving an empty strip under it. One height
+ * for all photos also means the window never jumps as the carousel turns.
+ * The carousel swaps photos by rewriting background-image on the header and
+ * its crossfade layer; each swap is positioned from the cached aspect.
  */
 const SR_HERO_MIN_H = 120;
 const SR_HERO_MAX_H = 300;
 
-function fitHorizonHero(panel) {
+function fitHorizonHero(panel, photos) {
     if (!panel) return;
     if (panel._srHeroObserver) panel._srHeroObserver.disconnect();
     const urlOf = (el) => {
         const m = /url\(["']?([^"')]+)["']?\)/.exec(el.style.backgroundImage || '');
         return m ? m[1] : null;
     };
-    const fit = (el, setHeight) => {
-        const src = urlOf(el);
-        if (!src || el._srHeroSrc === src) return;
-        el._srHeroSrc = src;
+    const aspect = new Map();          // src -> height / width
+    const pending = new Set();         // srcs being measured
+    let band = null;                   // px, once known
+    const fadeLayer = panel.querySelector(':scope > .hero-photo-fade');
+    const targets = [panel, fadeLayer].filter(Boolean);
+
+    // Crop only a photo taller than the band; a photo that fits sits on top.
+    const place = (el) => {
+        const r = aspect.get(urlOf(el));
+        if (!r || band == null || !panel.clientWidth) return;
+        const pos = panel.clientWidth * r > band + 1 ? 'center 40%' : 'center top';
+        if (el.style.getPropertyValue('background-position') !== pos) {
+            el.style.setProperty('background-position', pos, 'important');
+        }
+    };
+    const setBand = () => {
+        if (!panel.isConnected || !panel.clientWidth || !aspect.size) return;
+        const shortest = Math.min(...aspect.values()) * panel.clientWidth;
+        const h = Math.round(Math.min(SR_HERO_MAX_H, Math.max(SR_HERO_MIN_H, shortest)));
+        if (h !== band) {
+            band = h;
+            panel.style.setProperty('--sr-photo-h', h + 'px');
+        }
+        targets.forEach(place);
+    };
+    const measure = (src) => {
+        if (!src || aspect.has(src) || pending.has(src)) return;
+        pending.add(src);
         const img = new Image();
         img.onload = () => {
-            if (!panel.isConnected || !img.naturalWidth || el._srHeroSrc !== src) return;
-            // Not laid out (hidden sheet): keep the stylesheet defaults.
-            if (!panel.clientWidth) { el._srHeroSrc = null; return; }
-            const shown = panel.clientWidth * img.naturalHeight / img.naturalWidth;
-            if (setHeight) {
-                const h = Math.round(Math.min(SR_HERO_MAX_H, Math.max(SR_HERO_MIN_H, shown)));
-                panel.style.setProperty('--sr-photo-h', h + 'px');
-            }
-            // Taller than the photo band: crop top and bottom, not the sides.
-            el.style.setProperty('background-position', shown > SR_HERO_MAX_H ? 'center 40%' : 'center top', 'important');
+            pending.delete(src);
+            if (img.naturalWidth) aspect.set(src, img.naturalHeight / img.naturalWidth);
+            setBand();
         };
+        img.onerror = () => pending.delete(src);
         img.src = src;
     };
-    const fadeLayer = panel.querySelector(':scope > .hero-photo-fade');
-    fit(panel, true);
+
+    const srcs = (photos || []).map((p) => p && p.src).filter(Boolean);
+    if (!srcs.length) { const cur = urlOf(panel); if (cur) srcs.push(cur); }
+    srcs.forEach(measure);
+
     const mo = new MutationObserver((records) => {
-        records.forEach((r) => fit(r.target, false));
+        records.forEach((r) => {
+            const src = urlOf(r.target);
+            if (src && !aspect.has(src)) measure(src);
+            else place(r.target);
+        });
     });
-    mo.observe(panel, { attributes: true, attributeFilter: ['style'] });
-    if (fadeLayer) mo.observe(fadeLayer, { attributes: true, attributeFilter: ['style'] });
+    targets.forEach((el) => mo.observe(el, { attributes: true, attributeFilter: ['style'] }));
     panel._srHeroObserver = mo;
 }
 
@@ -26790,7 +26815,7 @@ let totalDistanceNM = 0;
         overviewPanel.dataset.currentPath = imagePath;
         buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
         if (horizonSkin) {
-            fitHorizonHero(overviewPanel);
+            fitHorizonHero(overviewPanel, techCardPhotos);
             sampleHorizonGlow(windowEl, overviewPanel);
             wireHorizonPhotos(overviewPanel, techCardPhotos, fallbackPath);
         }
