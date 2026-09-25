@@ -24459,6 +24459,9 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
         downX = downY = null; moved = false;
     });
 
+    // Paging for other controls (Horizon's edge buttons).
+    panel._heroStep = (d) => show(index + d);
+
     show(0);
 }
 
@@ -24646,9 +24649,8 @@ const HORIZON_WINDOW_CSS = (() => {
         }
         ${S} .sr-chip-reg { flex: 0 0 auto; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; color: rgba(var(--sr-ink-rgb),0.7); }
 
-        /* Photo meta: the swipe dots and the contributor, together at the
-           bottom-right, level with the chips (wireHorizonPhotos groups them).
-           The active dot stretches into a short pill. */
+        /* Photo meta: the swipe dots at the bottom-right, level with the
+           chips. The active dot stretches into a short pill. */
         ${S} .sr-photo-meta {
             position: absolute; right: 20px; bottom: 16px; z-index: 4;
             display: flex; align-items: center; gap: 9px; max-width: 46%;
@@ -24663,13 +24665,39 @@ const HORIZON_WINDOW_CSS = (() => {
             transition: width .35s cubic-bezier(0.2, 0.7, 0.2, 1), background-color .35s ease !important;
         }
         ${S} .sr-photo-meta .hero-photo-dots span.on { width: 16px !important; }
-        ${S} .sr-photo-meta .hero-photo-credit {
-            position: static !important; max-width: none !important; min-width: 0; flex: 0 1 auto;
+        /* Contributor: a quiet glass tag at the photo's top-left. */
+        ${S} .hero-photo-credit {
+            top: 16px !important; left: 16px !important; right: auto !important; bottom: auto !important;
+            max-width: 52% !important; z-index: 4 !important;
             font-size: 10.5px !important; font-weight: 500 !important; letter-spacing: 0.01em !important;
-            padding: 3px 9px !important; color: rgba(var(--sr-ink-rgb),0.72) !important;
-            background: rgba(var(--sr-ink-rgb),0.07) !important; text-shadow: none !important;
+            padding: 3px 9px !important; color: rgba(255,255,255,0.86) !important;
+            background: rgba(12,14,18,0.34) !important; text-shadow: none !important;
             -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
         }
+
+        /* Previous / next edge zones (wireHorizonPhotos). Invisible at rest;
+           while used, a shade from that edge and a glass chevron. */
+        ${S} .sr-photo-edge {
+            position: absolute; top: 0; height: var(--sr-photo-h, 220px); width: 22%; z-index: 1;
+            margin: 0; padding: 0 14px; border: 0; background: transparent; cursor: pointer;
+            display: flex; align-items: center; color: #fff; outline: none;
+            -webkit-tap-highlight-color: transparent;
+            transition: background .3s ease;
+        }
+        ${S} .sr-photo-prev { left: 0; justify-content: flex-start; }
+        ${S} .sr-photo-next { right: 0; justify-content: flex-end; }
+        ${S} .sr-photo-chev {
+            width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+            background: rgba(12,14,18,0.45); border: 1px solid rgba(255,255,255,0.18);
+            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+            opacity: 0; transform: scale(0.85);
+            transition: opacity .25s ease, transform .3s cubic-bezier(0.2, 0.7, 0.2, 1);
+        }
+        ${S} .sr-photo-chev svg { width: 16px; height: 16px; }
+        ${S} .sr-photo-edge.is-used .sr-photo-chev, ${S} .sr-photo-edge:focus-visible .sr-photo-chev { opacity: 1; transform: scale(1); }
+        ${S} .sr-photo-edge:active .sr-photo-chev { transform: scale(0.92); }
+        ${S} .sr-photo-prev.is-used { background: linear-gradient(90deg, rgba(12,14,18,0.28), transparent); }
+        ${S} .sr-photo-next.is-used { background: linear-gradient(270deg, rgba(12,14,18,0.28), transparent); }
         ${S} .sr-chips { max-width: calc(100% - var(--sr-meta-w, 0px) - 10px); }
 
         /* Invisible "view photos" button over the photo band. Nothing shows
@@ -25111,7 +25139,6 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S}.sr-light .timer-node:nth-child(2) { filter: brightness(0.62) saturate(1.3); }
         ${S}.sr-light .sr-eyebrow, ${S}.sr-light h1.sr-callsign { text-shadow: none !important; }
         ${S}.sr-light .hero-photo-dots span { filter: invert(1); }
-        ${S}.sr-light .sr-photo-meta .hero-photo-credit { color: rgba(0,0,0,0.65) !important; }
         ${S}.sr-light .sr-chip { -webkit-backdrop-filter: none; backdrop-filter: none; }
         ${S}.sr-light .ac-pilot-avatar { background: #d9dce2; color: #1b1e24; border-color: rgba(0,0,0,0.12); }
         ${S}.sr-light #main-data-switcher { box-shadow: 0 6px 18px rgba(0,0,0,0.08) !important; }
@@ -25538,11 +25565,14 @@ function sampleHorizonGlow(windowEl, panel) {
 
 /**
  * Horizon photo extras, after the carousel (if any) is built:
- *  - a credit tag for a single photo (the carousel only credits 2+);
- *  - the swipe dots and the credit grouped bottom-right, and the chips
- *    told how much room that group takes (--sr-meta-w);
+ *  - a credit tag for a single photo (the carousel only credits 2+),
+ *    shown top-left on the photo;
+ *  - the swipe dots grouped bottom-right, and the chips told how much
+ *    room they take (--sr-meta-w);
  *  - an invisible button over the photo band that lights up when pressed
- *    and opens the full-screen photo viewer (a swipe is not a tap).
+ *    and opens the full-screen photo viewer (a swipe is not a tap);
+ *  - invisible previous / next zones on the photo's edges that show a
+ *    chevron only while used.
  */
 function wireHorizonPhotos(panel, photos, fallbackPath) {
     const list = (photos || []).filter((p) => p && p.src);
@@ -25555,12 +25585,13 @@ function wireHorizonPhotos(panel, photos, fallbackPath) {
         credit.style.cssText = HERO_CREDIT_CSS;
         credit.textContent = `© ${creditOf(list[0])}`;
     }
+    // The credit sits top-left on the photo (CSS); the dots bottom-right.
+    if (credit && !credit.isConnected) panel.appendChild(credit);
     const dots = panel.querySelector('.hero-photo-dots');
-    if (dots || credit) {
+    if (dots) {
         const meta = document.createElement('div');
         meta.className = 'sr-photo-meta';
-        if (dots) meta.appendChild(dots);
-        if (credit) meta.appendChild(credit);
+        meta.appendChild(dots);
         panel.appendChild(meta);
         const setW = () => panel.style.setProperty('--sr-meta-w', meta.offsetWidth + 'px');
         if (typeof ResizeObserver === 'function') new ResizeObserver(setW).observe(meta);
@@ -25590,6 +25621,34 @@ function wireHorizonPhotos(panel, photos, fallbackPath) {
         const cur = panel.dataset.currentPath;
         const at = Math.max(0, list.findIndex((p) => p.src === cur));
         openHorizonPhotoViewer(list, at, fallbackPath);
+    });
+
+    // Previous / next: invisible edge zones over the photo. Nothing shows
+    // until one is used; then a soft shade and a chevron rise on that side
+    // and fade away shortly after. Above the view button, under the header
+    // buttons and the credit.
+    if (list.length < 2 || typeof panel._heroStep !== 'function') return;
+    const chevron = (d) => `<span class="sr-photo-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg></span>`;
+    [[-1, 'prev', 'Previous photo', 'M15 18l-6-6 6-6'], [1, 'next', 'Next photo', 'M9 18l6-6-6-6']].forEach(([step, side, label, path]) => {
+        const edge = document.createElement('button');
+        edge.type = 'button';
+        edge.className = `sr-photo-edge sr-photo-${side}`;
+        edge.setAttribute('aria-label', label);
+        edge.innerHTML = chevron(path);
+        hit.after(edge);
+        let x0 = 0, y0 = 0, fade = null;
+        const flash = () => {
+            clearTimeout(fade);
+            edge.classList.add('is-used');
+            fade = setTimeout(() => edge.classList.remove('is-used'), 900);
+        };
+        edge.addEventListener('pointerdown', (e) => { x0 = e.clientX; y0 = e.clientY; flash(); });
+        edge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (Math.hypot(e.clientX - x0, e.clientY - y0) > 10) return;   // the carousel took it as a swipe
+            flash();
+            panel._heroStep(step);
+        });
     });
 }
 
