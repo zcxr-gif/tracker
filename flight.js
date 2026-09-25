@@ -24348,7 +24348,7 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     const dotEls = photos.map((_, i) => {
         const d = document.createElement('span');
         d.style.cssText = 'width:7px;height:7px;border-radius:50%;cursor:pointer;transition:all .2s ease;box-shadow:0 1px 2px rgba(0,0,0,.6);';
-        d.addEventListener('click', (e) => { e.stopPropagation(); show(i); });
+        d.addEventListener('click', (e) => { e.stopPropagation(); show(i, true); });
         dots.appendChild(d);
         return d;
     });
@@ -24360,14 +24360,26 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     credit.className = 'hero-photo-credit';
     credit.style.cssText = HERO_CREDIT_CSS;
 
-    // Fade timing: the incoming photo fades in over FADE_MS while settling
-    // from a slight zoom, so a change reads as one soft move rather than a cut.
-    const FADE_MS = 850;
-    const FADE_IN = `opacity ${FADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1), transform ${FADE_MS + 500}ms cubic-bezier(0.2, 0.7, 0.2, 1)`;
+    // Fade timing. The slideshow's own advance is slow and soft (the photo
+    // fades in while settling from a slight zoom); a change the user asked
+    // for — edge button, dot, swipe — is quick, so the tap feels answered.
+    const FADES = {
+        auto: { ms: 850, zoom: 1.04, tf: 1350 },
+        user: { ms: 260, zoom: 1.015, tf: 380 },
+    };
+    // Warm every photo now, so a tap never waits on the network. The Image
+    // objects are kept so the decoded bitmaps stay in memory.
+    const warm = photos.map((p) => {
+        const im = new Image();
+        im.decoding = 'async';
+        im.src = p.src;
+        if (im.decode) im.decode().catch(() => {});
+        return im;
+    });
     let index = 0;
     let fadeCommit = null;
     let swapToken = 0;
-    const show = (i) => {
+    const show = (i, byUser = false) => {
         const next = (i + photos.length) % photos.length;
         const src = photos[next].src;
         // Crossfade: preload the incoming photo (so it never fades in half
@@ -24377,14 +24389,22 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
         if (next !== index) {
             if (fadeCommit) { clearTimeout(fadeCommit); fadeCommit = null; }
             const token = ++swapToken;
+            const f = byUser ? FADES.user : FADES.auto;
+            // A manual change restarts the slideshow's clock, so it doesn't
+            // jump again a moment after the tap.
+            if (byUser && window.__heroAutoTimer) {
+                clearInterval(window.__heroAutoTimer);
+                window.__heroAutoTimer = null;
+                startAuto();
+            }
             const start = () => {
                 if (token !== swapToken) return;   // a newer swap won
                 fadeLayer.style.transition = 'none';
                 fadeLayer.style.opacity = '0';
-                fadeLayer.style.transform = 'scale(1.04)';
+                fadeLayer.style.transform = `scale(${f.zoom})`;
                 fadeLayer.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
                 void fadeLayer.offsetWidth;
-                fadeLayer.style.transition = FADE_IN;
+                fadeLayer.style.transition = `opacity ${f.ms}ms cubic-bezier(0.4, 0, 0.2, 1), transform ${f.tf}ms cubic-bezier(0.2, 0.7, 0.2, 1)`;
                 fadeLayer.style.opacity = '1';
                 fadeLayer.style.transform = 'scale(1)';
                 fadeCommit = setTimeout(() => {
@@ -24394,11 +24414,15 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
                         fadeLayer.style.opacity = '0';
                     });
                     fadeCommit = null;
-                }, FADE_MS);
+                }, f.ms);
             };
-            const pre = new Image();
-            pre.onload = pre.onerror = start;
-            pre.src = src;
+            // Already warmed: go now. Otherwise start the moment it lands.
+            const pre = warm[next];
+            if (pre && pre.complete && pre.naturalWidth) start();
+            else if (pre) {
+                pre.addEventListener('load', start, { once: true });
+                pre.addEventListener('error', start, { once: true });
+            } else start();
         }
         index = next;
         panel.dataset.currentPath = src;
@@ -24455,12 +24479,12 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     panel.addEventListener('pointerup', (e) => {
         if (downX == null) return;
         const dx = e.clientX - downX;
-        if (moved && Math.abs(dx) > 40) show(index + (dx < 0 ? 1 : -1));
+        if (moved && Math.abs(dx) > 40) show(index + (dx < 0 ? 1 : -1), true);
         downX = downY = null; moved = false;
     });
 
     // Paging for other controls (Horizon's edge buttons).
-    panel._heroStep = (d) => show(index + d);
+    panel._heroStep = (d) => show(index + d, true);
 
     show(0);
 }
@@ -24681,7 +24705,7 @@ const HORIZON_WINDOW_CSS = (() => {
             position: absolute; top: 0; height: var(--sr-photo-h, 220px); width: 22%; z-index: 1;
             margin: 0; padding: 0 14px; border: 0; background: transparent; cursor: pointer;
             display: flex; align-items: center; color: #fff; outline: none;
-            -webkit-tap-highlight-color: transparent;
+            -webkit-tap-highlight-color: transparent; touch-action: manipulation;
             transition: background .3s ease;
         }
         ${S} .sr-photo-prev { left: 0; justify-content: flex-start; }
