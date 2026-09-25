@@ -342,7 +342,7 @@ export async function registerAircraftShapeIcons(map, opts = {}) {
  * Silhouettes for UI
  * =========================
  * A solid silhouette of the map icon's airframe as an SVG data URL, for UI
- * outside the map (the Serene flight window's progress bar). It goes through
+ * outside the map (the Horizon flight window's progress bar). It goes through
  * the same category → shape table as the map icons, so the two always show
  * the same aircraft. Nose up, like the map icons; callers rotate it.
  */

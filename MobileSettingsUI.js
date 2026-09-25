@@ -452,14 +452,14 @@ export const MobileSettingsUI = {
                             <div class="mobile-section-header">Flight Window</div>
                             <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="legacy"><i class="fa-solid fa-layer-group"></i><span>Legacy</span></button>
-                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="serene"><i class="fa-solid fa-feather"></i><span>Serene</span></button>
+                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="horizon"><i class="fa-solid fa-sun"></i><span>Horizon</span></button>
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-window-maximize"></i><span>Simple</span></button>
                                 <button class="m-setting-pill" data-setting="flightWindowMode" data-value="embed"><i class="fa-solid fa-id-card"></i><span>Card</span></button>
                             </div>
-                            <!-- Serene's colour; text and surfaces adapt to stay readable. -->
-                            <div class="m-serene-color">
-                                <div class="m-serene-color-label"><i class="fa-solid fa-palette"></i><span>Serene colour</span></div>
-                                ${(typeof window !== 'undefined' && window.buildSereneColorPicker) ? window.buildSereneColorPicker('m') : ''}
+                            <!-- Horizon's colour; text and surfaces adapt to stay readable. -->
+                            <div class="m-horizon-color">
+                                <div class="m-horizon-color-label"><i class="fa-solid fa-palette"></i><span>Horizon colour</span></div>
+                                ${(typeof window !== 'undefined' && window.buildHorizonColorPicker) ? window.buildHorizonColorPicker('m') : ''}
                             </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
@@ -1346,7 +1346,7 @@ export const MobileSettingsUI = {
         `;
     },
 
-    // The mobile flight-window display mode: 'legacy', 'serene' (Legacy in a
+    // The mobile flight-window display mode: 'legacy', 'horizon' (Legacy in a
     // softer skin), 'simple', or 'embed' (the FR24-style Card). Delegates to the shared helper in flight.js when
     // present so desktop and mobile resolve the mode identically.
     getFlightWindowMode(filters) {
@@ -1354,10 +1354,10 @@ export const MobileSettingsUI = {
         const f = filters || window.mapFilters || {};
         if (f.flightWindowMode === 'embed') return 'embed';
         if (f.useSimpleFlightWindow) return 'simple';
-        return f.flightWindowMode === 'serene' ? 'serene' : 'legacy';
+        return (f.flightWindowMode === 'horizon' || f.flightWindowMode === 'serene') ? 'horizon' : 'legacy';
     },
 
-    // Applies a Legacy / Serene / Simple / Card choice and lets the user know it takes
+    // Applies a Legacy / Horizon / Simple / Card choice and lets the user know it takes
     // effect the next time a flight window is opened.
     setFlightWindowMode(mode) {
         if (!window.mapFilters) return;
@@ -1368,8 +1368,8 @@ export const MobileSettingsUI = {
             window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
             if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
         }
-        // Serene is the Legacy window re-skinned, so it rides the legacy sheet.
-        if (mode === 'legacy' || mode === 'serene') {
+        // Horizon is the Legacy window re-skinned, so it rides the legacy sheet.
+        if (mode === 'legacy' || mode === 'horizon') {
             try { localStorage.setItem('mobileDisplayMode', 'legacy'); } catch (e) {}
         }
         if (window.showNotification) window.showNotification('Flight window mode updated — reopen the flight to apply.', 'info');
@@ -2419,7 +2419,7 @@ export const MobileSettingsUI = {
             });
         });
 
-        if (window.wireSereneColorPicker) window.wireSereneColorPicker(sheet);
+        if (window.wireHorizonColorPicker) window.wireHorizonColorPicker(sheet);
 
         // Pro time-zone picker (flight-window times in the user's own zone).
         // Gated: ignore changes while the row is locked (non-Pro), and revert
@@ -2732,9 +2732,9 @@ export const MobileSettingsUI = {
                 .m-fw-mode-grid .m-setting-pill span { font-size: 0.78rem; }
                 .m-fw-mode-grid-2 { grid-template-columns: repeat(2, 1fr); }
                 .m-fw-mode-grid-3 { grid-template-columns: repeat(3, 1fr); }
-                .m-serene-color { padding: 4px 20px 14px; }
-                .m-serene-color-label { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 0.9rem; color: #e4e4e7; }
-                .m-serene-color-label i { color: #a1a1aa; width: 18px; text-align: center; }
+                .m-horizon-color { padding: 4px 20px 14px; }
+                .m-horizon-color-label { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 0.9rem; color: #e4e4e7; }
+                .m-horizon-color-label i { color: #a1a1aa; width: 18px; text-align: center; }
 
                 /* ---- Map style preview cards ---- */
                 .m-style-grid {

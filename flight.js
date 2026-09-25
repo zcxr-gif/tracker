@@ -1516,13 +1516,13 @@ let mapFilters = {
         useFlatMap: false,
         useSimpleFlightWindow: false,
         // Flight-info window presentation: 'legacy' (full avionics window),
-        // 'serene' (the same avionics window in a softer, calmer skin),
+        // 'horizon' (the same avionics window in a softer, calmer skin),
         // 'simple' (flightinfo.html iframe) or 'embed' (embed-flight.html — the
         // FR24-style card ported from the VA embed). useSimpleFlightWindow is
         // kept in sync (true only for 'simple') for backward compatibility.
         flightWindowMode: 'legacy',
-        // Serene window colour; text and surfaces adapt to it for contrast.
-        sereneColor: '#16181c',
+        // Horizon window colour; text and surfaces adapt to it for contrast.
+        horizonColor: '#16181c',
         // Airport-info window presentation: 'standard' (the built-in tabbed
         // window) or 'embed' (embed-airport.html — the embed's airport card).
         airportWindowMode: 'standard',
@@ -17552,32 +17552,34 @@ function initializeAircraftLayer() {
  */
 /**
  * --- Flight / airport window presentation mode helpers ---
- * `flightWindowMode` is the canonical store ('legacy' | 'serene' | 'simple' |
+ * `flightWindowMode` is the canonical store ('legacy' | 'horizon' | 'simple' |
  * 'embed'); the older `useSimpleFlightWindow` boolean is kept mirrored (true
  * only for 'simple') so existing code paths and saved settings still resolve
- * correctly. 'serene' is the Legacy window rendered by the same host-page
- * code, only re-skinned (see SERENE_WINDOW_CSS), so every check that means
+ * correctly. 'horizon' is the Legacy window rendered by the same host-page
+ * code, only re-skinned (see HORIZON_WINDOW_CSS), so every check that means
  * "the native avionics window" should use isNativeFlightWindowMode().
  */
 function getFlightWindowMode() {
     if (typeof mapFilters === 'undefined') return 'legacy';
-    // 'embed' and 'serene' are tracked solely by flightWindowMode; the
+    // 'embed' and 'horizon' are tracked solely by flightWindowMode; the
     // simple/legacy split stays keyed off useSimpleFlightWindow so any legacy
     // code path that flips that boolean keeps working.
     if (mapFilters.flightWindowMode === 'embed') return 'embed';
     if (mapFilters.useSimpleFlightWindow) return 'simple';
-    return mapFilters.flightWindowMode === 'serene' ? 'serene' : 'legacy';
+    // 'serene' was this style's working name; keep those choices on it.
+    const fw = mapFilters.flightWindowMode;
+    return (fw === 'horizon' || fw === 'serene') ? 'horizon' : 'legacy';
 }
 
-// Legacy and Serene share the host-page window (populateAircraftInfoWindow /
+// Legacy and Horizon share the host-page window (populateAircraftInfoWindow /
 // updateAircraftInfoWindow); Simple and Card are iframes.
 function isNativeFlightWindowMode(mode = getFlightWindowMode()) {
-    return mode === 'legacy' || mode === 'serene';
+    return mode === 'legacy' || mode === 'horizon';
 }
 
 function setFlightWindowMode(mode) {
     if (typeof mapFilters === 'undefined') return;
-    if (mode !== 'legacy' && mode !== 'serene' && mode !== 'simple' && mode !== 'embed') mode = 'legacy';
+    if (mode !== 'legacy' && mode !== 'horizon' && mode !== 'simple' && mode !== 'embed') mode = 'legacy';
     mapFilters.flightWindowMode = mode;
     mapFilters.useSimpleFlightWindow = (mode === 'simple');
     if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
@@ -19983,11 +19985,11 @@ renderCategory(catId) {
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'legacy' ? ' active' : ''}" data-mode="legacy"><i class="fa-solid fa-layer-group"></i> Legacy</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'simple' ? ' active' : ''}" data-mode="simple"><i class="fa-solid fa-window-maximize"></i> Simple</button>
                                 <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
-                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'serene' ? ' active' : ''}" data-mode="serene" title="The Legacy window in a softer, calmer style"><i class="fa-solid fa-feather"></i> Serene</button>
+                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'horizon' ? ' active' : ''}" data-mode="horizon" title="The Legacy window in a softer, calmer style"><i class="fa-solid fa-sun"></i> Horizon</button>
                             </div>
-                            <!-- Serene's colour. Text and surfaces adapt so it stays readable. -->
-                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-palette"></i> Serene Colour</div>
-                            ${buildSereneColorPicker('set')}
+                            <!-- Horizon's colour. Text and surfaces adapt so it stays readable. -->
+                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-palette"></i> Horizon Colour</div>
+                            ${buildHorizonColorPicker('set')}
                             <!-- Which side of the map the flight window opens on.
                                  Used to be a button in the window's own tab bar. -->
                             <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
@@ -20334,7 +20336,7 @@ renderCategory(catId) {
             });
         };
         wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
-        wireSereneColorPicker(document.getElementById('global-settings-modal-overlay') || document);
+        wireHorizonColorPicker(document.getElementById('global-settings-modal-overlay') || document);
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
 
         // Window side: same preference the old move-window button kept, and
@@ -23563,9 +23565,9 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         cachedFlightDataForStatsView = { flightProps, plan };
 
         const _fwMode = getFlightWindowMode();
-        // The Serene skin hangs off the window itself; drop it for the
+        // The Horizon skin hangs off the window itself; drop it for the
         // iframe styles so it never tints their frame.
-        windowEl.classList.toggle('iw-serene', _fwMode === 'serene');
+        windowEl.classList.toggle('iw-horizon', _fwMode === 'horizon');
         if (_fwMode === 'simple' || _fwMode === 'embed') {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
@@ -24315,7 +24317,7 @@ function closeAircraftWindow() {
 // How long each aircraft photo is shown before the carousel softly advances.
 const HERO_PHOTO_CYCLE_MS = 5000;
 
-// The per-photo credit tag on the hero (the carousel's, and Serene's for a
+// The per-photo credit tag on the hero (the carousel's, and Horizon's for a
 // single photo).
 const HERO_CREDIT_CSS = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
 
@@ -24337,7 +24339,7 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     // (background-image itself isn't CSS-animatable, hence a dedicated layer.)
     const fadeLayer = document.createElement('div');
     fadeLayer.className = 'hero-photo-fade';
-    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
+    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;opacity:0;pointer-events:none;will-change:opacity,transform;';
     panel.insertBefore(fadeLayer, panel.firstChild);
 
     const dots = document.createElement('div');
@@ -24358,29 +24360,52 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     credit.className = 'hero-photo-credit';
     credit.style.cssText = HERO_CREDIT_CSS;
 
+    // Fade timing: the incoming photo fades in over FADE_MS while settling
+    // from a slight zoom, so a change reads as one soft move rather than a cut.
+    const FADE_MS = 850;
+    const FADE_IN = `opacity ${FADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1), transform ${FADE_MS + 500}ms cubic-bezier(0.2, 0.7, 0.2, 1)`;
     let index = 0;
     let fadeCommit = null;
+    let swapToken = 0;
     const show = (i) => {
         const next = (i + photos.length) % photos.length;
         const src = photos[next].src;
-        // Crossfade: paint the incoming photo on the fade layer, fade it in,
-        // then commit it to the panel background and reset the layer instantly
-        // (no transition) so it's invisible and ready for the next swap.
+        // Crossfade: preload the incoming photo (so it never fades in half
+        // decoded), paint it on the fade layer slightly zoomed, fade it in
+        // while it settles to full size, then commit it to the panel
+        // background and reset the layer instantly, ready for the next swap.
         if (next !== index) {
             if (fadeCommit) { clearTimeout(fadeCommit); fadeCommit = null; }
-            fadeLayer.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
-            requestAnimationFrame(() => { fadeLayer.style.opacity = '1'; });
-            fadeCommit = setTimeout(() => {
-                panel.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+            const token = ++swapToken;
+            const start = () => {
+                if (token !== swapToken) return;   // a newer swap won
                 fadeLayer.style.transition = 'none';
                 fadeLayer.style.opacity = '0';
-                requestAnimationFrame(() => { fadeLayer.style.transition = 'opacity .6s ease'; });
-                fadeCommit = null;
-            }, 600);
+                fadeLayer.style.transform = 'scale(1.04)';
+                fadeLayer.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+                void fadeLayer.offsetWidth;
+                fadeLayer.style.transition = FADE_IN;
+                fadeLayer.style.opacity = '1';
+                fadeLayer.style.transform = 'scale(1)';
+                fadeCommit = setTimeout(() => {
+                    panel.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+                    requestAnimationFrame(() => {
+                        fadeLayer.style.transition = 'none';
+                        fadeLayer.style.opacity = '0';
+                    });
+                    fadeCommit = null;
+                }, FADE_MS);
+            };
+            const pre = new Image();
+            pre.onload = pre.onerror = start;
+            pre.src = src;
         }
         index = next;
         panel.dataset.currentPath = src;
-        dotEls.forEach((d, k) => { d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`; });
+        dotEls.forEach((d, k) => {
+            d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`;
+            d.classList.toggle('on', k === index);
+        });
         const n = photos[index].photographer;
         credit.textContent = (n && n !== 'IF Community') ? `© ${n}` : '';
         credit.style.display = credit.textContent ? '' : 'none';
@@ -24405,6 +24430,14 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (autoOn) {
         panel.addEventListener('mouseenter', () => { paused = true; });
         panel.addEventListener('mouseleave', () => { paused = false; });
+        // Touch has no hover: hold still while a finger is on the photo, and
+        // for a few seconds after, so a swipe isn't followed by a jump.
+        let touchResume = null;
+        panel.addEventListener('touchstart', () => { paused = true; clearTimeout(touchResume); }, { passive: true });
+        panel.addEventListener('touchend', () => {
+            clearTimeout(touchResume);
+            touchResume = setTimeout(() => { paused = false; }, 4000);
+        }, { passive: true });
         startAuto();
     }
 
@@ -24484,20 +24517,20 @@ function openPilotProfile(username, userId) {
 }
 
 /**
- * --- Serene flight window skin ---
- * The "Serene" window style is the Legacy window — same markup, same live
+ * --- Horizon flight window skin ---
+ * The "Horizon" window style is the Legacy window — same markup, same live
  * updates — dressed in a softer skin: one deep ink surface instead of grey
  * bands, frosted glass over the photo, sentence-case labels, lighter number
  * weights and muted avionics colours. Everything is scoped under
- * #aircraft-info-window.iw-serene, so Legacy itself is untouched. Most of the
+ * #aircraft-info-window.iw-horizon, so Legacy itself is untouched. Most of the
  * window's markup carries inline styles, hence the !important overrides; the
  * html/body prefix outranks the mobile sheet's id-scoped !important rules.
  */
-const SERENE_WINDOW_CSS = (() => {
-    const S = 'html body #aircraft-info-window.iw-serene';
+const HORIZON_WINDOW_CSS = (() => {
+    const S = 'html body #aircraft-info-window.iw-horizon';
     return `
         ${S} {
-            /* Palette. applySereneColor() overrides these inline from the
+            /* Palette. applyHorizonColor() overrides these inline from the
                user's chosen colour: --sr-ink-rgb is white on a dark colour
                and black on a light one, and every overlay, hairline and
                text tone below is drawn from it, so contrast follows. */
@@ -24514,7 +24547,7 @@ const SERENE_WINDOW_CSS = (() => {
             --sr-line: rgba(var(--sr-ink-rgb),0.07);
             --text-primary: var(--sr-text);
             /* Ambient tint: the window colour lightly mixed with the photo's
-               own colour (sampleSereneGlow). Plain window colour without it. */
+               own colour (sampleHorizonGlow). Plain window colour without it. */
             --sr-tint: var(--sr-bg);
             --sr-radius: 18px;
             /* The Fuel and Cabin cards (fuelEstimator.js, cabinMap.js) paint
@@ -24555,7 +24588,7 @@ const SERENE_WINDOW_CSS = (() => {
            stops following a smooth curve — so it melts into the window
            colour with no visible band or line. */
         /* ---- Cinematic header ----
-           The photo spans the full width at its own height (fitSereneHero
+           The photo spans the full width at its own height (fitHorizonHero
            sets --sr-photo-h), never zoomed, so nose and tail stay in. The
            header runs 64px past the photo; the identity sits on the photo's
            lower edge and flows onto that band, and the fade reaches the
@@ -24582,9 +24615,8 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .ac-partner-hero { order: 2; margin: auto 20px 8px !important; max-width: calc(100% - 40px) !important; }
         ${S} .ac-header-top { order: 3; padding: 0 20px 12px !important; }
         ${S} .ac-identity-group { max-width: 100% !important; min-width: 0; width: 100%; }
-        ${S}:has(.hero-photo-dots) .ac-identity-group { padding-right: 52px; }
 
-        /* Identity (built by arrangeSereneWindow): airline eyebrow with its
+        /* Identity (built by arrangeHorizonWindow): airline eyebrow with its
            logo, a modest callsign, then aircraft and registration chips. */
         ${S} .sr-eyebrow {
             display: flex; align-items: center; gap: 8px; min-width: 0;
@@ -24614,13 +24646,56 @@ const SERENE_WINDOW_CSS = (() => {
         }
         ${S} .sr-chip-reg { flex: 0 0 auto; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; color: rgba(var(--sr-ink-rgb),0.7); }
 
-        /* Photo carousel: dots bottom-right level with the chips, the credit
-           a faint tag top-left. */
-        ${S} .hero-photo-dots { left: auto !important; right: 20px !important; bottom: 20px !important; gap: 5px !important; }
-        ${S} .hero-photo-dots span { width: 6px !important; height: 6px !important; box-shadow: none !important; }
-        ${S} .hero-photo-credit {
-            top: 18px !important; left: 18px !important; right: auto !important; bottom: auto !important;
-            font-size: 10px !important; background: rgba(12,14,18,0.3) !important;
+        /* Photo meta: the swipe dots and the contributor, together at the
+           bottom-right, level with the chips (wireHorizonPhotos groups them).
+           The active dot stretches into a short pill. */
+        ${S} .sr-photo-meta {
+            position: absolute; right: 20px; bottom: 16px; z-index: 4;
+            display: flex; align-items: center; gap: 9px; max-width: 46%;
+            pointer-events: none;
+        }
+        ${S} .sr-photo-meta .hero-photo-dots {
+            position: static !important; display: flex !important; gap: 4px !important; flex: 0 0 auto;
+            pointer-events: auto;
+        }
+        ${S} .sr-photo-meta .hero-photo-dots span {
+            width: 6px !important; height: 6px !important; border-radius: 3px !important; box-shadow: none !important;
+            transition: width .35s cubic-bezier(0.2, 0.7, 0.2, 1), background-color .35s ease !important;
+        }
+        ${S} .sr-photo-meta .hero-photo-dots span.on { width: 16px !important; }
+        ${S} .sr-photo-meta .hero-photo-credit {
+            position: static !important; max-width: none !important; min-width: 0; flex: 0 1 auto;
+            font-size: 10.5px !important; font-weight: 500 !important; letter-spacing: 0.01em !important;
+            padding: 3px 9px !important; color: rgba(var(--sr-ink-rgb),0.72) !important;
+            background: rgba(var(--sr-ink-rgb),0.07) !important; text-shadow: none !important;
+            -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
+        }
+        ${S} .sr-chips { max-width: calc(100% - var(--sr-meta-w, 0px) - 10px); }
+
+        /* Invisible "view photos" button over the photo band. Nothing shows
+           until it is pressed; then the photo lifts with a soft light and an
+           expand mark, and a tap opens the full-screen viewer. */
+        ${S} .sr-photo-hit {
+            position: absolute; left: 0; right: 0; top: 0; height: var(--sr-photo-h, 220px); z-index: 1;
+            margin: 0; padding: 0; border: 0; background: transparent; cursor: zoom-in;
+            -webkit-tap-highlight-color: transparent; outline: none;
+            transition: background-color .25s ease, box-shadow .25s ease;
+        }
+        ${S} .sr-photo-hit::after {
+            content: ''; position: absolute; left: 50%; top: 42%; width: 44px; height: 44px;
+            margin: -22px 0 0 -22px; border-radius: 50%; opacity: 0; transform: scale(0.8);
+            background: rgba(12,14,18,0.42) no-repeat center / 20px
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M9 21H3v-6'/%3E%3Cpath d='M21 3l-7 7'/%3E%3Cpath d='M3 21l7-7'/%3E%3C/svg%3E");
+            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+            transition: opacity .2s ease, transform .25s cubic-bezier(0.2, 0.7, 0.2, 1);
+        }
+        ${S} .sr-photo-hit.is-pressed, ${S} .sr-photo-hit:focus-visible {
+            background-color: rgba(255,255,255,0.08);
+            box-shadow: inset 0 0 0 2px rgba(255,255,255,0.28), inset 0 0 60px rgba(255,255,255,0.08);
+        }
+        ${S} .sr-photo-hit.is-pressed::after, ${S} .sr-photo-hit:focus-visible::after { opacity: 1; transform: scale(1); }
+        @media (hover: hover) and (pointer: fine) {
+            ${S} .sr-photo-hit:hover::after { opacity: 0.85; transform: scale(1); }
         }
         ${S} .hero-btn {
             width: 34px; height: 34px;
@@ -24715,7 +24790,7 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .flight-progress-track::after { left: 100%; background: var(--sr-tint); border: 1.5px solid rgba(var(--sr-ink-rgb),0.35); }
         ${S} .flight-progress-fill { border-radius: 2px !important; background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)) !important; z-index: 1; }
         ${S} .flight-progress-plane { filter: none !important; font-size: 13px !important; color: var(--sr-text) !important; right: -7px !important; }
-        /* The aircraft's own map silhouette (setSereneProgressPlane), turned
+        /* The aircraft's own map silhouette (setHorizonProgressPlane), turned
            to face along the line, in place of the generic plane glyph. */
         ${S}.sr-has-plane .flight-progress-plane {
             font-size: 0 !important; width: 24px; height: 24px; right: -12px !important;
@@ -24810,7 +24885,7 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} #nav-display-frame { filter: saturate(0.7) brightness(0.97); }
 
         /* Pilot status + timers: moved out from beside the PFD into one
-           card under the glance row (arrangeSereneWindow adds .sr-status).
+           card under the glance row (arrangeHorizonWindow adds .sr-status).
            Status on top, the three timers in a row beneath a hairline. */
         ${S} .pfd-and-location-grid { grid-template-columns: 1fr !important; }
         ${S} .sr-status {
@@ -24993,7 +25068,7 @@ const SERENE_WINDOW_CSS = (() => {
         }
 
         /* Glance: a small icon beside each label; the heading needle turns
-           with the aircraft (wireSereneGlance sets --sr-hdg). */
+           with the aircraft (wireHorizonGlance sets --sr-hdg). */
         ${S} .sr-g-top { display: flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; }
         ${S} .sr-g-ic { color: var(--sr-accent); flex: 0 0 auto; opacity: 0.9; }
         ${S} .sr-g-ic svg { width: 12px; height: 12px; }
@@ -25010,7 +25085,6 @@ const SERENE_WINDOW_CSS = (() => {
         @keyframes sr-ping { 0% { transform: scale(1); opacity: 0.6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
 
         /* Photo credit and swipe dots: quieter glass. */
-        ${S} .hero-photo-credit { -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important; }
 
         /* ---- Text that other stylesheets paint white ---- */
         ${S} .acx-v, ${S} .acx-row .v, ${S} .acx-hero-num, ${S} #ac-location,
@@ -25021,7 +25095,7 @@ const SERENE_WINDOW_CSS = (() => {
         ${S} .dest-loc, ${S} .dest-status { color: var(--sr-muted) !important; }
 
         /* ---- Light colours: dark text everywhere it sits on the window ----
-           The tokens already flip (applySereneColor); these catch the
+           The tokens already flip (applyHorizonColor); these catch the
            legacy markup's inline white and slate text. The instrument
            screens and the photo keep their own dark palette. */
         ${S}.sr-light :not(.crt-container *):not(.ac-header-modern *):is([style*="color: #fff"], [style*="color:#fff"], [style*="color: #ffffff"], [style*="color: #e5e7eb"], [style*="color: #f4f4f5"], [style*="color: rgb(255, 255, 255)"]) {
@@ -25037,6 +25111,7 @@ const SERENE_WINDOW_CSS = (() => {
         ${S}.sr-light .timer-node:nth-child(2) { filter: brightness(0.62) saturate(1.3); }
         ${S}.sr-light .sr-eyebrow, ${S}.sr-light h1.sr-callsign { text-shadow: none !important; }
         ${S}.sr-light .hero-photo-dots span { filter: invert(1); }
+        ${S}.sr-light .sr-photo-meta .hero-photo-credit { color: rgba(0,0,0,0.65) !important; }
         ${S}.sr-light .sr-chip { -webkit-backdrop-filter: none; backdrop-filter: none; }
         ${S}.sr-light .ac-pilot-avatar { background: #d9dce2; color: #1b1e24; border-color: rgba(0,0,0,0.12); }
         ${S}.sr-light #main-data-switcher { box-shadow: 0 6px 18px rgba(0,0,0,0.08) !important; }
@@ -25058,14 +25133,14 @@ const SERENE_WINDOW_CSS = (() => {
 })();
 
 /**
- * Serene window colour. The user picks any colour (Settings › Windows); the
+ * Horizon window colour. The user picks any colour (Settings › Windows); the
  * rest of the palette is derived from it so text always reads: on a dark
  * colour the ink is white, on a light one it is black — whichever of the two
  * contrasts more with the chosen colour (WCAG relative luminance) — and every
  * text tone, surface and hairline is that ink at an opacity.
  */
-const SERENE_DEFAULT_COLOR = '#16181c';
-const SERENE_PRESETS = [
+const HORIZON_DEFAULT_COLOR = '#16181c';
+const HORIZON_PRESETS = [
     { hex: '#16181c', name: 'Ink' },
     { hex: '#101a2c', name: 'Midnight' },
     { hex: '#0f2226', name: 'Deep sea' },
@@ -25076,9 +25151,9 @@ const SERENE_PRESETS = [
     { hex: '#f6f4ef', name: 'Paper' },
 ];
 
-function sereneTokens(hex) {
+function horizonTokens(hex) {
     const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
-    const h = m ? m[1].toLowerCase() : SERENE_DEFAULT_COLOR.slice(1);
+    const h = m ? m[1].toLowerCase() : HORIZON_DEFAULT_COLOR.slice(1);
     const rgb = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
     const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
     const L = 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
@@ -25100,13 +25175,15 @@ function sereneTokens(hex) {
     };
 }
 
-function getSereneColor() {
-    return (typeof mapFilters !== 'undefined' && mapFilters.sereneColor) || SERENE_DEFAULT_COLOR;
+function getHorizonColor() {
+    if (typeof mapFilters === 'undefined') return HORIZON_DEFAULT_COLOR;
+    // sereneColor: the setting's key under the style's working name.
+    return mapFilters.horizonColor || mapFilters.sereneColor || HORIZON_DEFAULT_COLOR;
 }
 
-function applySereneColor(windowEl) {
+function applyHorizonColor(windowEl) {
     if (!windowEl) return;
-    const t = sereneTokens(getSereneColor());
+    const t = horizonTokens(getHorizonColor());
     const vars = {
         '--sr-bg': t.bg, '--sr-bg-rgb': t.bgRgb, '--sr-ink-rgb': t.inkRgb,
         '--sr-text': t.text, '--sr-muted': t.muted, '--sr-faint': t.faint,
@@ -25117,16 +25194,16 @@ function applySereneColor(windowEl) {
     windowEl.classList.toggle('sr-light', t.light);
 }
 
-function setSereneColor(hex) {
+function setHorizonColor(hex) {
     if (typeof mapFilters === 'undefined') return;
-    mapFilters.sereneColor = sereneTokens(hex).bg;
+    mapFilters.horizonColor = horizonTokens(hex).bg;
     if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
     const w = document.getElementById('aircraft-info-window');
-    if (w && w.classList.contains('iw-serene')) applySereneColor(w);
+    if (w && w.classList.contains('iw-horizon')) applyHorizonColor(w);
 }
 
 // Swatches + a free colour picker, shared by desktop and mobile Settings.
-function buildSereneColorPicker(idPrefix) {
+function buildHorizonColorPicker(idPrefix) {
     if (!document.getElementById('sr-color-picker-style')) {
         const st = document.createElement('style');
         st.id = 'sr-color-picker-style';
@@ -25147,24 +25224,24 @@ function buildSereneColorPicker(idPrefix) {
         `;
         document.head.appendChild(st);
     }
-    const cur = getSereneColor().toLowerCase();
-    const isPreset = SERENE_PRESETS.some((p) => p.hex === cur);
+    const cur = getHorizonColor().toLowerCase();
+    const isPreset = HORIZON_PRESETS.some((p) => p.hex === cur);
     return `<div class="sr-color-row" data-sr-color-row>
-        ${SERENE_PRESETS.map((p) => `<button type="button" class="sr-swatch${p.hex === cur ? ' active' : ''}" data-color="${p.hex}" title="${p.name}" aria-label="${p.name}" style="background:${p.hex}"></button>`).join('')}
+        ${HORIZON_PRESETS.map((p) => `<button type="button" class="sr-swatch${p.hex === cur ? ' active' : ''}" data-color="${p.hex}" title="${p.name}" aria-label="${p.name}" style="background:${p.hex}"></button>`).join('')}
         <label class="sr-swatch sr-swatch-custom${isPreset ? '' : ' active'}" title="Custom colour" aria-label="Custom colour">
-            <input type="color" id="${idPrefix}-serene-color" value="${cur}">
+            <input type="color" id="${idPrefix}-horizon-color" value="${cur}">
         </label>
     </div>`;
 }
 
-function wireSereneColorPicker(root) {
+function wireHorizonColorPicker(root) {
     const row = root && root.querySelector('[data-sr-color-row]');
     if (!row || row.dataset.wired === '1') return;
     row.dataset.wired = '1';
     const mark = (el) => row.querySelectorAll('.sr-swatch').forEach((b) => b.classList.toggle('active', b === el));
     row.querySelectorAll('button.sr-swatch').forEach((btn) => {
         btn.addEventListener('click', () => {
-            setSereneColor(btn.dataset.color);
+            setHorizonColor(btn.dataset.color);
             mark(btn);
             const input = row.querySelector('input[type="color"]');
             if (input) input.value = btn.dataset.color;
@@ -25173,22 +25250,22 @@ function wireSereneColorPicker(root) {
     const input = row.querySelector('input[type="color"]');
     if (input) {
         input.addEventListener('input', () => {
-            setSereneColor(input.value);
+            setHorizonColor(input.value);
             mark(input.closest('.sr-swatch'));
         });
     }
 }
 
 if (typeof window !== 'undefined') {
-    window.buildSereneColorPicker = buildSereneColorPicker;
-    window.wireSereneColorPicker = wireSereneColorPicker;
-    window.setSereneColor = setSereneColor;
+    window.buildHorizonColorPicker = buildHorizonColorPicker;
+    window.wireHorizonColorPicker = wireHorizonColorPicker;
+    window.setHorizonColor = setHorizonColor;
 }
 
 // Swap the progress bar's generic plane glyph for the silhouette the map
 // draws for this aircraft (aircraftShapes.js). Stays the glyph if the type
 // has no shape or the file can't load.
-function setSereneProgressPlane(windowEl, aircraftName) {
+function setHorizonProgressPlane(windowEl, aircraftName) {
     windowEl.classList.remove('sr-has-plane');
     const cat = aircraftName ? _resolveAircraftCategory(aircraftName) : null;
     const token = {};
@@ -25204,18 +25281,18 @@ function setSereneProgressPlane(windowEl, aircraftName) {
         .catch(() => { /* keep the glyph */ });
 }
 
-function ensureSereneWindowStyle() {
-    if (document.getElementById('ac-serene-style')) return;
+function ensureHorizonWindowStyle() {
+    if (document.getElementById('ac-horizon-style')) return;
     const s = document.createElement('style');
-    s.id = 'ac-serene-style';
-    s.textContent = SERENE_WINDOW_CSS;
+    s.id = 'ac-horizon-style';
+    s.textContent = HORIZON_WINDOW_CSS;
     document.head.appendChild(s);
 }
 
-// Live readouts shown in Serene's "at a glance" strip. Each cell mirrors the
+// Live readouts shown in Horizon's "at a glance" strip. Each cell mirrors the
 // Navigation card's element of the same id, which the live-update path keeps
 // current, so the strip needs no update code of its own.
-// Small line icons for Serene's section headings and glance labels (24px
+// Small line icons for Horizon's section headings and glance labels (24px
 // grid, stroked in currentColor so they take the accent).
 const SR_ICON = (() => {
     const svg = (inner, fill) => `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -25233,7 +25310,7 @@ const SR_ICON = (() => {
     };
 })();
 
-const SERENE_SECTION_ICONS = {
+const HORIZON_SECTION_ICONS = {
     'Instruments': 'gauge',
     'Speed & altitude': 'chart',
     'Navigation': 'compass',
@@ -25242,7 +25319,7 @@ const SERENE_SECTION_ICONS = {
     'Aircraft': 'plane',
 };
 
-const SERENE_GLANCE = [
+const HORIZON_GLANCE = [
     ['ac-alt', 'Altitude', 'up'],
     ['ac-gs', 'Ground speed', 'speed'],
     ['ac-vs', 'Vertical speed', 'vs'],
@@ -25250,13 +25327,13 @@ const SERENE_GLANCE = [
 ];
 
 /**
- * Serene reads top-down as a story rather than a cockpit: the live numbers
+ * Horizon reads top-down as a story rather than a cockpit: the live numbers
  * and the pilot's status first, then where the flight is going, then the
  * instruments, then the detail. Same nodes (ids, listeners, live updates are
  * unaffected), only moved; anything not named keeps its place at the top of
  * the column (the hidden legacy spans).
  */
-function arrangeSereneWindow(html) {
+function arrangeHorizonWindow(html) {
     const tpl = document.createElement('template');
     tpl.innerHTML = html;
     const pane = tpl.content.querySelector('#ac-tab-flight-data');
@@ -25317,11 +25394,11 @@ function arrangeSereneWindow(html) {
         if (t === 'Departure' || t === 'Arrival') el.classList.add('sr-hidden');
     });
 
-    const glance = make('div', 'sr-glance', SERENE_GLANCE.map(([id, label, icon]) =>
+    const glance = make('div', 'sr-glance', HORIZON_GLANCE.map(([id, label, icon]) =>
         `<div class="sr-g${id === 'ac-heading' ? ' sr-g-hdg' : ''}"><span class="sr-g-top"><span class="sr-g-ic">${SR_ICON[icon]}</span><span class="sr-g-l">${label}</span></span><span class="sr-g-v" data-sr-mirror="${id}">---</span></div>`
     ).join(''));
 
-    // "This flight" is left out of Serene. It stays in the DOM, hidden,
+    // "This flight" is left out of Horizon. It stays in the DOM, hidden,
     // because the live-update path writes to its ids.
     withHeading(q('.stats-card')).forEach((el) => el.classList.add('sr-hidden'));
     // Pilot status + timers leave the PFD's side column for their own card.
@@ -25347,14 +25424,14 @@ function arrangeSereneWindow(html) {
 
     // Every section heading gets its icon tile.
     pane.querySelectorAll(':scope > h2.acx-sec').forEach((h) => {
-        const icon = SR_ICON[SERENE_SECTION_ICONS[h.textContent.trim()]];
+        const icon = SR_ICON[HORIZON_SECTION_ICONS[h.textContent.trim()]];
         if (icon) h.insertAdjacentHTML('afterbegin', `<span class="sr-sec-ic">${icon}</span>`);
     });
     return tpl.innerHTML;
 }
 
 /**
- * Serene hero photo sizing. The photo band takes the photo's own height at
+ * Horizon hero photo sizing. The photo band takes the photo's own height at
  * the window's width (clamped), so a wide photo shows whole with no side
  * crop, and a tall photo fills the width and is cropped top and bottom. It
  * is never zoomed past the width (that cut off nose and tail). The
@@ -25365,7 +25442,7 @@ function arrangeSereneWindow(html) {
 const SR_HERO_MIN_H = 120;
 const SR_HERO_MAX_H = 300;
 
-function fitSereneHero(panel) {
+function fitHorizonHero(panel) {
     if (!panel) return;
     if (panel._srHeroObserver) panel._srHeroObserver.disconnect();
     const urlOf = (el) => {
@@ -25402,12 +25479,12 @@ function fitSereneHero(panel) {
 }
 
 /**
- * Ambient tint for Serene: the photo's own colour, averaged with weight on
+ * Ambient tint for Horizon: the photo's own colour, averaged with weight on
  * saturated pixels and settled to a mid, gentle tone, is mixed a little into
  * the window colour behind the header (--sr-tint). Grey photos and photos
  * the browser won't let us read (no CORS) simply get no tint.
  */
-function sampleSereneGlow(windowEl, panel) {
+function sampleHorizonGlow(windowEl, panel) {
     windowEl.classList.remove('sr-ambient');
     const m = /url\(["']?([^"')]+)["']?\)/.exec(panel.style.backgroundImage || '');
     if (!m) return;
@@ -25459,7 +25536,171 @@ function sampleSereneGlow(windowEl, panel) {
     img.src = m[1];
 }
 
-function wireSereneGlance(windowEl) {
+/**
+ * Horizon photo extras, after the carousel (if any) is built:
+ *  - a credit tag for a single photo (the carousel only credits 2+);
+ *  - the swipe dots and the credit grouped bottom-right, and the chips
+ *    told how much room that group takes (--sr-meta-w);
+ *  - an invisible button over the photo band that lights up when pressed
+ *    and opens the full-screen photo viewer (a swipe is not a tap).
+ */
+function wireHorizonPhotos(panel, photos, fallbackPath) {
+    const list = (photos || []).filter((p) => p && p.src);
+    const creditOf = (p) => (p && p.photographer && p.photographer !== 'IF Community') ? p.photographer : '';
+
+    let credit = panel.querySelector('.hero-photo-credit');
+    if (!credit && list.length === 1 && creditOf(list[0])) {
+        credit = document.createElement('div');
+        credit.className = 'hero-photo-credit';
+        credit.style.cssText = HERO_CREDIT_CSS;
+        credit.textContent = `© ${creditOf(list[0])}`;
+    }
+    const dots = panel.querySelector('.hero-photo-dots');
+    if (dots || credit) {
+        const meta = document.createElement('div');
+        meta.className = 'sr-photo-meta';
+        if (dots) meta.appendChild(dots);
+        if (credit) meta.appendChild(credit);
+        panel.appendChild(meta);
+        const setW = () => panel.style.setProperty('--sr-meta-w', meta.offsetWidth + 'px');
+        if (typeof ResizeObserver === 'function') new ResizeObserver(setW).observe(meta);
+        requestAnimationFrame(setW);
+    }
+
+    if (!list.length) return;   // placeholder art only: nothing to view
+    const hit = document.createElement('button');
+    hit.type = 'button';
+    hit.className = 'sr-photo-hit';
+    hit.setAttribute('aria-label', list.length > 1 ? `View ${list.length} photos` : 'View photo');
+    // Under the header text and buttons (same z-index, earlier in the DOM).
+    const overlay = panel.querySelector('.ac-header-overlay');
+    if (overlay && overlay.nextSibling) panel.insertBefore(hit, overlay.nextSibling);
+    else panel.appendChild(hit);
+
+    let downX = 0, downY = 0, releaseTimer = null;
+    const press = (on) => {
+        clearTimeout(releaseTimer);
+        if (on) hit.classList.add('is-pressed');
+        else releaseTimer = setTimeout(() => hit.classList.remove('is-pressed'), 160);
+    };
+    hit.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; press(true); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => hit.addEventListener(t, () => press(false)));
+    hit.addEventListener('click', (e) => {
+        if (Math.hypot(e.clientX - downX, e.clientY - downY) > 10) return;   // that was a swipe
+        const cur = panel.dataset.currentPath;
+        const at = Math.max(0, list.findIndex((p) => p.src === cur));
+        openHorizonPhotoViewer(list, at, fallbackPath);
+    });
+}
+
+// Full-screen photo viewer: the photo contained on a dark, blurred backdrop,
+// arrows and swipe to page, the contributor and a counter underneath.
+// Escape / backdrop tap / × closes; arrow keys page.
+function openHorizonPhotoViewer(photos, startAt, fallbackPath) {
+    if (!photos.length || document.getElementById('sr-photo-viewer')) return;
+    if (!document.getElementById('sr-photo-viewer-style')) {
+        const st = document.createElement('style');
+        st.id = 'sr-photo-viewer-style';
+        st.textContent = `
+            #sr-photo-viewer {
+                position: fixed; inset: 0; z-index: 100000; display: flex; flex-direction: column;
+                align-items: center; justify-content: center;
+                background: rgba(8,10,14,0.86); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+                opacity: 0; transition: opacity .25s ease; color: #fff;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                padding: max(16px, env(safe-area-inset-top)) 0 max(16px, env(safe-area-inset-bottom));
+                touch-action: pan-y;
+            }
+            #sr-photo-viewer.open { opacity: 1; }
+            #sr-photo-viewer .spv-stage { position: relative; width: 100%; display: grid; place-items: center; }
+            #sr-photo-viewer .spv-img {
+                max-width: min(94vw, 1400px); max-height: calc(100vh - 150px); object-fit: contain; border-radius: 14px;
+                box-shadow: 0 30px 80px rgba(0,0,0,0.5); user-select: none; -webkit-user-drag: none;
+                transform: scale(0.96); opacity: 0; transition: transform .45s cubic-bezier(0.2,0.7,0.2,1), opacity .3s ease;
+            }
+            #sr-photo-viewer.open .spv-img.ready { transform: none; opacity: 1; }
+            #sr-photo-viewer .spv-foot { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; min-height: 28px; font-size: 13px; }
+            #sr-photo-viewer .spv-credit { color: rgba(255,255,255,0.85); font-weight: 500; }
+            #sr-photo-viewer .spv-count { color: rgba(255,255,255,0.55); font-variant-numeric: tabular-nums; }
+            #sr-photo-viewer .spv-btn {
+                position: absolute; width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.16);
+                background: rgba(255,255,255,0.08); color: #fff; display: grid; place-items: center; cursor: pointer;
+                -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: background .2s ease, transform .15s ease;
+            }
+            #sr-photo-viewer .spv-btn:hover { background: rgba(255,255,255,0.16); }
+            #sr-photo-viewer .spv-btn:active { transform: scale(0.94); }
+            #sr-photo-viewer .spv-btn svg { width: 20px; height: 20px; }
+            #sr-photo-viewer .spv-close { top: max(14px, env(safe-area-inset-top)); right: 14px; }
+            #sr-photo-viewer .spv-prev { left: 14px; top: 50%; margin-top: -22px; }
+            #sr-photo-viewer .spv-next { right: 14px; top: 50%; margin-top: -22px; }
+            @media (max-width: 600px) { #sr-photo-viewer .spv-prev, #sr-photo-viewer .spv-next { display: none; } }
+        `;
+        document.head.appendChild(st);
+    }
+    const icon = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const v = document.createElement('div');
+    v.id = 'sr-photo-viewer';
+    v.setAttribute('role', 'dialog');
+    v.setAttribute('aria-modal', 'true');
+    v.setAttribute('aria-label', 'Aircraft photos');
+    v.innerHTML = `
+        <div class="spv-stage"><img class="spv-img" alt=""></div>
+        <div class="spv-foot"><span class="spv-credit"></span><span class="spv-count"></span></div>
+        <button type="button" class="spv-btn spv-close" aria-label="Close">${icon('<path d="M18 6L6 18"/><path d="M6 6l12 12"/>')}</button>
+        ${photos.length > 1 ? `
+        <button type="button" class="spv-btn spv-prev" aria-label="Previous photo">${icon('<path d="M15 18l-6-6 6-6"/>')}</button>
+        <button type="button" class="spv-btn spv-next" aria-label="Next photo">${icon('<path d="M9 18l6-6-6-6"/>')}</button>` : ''}
+    `;
+    document.body.appendChild(v);
+    const img = v.querySelector('.spv-img');
+    const creditEl = v.querySelector('.spv-credit');
+    const countEl = v.querySelector('.spv-count');
+    let i = startAt;
+    const render = () => {
+        const p = photos[i];
+        img.classList.remove('ready');
+        img.onload = () => img.classList.add('ready');
+        img.onerror = () => { if (fallbackPath && !img.src.endsWith(fallbackPath)) img.src = fallbackPath; };
+        img.src = p.src;
+        const by = (p.photographer && p.photographer !== 'IF Community') ? p.photographer : '';
+        creditEl.textContent = by ? `© ${by}` : '';
+        countEl.textContent = photos.length > 1 ? `${i + 1} / ${photos.length}` : '';
+    };
+    const go = (d) => { if (photos.length > 1) { i = (i + d + photos.length) % photos.length; render(); } };
+    const close = () => {
+        v.classList.remove('open');
+        document.removeEventListener('keydown', onKey);
+        setTimeout(() => v.remove(), 260);
+    };
+    const onKey = (e) => {
+        if (e.key === 'Escape') close();
+        else if (e.key === 'ArrowLeft') go(-1);
+        else if (e.key === 'ArrowRight') go(1);
+    };
+    document.addEventListener('keydown', onKey);
+    v.querySelector('.spv-close').addEventListener('click', close);
+    v.querySelector('.spv-prev')?.addEventListener('click', () => go(-1));
+    v.querySelector('.spv-next')?.addEventListener('click', () => go(1));
+    let sx = null, sy = 0, swiped = false;
+    v.addEventListener('click', (e) => {
+        if (swiped) { swiped = false; return; }                             // end of a swipe, not a tap
+        if (e.target === v || e.target.classList.contains('spv-stage')) close();
+    });
+    v.addEventListener('pointerdown', (e) => { sx = e.clientX; sy = e.clientY; swiped = false; });
+    v.addEventListener('pointerup', (e) => {
+        if (sx == null) return;
+        const dx = e.clientX - sx, dy = e.clientY - sy;
+        sx = null;
+        swiped = Math.hypot(dx, dy) > 10;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+        else if (dy > 90 && Math.abs(dy) > Math.abs(dx)) close();          // swipe down closes
+    });
+    render();
+    requestAnimationFrame(() => v.classList.add('open'));
+    v.querySelector('.spv-close').focus({ preventScroll: true });
+}
+
+function wireHorizonGlance(windowEl) {
     (windowEl._srMirrors || []).forEach((o) => o.disconnect());
     windowEl._srMirrors = [];
     windowEl.querySelectorAll('[data-sr-mirror]').forEach((cell) => {
@@ -25484,13 +25725,13 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     const windowEl = document.getElementById('aircraft-info-window');
     if (!windowEl) return;
 
-    // Serene is this same window in a softer skin (see SERENE_WINDOW_CSS).
-    const sereneSkin = getFlightWindowMode() === 'serene';
-    if (sereneSkin) {
-        ensureSereneWindowStyle();
-        applySereneColor(windowEl);
+    // Horizon is this same window in a softer skin (see HORIZON_WINDOW_CSS).
+    const horizonSkin = getFlightWindowMode() === 'horizon';
+    if (horizonSkin) {
+        ensureHorizonWindowStyle();
+        applyHorizonColor(windowEl);
     }
-    windowEl.classList.toggle('iw-serene', sereneSkin);
+    windowEl.classList.toggle('iw-horizon', horizonSkin);
 
     // Clickable origin/destination ICAOs — inject the hover affordance once.
     if (!document.getElementById('ac-icao-link-style')) {
@@ -26364,12 +26605,12 @@ let totalDistanceNM = 0;
         </div>
     </div>
     `;
-    // Serene rearranges the content column before it is written, so the
-    // morph measures the final layout (see arrangeSereneWindow).
-    setInfoWindowContent(windowEl, sereneSkin ? arrangeSereneWindow(windowHtml) : windowHtml);
-    if (sereneSkin) {
-        wireSereneGlance(windowEl);
-        setSereneProgressPlane(windowEl, baseProps.aircraft?.aircraftName || '');
+    // Horizon rearranges the content column before it is written, so the
+    // morph measures the final layout (see arrangeHorizonWindow).
+    setInfoWindowContent(windowEl, horizonSkin ? arrangeHorizonWindow(windowHtml) : windowHtml);
+    if (horizonSkin) {
+        wireHorizonGlance(windowEl);
+        setHorizonProgressPlane(windowEl, baseProps.aircraft?.aircraftName || '');
     }
 
     // --- POST-RENDER LOGIC ---
@@ -26447,21 +26688,10 @@ let totalDistanceNM = 0;
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
         buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
-        if (sereneSkin) {
-            fitSereneHero(overviewPanel);
-            sampleSereneGlow(windowEl, overviewPanel);
-            // A single photo gets no carousel, and so no credit tag; give it
-            // the same one the carousel shows, so every contributor is named
-            // on their photo.
-            const onlyPhoto = techCardPhotos.length === 1 ? techCardPhotos[0] : null;
-            const by = onlyPhoto && onlyPhoto.photographer;
-            if (by && by !== 'IF Community' && !overviewPanel.querySelector('.hero-photo-credit')) {
-                const credit = document.createElement('div');
-                credit.className = 'hero-photo-credit';
-                credit.style.cssText = HERO_CREDIT_CSS;
-                credit.textContent = `© ${by}`;
-                overviewPanel.appendChild(credit);
-            }
+        if (horizonSkin) {
+            fitHorizonHero(overviewPanel);
+            sampleHorizonGlow(windowEl, overviewPanel);
+            wireHorizonPhotos(overviewPanel, techCardPhotos, fallbackPath);
         }
 
         // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
