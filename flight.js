@@ -24498,17 +24498,6 @@ function decoratePilotTab(btn) {
     const apply = (profile) => {
         if (!profile || !btn.isConnected) return;
         btn.classList.add('has-profile');
-        // Horizon's card: the pilot's accent colour, Pro ring and badge, and
-        // display name over @username (only when they differ).
-        const accent = profile.accent && (typeof CSS === 'undefined' || CSS.supports('color', profile.accent)) ? profile.accent : null;
-        if (accent) btn.style.setProperty('--pilot-accent', accent);
-        btn.classList.toggle('is-pro', !!profile.isPro);
-        const nameEl = btn.querySelector('.sr-pilot-name');
-        if (nameEl && profile.displayName) {
-            nameEl.textContent = profile.displayName;
-            const handleEl = btn.querySelector('.sr-pilot-handle');
-            if (handleEl) handleEl.textContent = profile.displayName.toLowerCase() !== uname.toLowerCase() ? '@' + uname : '';
-        }
         const banner = btn.querySelector('.ac-pilot-banner');
         if (banner) {
             banner.style.backgroundImage = profile.bannerUrl
@@ -24896,124 +24885,24 @@ const HORIZON_WINDOW_CSS = (() => {
         }
         ${S} .ac-icao-link:hover { color: var(--sr-accent); text-shadow: none; }
 
-        /* ---- Pilot card: a profile card, not a tab ----
-           A tall banner (the pilot's own, their preset, or one generated
-           from their username), a big picture overlapping it inside a ring
-           in their accent colour — an animated gradient ring for Pro — a
-           live dot because they are flying right now, then their name,
-           @username and a PRO badge. arrangeHorizonWindow adds the ring,
-           dot and text; decoratePilotTab fills them from the profile. */
+        /* ---- Pilot card ---- */
         ${S} .ac-info-window-tabs {
             background: transparent !important; border: 0 !important;
-            height: auto !important; align-items: stretch !important;
-            padding: 16px 14px 6px !important;
+            padding: 14px 14px 4px !important;
         }
         ${S} #main-data-switcher {
-            height: auto !important; padding: 0 !important; overflow: visible !important;
-            background: transparent !important; border: 0 !important; box-shadow: none !important;
-            border-radius: 22px !important;
+            border-radius: var(--sr-radius) !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2) !important;
         }
         ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
-            display: block !important; position: relative !important; isolation: isolate !important;
-            width: 100%; height: auto !important; min-height: 142px;
-            padding: 94px 16px 16px 100px !important; overflow: hidden !important;
-            border: 0 !important; border-radius: 22px !important; text-align: left;
-            background: linear-gradient(180deg, rgba(var(--sr-ink-rgb),0.06), rgba(var(--sr-ink-rgb),0.03)) !important;
-            box-shadow: inset 0 0 0 1px var(--sr-line),
-                        0 16px 36px rgba(0,0,0,0.22),
-                        0 0 40px -12px color-mix(in srgb, var(--pilot-accent, var(--sr-accent)) 45%, transparent) !important;
-            color: var(--sr-text) !important; text-transform: none !important; letter-spacing: 0 !important;
-            text-shadow: none !important; filter: none !important; font-weight: 400 !important;
-            transition: transform .25s ease, box-shadow .25s ease !important;
+            border-radius: var(--sr-radius) !important;
+            background: var(--sr-surface-hi) !important;
+            text-transform: none !important; letter-spacing: 0.01em !important;
+            font-size: 13.5px !important; font-weight: 600 !important;
         }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn > i { display: none !important; }
-        @media (hover: hover) and (pointer: fine) {
-            ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:hover { transform: translateY(-2px); }
-            ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:hover .ac-pilot-banner { transform: scale(1.08) !important; }
-        }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:active { transform: scale(0.99); }
-
-        /* Banner */
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .ac-pilot-banner {
-            display: block !important; position: absolute !important; inset: 0 0 auto 0 !important;
-            height: 86px; z-index: 0 !important; border-radius: 0 !important;
-            background: var(--sr-pilot-fallback, linear-gradient(135deg, #2b336b, #944f70, #eb8c5c));
-            background-size: cover !important; background-position: center !important;
-            transform-origin: 60% 50%;
-            animation: sr-banner-drift 24s ease-in-out infinite alternate;
-            transition: transform .6s cubic-bezier(0.2, 0.7, 0.2, 1);
-        }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .ac-pilot-banner::after {
-            content: '' !important; position: absolute !important; inset: 0 !important;
-            background: linear-gradient(180deg, rgba(0,0,0,0) 35%, rgba(0,0,0,0.38) 100%),
-                        radial-gradient(120% 90% at 85% 0%, rgba(255,255,255,0.16), transparent 55%) !important;
-        }
-        @keyframes sr-banner-drift { from { transform: scale(1.02); } to { transform: scale(1.1) translateX(-2%); } }
-
-        /* Picture, ring, live dot */
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .sr-pilot-ring {
-            position: absolute; left: 13px; top: 45px; width: 76px; height: 76px; border-radius: 50%; z-index: 1;
-            background: var(--pilot-accent, var(--sr-accent));
-            box-shadow: 0 8px 22px rgba(0,0,0,0.35);
-        }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn.is-pro .sr-pilot-ring {
-            background: conic-gradient(from 0deg, #f5c542, #f472b6, #8b5cf6, #38bdf8, #34d399, #f5c542);
-            animation: sr-ring-spin 6s linear infinite;
-        }
-        @keyframes sr-ring-spin { to { transform: rotate(360deg); } }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .ac-pilot-avatar {
-            display: grid !important; place-items: center;
-            position: absolute !important; left: 17px; top: 49px; z-index: 2;
-            width: 68px !important; height: 68px !important; box-sizing: border-box;
-            border: 3px solid var(--sr-bg) !important; box-shadow: none !important;
-            font-size: 21px !important; font-weight: 700 !important; letter-spacing: 0.02em; color: #fff !important;
-            background: linear-gradient(140deg,
-                color-mix(in srgb, var(--pilot-accent, var(--sr-accent)) 75%, #fff),
-                color-mix(in srgb, var(--pilot-accent, var(--sr-accent)) 55%, #000)) !important;
-            text-shadow: 0 1px 4px rgba(0,0,0,0.3);
-        }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .sr-pilot-live {
-            position: absolute; left: 71px; top: 101px; z-index: 3;
-            width: 14px; height: 14px; border-radius: 50%; box-sizing: border-box;
-            background: #34d399; border: 3px solid var(--sr-bg);
-        }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .sr-pilot-live::after {
-            content: ''; position: absolute; inset: -3px; border-radius: 50%;
-            border: 2px solid #34d399; animation: sr-live-pulse 2.2s ease-out infinite;
-        }
-        @keyframes sr-live-pulse { 0% { transform: scale(0.8); opacity: 0.8; } 100% { transform: scale(2.1); opacity: 0; } }
-
-        /* Name block */
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .sr-pilot-text { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .sr-pilot-kicker {
-            display: flex; align-items: center; gap: 7px;
-            font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--sr-muted);
-        }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn.is-pro .sr-pilot-kicker::after {
-            content: 'PRO'; padding: 1px 7px; border-radius: 999px; letter-spacing: 0.08em; font-size: 9px; font-weight: 800;
-            color: #1a1206; background: linear-gradient(90deg, #f5c542, #f59e0b 45%, #f472b6);
-            box-shadow: 0 2px 10px rgba(245,158,11,0.35);
-        }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .sr-pilot-name {
-            font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--sr-text);
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .sr-pilot-handle { font-size: 12px; font-weight: 500; color: var(--sr-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .sr-pilot-handle:empty { display: none; }
-
-        /* View profile: a glass pill over the banner */
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .ac-pilot-go {
-            position: absolute !important; top: 12px; right: 12px; z-index: 2; margin: 0 !important;
-            display: inline-flex !important; align-items: center; gap: 5px; opacity: 1 !important;
-            padding: 5px 11px; border-radius: 999px;
-            font-size: 11px !important; font-weight: 600; letter-spacing: 0.01em !important; color: #fff !important;
-            background: rgba(12,14,18,0.38); border: 1px solid rgba(255,255,255,0.18);
-            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-        }
-        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .ac-pilot-go i { font-size: 9px !important; }
-        @media (prefers-reduced-motion: reduce) {
-            ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .ac-pilot-banner, ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn.is-pro .sr-pilot-ring, ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn .sr-pilot-live::after { animation: none !important; }
-        }
+        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { box-shadow: inset 0 0 0 1px var(--sr-line); }
+        ${S} .ac-pilot-avatar { background: #3a404b; border-width: 1px; border-color: rgba(255,255,255,0.7); }
+        ${S} .ac-pilot-go { font-size: 11px; font-weight: 500; opacity: 0.75; }
 
         /* ---- Content column ---- */
         ${S} .unified-display-main-content {
@@ -25253,6 +25142,7 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} .dest-toggle, ${S} .dest-cell .v, ${S} .dest-mgrid .v, ${S} .dest-open-btn,
         ${S} .modern-status-card > div > div:last-child > span:nth-child(2),
         ${S} .route-node .icao-large { color: var(--sr-text) !important; }
+        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { color: var(--sr-text) !important; }
         ${S} .dest-loc, ${S} .dest-status { color: var(--sr-muted) !important; }
 
         /* ---- Light colours: dark text everywhere it sits on the window ----
@@ -25272,6 +25162,7 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S}.sr-light .timer-node:nth-child(2) { filter: brightness(0.62) saturate(1.3); }
         ${S}.sr-light .sr-eyebrow, ${S}.sr-light h1.sr-callsign { text-shadow: none !important; }
         ${S}.sr-light .hero-photo-dots span { filter: invert(1); }
+        ${S}.sr-light .ac-pilot-avatar { background: #d9dce2; color: #1b1e24; border-color: rgba(0,0,0,0.12); }
         ${S}.sr-light #main-data-switcher { box-shadow: 0 6px 18px rgba(0,0,0,0.08) !important; }
         ${S}.sr-light:not(.mobile-legacy-sheet) { box-shadow: 0 24px 60px rgba(0,0,0,0.22), 0 2px 10px rgba(0,0,0,0.1) !important; }
 
@@ -25535,38 +25426,6 @@ function arrangeHorizonWindow(html) {
         if (aircraft) eyebrow.appendChild(text('span', 'sr-eb-aircraft', aircraft));
 
         idGroup.replaceChildren(eyebrow, text('h1', 'sr-callsign', callsign));
-    }
-
-    // Pilot card: ring and live dot around the picture, and a name block
-    // (kicker, name, @username) that decoratePilotTab fills from the
-    // profile. Pilots without a profile still get a banner of their own,
-    // coloured from their username.
-    const pilotBtn = tpl.content.querySelector('.ac-info-tab-btn.pilot-tab-btn');
-    const pilotName = pilotBtn && pilotBtn.dataset.username;
-    if (pilotName && pilotName !== 'N/A') {
-        const avatar = pilotBtn.querySelector('.ac-pilot-avatar');
-        if (avatar) {
-            avatar.insertAdjacentHTML('beforebegin', '<span class="sr-pilot-ring" aria-hidden="true"></span>');
-            avatar.insertAdjacentHTML('afterend', '<span class="sr-pilot-live" aria-hidden="true" title="Flying now"></span>');
-        }
-        const plain = [...pilotBtn.children].find((el) => el.tagName === 'SPAN' && !el.className);
-        if (plain) {
-            const box = document.createElement('span');
-            box.className = 'sr-pilot-text';
-            [['sr-pilot-kicker', 'Pilot'], ['sr-pilot-name', pilotName], ['sr-pilot-handle', '']].forEach(([cls, t]) => {
-                const el = document.createElement('span');
-                el.className = cls;
-                el.textContent = t;
-                box.appendChild(el);
-            });
-            plain.replaceWith(box);
-        }
-        let hsh = 0;
-        for (const ch of pilotName.toLowerCase()) hsh = (hsh * 31 + ch.charCodeAt(0)) >>> 0;
-        const hue = hsh % 360, hue2 = (hue + 40 + (hsh >> 9) % 60) % 360;
-        pilotBtn.style.setProperty('--sr-pilot-fallback',
-            `radial-gradient(90% 140% at 15% 0%, hsla(${hue2}, 70%, 60%, 0.45), transparent 60%), ` +
-            `linear-gradient(125deg, hsl(${hue}, 48%, 30%), hsl(${hue2}, 55%, 18%))`);
     }
 
     // The route strip shows city names; the 'Departure'/'Arrival'
