@@ -25662,11 +25662,15 @@ const HorizonBgStore = {
         if (this._db) return this._db;
         this._db = new Promise((resolve, reject) => {
             if (typeof indexedDB === 'undefined') return reject(new Error('no IndexedDB'));
-            const req = indexedDB.open('inflight-horizon', 1);
+            let req;
+            try { req = indexedDB.open('inflight-horizon', 1); } catch (e) { return reject(e); }
             req.onupgradeneeded = () => req.result.createObjectStore('kv');
             req.onsuccess = () => resolve(req.result);
             req.onerror = () => reject(req.error);
+            req.onblocked = () => reject(new Error('IndexedDB blocked'));
         });
+        // A failed open must not be cached, or every later call fails too.
+        this._db.catch(() => { this._db = null; });
         return this._db;
     },
     async _tx(mode, fn) {
@@ -25683,13 +25687,72 @@ const HorizonBgStore = {
     del(key) { return this._tx('readwrite', (st) => st.delete(key)).catch(() => {}); },
 };
 
-let _horizonCustomBgUrl = null;       // object URL of the stored image, once read
+// Where the chosen image lives, most capable first. Phone browsers differ:
+// iOS web views often refuse a Blob in IndexedDB (and private modes may
+// refuse IndexedDB outright), so the image is stored as raw bytes, then —
+// failing that — as a smaller data URL in localStorage, and as a last
+// resort kept in memory for this session only.
+const HORIZON_BG_LS_KEY = 'horizonBgImage';
+let _horizonCustomBgUrl = null;       // object/data URL of the stored image, once read
+let _horizonBgMemory = null;          // session-only fallback (Blob)
+
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(blob);
+    });
+}
+function blobToArrayBuffer(blob) {
+    if (blob.arrayBuffer) return blob.arrayBuffer();
+    return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsArrayBuffer(blob);
+    });
+}
+
+// Returns where it was kept: 'device', 'device-small' or 'session'.
+async function saveHorizonCustomBg(blob) {
+    _horizonBgMemory = null;
+    try {
+        const buf = await blobToArrayBuffer(blob);
+        await HorizonBgStore.set('bg', { buf, type: blob.type || 'image/jpeg' });
+        try { localStorage.removeItem(HORIZON_BG_LS_KEY); } catch (_) {}
+        return 'device';
+    } catch (_) { /* try the next store */ }
+    try {
+        const src = URL.createObjectURL(blob);
+        const small = await processImageToBlob(src, { maxSide: 1080, quality: 0.72 });
+        URL.revokeObjectURL(src);
+        localStorage.setItem(HORIZON_BG_LS_KEY, await blobToDataUrl(small || blob));
+        return 'device-small';
+    } catch (_) { /* quota or no storage */ }
+    _horizonBgMemory = blob;
+    return 'session';
+}
+
+async function removeHorizonCustomBg() {
+    _horizonBgMemory = null;
+    await HorizonBgStore.del('bg');
+    try { localStorage.removeItem(HORIZON_BG_LS_KEY); } catch (_) {}
+    if (_horizonCustomBgUrl && _horizonCustomBgUrl.startsWith('blob:')) URL.revokeObjectURL(_horizonCustomBgUrl);
+    _horizonCustomBgUrl = null;
+}
+
 async function getHorizonCustomBgUrl() {
     if (_horizonCustomBgUrl) return _horizonCustomBgUrl;
-    const blob = await HorizonBgStore.get('bg');
-    if (!(blob instanceof Blob)) return null;
-    _horizonCustomBgUrl = URL.createObjectURL(blob);
-    return _horizonCustomBgUrl;
+    if (_horizonBgMemory) return (_horizonCustomBgUrl = URL.createObjectURL(_horizonBgMemory));
+    const rec = await HorizonBgStore.get('bg');
+    if (rec instanceof Blob) return (_horizonCustomBgUrl = URL.createObjectURL(rec));
+    if (rec && rec.buf) return (_horizonCustomBgUrl = URL.createObjectURL(new Blob([rec.buf], { type: rec.type || 'image/jpeg' })));
+    try {
+        const d = localStorage.getItem(HORIZON_BG_LS_KEY);
+        if (d && d.startsWith('data:image/')) return (_horizonCustomBgUrl = d);
+    } catch (_) {}
+    return null;
 }
 
 // Draw an image through a canvas: downscaled to `maxSide`, optionally
@@ -25854,18 +25917,17 @@ function wireHorizonBackgroundPicker(root) {
         const blob = await processImageToBlob(src, { maxSide: 1440, quality: 0.85 });
         URL.revokeObjectURL(src);
         if (!blob) { note.textContent = 'That file couldn’t be read as an image. Try a JPEG or PNG.'; return; }
-        try { await HorizonBgStore.set('bg', blob); } catch (_) { note.textContent = 'Couldn’t save the image on this device.'; return; }
-        if (_horizonCustomBgUrl) URL.revokeObjectURL(_horizonCustomBgUrl);
+        if (_horizonCustomBgUrl && _horizonCustomBgUrl.startsWith('blob:')) URL.revokeObjectURL(_horizonCustomBgUrl);
         _horizonCustomBgUrl = null;
+        const where = await saveHorizonCustomBg(blob);
         mapFilters.horizonBg = 'custom';
         save();
         setMode('custom');
+        if (where === 'session') note.textContent = 'This browser won’t store images, so it’s shown until you close the app.';
         refreshOpenHorizonBackground();
     });
     remove.addEventListener('click', async () => {
-        await HorizonBgStore.del('bg');
-        if (_horizonCustomBgUrl) URL.revokeObjectURL(_horizonCustomBgUrl);
-        _horizonCustomBgUrl = null;
+        await removeHorizonCustomBg();
         mapFilters.horizonBg = 'color';
         save();
         setMode('color');
