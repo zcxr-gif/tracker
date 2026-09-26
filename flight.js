@@ -20281,8 +20281,8 @@ renderCategory(catId) {
                             <!-- Horizon's colour. Text and surfaces adapt so it stays readable. -->
                             <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-palette"></i> Horizon Colour</div>
                             ${buildHorizonColorPicker('set')}
-                            <!-- Horizon's background: colour, the aircraft's photo, or your own image. -->
-                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-image"></i> Horizon Background</div>
+                            <!-- Every flight window's background: colour, the aircraft's photo, or your own image. -->
+                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-image"></i> Window Background</div>
                             ${buildHorizonBackgroundPicker('set')}
                             <!-- Which side of the map the flight window opens on.
                                  Used to be a button in the window's own tab bar. -->
@@ -23864,6 +23864,14 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         // The Horizon skin hangs off the window itself; drop it for the
         // iframe styles so it never tints their frame.
         windowEl.classList.toggle('iw-horizon', _fwMode === 'horizon');
+        {
+            // The frame styles paint their own background image (see
+            // postWindowBackground); the window itself stays plain for them.
+            const c = Array.isArray(communityAircraftData) ? communityAircraftData[0] : communityAircraftData;
+            windowEl.dataset.wbPhoto = (c && (c.imageUrl || (Array.isArray(c.imageUrls) && c.imageUrls[0])))
+                || flightProps.communityImageUrl || '';
+            if (_fwMode === 'simple' || _fwMode === 'embed') windowEl.classList.remove('sr-bgimg', 'wb-legacy');
+        }
         if (_fwMode === 'simple' || _fwMode === 'embed') {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
@@ -23926,6 +23934,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 // Closed (or moved on) while the trail was awaited: nothing to show.
                 if (currentFlightInWindow === flightProps.flightId && liveFrame.contentWindow) {
                     liveFrame.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload }, '*');
+                    postWindowBackground(liveFrame, windowEl.dataset.wbPhoto || null);
                     postPhase(liveFrame);
                     // The pilot panel belongs to the previous pilot until asked.
                     handleIframeMessage({ data: { type: 'REQUEST_PILOT_STATS' } });
@@ -23960,6 +23969,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                     const payload = await firstPayload();
                     if (!iframe.contentWindow) return;
                     iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload }, '*');
+                    postWindowBackground(iframe, windowEl.dataset.wbPhoto || null);
                     postPhase(iframe);
                 };
             }
@@ -25794,33 +25804,86 @@ async function horizonAircraftBgUrl(src) {
     return url;
 }
 
-async function applyHorizonBackground(windowEl, photoSrc) {
-    if (!windowEl) return;
+// The chosen background for any flight window: { url, dim } (url null when
+// the setting is Colour or nothing usable is available).
+async function resolveWindowBackground(photoSrc) {
     const f = (typeof mapFilters !== 'undefined') ? mapFilters : {};
     const mode = f.horizonBg || 'color';
     const dim = Math.min(90, Math.max(20, Number(f.horizonBgDim) || 60)) / 100;
-    windowEl.style.setProperty('--sr-dim', String(dim));
+    if (mode === 'color') return { url: null, dim, mode };
+    if (mode === 'custom') return { url: await getHorizonCustomBgUrl(), dim, mode };
+    // An unreadable photo (no CORS) can't be blurred: skip rather than put a
+    // sharp, busy photo behind the text.
+    const ok = photoSrc && !/\/CommunityPlanes\/default\.png$/.test(photoSrc);
+    return { url: ok ? await horizonAircraftBgUrl(photoSrc) : null, dim, mode };
+}
+
+// Native windows: Horizon (.sr-bgimg, its own skin) and Legacy (.wb-legacy).
+async function applyHorizonBackground(windowEl, photoSrc) {
+    if (!windowEl) return;
     const token = {};
     windowEl._srBgToken = token;
-    if (mode === 'color') { windowEl.classList.remove('sr-bgimg'); return; }
-    let url = null;
-    if (mode === 'custom') url = await getHorizonCustomBgUrl();
-    else {
-        const src = photoSrc || windowEl.querySelector('#ac-overview-panel')?.dataset.currentPath;
-        // An unreadable photo (no CORS) can't be blurred: skip rather than
-        // put a sharp, busy photo behind the text.
-        url = src && !/\/CommunityPlanes\/default\.png$/.test(src) ? await horizonAircraftBgUrl(src) : null;
-    }
+    const src = photoSrc || windowEl.querySelector('#ac-overview-panel')?.dataset.currentPath;
+    const bg = await resolveWindowBackground(src);
     if (windowEl._srBgToken !== token) return;       // superseded
-    if (!url) { windowEl.classList.remove('sr-bgimg'); return; }
-    windowEl.style.setProperty('--sr-bgimg', `url("${url}")`);
-    windowEl.classList.toggle('sr-bgimg-photo', mode === 'aircraft');
-    windowEl.classList.add('sr-bgimg');
+    const framed = !!windowEl.querySelector('#simple-flight-window-frame');
+    const horizon = windowEl.classList.contains('iw-horizon');
+    windowEl.style.setProperty('--sr-dim', String(bg.dim));
+    if (bg.url) windowEl.style.setProperty('--sr-bgimg', `url("${bg.url}")`);
+    windowEl.classList.toggle('sr-bgimg', !!bg.url && horizon && !framed);
+    windowEl.classList.toggle('sr-bgimg-photo', !!bg.url && bg.mode === 'aircraft');
+    windowEl.classList.toggle('wb-legacy', !!bg.url && !horizon && !framed);
+    if (!document.getElementById('wb-legacy-style')) injectLegacyWindowBackgroundStyle();
+}
+
+// Simple and Card run in a same-origin frame: hand them the image (a blob:
+// or data: URL, both readable there) and they paint it themselves.
+async function postWindowBackground(frame, photoSrc) {
+    if (!frame || !frame.contentWindow) return;
+    const bg = await resolveWindowBackground(photoSrc);
+    try { frame.contentWindow.postMessage({ type: 'WINDOW_BACKGROUND', url: bg.url, dim: bg.dim }, '*'); } catch (_) {}
 }
 
 function refreshOpenHorizonBackground() {
     const w = document.getElementById('aircraft-info-window');
-    if (w && w.classList.contains('iw-horizon')) applyHorizonBackground(w);
+    if (!w || !w.classList.contains('visible')) return;
+    const frame = w.querySelector('#simple-flight-window-frame');
+    if (frame) postWindowBackground(frame, w.dataset.wbPhoto || null);
+    else applyHorizonBackground(w);
+}
+
+// Legacy's own bands are solid greys; with an image they turn to glass so
+// the image shows through, and the header photo fades out into it.
+function injectLegacyWindowBackgroundStyle() {
+    const W = '#aircraft-info-window.wb-legacy:not(.iw-horizon)';
+    const st = document.createElement('style');
+    st.id = 'wb-legacy-style';
+    st.textContent = `
+        ${W}, ${W}.mobile-legacy-sheet {
+            background:
+                linear-gradient(rgba(34,34,37, var(--sr-dim, 0.6)), rgba(34,34,37, var(--sr-dim, 0.6))),
+                var(--sr-bgimg) center / cover no-repeat,
+                #222225 !important;
+        }
+        ${W} .ac-header-modern {
+            -webkit-mask-image: linear-gradient(180deg, #000 0, #000 55%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0, #000 55%, transparent 100%);
+            background-color: transparent !important;
+        }
+        ${W} .ac-header-overlay { background: linear-gradient(to bottom, rgba(0,0,0,0.15), rgba(0,0,0,0) 40%) !important; }
+        ${W} .ac-route-bar-backdrop { background: transparent !important; box-shadow: none !important; }
+        ${W} .ac-route-info-bar {
+            background: rgba(34,34,37,0.62) !important;
+            -webkit-backdrop-filter: blur(16px) saturate(140%) !important; backdrop-filter: blur(16px) saturate(140%) !important;
+        }
+        ${W} .ac-info-window-tabs, ${W} .unified-display-main-content { background: transparent !important; }
+        ${W} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { background: rgba(34,34,37,0.6) !important; }
+        ${W} .acx-card, ${W} .dest-card, ${W} .modern-status-card, ${W} .timer-node, ${W} .fuel-card, ${W} .cabin-card {
+            background: rgba(34,34,37,0.6) !important;
+            -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+        }
+    `;
+    document.head.appendChild(st);
 }
 
 function buildHorizonBackgroundPicker(idPrefix) {
@@ -25862,7 +25925,7 @@ function buildHorizonBackgroundPicker(idPrefix) {
     const btn = (m, icon, label) => `<button type="button" data-bg-mode="${m}" class="${mode === m ? 'active' : ''}"><i class="fa-solid ${icon}"></i><span>${label}</span></button>`;
     return `<div class="sr-bg-picker" data-sr-bg-picker data-mode="${mode}">
         <div class="sr-bg-seg">
-            ${btn('color', 'fa-palette', 'Colour')}
+            ${btn('color', 'fa-palette', 'None')}
             ${btn('aircraft', 'fa-plane', 'Aircraft photo')}
             ${btn('custom', 'fa-image', 'Your image')}
         </div>
@@ -25887,8 +25950,8 @@ function wireHorizonBackgroundPicker(root) {
     const save = () => { if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage(); };
     const notes = {
         color: '',
-        aircraft: 'Each flight’s own aircraft photo, softly blurred, fills the window.',
-        custom: 'Pick any image — it fills the window top to bottom. Tall (portrait) images fit best. Stored on this device only.',
+        aircraft: 'Each flight’s own aircraft photo, softly blurred, fills the flight window — in every window style.',
+        custom: 'Pick any image — it fills the flight window top to bottom, in every window style. Tall (portrait) images fit best. Stored on this device only.',
     };
     const paintCustom = async () => {
         const url = await getHorizonCustomBgUrl();
@@ -27479,8 +27542,10 @@ let totalDistanceNM = 0;
             sampleHorizonGlow(windowEl, overviewPanel);
             wireHorizonPhotos(overviewPanel, techCardPhotos, fallbackPath);
             mountHorizonHeroPhotoLayer(overviewPanel);
-            applyHorizonBackground(windowEl, techCardPhotos[0] && techCardPhotos[0].src);
         }
+        // Background image (setting) — Horizon and Legacy alike.
+        windowEl.dataset.wbPhoto = (techCardPhotos[0] && techCardPhotos[0].src) || '';
+        applyHorizonBackground(windowEl, windowEl.dataset.wbPhoto || null);
 
         // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
         // it to a logo-only chip a few seconds after the window opens (hovering or

@@ -461,9 +461,9 @@ export const MobileSettingsUI = {
                                 <div class="m-horizon-color-label"><i class="fa-solid fa-palette"></i><span>Horizon colour</span></div>
                                 ${(typeof window !== 'undefined' && window.buildHorizonColorPicker) ? window.buildHorizonColorPicker('m') : ''}
                             </div>
-                            <!-- Horizon's background: colour, the aircraft's photo, or your own image. -->
+                            <!-- Every flight window's background: none, the aircraft's photo, or your own image. -->
                             <div class="m-horizon-color">
-                                <div class="m-horizon-color-label"><i class="fa-solid fa-image"></i><span>Horizon background</span></div>
+                                <div class="m-horizon-color-label"><i class="fa-solid fa-image"></i><span>Window background</span></div>
                                 ${(typeof window !== 'undefined' && window.buildHorizonBackgroundPicker) ? window.buildHorizonBackgroundPicker('m') : ''}
                             </div>
                             <div class="m-settings-list">
