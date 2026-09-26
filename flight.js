@@ -25005,55 +25005,7 @@ const HORIZON_WINDOW_CSS = (() => {
             -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
         }
 
-        /* Previous / next edge zones (wireHorizonPhotos). Invisible at rest;
-           while used, a shade from that edge and a glass chevron. */
-        ${S} .sr-photo-edge {
-            position: absolute; top: 0; height: var(--sr-photo-h, 220px); width: 22%; z-index: 1;
-            margin: 0; padding: 0 14px; border: 0; background: transparent; cursor: pointer;
-            display: flex; align-items: center; color: #fff; outline: none;
-            -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-            transition: background .3s ease;
-        }
-        ${S} .sr-photo-prev { left: 0; justify-content: flex-start; }
-        ${S} .sr-photo-next { right: 0; justify-content: flex-end; }
-        ${S} .sr-photo-chev {
-            width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
-            background: rgba(12,14,18,0.45); border: 1px solid rgba(255,255,255,0.18);
-            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-            opacity: 0; transform: scale(0.85);
-            transition: opacity .25s ease, transform .3s cubic-bezier(0.2, 0.7, 0.2, 1);
-        }
-        ${S} .sr-photo-chev svg { width: 16px; height: 16px; }
-        ${S} .sr-photo-edge.is-used .sr-photo-chev, ${S} .sr-photo-edge:focus-visible .sr-photo-chev { opacity: 1; transform: scale(1); }
-        ${S} .sr-photo-edge:active .sr-photo-chev { transform: scale(0.92); }
-        ${S} .sr-photo-prev.is-used { background: linear-gradient(90deg, rgba(12,14,18,0.28), transparent); }
-        ${S} .sr-photo-next.is-used { background: linear-gradient(270deg, rgba(12,14,18,0.28), transparent); }
 
-        /* Invisible "view photos" button over the photo band. Nothing shows
-           until it is pressed; then the photo lifts with a soft light and an
-           expand mark, and a tap opens the full-screen viewer. */
-        ${S} .sr-photo-hit {
-            position: absolute; left: 0; right: 0; top: 0; height: var(--sr-photo-h, 220px); z-index: 1;
-            margin: 0; padding: 0; border: 0; background: transparent; cursor: zoom-in;
-            -webkit-tap-highlight-color: transparent; outline: none;
-            transition: background-color .25s ease, box-shadow .25s ease;
-        }
-        ${S} .sr-photo-hit::after {
-            content: ''; position: absolute; left: 50%; top: 42%; width: 44px; height: 44px;
-            margin: -22px 0 0 -22px; border-radius: 50%; opacity: 0; transform: scale(0.8);
-            background: rgba(12,14,18,0.42) no-repeat center / 20px
-                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M9 21H3v-6'/%3E%3Cpath d='M21 3l-7 7'/%3E%3Cpath d='M3 21l7-7'/%3E%3C/svg%3E");
-            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-            transition: opacity .2s ease, transform .25s cubic-bezier(0.2, 0.7, 0.2, 1);
-        }
-        ${S} .sr-photo-hit.is-pressed, ${S} .sr-photo-hit:focus-visible {
-            background-color: rgba(255,255,255,0.08);
-            box-shadow: inset 0 0 0 2px rgba(255,255,255,0.28), inset 0 0 60px rgba(255,255,255,0.08);
-        }
-        ${S} .sr-photo-hit.is-pressed::after, ${S} .sr-photo-hit:focus-visible::after { opacity: 1; transform: scale(1); }
-        @media (hover: hover) and (pointer: fine) {
-            ${S} .sr-photo-hit:hover::after { opacity: 0.85; transform: scale(1); }
-        }
         ${S} .hero-btn {
             width: 34px; height: 34px;
             background: rgba(18,20,24,0.34);
@@ -26317,7 +26269,109 @@ function sampleHorizonGlow(windowEl, panel) {
  *  - invisible previous / next zones on the photo's edges that show a
  *    chevron only while used.
  */
-function wireHorizonPhotos(panel, photos, fallbackPath) {
+// Photo controls shared by Horizon and Legacy: the invisible view-photos
+// button and the previous/next edge zones, plus Legacy's photo sizing (the
+// same fit Horizon uses: full width, never zoomed past it, the band sized to
+// the shortest photo) and its fade, dots and credit.
+function ensureHeroPhotoControlStyles() {
+    if (document.getElementById('hero-photo-controls-style')) return;
+    const G = '#aircraft-info-window';
+    const L = '#aircraft-info-window:not(.iw-horizon)';
+    const st = document.createElement('style');
+    st.id = 'hero-photo-controls-style';
+    st.textContent = `
+        /* Invisible "view photos" button over the photo band. Nothing shows
+           until it is pressed; then the photo lifts with a soft light and an
+           expand mark, and a tap opens the full-screen viewer. */
+        ${G} .sr-photo-hit {
+            position: absolute; left: 0; right: 0; top: 0; height: var(--sr-photo-h, 220px); z-index: 1;
+            margin: 0; padding: 0; border: 0; background: transparent; cursor: zoom-in;
+            -webkit-tap-highlight-color: transparent; outline: none;
+            transition: background-color .25s ease, box-shadow .25s ease;
+        }
+        ${G} .sr-photo-hit::after {
+            content: ''; position: absolute; left: 50%; top: 42%; width: 44px; height: 44px;
+            margin: -22px 0 0 -22px; border-radius: 50%; opacity: 0; transform: scale(0.8);
+            background: rgba(12,14,18,0.42) no-repeat center / 20px
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M9 21H3v-6'/%3E%3Cpath d='M21 3l-7 7'/%3E%3Cpath d='M3 21l7-7'/%3E%3C/svg%3E");
+            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+            transition: opacity .2s ease, transform .25s cubic-bezier(0.2, 0.7, 0.2, 1);
+        }
+        ${G} .sr-photo-hit.is-pressed, ${G} .sr-photo-hit:focus-visible {
+            background-color: rgba(255,255,255,0.08);
+            box-shadow: inset 0 0 0 2px rgba(255,255,255,0.28), inset 0 0 60px rgba(255,255,255,0.08);
+        }
+        ${G} .sr-photo-hit.is-pressed::after, ${G} .sr-photo-hit:focus-visible::after { opacity: 1; transform: scale(1); }
+        @media (hover: hover) and (pointer: fine) {
+            ${G} .sr-photo-hit:hover::after { opacity: 0.85; transform: scale(1); }
+        }
+        /* Previous / next edge zones (wireHorizonPhotos). Invisible at rest;
+           while used, a shade from that edge and a glass chevron. */
+        ${G} .sr-photo-edge {
+            position: absolute; top: 0; height: var(--sr-photo-h, 220px); width: 22%; z-index: 1;
+            margin: 0; padding: 0 14px; border: 0; background: transparent; cursor: pointer;
+            display: flex; align-items: center; color: #fff; outline: none;
+            -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+            transition: background .3s ease;
+        }
+        ${G} .sr-photo-prev { left: 0; justify-content: flex-start; }
+        ${G} .sr-photo-next { right: 0; justify-content: flex-end; }
+        ${G} .sr-photo-chev {
+            width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+            background: rgba(12,14,18,0.45); border: 1px solid rgba(255,255,255,0.18);
+            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+            opacity: 0; transform: scale(0.85);
+            transition: opacity .25s ease, transform .3s cubic-bezier(0.2, 0.7, 0.2, 1);
+        }
+        ${G} .sr-photo-chev svg { width: 16px; height: 16px; }
+        ${G} .sr-photo-edge.is-used .sr-photo-chev, ${G} .sr-photo-edge:focus-visible .sr-photo-chev { opacity: 1; transform: scale(1); }
+        ${G} .sr-photo-edge:active .sr-photo-chev { transform: scale(0.92); }
+        ${G} .sr-photo-prev.is-used { background: linear-gradient(90deg, rgba(12,14,18,0.28), transparent); }
+        ${G} .sr-photo-next.is-used { background: linear-gradient(270deg, rgba(12,14,18,0.28), transparent); }
+
+        /* Legacy photo: width-filled, band = shortest photo (fitHorizonHero
+           sets --sr-photo-h and each photo's position). Phones used to
+           shrink it to fit, which left a hard edge above the fade. */
+        ${L} .ac-header-modern.lg-fit,
+        ${L}.mobile-legacy-sheet .ac-header-modern.lg-fit {
+            min-height: var(--sr-photo-h, 220px) !important;
+            background-size: 100% auto !important; background-repeat: no-repeat !important;
+        }
+        ${L}:not(.wb-legacy) .ac-header-modern.lg-fit,
+        ${L}.mobile-legacy-sheet:not(.wb-legacy) .ac-header-modern.lg-fit { background-color: #3a3a3a !important; }
+        ${L} .lg-fit .hero-photo-fade { background-size: 100% auto !important; background-repeat: no-repeat !important; }
+        /* An eased fade that lands exactly on the bar colour at the bottom. */
+        ${L}:not(.wb-legacy) .lg-fit .ac-header-overlay,
+        ${L}.mobile-legacy-sheet:not(.wb-legacy) .lg-fit .ac-header-overlay {
+            background: linear-gradient(180deg,
+                rgba(0,0,0,0.10) 0%, rgba(0,0,0,0) 26%,
+                rgba(58,58,58,0) 42%, rgba(58,58,58,0.06) 50%, rgba(58,58,58,0.16) 58%,
+                rgba(58,58,58,0.32) 66%, rgba(58,58,58,0.52) 74%, rgba(58,58,58,0.72) 82%,
+                rgba(58,58,58,0.89) 91%, #3a3a3a 100%) !important;
+        }
+        /* Legacy's name block and VA-badge row span the photo's width;
+           let taps through them to the view / previous / next controls,
+           keeping anything clickable inside them clickable. */
+        ${L} .lg-fit .ac-header-top, ${L} .lg-fit .ac-partner-hero { pointer-events: none; }
+        ${L} .lg-fit .ac-header-top :is(a, button, [role="button"]),
+        ${L} .lg-fit .ac-partner-hero > * { pointer-events: auto; }
+        /* Dots: the active one stretches into a pill. Credit: quiet glass. */
+        ${L} .hero-photo-dots span {
+            width: 6px !important; height: 6px !important; border-radius: 3px !important; box-shadow: none !important;
+            transition: width .35s cubic-bezier(0.2, 0.7, 0.2, 1), background-color .35s ease !important;
+        }
+        ${L} .hero-photo-dots span.on { width: 16px !important; }
+        ${L} .hero-photo-credit {
+            font-size: 10px !important; padding: 3px 9px !important; color: rgba(255,255,255,0.86) !important;
+            background: rgba(12,14,18,0.34) !important; text-shadow: none !important;
+            -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
+        }
+    `;
+    document.head.appendChild(st);
+}
+
+function wireHorizonPhotos(panel, photos, fallbackPath, { groupMeta = true } = {}) {
+    ensureHeroPhotoControlStyles();
     const list = (photos || []).filter((p) => p && p.src);
     const creditOf = (p) => (p && p.photographer && p.photographer !== 'IF Community') ? p.photographer : '';
 
@@ -26328,9 +26382,10 @@ function wireHorizonPhotos(panel, photos, fallbackPath) {
         credit.style.cssText = HERO_CREDIT_CSS;
         credit.textContent = `© ${creditOf(list[0])}`;
     }
-    // The credit sits top-left on the photo (CSS); the dots bottom-right.
+    // Horizon: the credit sits top-left on the photo (CSS), the dots
+    // bottom-right. Legacy keeps the carousel's own places for both.
     if (credit && !credit.isConnected) panel.appendChild(credit);
-    const dots = panel.querySelector('.hero-photo-dots');
+    const dots = groupMeta && panel.querySelector('.hero-photo-dots');
     if (dots) {
         const meta = document.createElement('div');
         meta.className = 'sr-photo-meta';
@@ -27542,6 +27597,13 @@ let totalDistanceNM = 0;
             sampleHorizonGlow(windowEl, overviewPanel);
             wireHorizonPhotos(overviewPanel, techCardPhotos, fallbackPath);
             mountHorizonHeroPhotoLayer(overviewPanel);
+        } else {
+            // Legacy gets the same photo handling: width-filled with no
+            // side crop, one band height for all photos, tap to view,
+            // invisible previous/next edges, single-photo credit.
+            overviewPanel.classList.add('lg-fit');
+            fitHorizonHero(overviewPanel, techCardPhotos);
+            wireHorizonPhotos(overviewPanel, techCardPhotos, fallbackPath, { groupMeta: false });
         }
         // Background image (setting) — Horizon and Legacy alike.
         windowEl.dataset.wbPhoto = (techCardPhotos[0] && techCardPhotos[0].src) || '';
