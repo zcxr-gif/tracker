@@ -1523,6 +1523,12 @@ let mapFilters = {
         flightWindowMode: 'legacy',
         // Horizon window colour; text and surfaces adapt to it for contrast.
         horizonColor: '#16181c',
+        // Horizon background: 'color' (the colour above), 'aircraft' (the
+        // aircraft's photo, blurred) or 'custom' (an image the user picked,
+        // kept in IndexedDB — never in mapFilters). Dim is the window colour
+        // laid over the image, in percent, so text stays readable.
+        horizonBg: 'color',
+        horizonBgDim: 60,
         // Airport-info window presentation: 'standard' (the built-in tabbed
         // window) or 'embed' (embed-airport.html — the embed's airport card).
         airportWindowMode: 'standard',
@@ -20275,6 +20281,9 @@ renderCategory(catId) {
                             <!-- Horizon's colour. Text and surfaces adapt so it stays readable. -->
                             <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-palette"></i> Horizon Colour</div>
                             ${buildHorizonColorPicker('set')}
+                            <!-- Horizon's background: colour, the aircraft's photo, or your own image. -->
+                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-image"></i> Horizon Background</div>
+                            ${buildHorizonBackgroundPicker('set')}
                             <!-- Which side of the map the flight window opens on.
                                  Used to be a button in the window's own tab bar. -->
                             <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
@@ -20623,6 +20632,7 @@ renderCategory(catId) {
         };
         wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
         wireHorizonColorPicker(document.getElementById('global-settings-modal-overlay') || document);
+        wireHorizonBackgroundPicker(document.getElementById('global-settings-modal-overlay') || document);
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
 
         // Window side: same preference the old move-window button kept, and
@@ -25364,6 +25374,49 @@ const HORIZON_WINDOW_CSS = (() => {
             ${S} .sr-g:nth-child(3) { border-left: 0; }
         }
 
+        /* ---- Background image (applyHorizonBackground) ----
+           On the window itself: cover-fitted, so it fills the window top
+           to bottom whatever the image's shape, and it stays put while the
+           content scrolls. The window colour at --sr-dim sits on top. */
+        ${S}.sr-bgimg, ${S}.sr-bgimg.mobile-legacy-sheet {
+            background:
+                linear-gradient(rgba(var(--sr-bg-rgb), var(--sr-dim, 0.6)), rgba(var(--sr-bg-rgb), var(--sr-dim, 0.6))),
+                var(--sr-bgimg) center / cover no-repeat,
+                var(--sr-bg) !important;
+        }
+        /* The header photo fades out into the image instead of a band. */
+        ${S} .sr-hero-photo { display: none; }
+        ${S}.sr-bgimg .sr-hero-photo {
+            display: block; position: absolute; left: 0; right: 0; top: 0; z-index: -1; pointer-events: none;
+            height: calc(var(--sr-photo-h, 220px) + 48px);
+            background-size: 100% auto; background-repeat: no-repeat; background-position: center top;
+            -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(var(--sr-photo-h, 220px) * 0.5), transparent var(--sr-photo-h, 220px));
+            mask-image: linear-gradient(180deg, #000 0, #000 calc(var(--sr-photo-h, 220px) * 0.5), transparent var(--sr-photo-h, 220px));
+        }
+        ${S}.sr-bgimg .hero-photo-fade {
+            -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(var(--sr-photo-h, 220px) * 0.5), transparent var(--sr-photo-h, 220px));
+            mask-image: linear-gradient(180deg, #000 0, #000 calc(var(--sr-photo-h, 220px) * 0.5), transparent var(--sr-photo-h, 220px));
+        }
+        ${S}.sr-bgimg .ac-header-modern { background-image: none !important; background-color: transparent !important; }
+        ${S}.sr-bgimg .ac-header-overlay {
+            background: linear-gradient(180deg, rgba(12,14,18,0.34) 0px, rgba(12,14,18,0) 72px,
+                rgba(var(--sr-bg-rgb),0) calc(var(--sr-photo-h, 220px) * 0.45),
+                rgba(var(--sr-bg-rgb), calc(var(--sr-dim, 0.6) * 0.5)) var(--sr-photo-h, 220px),
+                rgba(var(--sr-bg-rgb),0) calc(var(--sr-photo-h, 220px) + 48px)) !important;
+        }
+        ${S}.sr-bgimg .ac-route-bar-backdrop { border-bottom-color: rgba(var(--sr-ink-rgb),0.1); }
+        /* Surfaces become frosted glass so they read over any image. */
+        ${S}.sr-bgimg .acx-card, ${S}.sr-bgimg .sr-glance, ${S}.sr-bgimg .sr-status, ${S}.sr-bgimg .dest-card,
+        ${S}.sr-bgimg .fuel-card, ${S}.sr-bgimg .cabin-card,
+        ${S}.sr-bgimg #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile),
+        ${S}.sr-bgimg .nd-full-width-section .modern-view-switcher {
+            background: rgba(var(--sr-bg-rgb), 0.55) !important;
+            -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%);
+        }
+        ${S}.sr-bgimg .sr-eyebrow, ${S}.sr-bgimg h1.sr-callsign, ${S}.sr-bgimg .route-node .icao-large {
+            text-shadow: 0 1px 12px rgba(var(--sr-bg-rgb), 0.9) !important;
+        }
+
         /* ---- Design pass: headings, card material, icons ---- */
         /* Section headings: an accent icon tile, the title, and a hairline
            that runs out to the edge. */
@@ -25591,10 +25644,250 @@ function wireHorizonColorPicker(root) {
     }
 }
 
+/**
+ * Horizon background image.
+ *
+ * 'aircraft' uses the aircraft's first photo, blurred; 'custom' an image the
+ * user picked, downscaled and kept in IndexedDB (it would blow the
+ * localStorage budget and has no business in the synced mapFilters). The
+ * image sits on the window itself, cover-fitted, so it always fills the
+ * window from top to bottom and stays put while the content scrolls; the
+ * window colour is laid over it at the Dim strength, so the contrast rules
+ * of the colour still hold. The header's aircraft photo then fades out into
+ * it rather than into a solid band (see .sr-hero-photo).
+ */
+const HorizonBgStore = {
+    _db: null,
+    _open() {
+        if (this._db) return this._db;
+        this._db = new Promise((resolve, reject) => {
+            if (typeof indexedDB === 'undefined') return reject(new Error('no IndexedDB'));
+            const req = indexedDB.open('inflight-horizon', 1);
+            req.onupgradeneeded = () => req.result.createObjectStore('kv');
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+        return this._db;
+    },
+    async _tx(mode, fn) {
+        const db = await this._open();
+        return new Promise((resolve, reject) => {
+            const t = db.transaction('kv', mode);
+            const r = fn(t.objectStore('kv'));
+            t.oncomplete = () => resolve(r && r.result);
+            t.onerror = () => reject(t.error);
+        });
+    },
+    get(key) { return this._tx('readonly', (st) => st.get(key)).catch(() => null); },
+    set(key, value) { return this._tx('readwrite', (st) => st.put(value, key)); },
+    del(key) { return this._tx('readwrite', (st) => st.delete(key)).catch(() => {}); },
+};
+
+let _horizonCustomBgUrl = null;       // object URL of the stored image, once read
+async function getHorizonCustomBgUrl() {
+    if (_horizonCustomBgUrl) return _horizonCustomBgUrl;
+    const blob = await HorizonBgStore.get('bg');
+    if (!(blob instanceof Blob)) return null;
+    _horizonCustomBgUrl = URL.createObjectURL(blob);
+    return _horizonCustomBgUrl;
+}
+
+// Draw an image through a canvas: downscaled to `maxSide`, optionally
+// blurred. Returns a Blob (JPEG), or null if the image can't be read
+// (a cross-origin photo without CORS taints the canvas).
+function processImageToBlob(src, { maxSide = 1440, blur = 0, quality = 0.85 } = {}) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            try {
+                const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+                const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+                const c = document.createElement('canvas');
+                c.width = w; c.height = h;
+                const g = c.getContext('2d');
+                if (blur) {
+                    // Overdraw so the blur doesn't pull in transparent edges.
+                    g.filter = `blur(${blur}px)`;
+                    g.drawImage(img, -blur * 2, -blur * 2, w + blur * 4, h + blur * 4);
+                } else {
+                    g.drawImage(img, 0, 0, w, h);
+                }
+                c.toBlob((b) => resolve(b), 'image/jpeg', quality);
+            } catch (_) { resolve(null); }
+        };
+        img.onerror = () => resolve(null);
+        img.src = src;
+    });
+}
+
+const _horizonAircraftBgCache = new Map();   // photo src -> object URL (blurred)
+async function horizonAircraftBgUrl(src) {
+    if (!src) return null;
+    if (_horizonAircraftBgCache.has(src)) return _horizonAircraftBgCache.get(src);
+    const blob = await processImageToBlob(src, { maxSide: 640, blur: 18, quality: 0.8 });
+    const url = blob ? URL.createObjectURL(blob) : null;
+    _horizonAircraftBgCache.set(src, url);
+    return url;
+}
+
+async function applyHorizonBackground(windowEl, photoSrc) {
+    if (!windowEl) return;
+    const f = (typeof mapFilters !== 'undefined') ? mapFilters : {};
+    const mode = f.horizonBg || 'color';
+    const dim = Math.min(90, Math.max(20, Number(f.horizonBgDim) || 60)) / 100;
+    windowEl.style.setProperty('--sr-dim', String(dim));
+    const token = {};
+    windowEl._srBgToken = token;
+    if (mode === 'color') { windowEl.classList.remove('sr-bgimg'); return; }
+    let url = null;
+    if (mode === 'custom') url = await getHorizonCustomBgUrl();
+    else {
+        const src = photoSrc || windowEl.querySelector('#ac-overview-panel')?.dataset.currentPath;
+        // An unreadable photo (no CORS) can't be blurred: skip rather than
+        // put a sharp, busy photo behind the text.
+        url = src && !/\/CommunityPlanes\/default\.png$/.test(src) ? await horizonAircraftBgUrl(src) : null;
+    }
+    if (windowEl._srBgToken !== token) return;       // superseded
+    if (!url) { windowEl.classList.remove('sr-bgimg'); return; }
+    windowEl.style.setProperty('--sr-bgimg', `url("${url}")`);
+    windowEl.classList.toggle('sr-bgimg-photo', mode === 'aircraft');
+    windowEl.classList.add('sr-bgimg');
+}
+
+function refreshOpenHorizonBackground() {
+    const w = document.getElementById('aircraft-info-window');
+    if (w && w.classList.contains('iw-horizon')) applyHorizonBackground(w);
+}
+
+function buildHorizonBackgroundPicker(idPrefix) {
+    if (!document.getElementById('sr-bg-picker-style')) {
+        const st = document.createElement('style');
+        st.id = 'sr-bg-picker-style';
+        st.textContent = `
+            .sr-bg-picker { display: flex; flex-direction: column; gap: 10px; }
+            .sr-bg-seg { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); }
+            .sr-bg-seg button {
+                flex: 1; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+                padding: 8px 6px; border: 0; border-radius: 9px; background: transparent; color: #a1a1aa;
+                font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+            }
+            .sr-bg-seg button:hover { color: #e4e4e7; background: rgba(255,255,255,0.04); }
+            .sr-bg-seg button.active { color: #fff; background: rgba(56,189,248,0.16); box-shadow: inset 0 0 0 1px rgba(56,189,248,0.45); }
+            .sr-bg-custom { display: none; align-items: center; gap: 10px; }
+            .sr-bg-picker[data-mode="custom"] .sr-bg-custom { display: flex; }
+            .sr-bg-thumb { width: 44px; height: 60px; border-radius: 8px; flex: 0 0 auto; background: #1f1f23 center / cover no-repeat; border: 1px solid rgba(255,255,255,0.12); }
+            .sr-bg-btn {
+                display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: 9px; cursor: pointer;
+                background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #e4e4e7;
+                font: inherit; font-size: 0.8rem; font-weight: 600;
+            }
+            .sr-bg-btn:hover { background: rgba(255,255,255,0.1); }
+            .sr-bg-btn.sr-bg-remove { color: #fca5a5; }
+            .sr-bg-btn[hidden] { display: none; }
+            .sr-bg-note { font-size: 0.74rem; color: #8b8b94; line-height: 1.45; }
+            .sr-bg-dim { display: none; align-items: center; gap: 10px; font-size: 0.78rem; color: #a1a1aa; }
+            .sr-bg-picker:not([data-mode="color"]) .sr-bg-dim { display: flex; }
+            .sr-bg-dim input { flex: 1; accent-color: #38bdf8; }
+            .sr-bg-dim output { width: 38px; text-align: right; font-variant-numeric: tabular-nums; color: #e4e4e7; }
+        `;
+        document.head.appendChild(st);
+    }
+    const f = (typeof mapFilters !== 'undefined') ? mapFilters : {};
+    const mode = f.horizonBg || 'color';
+    const dim = Math.min(90, Math.max(20, Number(f.horizonBgDim) || 60));
+    const btn = (m, icon, label) => `<button type="button" data-bg-mode="${m}" class="${mode === m ? 'active' : ''}"><i class="fa-solid ${icon}"></i><span>${label}</span></button>`;
+    return `<div class="sr-bg-picker" data-sr-bg-picker data-mode="${mode}">
+        <div class="sr-bg-seg">
+            ${btn('color', 'fa-palette', 'Colour')}
+            ${btn('aircraft', 'fa-plane', 'Aircraft photo')}
+            ${btn('custom', 'fa-image', 'Your image')}
+        </div>
+        <div class="sr-bg-custom">
+            <span class="sr-bg-thumb"></span>
+            <label class="sr-bg-btn"><i class="fa-solid fa-upload"></i><span>Choose image</span>
+                <input type="file" accept="image/*" id="${idPrefix}-horizon-bg-file" hidden></label>
+            <button type="button" class="sr-bg-btn sr-bg-remove" hidden><i class="fa-solid fa-trash-can"></i> Remove</button>
+        </div>
+        <div class="sr-bg-note"></div>
+        <label class="sr-bg-dim"><span>Dim</span><input type="range" min="20" max="90" step="5" value="${dim}"><output>${dim}%</output></label>
+    </div>`;
+}
+
+function wireHorizonBackgroundPicker(root) {
+    const box = root && root.querySelector('[data-sr-bg-picker]');
+    if (!box || box.dataset.wired === '1') return;
+    box.dataset.wired = '1';
+    const note = box.querySelector('.sr-bg-note');
+    const thumb = box.querySelector('.sr-bg-thumb');
+    const remove = box.querySelector('.sr-bg-remove');
+    const save = () => { if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage(); };
+    const notes = {
+        color: '',
+        aircraft: 'Each flight’s own aircraft photo, softly blurred, fills the window.',
+        custom: 'Pick any image — it fills the window top to bottom. Tall (portrait) images fit best. Stored on this device only.',
+    };
+    const paintCustom = async () => {
+        const url = await getHorizonCustomBgUrl();
+        thumb.style.backgroundImage = url ? `url("${url}")` : '';
+        remove.hidden = !url;
+    };
+    const setMode = (m) => {
+        box.dataset.mode = m;
+        box.querySelectorAll('[data-bg-mode]').forEach((b) => b.classList.toggle('active', b.dataset.bgMode === m));
+        note.textContent = notes[m] || '';
+        if (m === 'custom') paintCustom();
+    };
+    setMode(box.dataset.mode || 'color');
+    box.querySelectorAll('[data-bg-mode]').forEach((b) => b.addEventListener('click', () => {
+        if (typeof mapFilters === 'undefined') return;
+        mapFilters.horizonBg = b.dataset.bgMode;
+        save();
+        setMode(b.dataset.bgMode);
+        refreshOpenHorizonBackground();
+    }));
+    box.querySelector('input[type="file"]').addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        const src = URL.createObjectURL(file);
+        const blob = await processImageToBlob(src, { maxSide: 1440, quality: 0.85 });
+        URL.revokeObjectURL(src);
+        if (!blob) { note.textContent = 'That file couldn’t be read as an image. Try a JPEG or PNG.'; return; }
+        try { await HorizonBgStore.set('bg', blob); } catch (_) { note.textContent = 'Couldn’t save the image on this device.'; return; }
+        if (_horizonCustomBgUrl) URL.revokeObjectURL(_horizonCustomBgUrl);
+        _horizonCustomBgUrl = null;
+        mapFilters.horizonBg = 'custom';
+        save();
+        setMode('custom');
+        refreshOpenHorizonBackground();
+    });
+    remove.addEventListener('click', async () => {
+        await HorizonBgStore.del('bg');
+        if (_horizonCustomBgUrl) URL.revokeObjectURL(_horizonCustomBgUrl);
+        _horizonCustomBgUrl = null;
+        mapFilters.horizonBg = 'color';
+        save();
+        setMode('color');
+        refreshOpenHorizonBackground();
+    });
+    const range = box.querySelector('.sr-bg-dim input');
+    const out = box.querySelector('.sr-bg-dim output');
+    range.addEventListener('input', () => {
+        out.textContent = range.value + '%';
+        if (typeof mapFilters !== 'undefined') mapFilters.horizonBgDim = Number(range.value);
+        const w = document.getElementById('aircraft-info-window');
+        if (w) w.style.setProperty('--sr-dim', String(Number(range.value) / 100));
+    });
+    range.addEventListener('change', save);
+}
+
 if (typeof window !== 'undefined') {
     window.buildHorizonColorPicker = buildHorizonColorPicker;
     window.wireHorizonColorPicker = wireHorizonColorPicker;
     window.setHorizonColor = setHorizonColor;
+    window.buildHorizonBackgroundPicker = buildHorizonBackgroundPicker;
+    window.wireHorizonBackgroundPicker = wireHorizonBackgroundPicker;
 }
 
 // Swap the progress bar's generic plane glyph for the silhouette the map
@@ -26109,6 +26402,25 @@ function setHorizonAirlineLogo(windowEl, liveryName) {
     };
     img.onerror = () => { if (++i < urls.length) img.src = urls[i]; };
     img.src = urls[0];
+}
+
+// With a background image the header photo can't end on a solid band, so
+// in that mode the header's own background is hidden (CSS) and this layer
+// shows the same photo with a mask that fades it out into the image below.
+// It mirrors the header's background-image/position, which the carousel and
+// fitHorizonHero keep rewriting.
+function mountHorizonHeroPhotoLayer(panel) {
+    if (!panel || panel.querySelector(':scope > .sr-hero-photo')) return;
+    const layer = document.createElement('div');
+    layer.className = 'sr-hero-photo';
+    layer.setAttribute('aria-hidden', 'true');
+    panel.insertBefore(layer, panel.firstChild);
+    const sync = () => {
+        layer.style.backgroundImage = panel.style.backgroundImage;
+        layer.style.backgroundPosition = panel.style.getPropertyValue('background-position') || '';
+    };
+    sync();
+    new MutationObserver(sync).observe(panel, { attributes: true, attributeFilter: ['style'] });
 }
 
 function wireHorizonGlance(windowEl) {
@@ -27104,6 +27416,8 @@ let totalDistanceNM = 0;
             fitHorizonHero(overviewPanel, techCardPhotos);
             sampleHorizonGlow(windowEl, overviewPanel);
             wireHorizonPhotos(overviewPanel, techCardPhotos, fallbackPath);
+            mountHorizonHeroPhotoLayer(overviewPanel);
+            applyHorizonBackground(windowEl, techCardPhotos[0] && techCardPhotos[0].src);
         }
 
         // Hero partner badge: make it open the VA on click/Enter, then auto-collapse

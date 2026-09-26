@@ -461,6 +461,11 @@ export const MobileSettingsUI = {
                                 <div class="m-horizon-color-label"><i class="fa-solid fa-palette"></i><span>Horizon colour</span></div>
                                 ${(typeof window !== 'undefined' && window.buildHorizonColorPicker) ? window.buildHorizonColorPicker('m') : ''}
                             </div>
+                            <!-- Horizon's background: colour, the aircraft's photo, or your own image. -->
+                            <div class="m-horizon-color">
+                                <div class="m-horizon-color-label"><i class="fa-solid fa-image"></i><span>Horizon background</span></div>
+                                ${(typeof window !== 'undefined' && window.buildHorizonBackgroundPicker) ? window.buildHorizonBackgroundPicker('m') : ''}
+                            </div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
                                 ${this.renderToggle('use12hClock', '12-Hour Clock (AM/PM)', 'fa-clock')}
@@ -2420,6 +2425,7 @@ export const MobileSettingsUI = {
         });
 
         if (window.wireHorizonColorPicker) window.wireHorizonColorPicker(sheet);
+        if (window.wireHorizonBackgroundPicker) window.wireHorizonBackgroundPicker(sheet);
 
         // Pro time-zone picker (flight-window times in the user's own zone).
         // Gated: ignore changes while the row is locked (non-Pro), and revert
