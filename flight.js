@@ -18437,6 +18437,287 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         }
     }
 
+/**
+ * Desktop Traffic Filters page.
+ *
+ * The filter board is shared with the phone (MobileSettingsUI owns its
+ * markup, handlers and the mapFilters.tactical engine), but the phone's
+ * stylesheet is only injected with the phone sheet — on desktop half the
+ * board rendered as bare browser controls and VA logos at full size. Desktop
+ * now regroups the same nodes into cards and styles every part itself:
+ *
+ *   [ n filters active · Reset ]
+ *   [ Saved views                               ]
+ *   [ Traffic          ] [ Flight state         ]
+ *   [ Show / Hide explainer                     ]
+ *   [ Virtual airline — search + logo grid      ]
+ *   [ Aircraft & airline — three fields         ]
+ *   [ Category         ] [ Flight phase         ]
+ *   [ Route            ] [ Proximity            ]
+ *   [ Performance      ] [ Identity             ]
+ *
+ * Nodes are moved, never re-created, so every handler still binds.
+ */
+const DESKTOP_FILTER_CARDS = {
+    'saved views':        { icon: 'fa-bookmark',          wide: true,  sub: 'Save the current set to bring it back in one click.' },
+    'traffic':            { icon: 'fa-users',             sub: 'Which pilots are shown.' },
+    'flight state':       { icon: 'fa-plane-up',          sub: 'In the air, on the ground, with a plan.' },
+    'virtual airline':    { icon: 'fa-handshake-angle',   wide: true },
+    'aircraft & airline': { icon: 'fa-plane',             wide: true,  cols: 3 },
+    'category':           { icon: 'fa-shapes' },
+    'flight phase':       { icon: 'fa-chart-line' },
+    'route':              { icon: 'fa-route' },
+    'proximity':          { icon: 'fa-location-crosshairs' },
+    'performance':        { icon: 'fa-gauge-high' },
+    'identity':           { icon: 'fa-id-badge' },
+};
+
+function layoutDesktopFilterBoard(board) {
+    if (!board || board.dataset.dtbLaid === '1') return;
+    board.dataset.dtbLaid = '1';
+    const kids = [...board.children];
+    let card = null;
+    kids.forEach((el) => {
+        if (el.classList.contains('mobile-section-header')) {
+            const title = el.textContent.trim();
+            const meta = DESKTOP_FILTER_CARDS[title.toLowerCase()] || {};
+            card = document.createElement('section');
+            card.className = 'dtb-card' + (meta.wide ? ' dtb-wide' : '') + (meta.cols ? ` dtb-cols-${meta.cols}` : '');
+            card.dataset.card = title.toLowerCase().replace(/[^a-z]+/g, '-');
+            const head = document.createElement('header');
+            head.className = 'dtb-card-head';
+            head.innerHTML = `<span class="dtb-card-ic"><i class="fa-solid ${meta.icon || 'fa-filter'}"></i></span>`
+                + `<span class="dtb-card-titles"><span class="dtb-card-title"></span>${meta.sub ? '<span class="dtb-card-sub"></span>' : ''}</span>`;
+            head.querySelector('.dtb-card-title').textContent = title;
+            if (meta.sub) head.querySelector('.dtb-card-sub').textContent = meta.sub;
+            card.appendChild(head);
+            el.replaceWith(card);
+            return;
+        }
+        // The summary bar and the Show/Hide explainer stand on their own.
+        if (el.classList.contains('m-filter-bar') || el.classList.contains('m-filter-hint')) {
+            card = null;
+            el.classList.add('dtb-wide');
+            return;
+        }
+        if (card) card.appendChild(el);
+    });
+    // The explainer belongs just above the first Show/Hide rules (VA card),
+    // which only exists once its card is built.
+    const hint = board.querySelector(':scope > .m-filter-hint');
+    const va = board.querySelector('[data-card="virtual-airline"]');
+    if (hint && va) board.insertBefore(hint, va);
+}
+
+function ensureDesktopFilterStyles() {
+    if (document.getElementById('desktop-filter-styles')) return;
+    const B = '#global-settings-modal-overlay #desktop-tactical-board';
+    const st = document.createElement('style');
+    st.id = 'desktop-filter-styles';
+    st.textContent = `
+        ${B} {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px;
+            align-items: start;
+        }
+        ${B} .dtb-wide { grid-column: 1 / -1; }
+
+        /* Summary bar */
+        ${B} .m-filter-bar {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 12px 16px; border-radius: 14px;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+        }
+        ${B} .m-filter-count { font-size: 0.82rem; font-weight: 600; color: #a1a1aa; }
+        ${B} .m-filter-count.has-filters { color: #7dd3fc; }
+        ${B} .m-filter-reset {
+            display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 9px;
+            background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5;
+            font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+        }
+        ${B} .m-filter-reset:hover { background: rgba(239,68,68,0.2); color: #fff; }
+
+        /* Cards */
+        ${B} .dtb-card {
+            display: flex; flex-direction: column; gap: 12px; min-width: 0;
+            padding: 16px; border-radius: 16px;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+        }
+        ${B} .dtb-card-head { display: flex; align-items: center; gap: 11px; }
+        ${B} .dtb-card-ic {
+            width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto;
+            display: grid; place-items: center; font-size: 0.8rem;
+            color: #7dd3fc; background: rgba(56,189,248,0.12);
+        }
+        ${B} .dtb-card-titles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+        ${B} .dtb-card-title { font-size: 0.92rem; font-weight: 700; color: #f4f4f5; }
+        ${B} .dtb-card-sub { font-size: 0.76rem; color: #8b8b94; }
+
+        /* Toggle rows (Traffic / Flight state) */
+        ${B} .m-settings-list { display: flex; flex-direction: column; gap: 0; padding: 0; }
+        ${B} .m-setting-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 9px 0; margin: 0; background: transparent !important; border: 0 !important;
+            border-top: 1px solid rgba(255,255,255,0.06) !important; border-radius: 0 !important;
+        }
+        ${B} .m-setting-row:first-child { border-top: 0 !important; padding-top: 2px; }
+        ${B} .m-row-left { display: flex; align-items: center; gap: 10px; font-size: 0.86rem; font-weight: 500; color: #e4e4e7; }
+        ${B} .m-row-left i { width: 16px; text-align: center; color: #71717a; font-size: 0.82rem; }
+
+        /* Show / Hide explainer */
+        ${B} .m-filter-hint {
+            display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px; border-radius: 12px;
+            background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.16);
+            font-size: 0.8rem; line-height: 1.5; color: #a1a1aa;
+        }
+        ${B} .m-filter-hint i { color: #7dd3fc; margin-top: 3px; }
+        ${B} .m-filter-hint b { color: #e4e4e7; }
+
+        /* Saved views */
+        ${B} .m-views { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0; }
+        ${B} .m-view-row { display: inline-flex; align-items: stretch; border-radius: 11px; overflow: hidden;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); }
+        ${B} .m-view-apply {
+            display: flex; flex-direction: column; align-items: flex-start; gap: 1px; max-width: 260px;
+            padding: 8px 12px; background: transparent; border: 0; cursor: pointer; font: inherit; text-align: left;
+        }
+        ${B} .m-view-apply:hover { background: rgba(56,189,248,0.08); }
+        ${B} .m-view-name { font-size: 0.84rem; font-weight: 700; color: #f4f4f5; }
+        ${B} .m-view-sub { font-size: 0.72rem; color: #8b8b94; max-width: 236px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        ${B} .m-view-del {
+            padding: 0 11px; background: transparent; border: 0; border-left: 1px solid rgba(255,255,255,0.07);
+            color: #71717a; cursor: pointer;
+        }
+        ${B} .m-view-del:hover { color: #f87171; background: rgba(248,113,113,0.1); }
+        ${B} .m-view-empty { flex: 1 1 100%; margin: 0; font-size: 0.8rem; line-height: 1.5; color: #8b8b94; }
+        ${B} .m-view-save {
+            display: inline-flex; align-items: center; gap: 8px; padding: 8px 13px; border-radius: 10px;
+            background: rgba(56,189,248,0.14); border: 1px solid rgba(56,189,248,0.35); color: #7dd3fc;
+            font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+        }
+        ${B} .m-view-save:hover:not([disabled]) { background: rgba(56,189,248,0.22); color: #fff; }
+        ${B} .m-view-save[disabled] { opacity: 0.45; cursor: default; background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); color: #a1a1aa; }
+
+        /* Show / Hide switch */
+        ${B} .m-mode-toggle {
+            display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; flex: 0 0 auto;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+        }
+        ${B} .m-mode-btn {
+            display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 6px;
+            background: transparent; border: 0; color: #8b8b94; cursor: pointer;
+            font: inherit; font-size: 0.72rem; font-weight: 700;
+        }
+        ${B} .m-mode-btn i { font-size: 0.64rem; }
+        ${B} .m-mode-btn:hover { color: #e4e4e7; }
+        ${B} .m-mode-btn[data-mode="include"].active { background: #38bdf8; color: #06121c; }
+        ${B} .m-mode-btn[data-mode="exclude"].active { background: #ef4444; color: #fff; }
+
+        /* Fields: label row (with Show / Hide) over an input */
+        ${B} .m-combo-list { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 0; }
+        ${B} .dtb-cols-3 .m-combo-list { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+        ${B} [data-card="route"] .m-combo-list,
+        ${B} [data-card="proximity"] .m-combo-list { grid-template-columns: 1fr; }
+        ${B} .m-combo, ${B} .m-range-row { position: relative; min-width: 0; }
+        ${B} .m-combo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+        ${B} .m-combo-label {
+            display: flex; align-items: center; gap: 7px; margin: 0; min-width: 0;
+            font-size: 0.74rem; font-weight: 600; letter-spacing: 0; text-transform: none; color: #a1a1aa;
+        }
+        ${B} .m-combo-label span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        ${B} .m-combo-label i { width: 14px; text-align: center; color: #71717a; }
+        ${B} .m-combo-label small { color: #71717a; font-weight: 500; }
+        ${B} .m-apt-radius-combo > .m-combo-label, ${B} .m-apt-radius-row > .m-combo-label { margin-bottom: 7px; }
+        ${B} .m-combo-control { position: relative; display: block; }
+        ${B} .m-combo-input, ${B} .m-range-num {
+            width: 100%; box-sizing: border-box; height: 38px; padding: 0 64px 0 12px;
+            background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+            color: #f4f4f5; font: inherit; font-size: 0.86rem; font-weight: 500;
+        }
+        ${B} .m-range-num { padding: 0 12px; }
+        ${B} .m-combo-input::placeholder, ${B} .m-range-num::placeholder { color: #5b5b63; }
+        ${B} .m-combo-input:focus, ${B} .m-range-num:focus { outline: none; border-color: #38bdf8; background: rgba(56,189,248,0.06); }
+        ${B} .m-combo.has-value .m-combo-input { border-color: rgba(56,189,248,0.5); }
+        ${B} .is-exclude-mode.m-combo.has-value .m-combo-input { border-color: rgba(239,68,68,0.55); }
+        ${B} .is-exclude-mode .m-combo-label i { color: #f87171; }
+        ${B} .m-combo-caret, ${B} .m-combo-clear {
+            position: absolute; top: 50%; transform: translateY(-50%); width: 26px; height: 26px;
+            display: flex; align-items: center; justify-content: center; border-radius: 7px;
+            background: transparent; border: 0; color: #71717a; cursor: pointer; font-size: 0.75rem;
+        }
+        ${B} .m-combo-caret { right: 6px; transition: transform .2s ease; }
+        ${B} .m-combo.open .m-combo-caret { transform: translateY(-50%) rotate(180deg); }
+        ${B} .m-combo-clear { right: 32px; display: none; }
+        ${B} .m-combo.has-value .m-combo-clear { display: flex; }
+        ${B} .m-combo-caret:hover, ${B} .m-combo-clear:hover { color: #f4f4f5; background: rgba(255,255,255,0.06); }
+        ${B} .m-combo-menu {
+            display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+            max-height: 220px; overflow-y: auto; padding: 5px;
+            background: #1b1b1f; border: 1px solid rgba(255,255,255,0.12); border-radius: 11px;
+            box-shadow: 0 14px 34px rgba(0,0,0,0.55);
+        }
+        ${B} .m-combo.open .m-combo-menu { display: block; }
+        ${B} .m-combo-opt {
+            display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; border-radius: 7px;
+            background: transparent; color: #d4d4d8; font: inherit; font-size: 0.82rem; font-weight: 500; cursor: pointer;
+        }
+        ${B} .m-combo-opt:hover { background: rgba(56,189,248,0.12); color: #fff; }
+        ${B} .m-range-inputs { display: flex; align-items: center; gap: 8px; }
+        ${B} .m-range-dash { color: #5b5b63; font-weight: 700; }
+
+        /* Pills (Category / Flight phase) */
+        ${B} .m-tac-pill-block { display: flex; flex-direction: column; gap: 10px; }
+        ${B} .dtb-card > .m-tac-pill-block { margin-top: -42px; }
+        ${B} .m-tac-pill-head { display: flex; justify-content: flex-end; padding: 0; }
+        ${B} .m-tac-pill-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; }
+        ${B} .m-tac-pill {
+            padding: 6px 12px; border-radius: 999px; cursor: pointer;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: #c4c4cc;
+            font: inherit; font-size: 0.8rem; font-weight: 600;
+        }
+        ${B} .m-tac-pill:hover { color: #fff; border-color: rgba(255,255,255,0.2); }
+        ${B} .m-tac-pill.active { background: #38bdf8; border-color: #38bdf8; color: #06121c; }
+        ${B} .is-exclude-mode .m-tac-pill.active { background: #ef4444; border-color: #ef4444; color: #fff; }
+
+        /* Virtual airline: search, then a compact two-column logo grid */
+        ${B} .m-va-filter-block { display: flex; flex-direction: column; gap: 10px; padding: 0; }
+        ${B} .m-va-filter-search {
+            width: 100%; box-sizing: border-box; height: 38px; padding: 0 12px 0 36px;
+            background: rgba(0,0,0,0.25) no-repeat 12px center / 14px
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E");
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+            color: #f4f4f5; font: inherit; font-size: 0.86rem;
+        }
+        ${B} .m-va-filter-search:focus { outline: none; border-color: #38bdf8; }
+        ${B} .m-va-filter-list {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px;
+            max-height: 300px; overflow-y: auto; padding: 2px; margin: 0 -2px;
+        }
+        ${B} .m-va-filter-row {
+            display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px;
+            border-radius: 11px; cursor: pointer; text-align: left; font: inherit;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: inherit;
+        }
+        ${B} .m-va-filter-row:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
+        ${B} .m-va-filter-row.active { background: rgba(56,189,248,0.12); border-color: rgba(56,189,248,0.55); }
+        ${B} .m-va-filter-all { grid-column: 1 / -1; }
+        ${B} .m-va-filter-logo {
+            width: 30px !important; height: 30px !important; max-width: 30px !important; max-height: 30px !important;
+            flex: 0 0 30px; border-radius: 8px; object-fit: contain; background: rgba(255,255,255,0.06);
+            display: grid; place-items: center;
+        }
+        ${B} img.m-va-filter-logo { display: block; padding: 2px; box-sizing: border-box; }
+        ${B} .m-va-filter-logo-fb { font-size: 0.66rem; font-weight: 800; color: #7dd3fc; }
+        ${B} .m-va-filter-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+        ${B} .m-va-filter-name { font-size: 0.84rem; font-weight: 700; color: #f4f4f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        ${B} .m-va-filter-sub { font-size: 0.72rem; color: #8b8b94; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        ${B} .m-va-filter-check { color: #38bdf8; opacity: 0; flex: 0 0 auto; font-size: 0.8rem; }
+        ${B} .m-va-filter-row.active .m-va-filter-check { opacity: 1; }
+        ${B} .m-va-filter-empty { grid-column: 1 / -1; padding: 16px 8px; text-align: center; font-size: 0.82rem; color: #71717a; }
+        ${B} .m-va-filter-hint { margin: 0; font-size: 0.76rem; line-height: 1.5; color: #71717a; }
+    `;
+    document.head.appendChild(st);
+}
+
 const SettingsUI = {
     _isVisible: false,
     _currentCategory: 'map',
@@ -19204,7 +19485,10 @@ const SettingsUI = {
                 position: sticky; top: 0; z-index: 5;
                 display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
                 padding: 24px 32px 16px;
-                background: linear-gradient(180deg, var(--gs-bg) 78%, rgba(22, 23, 26, 0));
+                /* Solid, so a scrolled page never shows through the title
+                   or its description; a hairline marks the edge. */
+                background: var(--gs-bg);
+                box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 18px -14px rgba(0, 0, 0, 0.7);
             }
             #global-settings-modal-overlay .gs-page-head h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.4px; color: var(--gs-text); }
             #global-settings-modal-overlay .gs-page-head p { margin: 5px 0 0; font-size: 13px; line-height: 1.45; color: var(--gs-dim); max-width: 60ch; }
@@ -19552,12 +19836,13 @@ renderCategory(catId) {
                     // and mapFilters.tactical engine as the mobile Filters
                     // sheet. MobileSettingsUI owns the board; this tab just
                     // hosts it (wired after render, see below).
+                    // Desktop gets its own layout and stylesheet (see
+                    // layoutDesktopFilterBoard): the phone board's markup,
+                    // grouped into cards on a two-column grid.
+                    ensureDesktopFilterStyles();
                     html = `
-                        <div class="settings-section">
-                            <label class="config-header">Live Traffic Filters</label>
-                            <div id="desktop-tactical-board" class="m-combo-list" style="gap: 14px;">
-                                ${MobileSettingsUI.renderTacticalBoard()}
-                            </div>
+                        <div id="desktop-tactical-board" class="dtb">
+                            ${MobileSettingsUI.renderTacticalBoard()}
                         </div>
                     `;
                     break;
@@ -20186,6 +20471,7 @@ renderCategory(catId) {
                 // render, so the attach guard never blocks a re-bind).
                 const board = container.querySelector('#desktop-tactical-board');
                 if (board) {
+                    layoutDesktopFilterBoard(board);
                     MobileSettingsUI.attachTacticalHandlers(board);
                     MobileSettingsUI.syncTacticalControls(board);
                 }
