@@ -23,7 +23,7 @@
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
     <script src="/crewBrand.js"></script>
-    <!-- Which of the two interfaces this crew center is wearing. Sets
+    <!-- Which of the three interfaces this crew center is wearing. Sets
          data-skin on <html> and asks for crewSkin.css before the first paint;
          a VA that has never chosen gets `essential`, which matches nothing in
          that sheet and leaves this page exactly as it was. -->
@@ -87,6 +87,9 @@
          slide-over shell, the toast, the API helper and the date formatting.
          Must load before them. -->
     <script src="/crewPanels.js"></script>
+    <!-- The Navigator interface's sidebar and burger. Inert unless that
+         interface is the one in force; see crewSidebar.js. -->
+    <script src="/crewSidebar.js"></script>
     <!-- The noticeboard — and, from the same feed, the dashboard's recent
          activity list. -->
     <script src="/crewNotices.js"></script>
@@ -207,6 +210,12 @@
             .settings-tab{ font-size:12px; padding:.4rem .2rem; }
         }
         .tile:hover{ border-color:var(--ink); transform:translateY(-2px); }
+        /* A count of things waiting on staff, on the tile that leads to them. */
+        .todo-pill{ min-width:1.35rem; height:1.35rem; padding:0 .4rem; border-radius:999px;
+            display:inline-grid; place-items:center; font-size:.7rem; font-weight:700; line-height:1;
+            background:var(--accent-fill, var(--accent)); color:var(--accent-ink, #fff);
+            font-variant-numeric:tabular-nums; }
+        .todo-pill.hidden{ display:none; }
         .fade-in{ animation:fade .5s cubic-bezier(.2,.8,.2,1) forwards; }
         @keyframes fade{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
         ::placeholder{ color:var(--faint); }
@@ -818,7 +827,7 @@
                     <button onclick="replayTour()" class="accent-bg text-sm font-semibold px-3.5 py-2 rounded-md hover:opacity-90 transition shrink-0">Start</button>
                 </div>
 
-                <!-- INTERFACE — which of the two looks the crew center wears.
+                <!-- INTERFACE — which of the three looks the crew center wears.
                      Above Layout on purpose: this is the bigger decision of the
                      two, and the layout presets below are arrangements WITHIN
                      whichever one is picked. Hidden if crewSkin.js did not
@@ -832,6 +841,7 @@
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider faint mb-3">Layout</h3>
                     <div id="layoutOpts" class="space-y-2.5"></div>
+                    <p class="nv-only text-xs muted mt-2">Navigator lays out its overview itself; these layouts apply to Essential and Aurora.</p>
                     <p id="layoutLocked" class="hidden text-xs muted mt-3"></p>
                 </div>
 
@@ -2853,7 +2863,7 @@
 
             document.getElementById('toolGrid').innerHTML=tools.map((t,i)=>`
                 <a data-i="${i}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
-                    <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
+                    <span class="muted group-hover:accent-text transition-colors flex items-center justify-between gap-2"><i data-lucide="${t.icon}" class="w-6 h-6"></i>${t.action in TODO?`<span data-todo="${t.action}" class="todo-pill hidden"></span>`:''}</span>
                     <div><div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div><div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div></div>
                 </a>`).join('');
             // ONE TABLE, NOT TWENTY IFS.
@@ -2873,6 +2883,7 @@
                 const t=tools[+el.getAttribute('data-i')];
                 el.addEventListener('click', ()=>{ const open=TILE_OPEN[t.action]; if(open) open(); });
             });
+            paintTodo();
             registerTopics(tools);
         }
 
@@ -2894,6 +2905,10 @@
             embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
             documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
             ifLive:'#cif-panel',
+            // These four had no entry, so the burger menu could not tell they
+            // were open: opening Roster from it with the Shop up left the shop
+            // sitting underneath, and neither menu ever lit up for them.
+            shop:'#crewShop', training:'#crewTraining', awards:'#crewAwards', leave:'#crewLeave',
         };
         const TOPIC_CLOSE={
             roster:()=>closeRoster(), routes:()=>closeRoutes(), fleet:()=>closeFleet(), partners:()=>closePartners(), pireps:()=>closePireps(),
@@ -2908,6 +2923,10 @@
             inbox:()=>{ if(window.CrewInbox) CrewInbox.close(); },
             links:()=>{ if(window.CrewLinks) CrewLinks.close(); },
             ifLive:()=>{ if(window.CrewIF) CrewIF.close(); },
+            shop:()=>{ if(window.CrewShop) CrewShop.close(); },
+            training:()=>{ if(window.CrewTraining) CrewTraining.close(); },
+            awards:()=>{ if(window.CrewAwards) CrewAwards.close(); },
+            leave:()=>{ if(window.CrewLeave) CrewLeave.close(); },
         };
         const TOPIC_OPEN={
             roster:()=>openRoster(), routes:()=>openRoutes(), fleet:()=>openFleet(), partners:()=>openPartners(), pireps:()=>openPireps(), shop:()=>openShop(),
@@ -2923,7 +2942,40 @@
         // that one is a page of its own rather than a panel on this one, so it
         // is not a topic, but it is still a tile and still has to open.
         const TILE_OPEN=Object.assign({ website:()=>openWebsite() }, TOPIC_OPEN);
+        // ---- The Navigator sidebar ----
+        //
+        // The same filtered list again, grouped. Nothing is offered here that
+        // the tiles do not offer, because it is built from what the tiles drew.
+        const NAV_GROUP={
+            roster:'Operations', routes:'Operations', fleet:'Operations', schedule:'Operations',
+            pireps:'Operations', events:'Operations', ifLive:'Operations',
+            notices:'Crew', inbox:'Crew', documents:'Crew', training:'Crew', awards:'Crew',
+            leave:'Crew', recruit:'Crew',
+            insights:'Airline', shop:'Airline', links:'Airline', website:'Airline',
+            embeds:'Airline', partnership:'Airline',
+            settings:'Admin',
+        };
+        function registerSidebar(tools){
+            if(!window.CrewSidebar) return;
+            const groups=[];
+            tools.forEach(t=>{
+                const label=NAV_GROUP[t.action]||'More';
+                let g=groups.find(x=>x.label===label);
+                if(!g){ g={ label, items:[] }; groups.push(g); }
+                g.items.push({
+                    id:t.action, label:t.label, icon:t.icon,
+                    root:TOPIC_ROOT[t.action], open:TILE_OPEN[t.action], close:TOPIC_CLOSE[t.action],
+                    badge:t.action==='inbox' ? (host=>{ if(window.CrewInbox && CrewInbox.renderBadge) CrewInbox.renderBadge(host); })
+                        : (t.action in TODO) ? (host=>{ host.innerHTML=`<span data-todo="${t.action}" class="todo-pill hidden"></span>`; paintTodo(); })
+                        : undefined,
+                });
+            });
+            const order=['Operations','Crew','Airline','Admin','More'];
+            groups.sort((a,b)=>order.indexOf(a.label)-order.indexOf(b.label));
+            CrewSidebar.setGroups(groups);
+        }
         function registerTopics(tools){
+            registerSidebar(tools);
             if(!window.CrewTopics) return;
             CrewTopics.register(tools.filter(t=>TOPIC_OPEN[t.action]).map(t=>({
                 id:t.action, label:t.label, icon:t.icon,
@@ -7951,8 +8003,33 @@
         // which meant nobody knew there were people waiting until they went
         // looking — the count now arrives with the dashboard.
         function setAppsBadge(n){
+            setTodo('roster', n);
             const b=document.getElementById('appsBadge');
             if(!b) return; b.textContent=n; b.classList.toggle('hidden', !n);
+        }
+
+        // ---- What is waiting on staff ----
+        //
+        // Two numbers a staff member acts on — flight reports to review and
+        // applications to decide — and both were only visible once you were
+        // already in the right place: one as small print under a statistic,
+        // the other on a tab inside the roster. Now they ride on the Flights
+        // and Roster tiles, and on the same two rows of the Navigator sidebar,
+        // so the door says there is something behind it.
+        const TODO={ pireps:0, roster:0 };
+        const TODO_WHAT={ pireps:'flight reports awaiting review', roster:'applications waiting' };
+        function setTodo(key,n){
+            if(!(key in TODO)) return;
+            TODO[key]=Math.max(0, Math.floor(Number(n)||0));
+            paintTodo();
+        }
+        function paintTodo(){
+            document.querySelectorAll('[data-todo]').forEach(el=>{
+                const k=el.getAttribute('data-todo'), n=TODO[k]||0;
+                el.textContent=n ? (n>99?'99+':String(n)) : '';
+                el.classList.toggle('hidden', !n);
+                if(n) el.title=`${n} ${TODO_WHAT[k]||''}`.trim(); else el.removeAttribute('title');
+            });
         }
         function refreshAppsBadge(){ setAppsBadge(appBadgeCount()); }
         async function fetchApps(){
@@ -9456,6 +9533,7 @@
             // it says so — this is the number staff act on.
             put('pireps', s.pirepsApproved, has(s.pirepsPending) && Number(s.pirepsPending) > 0
                 ? `${n(s.pirepsPending)} awaiting review` : 'all reviewed');
+            if(has(s.pirepsPending)) setTodo('pireps', Number(s.pirepsPending));
 
             // Applications waiting on staff are the other actionable number; it
             // already has a home on the Roster → Applications tab badge.
@@ -10593,6 +10671,7 @@
                 idLogo.addEventListener('error',()=>{ idPlate.classList.add('hidden'); document.getElementById('idMonogram').classList.remove('hidden'); },{once:true});
                 idLogo.src=b.logo; idPlate.classList.remove('hidden'); document.getElementById('idMonogram').classList.add('hidden');
             }
+            if(window.CrewSidebar) CrewSidebar.brand({ name:name||'Crew Center', monogram:mono, logo:CREW_LOGO, sub:'Crew Center' });
             if(b.banner && isSafeImageUrl(b.banner)){
                 document.getElementById('identityBg').src=b.banner; document.getElementById('identityBg').classList.remove('hidden'); document.getElementById('identityTint').classList.add('hidden');
             }
@@ -10809,7 +10888,11 @@
                     title:'How the airline is doing',
                     body:'Pilots, flying in the last thirty days, hours logged and reports waiting on you. Counted in your own database — a dash means we have not learned that figure yet, never zero.',
                 },
-                {
+                (window.CrewSidebar && CrewSidebar.active()) ? {
+                    el:'#csbNav',
+                    title:'Everything you run',
+                    body:'The roster, the route network, the schedule, events, the noticeboard and your website — one click each, and they open right here beside the sidebar. The menu button in the top bar folds it away.',
+                } : {
                     el:'#toolGrid',
                     title:'Everything you run',
                     body:'The roster, the route network, the schedule, events, the noticeboard and your website. Press Customize above to choose which of these tiles you keep and in what order.',
@@ -10847,6 +10930,19 @@
             const b = await resolveBranding();
             applyBranding(b);
             applyLayout(resolveLayout(b));
+            // The Navigator interface's views. Inert in the other two looks.
+            // The tiles and their "Manage" heading go, because in Navigator the
+            // sidebar IS the tile wall; the links board and the Live fleet
+            // under them stay on the overview.
+            if(window.CrewSidebar) CrewSidebar.mount({
+                views:[
+                    { id:'overview', label:'Overview', icon:'layout-dashboard',
+                      show:['#onboard','.r-identity','.r-stats','.r-activity','.r-event','.r-myflying','.r-social','.r-tools','.r-trust'] },
+                    { id:'live', label:'Live map', icon:'radar', show:['.r-live'] },
+                ],
+                hide:['#toolGrid','.r-tools > div:first-child'],
+                home:'overview',
+            });
             // How a topic opens. Set before anything can be clicked, because
             // the mode is CSS on <html> and a panel opened first would appear
             // as a sheet and then jump to full width under the reader.

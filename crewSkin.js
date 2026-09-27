@@ -1,5 +1,5 @@
 /**
- * crewSkin.js — which of the crew center's two interfaces a VA is looking at.
+ * crewSkin.js — which of the crew center's three interfaces a VA is looking at.
  *
  * WHAT THIS IS
  *
@@ -9,13 +9,18 @@
  * corner. An airline's crew center is the second thing it shows a recruit
  * after its website, and "generic" is a thing a recruit notices.
  *
- * So there are two, and this file is the switch:
+ * So there are three, and this file is the switch:
  *
  *   essential   the original, unchanged. `data-skin="essential"` matches
  *               nothing in crewSkin.css; not one rule applies.
  *   aurora      the second interface — dark-first, glass over an ambient
  *               canvas, depth instead of hairlines, motion with a spring in
  *               it. See crewSkin.css, which does all of the drawing.
+ *   navigator   the third, and the only one that is a different SHAPE: a
+ *               sidebar of every part of the crew center, a burger that folds
+ *               it, and topics that open beside it instead of over a wall of
+ *               blocks. crewNavigator.css draws it; crewSidebar.js builds the
+ *               sidebar.
  *
  * WHO DECIDES — three answers, in this order:
  *
@@ -50,7 +55,7 @@
 (function (global) {
     'use strict';
 
-    const SKINS = ['essential', 'aurora'];
+    const SKINS = ['essential', 'aurora', 'navigator'];
 
     const META = {
         essential: {
@@ -60,6 +65,10 @@
         aurora: {
             name: 'Aurora',
             desc: 'A lit flight deck — glass, depth and a little motion.',
+        },
+        navigator: {
+            name: 'Navigator',
+            desc: 'A sidebar with everything in it. One topic at a time, a burger to fold it away.',
         },
     };
 
@@ -78,11 +87,16 @@
         essential: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
             + '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/>'
             + '<path d="M7.5 9.5h9M7.5 13h9M7.5 16h5"/></svg>',
+        // Offering navigator: a window with a sidebar down its left.
+        navigator: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            + '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/>'
+            + '<path d="M9.5 4.5v15M5.8 8.5h1.5M5.8 11.5h1.5M5.8 14.5h1.5"/></svg>',
     };
 
     const doc = global.document;
     const root = doc.documentElement;
     const STYLE_ID = 'crew-skin-css';
+    const NAV_STYLE_ID = 'crew-nav-css';
     const listeners = [];
     let current = 'essential';
 
@@ -116,12 +130,17 @@
      * it is a single small file behind the same cache as the page.
      * ------------------------------------------------------------------- */
     function ensureStyle() {
-        if (doc.getElementById(STYLE_ID)) return;
-        const link = doc.createElement('link');
-        link.id = STYLE_ID;
-        link.rel = 'stylesheet';
-        link.href = '/crewSkin.css';
-        (doc.head || root).appendChild(link);
+        // Two sheets, both small and cached: the aurora look, and the
+        // navigator shell. Both are asked for whichever look is on, for the
+        // reason above — the chooser draws all three miniatures.
+        [[STYLE_ID, '/crewSkin.css'], [NAV_STYLE_ID, '/crewNavigator.css']].forEach(([id, href]) => {
+            if (doc.getElementById(id)) return;
+            const link = doc.createElement('link');
+            link.id = id;
+            link.rel = 'stylesheet';
+            link.href = href;
+            (doc.head || root).appendChild(link);
+        });
     }
 
     /* ---------------------------------------------------------------------
@@ -144,7 +163,7 @@
         const apply = () => {
             paint(next);
             if (o.persist !== false) write(KEY(), next);
-            // The switch in the bar offers the OTHER interface, so it is wrong
+            // The switch in the bar offers the NEXT interface, so it is wrong
             // the instant this changes. Redrawn here rather than at each call
             // site: with a view transition in play `set` returns before this
             // has run, and a caller that redrew straight afterwards would be
@@ -162,9 +181,12 @@
         return next;
     }
 
-    /** Flip to the other one. What the top-bar button does. */
+    /** The look after this one, in SKINS order — what the top-bar button offers. */
+    const nextSkin = () => SKINS[(SKINS.indexOf(current) + 1) % SKINS.length];
+
+    /** Step to the next one. What the top-bar button does. */
     function toggle() {
-        const next = current === 'aurora' ? 'essential' : 'aurora';
+        const next = nextSkin();
         set(next);
         // Said plainly, because the button is on a pilot's page too and most
         // of the people pressing it have no Settings to be pointed at: this
@@ -213,6 +235,17 @@
         // The aurora miniature gets the keyline and the wash its real cards
         // have; the essential one gets flat cards and a ruled bar. The
         // difference between the two pictures IS the difference between them.
+        // The navigator miniature is a different picture, not a different
+        // palette: a rail down the left and one pane beside it.
+        if (skin === 'navigator') {
+            return '<div class="ifc-prev ifc-prev-navigator" aria-hidden="true">'
+                + '<div class="ifc-side"><span class="ifc-dot"></span>'
+                + '<span class="ifc-sl on"></span><span class="ifc-sl"></span><span class="ifc-sl"></span><span class="ifc-sl"></span></div>'
+                + '<div class="ifc-pane"><div class="ifc-bar"><span class="ifc-line" style="width:12%;margin-left:auto"></span></div>'
+                + '<div class="ifc-hero"></div>'
+                + '<div class="ifc-row"><span class="ifc-cell"></span><span class="ifc-cell"></span></div></div>'
+                + '</div>';
+        }
         return '<div class="ifc-prev ifc-prev-' + skin + '" aria-hidden="true">'
             + '<div class="ifc-bar"><span class="ifc-dot"></span>'
             + '<span class="ifc-line" style="width:22%"></span>'
@@ -273,7 +306,7 @@
      * own. Settings is staff-only; this is how a pilot gets the choice too.
      * ------------------------------------------------------------------- */
     function renderToggles() {
-        const other = current === 'aurora' ? 'essential' : 'aurora';
+        const other = nextSkin();
         const label = 'Switch to the ' + META[other].name + ' interface';
         doc.querySelectorAll('[data-skin-toggle]').forEach((host) => {
             let btn = host.querySelector('.ifc-toggle');
@@ -306,7 +339,7 @@
         SKINS, META,
         current: () => current,
         set, toggle, applyRecord, onChange,
-        mountPicker, renderToggles, optionsHtml,
+        mountPicker, renderToggles, optionsHtml, next: nextSkin,
         slug,
     };
 })(window);
