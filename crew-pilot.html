@@ -22,7 +22,7 @@
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
     <script src="/crewBrand.js"></script>
-    <!-- Which of the two interfaces this crew center is wearing (crewSkin.css).
+    <!-- Which of the three interfaces this crew center is wearing (crewSkin.css).
          Sets data-skin on <html> before the first paint; a VA that has never
          chosen gets `essential`, which leaves this page exactly as it was. -->
     <script src="/crewSkin.js"></script>
@@ -74,6 +74,9 @@
     <!-- Shared panel chrome, then the schedule: the same module the owner
          dashboard uses, showing this pilot the legs they can take. -->
     <script src="/crewPanels.js"></script>
+    <!-- The Navigator interface's sidebar and burger. Inert unless that
+         interface is the one in force; see crewSidebar.js. -->
+    <script src="/crewSidebar.js"></script>
     <!-- Filing a flight by picking it out of the pilot's real Infinite Flight
          logbook, rather than retyping what the API already knows. -->
     <script src="/crewFlightPicker.js"></script>
@@ -572,12 +575,12 @@
         <section id="awardStrip" class="mt-6 cp-hidden"></section>
 
         <!-- ============ QUICK ACTIONS ============ -->
-        <section class="mt-6">
+        <section id="quickSec" class="mt-6">
             <div id="quickGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4"></div>
         </section>
 
         <!-- ============ FLIGHTS + RANK PROGRESS ============ -->
-        <section class="mt-10 grid lg:grid-cols-3 gap-4">
+        <section id="flyingSec" class="mt-10 grid lg:grid-cols-3 gap-4">
             <!-- Recent flights -->
             <div class="surface rounded-lg p-6 lg:col-span-2">
                 <div class="flex items-center justify-between mb-3">
@@ -912,6 +915,60 @@
             // scrolled away and they want to know what they were asked to do.
             {icon:'file-pen-line',label:'Quizzes',desc:'What your airline asked you to know',action:'quizzes'},
         ];
+        // ---- The Navigator sidebar ----
+        //
+        // The page split into views, and the quick actions grouped down the
+        // side. Inert in the other two looks, where the page is the long
+        // scroll it has always been. The quick-action grid is hidden in
+        // Navigator because the sidebar is the same buttons.
+        const NAV_GROUPS=[
+            { label:'Fly', ids:['file','schedule','logbook','suggest','network'] },
+            { label:'Crew', ids:['events','inbox','documents','standings','quizzes'] },
+            { label:'Me', ids:['training','awards','shop','staffjobs','leave'] },
+        ];
+        // Which panel each action opens, so the sidebar can light up the one
+        // on screen and close it when another is picked.
+        const NAV_ROOT={
+            file:'#crewFlightPicker', schedule:'#csPanel', logbook:'#crewLogbook', suggest:'#crewSuggestions',
+            network:'#crewNetwork', events:'#cevPanel', inbox:'#ci-panel', documents:'#cd-panel',
+            standings:'#crewStandings', quizzes:'#crewQuiz', training:'#crewTraining', awards:'#crewAwards',
+            shop:'#crewShop', staffjobs:'#crewStaffApply', leave:'#crewLeave',
+        };
+        const NAV_OPEN={
+            file:()=>openFilePirep(), schedule:()=>openSchedule(), logbook:()=>openLogbook(),
+            suggest:()=>openSuggestions(), network:()=>openNetwork(), events:()=>openEvents(),
+            inbox:()=>openInbox(), documents:()=>openDocuments(), standings:()=>openStandings(),
+            quizzes:()=>openQuizzes(), training:()=>openTraining(), awards:()=>openAwards(),
+            shop:()=>openShop(), staffjobs:()=>openStaffJobs(), leave:()=>openLeave(),
+        };
+        function mountSidebar(){
+            if(!window.CrewSidebar) return;
+            const byId=Object.fromEntries(ACTIONS.map(a=>[a.action,a]));
+            const shownSec=sel=>()=>{ const el=document.querySelector(sel); return !!el && !el.classList.contains('cp-hidden'); };
+            CrewSidebar.mount({
+                views:[
+                    { id:'home', label:'Home', icon:'house',
+                      show:['#hero','#liveFlight','#myNumbers','#suggestStrip','#shopCard','#awardStrip','#noticesSec'] },
+                    { id:'flying', label:'My flying', icon:'plane', show:['#flyingSec'] },
+                    { id:'upcoming', label:'Upcoming events', icon:'calendar-days', show:['#eventsSec'] },
+                    { id:'links', label:'Quick links', icon:'link', show:['#linksSec'],
+                      available:shownSec('#linksSec'), watch:['#linksSec'] },
+                    { id:'fleet', label:'Fleet', icon:'plane-takeoff', show:['#ifFleetSec'],
+                      available:shownSec('#ifFleetSec'), watch:['#ifFleetSec'] },
+                    { id:'account', label:'Account', icon:'user-round', show:['#signinSec','#trust'] },
+                ],
+                hide:['#quickSec'],
+                home:'home',
+                groups:NAV_GROUPS.map(g=>({
+                    label:g.label,
+                    items:g.ids.filter(id=>byId[id]).map(id=>({
+                        id, label:byId[id].label, icon:byId[id].icon,
+                        root:NAV_ROOT[id], open:NAV_OPEN[id],
+                        badge:id==='inbox' ? (host=>{ if(window.CrewInbox && CrewInbox.renderBadge) CrewInbox.renderBadge(host); }) : undefined,
+                    })),
+                })),
+            });
+        }
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
                 <a data-i="${i}" class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
@@ -1682,6 +1739,10 @@
                 if(window.CrewBridge) CrewBridge.setTitle(`${name} Crew Center`);
                 document.getElementById('navMonogram').textContent=initials(name,b.code);
             }
+            if(window.CrewSidebar) CrewSidebar.brand({
+                name:name||'Crew Center', monogram:initials(name,b.code), sub:'Crew Center',
+                logo:(b.logo && isSafeImageUrl(b.logo)) ? b.logo : '',
+            });
             if(b.code){ CREW_CODE=b.code; const c=document.getElementById('heroVA');c.textContent=b.code;c.classList.remove('hidden'); }
             if(b.logo && isSafeImageUrl(b.logo)){
                 CREW_LOGO=b.logo;           // the mark on the front of the card
@@ -1962,7 +2023,11 @@
                     title:'Your flying, counted',
                     body:'Hours, flights, the rank you hold and anything still waiting on staff. A dash means we have not read that figure yet — never a zero.',
                 },
-                {
+                (window.CrewSidebar && CrewSidebar.active()) ? {
+                    el:'#csbNav',
+                    title:'What you can do from here',
+                    body:'File a flight report, take a leg off the schedule, book onto an event — everything is down this side, and opens right beside it. The menu button folds it away.',
+                } : {
                     el:'#quickGrid',
                     title:'What you can do from here',
                     body:'File a flight report, take a leg off the schedule, book onto an event. These are the buttons you will use every week.',
@@ -2227,6 +2292,7 @@
             // cover raised from here goes up over a page the reader has
             // already seen. All that is left for the boot to do is `done`.
             renderActions(); renderFlights(); renderNotices([]); readSession();
+            mountSidebar();
             document.addEventListener('visibilitychange', catchUpMyFlying);
             window.addEventListener('focus', catchUpMyFlying);
             // The pilot's own flying — hours, rank, flights, logbook. Everything

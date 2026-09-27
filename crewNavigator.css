@@ -1,0 +1,415 @@
+/* ============================================================================
+   crewNavigator.css — the crew center's THIRD interface: Navigator.
+
+   Essential and Aurora are two coats of paint on one shape: a wall of blocks
+   with a grid of tiles in the middle, each tile opening a sheet over the wall.
+   Navigator is a different shape — an app shell:
+
+     ┌──────────┬───────────────────────────────────────┐
+     │ AIRLINE  │ ☰  search …                  🔔 ⚙ (JL) │  ← the top bar
+     │          ├───────────────────────────────────────┤
+     │ Overview │                                       │
+     │ Live map │   one view, or one topic, at a time   │
+     │          │                                       │
+     │ OPERATE  │                                       │
+     │ Roster   │                                       │
+     │ Routes   │                                       │
+     │ …        │                                       │
+     └──────────┴───────────────────────────────────────┘
+
+   The sidebar is built by crewSidebar.js. Everything here is scoped to
+   `:root[data-skin="navigator"]` except the chooser miniature at the bottom,
+   so with either of the other two looks in force not one rule applies.
+
+   PRECEDENCE: the VA's brand still wins, exactly as in crewSkin.css — every
+   token reads the `--brand-*` alias first and only falls back to its own.
+   ========================================================================== */
+
+/* ============================================================================
+   1. TOKENS
+   ========================================================================== */
+
+:root[data-skin="navigator"]{
+    /* Daylight: a cool, neutral workspace — neither essential's cream paper
+       nor aurora's porcelain-and-glass. Flat cards, soft shadows, no wash. */
+    --bg:         var(--brand-bg,        #F2F3F6);
+    --surface:    var(--brand-surface,   #FFFFFF);
+    --surface-2:  var(--brand-surface2,  #F7F8FA);
+    --line:       var(--brand-line,      #E2E4EA);
+    --line-soft:  var(--brand-lineSoft,  #ECEEF2);
+    --ink:        var(--brand-ink,       #121620);
+    --muted:      var(--brand-muted,     #5A6272);
+    --faint:      var(--brand-faint,     #8B92A1);
+    --accent:     var(--brand-accent,    #2F6FEB);
+
+    /* The sidebar is always dark, in both modes, tinted with the airline's
+       accent — it is the one surface that says "this is Navigator" at a
+       glance, and the airline's colour is what makes it theirs. */
+    --csb-bg:    color-mix(in srgb, var(--accent) 14%, #0C0F15);
+    --csb-ink:   #E8EBF1;
+    --csb-muted: rgb(232 235 241 / .58);
+    --csb-hover: rgb(255 255 255 / .07);
+    --csb-line:  rgb(255 255 255 / .08);
+
+    --csb-full: 15.5rem;
+    --csb-rail: 4.25rem;
+    --csb-w:    var(--csb-full);
+    --csb-left: 0px;           /* how far the page moves over for the sidebar */
+    --csb-top:  4rem;          /* the top bar, which topics open underneath   */
+    --nv-radius: .8rem;
+    --nv-shadow: 0 1px 2px rgb(16 24 40 / .05), 0 1px 3px rgb(16 24 40 / .06);
+}
+:root[data-skin="navigator"].dark{
+    --bg:         var(--brand-bg,        #0D0F14);
+    --surface:    var(--brand-surface,   #151821);
+    --surface-2:  var(--brand-surface2,  #1A1E28);
+    --line:       var(--brand-line,      #252A36);
+    --line-soft:  var(--brand-lineSoft,  #1E222D);
+    --ink:        var(--brand-ink,       #ECEEF3);
+    --muted:      var(--brand-muted,     #9CA3B2);
+    --faint:      var(--brand-faint,     #6D7483);
+    --accent:     var(--brand-accent,    #5B8CFF);
+    --csb-bg:    color-mix(in srgb, var(--accent) 10%, #07090D);
+    --nv-shadow: 0 1px 2px rgb(0 0 0 / .4);
+}
+@media (min-width:1024px){
+    :root[data-skin="navigator"]{ --csb-left: var(--csb-w); }
+    :root[data-skin="navigator"].csb-collapsed{ --csb-w: var(--csb-rail); }
+}
+
+/* ============================================================================
+   2. THE PAGE MAKES ROOM
+   ========================================================================== */
+
+:root[data-skin="navigator"] body{
+    background:var(--bg);
+    padding-left:var(--csb-left);
+}
+@media (prefers-reduced-motion: no-preference){
+    :root[data-skin="navigator"] body{ transition:padding-left .22s cubic-bezier(.2,.8,.2,1); }
+}
+
+/* The top bar: solid, full width of the pane, a plain rule under it. */
+:root[data-skin="navigator"] body > header{
+    background:var(--surface) !important;
+    -webkit-backdrop-filter:none; backdrop-filter:none;
+    border-bottom:1px solid var(--line);
+}
+:root[data-skin="navigator"] body > header > div{ max-width:none; }
+/* The airline's name is at the top of the sidebar; saying it twice side by
+   side is what reads as two top bars. Back when the sidebar is folded to a
+   rail and the name has nowhere else to be, and on a phone, where the
+   sidebar is off screen until asked for. */
+@media (min-width:1024px){
+    :root[data-skin="navigator"]:not(.csb-collapsed) body > header [data-embed-hide]{ display:none; }
+}
+
+:root[data-skin="navigator"] body > main{ max-width:78rem; }
+
+/* What a view does not show. */
+:root[data-skin="navigator"] .csb-off{ display:none !important; }
+
+/* ============================================================================
+   3. THE BURGER
+   ========================================================================== */
+
+.csb-burger{ display:none; }
+:root[data-skin="navigator"] .csb-burger{
+    display:grid; place-items:center; flex:0 0 auto;
+    width:2.25rem; height:2.25rem; margin-left:-.25rem;
+    border:0; border-radius:.55rem; background:none; cursor:pointer;
+    color:var(--muted);
+}
+:root[data-skin="navigator"] .csb-burger:hover{ color:var(--ink); background:color-mix(in srgb, var(--ink) 6%, transparent); }
+:root[data-skin="navigator"] .csb-burger:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+/* ============================================================================
+   4. THE SIDEBAR
+   ========================================================================== */
+
+.csb, .csb-scrim{ display:none; }
+
+:root[data-skin="navigator"] .csb{
+    position:fixed; left:0; top:0; bottom:0; z-index:65;
+    width:var(--csb-w);
+    display:flex; flex-direction:column;
+    background:var(--csb-bg); color:var(--csb-ink);
+    border-right:1px solid var(--csb-line);
+    font-size:.875rem;
+    padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-reduced-motion: no-preference){
+    :root[data-skin="navigator"] .csb{ transition:width .22s cubic-bezier(.2,.8,.2,1), transform .24s cubic-bezier(.2,.8,.2,1); }
+}
+
+.csb-head{
+    display:flex; align-items:center; gap:.65rem; flex:0 0 auto;
+    height:4rem; padding:0 .9rem;
+    border-bottom:1px solid var(--csb-line);
+}
+.csb-mono, .csb-logo{
+    width:2.1rem; height:2.1rem; flex:0 0 auto; border-radius:.6rem;
+    display:grid; place-items:center; overflow:hidden;
+}
+.csb-mono{
+    background:var(--accent-fill, var(--accent)); color:var(--accent-ink, #fff);
+    font-size:.8rem; font-weight:800; letter-spacing:.02em;
+}
+.csb-logo{ background:#fff; }
+.csb-logo img{ width:100%; height:100%; object-fit:contain; padding:2px; }
+.csb-id{ min-width:0; flex:1 1 auto; }
+.csb-name{ font-weight:700; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.csb-sub{ font-size:.7rem; color:var(--csb-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.csb-x{
+    display:none; width:2.25rem; height:2.25rem; place-items:center; flex:0 0 auto;
+    border:0; border-radius:.5rem; background:none; color:var(--csb-muted); cursor:pointer;
+}
+.csb-x:hover{ color:var(--csb-ink); background:var(--csb-hover); }
+.csb-x i, .csb-x svg{ width:1.1rem; height:1.1rem; }
+
+.csb-list{
+    flex:1 1 auto; overflow-y:auto; overscroll-behavior:contain;
+    padding:.6rem .55rem 1rem; display:flex; flex-direction:column; gap:.9rem;
+    scrollbar-width:thin; scrollbar-color:rgb(255 255 255 / .15) transparent;
+}
+.csb-group{ display:flex; flex-direction:column; gap:1px; }
+.csb-cap{
+    padding:.35rem .65rem .3rem; font-size:.66rem; font-weight:700;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--csb-muted);
+    white-space:nowrap; overflow:hidden;
+}
+
+.csb-link{
+    position:relative; display:flex; align-items:center; gap:.7rem; width:100%;
+    padding:.5rem .65rem; min-height:2.25rem; border-radius:.55rem;
+    border:0; background:none; color:var(--csb-ink); cursor:pointer; text-align:left;
+    font:inherit; font-weight:550;
+    opacity:.86;
+}
+.csb-link:hover{ background:var(--csb-hover); opacity:1; }
+.csb-link:focus-visible{ outline:2px solid var(--accent); outline-offset:-2px; opacity:1; }
+.csb-link i, .csb-link svg{ width:1.05rem; height:1.05rem; flex:0 0 auto; opacity:.9; }
+.csb-label{ flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.csb-link[aria-current="true"]{
+    opacity:1;
+    background:var(--accent-fill, var(--accent)); color:var(--accent-ink, #fff);
+    box-shadow:0 6px 16px -10px var(--accent);
+}
+
+/* A count owned by another module (the inbox's unread, for one). Empty and
+   invisible until that module has something to say. */
+.csb-badge:empty{ display:none; }
+.csb-badge:has(> .hidden:only-child){ display:none; }
+.csb-badge{ flex:0 0 auto; display:inline-flex; }
+.csb-badge > *{ font-size:.66rem !important; }
+
+.csb-foot{ flex:0 0 auto; padding:.5rem .55rem; border-top:1px solid var(--csb-line); }
+.csb-fold{ color:var(--csb-muted); }
+
+/* ---- Folded to a rail (computer only) ------------------------------------ */
+@media (min-width:1024px){
+    :root[data-skin="navigator"].csb-collapsed .csb-id,
+    :root[data-skin="navigator"].csb-collapsed .csb-label,
+    :root[data-skin="navigator"].csb-collapsed .csb-cap{ display:none; }
+    :root[data-skin="navigator"].csb-collapsed .csb-head{ justify-content:center; padding:0; }
+    :root[data-skin="navigator"].csb-collapsed .csb-link{ justify-content:center; padding:.6rem 0; }
+    :root[data-skin="navigator"].csb-collapsed .csb-group + .csb-group{ border-top:1px solid var(--csb-line); padding-top:.6rem; }
+    /* Icons come from a CDN. When it is slow or blocked the <i> is never
+       swapped for an <svg>, and a rail of empty buttons is a rail nobody can
+       use — so each one carries its label's first letter to fall back on. */
+    :root[data-skin="navigator"].csb-collapsed .csb-link i:empty::before{
+        content:attr(data-letter); font-style:normal; font-weight:800; font-size:.85rem;
+        display:grid; place-items:center; width:100%; height:100%;
+    }
+    /* A count on a folded rail is a dot on the icon, not a number beside it. */
+    :root[data-skin="navigator"].csb-collapsed .csb-badge{ position:absolute; top:.2rem; right:.45rem; }
+}
+
+/* ---- A phone: the sidebar is a drawer the burger slides in -------------- */
+@media (max-width:1023px){
+    :root[data-skin="navigator"] .csb{
+        width:min(18rem, 86vw); z-index:95;
+        transform:translateX(-102%);
+        box-shadow:0 0 40px rgb(0 0 0 / .35);
+    }
+    :root[data-skin="navigator"].csb-drawer .csb{ transform:none; }
+    :root[data-skin="navigator"] .csb-x{ display:grid; }
+    :root[data-skin="navigator"] .csb-foot{ display:none; }
+    :root[data-skin="navigator"] .csb-link{ min-height:2.75rem; }
+    :root[data-skin="navigator"].csb-drawer .csb-scrim{
+        display:block; position:fixed; inset:0; z-index:94;
+        background:rgb(0 0 0 / .45);
+    }
+}
+
+/* ============================================================================
+   5. TOPICS OPEN IN THE PANE
+   Every panel shell in the product is a full-viewport fixed layer; here its
+   edges move to the pane — under the top bar, beside the sidebar — and it
+   loses its scrim, its width cap and its slide. Open/close stay each
+   module's own.
+   ========================================================================== */
+
+:root[data-skin="navigator"] .cp-panel,
+:root[data-skin="navigator"] .cev-panel,
+:root[data-skin="navigator"] [data-topic]{
+    top:var(--csb-top); left:var(--csb-left); right:0; bottom:0;
+    z-index:60;
+}
+@media (prefers-reduced-motion: no-preference){
+    :root[data-skin="navigator"] .cp-panel,
+    :root[data-skin="navigator"] .cev-panel{ transition:left .22s cubic-bezier(.2,.8,.2,1); }
+}
+:root[data-skin="navigator"] .cp-scrim,
+:root[data-skin="navigator"] .cev-scrim,
+:root[data-skin="navigator"] [data-topic] > .ctw-scrim{ display:none; }
+
+:root[data-skin="navigator"] .cp-sheet,
+:root[data-skin="navigator"] .cp-sheet-wide,
+:root[data-skin="navigator"] .cev-sheet,
+:root[data-skin="navigator"] .cev-detail{
+    inset:0; width:100%; max-width:none; height:auto; max-height:none;
+    border:0; border-radius:0; box-shadow:none;
+    background:var(--bg);
+}
+:root[data-skin="navigator"] [data-topic] > .panel{
+    left:0; right:0; width:100%; max-width:none;
+    transform:none !important;
+    border:0; border-radius:0; box-shadow:none;
+    background:var(--bg);
+}
+@media (prefers-reduced-motion: no-preference){
+    :root[data-skin="navigator"] .cp-panel:not(.cp-hidden) .cp-sheet,
+    :root[data-skin="navigator"] .cev-panel:not(.cev-hidden) .cev-sheet,
+    :root[data-skin="navigator"] [data-topic]:not(.hidden) > .panel{ animation:nv-in .2s cubic-bezier(.2,.8,.2,1); }
+}
+@keyframes nv-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+
+/* The topic's own header becomes the page title. */
+:root[data-skin="navigator"] .cp-head,
+:root[data-skin="navigator"] .cev-head,
+:root[data-skin="navigator"] [data-topic] > .panel > .sticky{
+    padding-left:1.25rem; padding-right:1rem;
+    background:var(--surface) !important;
+    border-radius:0 !important;
+}
+:root[data-skin="navigator"] .cp-head::before{ display:none; }
+:root[data-skin="navigator"] .cp-head-title{ font-size:1.02rem; }
+:root[data-skin="navigator"] .cp-body{ max-width:72rem; margin-inline:auto; width:100%; }
+/* Settings is a form, and a form three feet wide is harder to read, not
+   easier. Its title bar keeps the full width; what is under it does not. */
+:root[data-skin="navigator"] #settings > .panel > :not(:first-child){ max-width:52rem; margin-inline:auto; }
+
+/* The full-page topic mode's own burger and drawer do the sidebar's job
+   worse; with the sidebar on screen they would be a second menu. */
+:root[data-skin="navigator"] .ctw-burger,
+:root[data-skin="navigator"] .ctw-nav{ display:none !important; }
+/* …and so is the choice between them: in Navigator every topic opens in the
+   pane, so "slide-over or full page" has no answer to give. */
+:root[data-skin="navigator"] #topicModeBlock{ display:none !important; }
+
+/* ============================================================================
+   6. CARDS
+   ========================================================================== */
+
+:root[data-skin="navigator"] .surface{
+    background:var(--surface);
+    border-color:var(--line-soft);
+    box-shadow:var(--nv-shadow);
+}
+:root[data-skin="navigator"] main .rounded-xl,
+:root[data-skin="navigator"] main .rounded-lg{ border-radius:var(--nv-radius); }
+:root[data-skin="navigator"] .tile:hover{ transform:none; border-color:var(--accent); }
+/* The four figures' dividers, which Tailwind draws in its own light grey —
+   a white rule down a dark card in the dark. */
+:root[data-skin="navigator"] #crewStats > *{ border-color:var(--line-soft); }
+
+/* ============================================================================
+   7. THE STAFF DASHBOARD'S OVERVIEW
+   The tiles are the sidebar now, so the "Manage" block goes (crewSidebar
+   hides it). The rest is laid out once, the same for every layout preset —
+   the presets are arrangements of the tile wall, and there is no wall here.
+   ========================================================================== */
+
+:root[data-skin="navigator"] #grid.crew-grid{
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:none;
+    grid-auto-flow:row dense;
+}
+:root[data-skin="navigator"] #grid > section{ grid-area:auto; }
+@media (min-width:1180px){
+    :root[data-skin="navigator"] #grid.crew-grid{ grid-template-columns:minmax(0,1.55fr) minmax(0,1fr); }
+    :root[data-skin="navigator"] #grid > .r-identity,
+    :root[data-skin="navigator"] #grid > .r-stats,
+    :root[data-skin="navigator"] #grid > .r-live,
+    :root[data-skin="navigator"] #grid > .r-tools,
+    :root[data-skin="navigator"] #grid > .r-trust{ grid-column:1 / -1; }
+    :root[data-skin="navigator"] #grid > .r-activity{ grid-column:1; grid-row:span 2; }
+    :root[data-skin="navigator"] #grid > .r-event,
+    :root[data-skin="navigator"] #grid > .r-myflying,
+    :root[data-skin="navigator"] #grid > .r-social{ grid-column:2; }
+}
+:root[data-skin="navigator"] #grid > .r-identity{ order:1; }
+:root[data-skin="navigator"] #grid > .r-stats{ order:2; }
+:root[data-skin="navigator"] #grid > .r-activity{ order:3; }
+:root[data-skin="navigator"] #grid > .r-event{ order:4; }
+:root[data-skin="navigator"] #grid > .r-myflying{ order:5; }
+:root[data-skin="navigator"] #grid > .r-social{ order:6; }
+:root[data-skin="navigator"] #grid > .r-live{ order:7; }
+:root[data-skin="navigator"] #grid > .r-trust{ order:8; }
+
+/* The live map as a view of its own: the whole pane, not a 320px strip. */
+:root[data-skin="navigator"][data-csb-at="live"] #grid > .r-live{
+    min-height:calc(100vh - 8rem); min-height:calc(100dvh - 8rem);
+}
+:root[data-skin="navigator"][data-csb-at="live"] #grid > .r-live iframe{ flex:1 1 auto; }
+
+/* ============================================================================
+   8. THE PILOT HOME
+   The hero is a card in the pane rather than a band across the window, and
+   shorter: in Navigator it is the top of one view, not the whole welcome.
+   ========================================================================== */
+
+:root[data-skin="navigator"] #hero{
+    width:auto; height:15rem;
+    margin:1.25rem 1.25rem 0; border-radius:1rem;
+    box-shadow:var(--nv-shadow);
+}
+@media (min-width:640px){
+    :root[data-skin="navigator"] #hero{ height:17rem; margin:1.5rem 1.5rem 0; }
+}
+:root[data-skin="navigator"] #hero h1{ font-size:clamp(1.6rem, 3.2vw, 2.4rem); }
+/* A view that is one section starts at the top of the pane, not 2.5rem down. */
+:root[data-skin="navigator"][data-csb-at]:not([data-csb-at="home"]) body > main > section{ margin-top:1.5rem; }
+
+/* ============================================================================
+   9. THE CHOOSER — Settings › Appearance
+   Three options now; they sit side by side where there is room.
+   ========================================================================== */
+
+.ifc-opts{ grid-template-columns:repeat(auto-fit, minmax(8rem, 1fr)); }
+
+.ifc-prev-navigator{
+    --p-bg:#F2F3F6; --p-surface:#FFFFFF; --p-ink:#121620;
+    --p-card-radius:3px; --p-bar-radius:2px; --p-hero-tint:.12;
+    --p-shadow:0 1px 2px rgb(16 24 40 / .12);
+    flex-direction:row; gap:0; padding:0;
+}
+.dark .ifc-prev-navigator{ --p-bg:#0D0F14; --p-surface:#151821; --p-ink:#ECEEF3; --p-shadow:none; }
+.ifc-prev-navigator .ifc-side{
+    width:24%; flex:0 0 auto; display:flex; flex-direction:column; gap:3px;
+    padding:5px 4px;
+    background:color-mix(in srgb, var(--accent) 14%, #0C0F15);
+}
+.ifc-prev-navigator .ifc-side .ifc-dot{ width:6px; height:6px; margin-bottom:3px; border-radius:2px; }
+.ifc-sl{ display:block; height:3px; border-radius:2px; background:rgb(255 255 255 / .26); }
+.ifc-sl.on{ background:var(--accent); }
+.ifc-pane{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:3px; padding:5px; }
+
+@media (prefers-reduced-motion: reduce){
+    :root[data-skin="navigator"] *{ animation:none !important; }
+}
+
+/* Notes that only make sense while Navigator is the look in force. */
+.nv-only{ display:none; }
+:root[data-skin="navigator"] .nv-only{ display:block; }
