@@ -21,6 +21,7 @@
 
 import { PilotProfiles, BANNER_PRESET_LABELS, presetGradient, WINDOW_THEMES } from './pilotProfiles.js';
 import { adjustImage } from './imageAdjuster.js';
+import { PilotStanding } from './pilotStanding.js';
 
 const HANDLE_SHAPE = /^[a-z0-9](?:[a-z0-9_]{1,18})[a-z0-9]$/;
 const IF_USERNAME_SHAPE = /^[A-Za-z0-9_.-]{1,40}$/;
@@ -394,8 +395,46 @@ export const PilotCardEditor = {
         });
     },
 
+    // Moderation standing (pilotStanding.js): while a warning has paused
+    // uploads, say so at the top and lock the upload buttons — removing a
+    // picture still works, that's the pilot complying. The rules line sits
+    // under every editor that uploads something other pilots will see.
+    _applyStanding() {
+        const host = this._host;
+        const body = host?.querySelector('#pce-body');
+        if (!body || !host.querySelector('input[data-upload]')) return;
+        body.querySelectorAll('.pce-paused, .pce-rules').forEach(n => n.remove());
+        const s = PilotStanding.get();
+        if (s && s.uploadsRestricted) {
+            const note = document.createElement('div');
+            note.className = 'pce-paused';
+            note.setAttribute('role', 'status');
+            note.innerHTML = '<i class="fa-solid fa-circle-pause" aria-hidden="true"></i><span></span>';
+            note.querySelector('span').textContent = s.uploadsNotice || 'Adding pictures is paused on your account after a warning.';
+            body.prepend(note);
+            host.querySelectorAll('input[data-upload]').forEach(input => {
+                input.disabled = true;
+                const label = input.closest('label');
+                if (label) { label.classList.add('pce-locked'); label.setAttribute('aria-disabled', 'true'); }
+            });
+        }
+        const rules = document.createElement('p');
+        rules.className = 'pce-help pce-rules';
+        rules.innerHTML = 'Pictures here are seen by everyone: nothing adult, violent, hateful or harassing, no pretending to be someone else, no ads. '
+            + 'Pictures that break the <a href="terms.html#user-content" target="_blank" rel="noopener">Terms</a> are taken down and can bring a warning on your account.'
+            + (s && s.activeCount ? ' <button type="button" class="pce-linkbtn" data-standing>Your account standing</button>' : '');
+        rules.querySelector('[data-standing]')?.addEventListener('click', () => PilotStanding.openRecord());
+        const msg = body.querySelector('#pce-msg');
+        if (msg) msg.before(rules); else body.append(rules);
+    },
+
     _wire() {
         const host = this._host;
+        this._applyStanding();
+        if (!this._standingHooked) {
+            this._standingHooked = true;
+            window.addEventListener('inflight:pilot-standing', () => { if (this._host?.isConnected) this._applyStanding(); });
+        }
         host.querySelectorAll('input[data-upload]').forEach(input => {
             input.addEventListener('change', () => {
                 const file = input.files?.[0];
@@ -496,6 +535,7 @@ export const PilotCardEditor = {
             await task();
         } catch (err) {
             this._say(err.needsPro ? (err.message || 'That is part of Inflight Pro.') : (err.message || 'Something went wrong.'), true);
+            if (err.uploadsPaused) PilotStanding.refresh();
         } finally {
             this._busy = false;
             this._host.querySelector('.pce')?.classList.remove('is-busy');
@@ -580,6 +620,13 @@ export const PilotCardEditor = {
             .pce-mobile .pce-ident { margin: -30px 0 14px 92px; }
             .pce-mobile .pce-btn { height: 40px; }
             .pce-msg { min-height: 1.2em; margin-top: 12px; font-size: .85rem; color: var(--pui-text-muted, #94a3b8); }
+            .pce-paused {
+                display: flex; gap: 10px; align-items: baseline; margin: 0 0 14px; padding: 10px 12px; border-radius: 12px;
+                background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.28); color: #fca5a5; font-size: .84rem; line-height: 1.45;
+            }
+            .pce-rules { margin-top: 16px; font-size: .76rem; }
+            .pce-rules a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+            .pce-linkbtn { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
             .pce-msg.is-error { color: #f87171; }
             @media (max-width: 560px) { .pce-swatches { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 

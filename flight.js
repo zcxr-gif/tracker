@@ -15,6 +15,7 @@ import { PilotProfiles } from './pilotProfiles.js';
 import { PilotCardPrompt } from './pilotCardPrompt.js';
 import { adjustImage } from './imageAdjuster.js';
 import { AccountSetup } from './accountSetup.js';
+import { PilotStanding } from './pilotStanding.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -105,6 +106,9 @@ window.addEventListener('inflight:pilot-profile-changed', refreshNavAccount);
 PilotCardPrompt.init(supabase);
 // First upgrade to Pro: a short "what just unlocked" sheet. Renewals: nothing.
 AccountSetup.watchUpgrades(supabase);
+// A moderation warning about something the pilot uploaded: shown until they
+// acknowledge it, as the iOS app does; also pauses the upload buttons.
+PilotStanding.init(supabase);
 
 // 2. Initialize Mobile Dashboard
 MobileDashboardUI.init(supabase);

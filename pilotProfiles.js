@@ -125,6 +125,8 @@ async function callProfileImage(accessToken, body) {
     if (!res.ok) {
         const err = new Error(answer.error || 'That picture could not be saved.');
         err.needsPro = answer.pro === true || res.status === 402;
+        // Refused because a moderation warning paused uploads (403).
+        err.uploadsPaused = answer.uploadsPaused === true;
         throw err;
     }
     return answer;
