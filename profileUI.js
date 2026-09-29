@@ -20,6 +20,11 @@
  */
 
 import { ProAccess } from './proAccess.js';
+import { AccountSetup } from './accountSetup.js';
+
+// Accounts the setup sheet has already been shown to this session, so a
+// failed "onboarding_complete" save can't bring it straight back.
+const _setupShown = new Set();
 import { StripeCheckoutModal } from './stripeCheckoutModal.js';
 import { CareerModule } from './careerModule.js';
 import { formatGrade } from './ifGrade.js';
@@ -731,6 +736,20 @@ init(supabaseClient) {
     },
 
     open(user) {
+        // A new account gets the setup sheet first (accountSetup.js — picture,
+        // banner, flight window; all optional), then this screen. Same sheet on
+        // phones, so it runs before the mobile redirect.
+        if (user && user.id && !user.user_metadata?.onboarding_complete
+            && this._supabase && !_setupShown.has(user.id)) {
+            _setupShown.add(user.id);
+            const started = AccountSetup.open({
+                supabase: this._supabase,
+                user,
+                onDone: (u) => this.open(u || user),
+            });
+            if (started) return;
+        }
+
         // Mobile redirect
         if (window.innerWidth <= 768) {
             if (MobileDashboardUI && typeof MobileDashboardUI.open === 'function') {
@@ -3705,7 +3724,7 @@ _getTabContentHTML() {
                         <div class="pui-onboarding-header">
                             <div class="pui-onboarding-icon"><i class="fa-solid fa-plane-departure"></i></div>
                             <h2>Welcome aboard.</h2>
-                            <p>Thank you for subscribing to Pro Access. Let's set up your flight deck.</p>
+                            <p>Let's set up your flight deck.</p>
                         </div>
                         <div class="pui-onboarding-body">
 

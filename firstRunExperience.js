@@ -34,6 +34,11 @@ const STORAGE_KEY = 'inflight_legal_accepted';
 // accepted the legal docs before this step existed — is asked exactly once.
 const WINDOW_CHOICE_KEY = 'inflight_window_choice';
 
+// The optional "Make it yours" step, offered once, straight after the steps
+// above on a first launch. Never shown to someone who has already been
+// through first-run, so an update doesn't greet regulars with a new popup.
+const PERSONALISE_KEY = 'inflight_personalise_seen';
+
 // Neutral zinc accent — the rest of the app's surfaces use a charcoal/zinc
 // palette (see the simple flight window and the launch splash), so the legal
 // gate and window picker now match instead of standing out as navy/sky-blue.
@@ -166,9 +171,85 @@ export async function runFirstRunExperience(map, opts = {}) {
             if (needLegal) await new Promise((r) => setTimeout(r, 420));
             await runWindowChoiceStep({ restoreChrome: true });
         }
+        // Step 3 — optional: the window's colour and background, and (signed
+        // out) an invitation to an account for a picture and banner.
+        if ((needLegal || needWindow) && !opts.skipPersonalise && !seenPersonalise()
+            && typeof window.buildWindowLookPanel === 'function') {
+            await new Promise((r) => setTimeout(r, 420));
+            await runPersonaliseStep();
+        }
     } finally {
         resolveGate();
     }
+}
+
+function seenPersonalise() {
+    try { return localStorage.getItem(PERSONALISE_KEY) === '1'; } catch (_) { return false; }
+}
+
+function looksSignedIn() {
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i) || '';
+            if (k.includes('supabase.auth.token') || (k.startsWith('sb-') && k.endsWith('-auth-token'))) return true;
+        }
+    } catch (_) { /* private mode */ }
+    return false;
+}
+
+/**
+ * Step 3: "Make it yours" — optional.
+ *
+ * The flight window's colour (Horizon) and background — none, the aircraft's
+ * photo, or the pilot's own image framed in the adjuster — with a live
+ * preview; flight.js's shared panel, so it is the same control as Settings.
+ * Signed out, it also offers a free account for a picture, a banner and a
+ * window style other pilots see. Skip and Done both just close it.
+ */
+function runPersonaliseStep() {
+    return new Promise((resolve) => {
+        try { localStorage.setItem(PERSONALISE_KEY, '1'); } catch (_) { /* private mode */ }
+        const signedIn = looksSignedIn();
+        const overlay = document.createElement('div');
+        overlay.id = 'fre-overlay';
+        overlay.classList.add('fre-overlay-personalise');
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', 'fre-personalise-title');
+        overlay.innerHTML = `
+            <div class="fre-card fre-card-wide" role="document">
+                <h1 id="fre-personalise-title" class="fre-title">Make it yours</h1>
+                <p class="fre-sub">Give your flight windows a colour and background of your own — even your own image, framed however you like. Optional, and always in Settings.</p>
+                <div class="fre-look">${window.buildWindowLookPanel('fre', { compact: true })}</div>
+                ${signedIn ? '' : `
+                <div class="fre-account">
+                    <span class="fre-account-ic"><i class="fa-solid fa-id-badge"></i></span>
+                    <span class="fre-account-text">
+                        <b>Your picture, banner and flight window</b>
+                        <span>A free account gives you a pilot card other pilots see on the map, and lets you style the window they see for your flight.</span>
+                    </span>
+                    <button type="button" class="fre-account-btn" data-act="signup">Create account</button>
+                </div>`}
+                <div class="fre-actions">
+                    <button type="button" class="fre-skip" data-act="skip">Skip</button>
+                    <button type="button" class="fre-agree" data-act="done">Done</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+        try { window.wireWindowLookPanel(overlay); } catch (_) { /* the panel still shows */ }
+        requestAnimationFrame(() => overlay.classList.add('fre-visible'));
+
+        overlay.addEventListener('click', (e) => {
+            const act = e.target.closest('[data-act]')?.dataset.act;
+            if (!act) return;
+            dismissOverlay(overlay, true, resolve);
+            if (act === 'signup') {
+                setTimeout(() => {
+                    try { window.AuthUI && window.AuthUI.open('signup'); } catch (_) { /* nav still offers it */ }
+                }, 450);
+            }
+        });
+    });
 }
 
 /** Reveal an overlay, then resolve once the given trigger fires; handles the
@@ -938,6 +1019,43 @@ function injectStyles() {
             opacity: 0.4;
             box-shadow: none;
             cursor: not-allowed;
+        }
+
+        /* "Make it yours" */
+        #fre-overlay .fre-card.fre-card-wide { max-width: 640px; text-align: left; align-items: stretch; }
+        #fre-overlay .fre-card-wide .fre-title, #fre-overlay .fre-card-wide .fre-sub { text-align: center; }
+        #fre-overlay .fre-look {
+            padding: 16px; border-radius: 18px; background: rgba(0, 0, 0, 0.22);
+            border: 1px solid rgba(255, 255, 255, 0.07); cursor: default;
+        }
+        #fre-overlay .fre-account {
+            display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px; border-radius: 16px;
+            background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); cursor: default;
+        }
+        #fre-overlay .fre-account-ic {
+            flex: 0 0 auto; width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+            background: rgba(56, 189, 248, 0.14); color: #7dd3fc;
+        }
+        #fre-overlay .fre-account-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem; line-height: 1.4; color: rgba(212, 212, 216, 0.72); }
+        #fre-overlay .fre-account-text b { font-size: 0.88rem; color: #f4f4f5; }
+        #fre-overlay .fre-account-btn {
+            flex: 0 0 auto; height: 36px; padding: 0 14px; border-radius: 10px; cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.08); color: #f4f4f5;
+            font: inherit; font-size: 0.84rem; font-weight: 600;
+        }
+        #fre-overlay .fre-account-btn:hover { background: rgba(255, 255, 255, 0.14); }
+        #fre-overlay .fre-actions { display: flex; gap: 10px; margin-top: 18px; }
+        #fre-overlay .fre-actions .fre-agree { flex: 1; }
+        #fre-overlay .fre-skip {
+            flex: 0 0 auto; padding: 0 22px; border-radius: 14px; cursor: pointer; font: inherit; font-size: 0.95rem; font-weight: 600;
+            color: rgba(228, 228, 231, 0.8); background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        @media (max-width: 520px) {
+            #fre-overlay.fre-overlay-personalise { padding: 12px; }
+            #fre-overlay .fre-card.fre-card-wide { padding: 24px 16px 18px; }
+            #fre-overlay .fre-look { padding: 12px; }
+            #fre-overlay .fre-account { flex-wrap: wrap; }
+            #fre-overlay .fre-account-btn { width: 100%; }
         }
 
         /* Flight info window picker */

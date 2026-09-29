@@ -85,8 +85,9 @@ async function decodeImage(file) {
 }
 
 // Decode, let the pilot frame it, then encode what is inside the frame.
-// Resolves to null when they cancel.
-async function pickAndEncode(file, kind) {
+// Resolves to null when they cancel. `extra` is passed to the adjuster (the
+// window photo's sketch and Dim); the chosen Dim comes back on `onDim`.
+async function pickAndEncode(file, kind, extra = {}, onDim = null) {
     const spec = KIND[kind];
     const bitmap = await decodeImage(file);
     try {
@@ -96,10 +97,12 @@ async function pickAndEncode(file, kind) {
         const crop = await adjustImage(bitmap, {
             shape: kind === 'avatar' ? 'circle' : 'rect',
             aspect: spec.aspect,
-            title: kind === 'avatar' ? 'Move and scale' : kind === 'window' ? 'Position your window photo' : 'Position your banner',
+            title: kind === 'avatar' ? 'Move and scale' : kind === 'window' ? 'Frame your window photo' : 'Position your banner',
             saveLabel: 'Use this',
+            ...extra,
         });
         if (!crop) return null;
+        if (onDim && Number.isFinite(crop.dim)) onDim(crop.dim);
         // Scale the framed part down to the app's size, but never below the
         // short side the server accepts (a deep zoom on a small photo).
         let scale = Math.min(1, spec.longest / Math.max(crop.sw, crop.sh));
@@ -126,10 +129,12 @@ export const PilotCardEditor = {
     // (an iOS-style section in MobileDashboardUI's Settings tab) or 'prompt'
     // (just the body, inside pilotCardPrompt.js's popup, which has its own
     // title).
-    mount(host, { supabase, isPro = false, user = null, variant = 'desktop' } = {}) {
+    // only: 'window' shows just "Your flight window" (accountSetup.js's own
+    // step for it), after the handle claim when there is no profile yet.
+    mount(host, { supabase, isPro = false, user = null, variant = 'desktop', only = null } = {}) {
         if (!host || !supabase) return;
         this._host = host;
-        this._opts = { supabase, isPro, user, variant };
+        this._opts = { supabase, isPro, user, variant, only };
         this._injectStyles();
         host.innerHTML = this._frame('<div class="pce-muted">Loading your profile…</div>');
         this._load();
@@ -169,6 +174,11 @@ export const PilotCardEditor = {
     _render() {
         if (!this._host?.isConnected) return;
         if (!this._profile) { this._renderClaim(); return; }
+        if (this._opts.only === 'window') {
+            this._paint(`${this._windowSection({ bare: true })}<div class="pce-msg" id="pce-msg" role="status"></div>`);
+            this._wire();
+            return;
+        }
 
         const p = this._profile;
         const { isPro } = this._opts;
@@ -238,10 +248,10 @@ export const PilotCardEditor = {
     // "Your flight window": the look everyone else sees when they open this
     // pilot's flight (supabase/sql/pilot-window-style.sql). A painted theme
     // for everyone; a colour, a photo, its dim and the Pro flair for Pro.
-    _windowSection() {
+    _windowSection({ bare = false } = {}) {
         const row = this._profile?.row || {};
         const { isPro } = this._opts;
-        const head = `<div class="pce-label pce-label-lg" id="pce-window-style">Your flight window</div>
+        const head = bare ? '' : `<div class="pce-label pce-label-lg" id="pce-window-style">Your flight window</div>
             <p class="pce-help pce-help-top">What other pilots see when they open your flight. They can switch pilots' styles off for themselves.</p>`;
         if (!('window_theme' in row)) {
             return head + '<p class="pce-help">Window styles are being switched on — check back soon.</p>';
@@ -433,10 +443,21 @@ export const PilotCardEditor = {
         if (kind === 'window' && !isPro) { this._say('A window photo is an Inflight Pro feature.', true); return; }
         await this._run(async () => {
             this._say('');
-            const data = await pickAndEncode(file, kind);
+            // The window photo is framed over a sketch of the flight window,
+            // with its Dim laid in the window colour others will see.
+            let dim = null;
+            const row = this._profile?.row || {};
+            const extra = kind === 'window' ? {
+                guide: 'window',
+                dim: { value: Number(row.window_bg_dim) || 60, rgb: rgbOf(row.window_color || '#16181c').join(',') },
+            } : {};
+            const data = await pickAndEncode(file, kind, extra, (d) => { dim = d; });
             if (!data) return;
             this._say(`Uploading your ${KIND_NAME[kind]}…`);
             await PilotProfiles.upload(supabase, kind, data);
+            if (kind === 'window' && dim != null && dim !== (Number(row.window_bg_dim) || 60)) {
+                await PilotProfiles.saveWindowStyle(supabase, { dim });
+            }
             this._profile = await PilotProfiles.mine(supabase);
             this._changed();
             this._render();

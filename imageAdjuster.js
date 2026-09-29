@@ -11,6 +11,16 @@
  *   const crop = await adjustImage(decoded, { shape: 'circle', aspect: 1 });
  *   // null when cancelled, else { sx, sy, sw, sh } in source pixels
  *
+ * Tall frames (aspect < 1, the flight window's photo) are sized to the screen
+ * height rather than the dialog width. Options for that case:
+ *
+ *   guide: 'window'   a faint sketch of the flight window over the frame,
+ *                     so the pilot can see where the text and cards sit
+ *   dim: { value, rgb } a Dim slider (20–90) laying the window colour over
+ *                     the picture, as the window will; the result carries
+ *                     the chosen value as crop.dim
+ *   start: { sx, sy, sw, sh }  open on an earlier crop, to re-adjust it
+ *
  * `decoded` is { width, height, source } where source is anything drawImage
  * takes (an ImageBitmap or a decoded <img>).
  */
@@ -20,7 +30,7 @@ const PREVIEW_LONGEST = 2048; // the on-screen copy; the upload uses the origina
 
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
-export function adjustImage(decoded, { shape = 'rect', aspect = 1, title = 'Adjust', saveLabel = 'Save' } = {}) {
+export function adjustImage(decoded, { shape = 'rect', aspect = 1, title = 'Adjust', saveLabel = 'Save', guide = null, dim = null, start = null } = {}) {
     injectStyles();
     return new Promise(resolve => {
         const { width: iw, height: ih } = decoded;
@@ -34,9 +44,14 @@ export function adjustImage(decoded, { shape = 'rect', aspect = 1, title = 'Adju
                     <strong>${title}</strong>
                     <button type="button" class="iadj-link iadj-save" data-act="save">${saveLabel}</button>
                 </div>
-                <div class="iadj-stage iadj-${shape}" style="aspect-ratio: ${aspect}" tabindex="0"
+                <div class="iadj-stage iadj-${shape}${aspect < 1 ? ' iadj-tall' : ''}" style="aspect-ratio: ${aspect}" tabindex="0"
                      aria-label="Drag to reposition. Arrow keys move, plus and minus zoom.">
                     <canvas class="iadj-img"></canvas>
+                    ${dim ? `<span class="iadj-tint" aria-hidden="true" style="--iadj-rgb: ${dim.rgb || '22,24,28'}"></span>` : ''}
+                    ${guide === 'window' ? `<span class="iadj-guide" aria-hidden="true">
+                        <i class="g-hero"></i><i class="g-title"></i><i class="g-sub"></i><i class="g-route"></i>
+                        <i class="g-card"></i><i class="g-card"></i><i class="g-card"></i><i class="g-card"></i>
+                    </span>` : ''}
                     <span class="iadj-frame" aria-hidden="true"></span>
                     <span class="iadj-grid" aria-hidden="true"></span>
                 </div>
@@ -48,6 +63,10 @@ export function adjustImage(decoded, { shape = 'rect', aspect = 1, title = 'Adju
                         <i class="fa-solid fa-rotate-left"></i><span>Reset</span>
                     </button>
                 </div>
+                ${dim ? `<label class="iadj-controls iadj-dim"><span>Dim</span>
+                    <input type="range" class="iadj-dim-range" min="20" max="90" step="5" value="${clamp(Number(dim.value) || 60, 20, 90)}" aria-label="Dim">
+                    <output>${clamp(Number(dim.value) || 60, 20, 90)}%</output></label>` : ''}
+                ${guide === 'window' ? `<label class="iadj-guide-toggle"><input type="checkbox" checked> Show where the window's text sits</label>` : ''}
                 <p class="iadj-hint">Drag to move · scroll, pinch or use the slider to zoom</p>
             </div>`;
         document.body.appendChild(overlay);
@@ -66,6 +85,20 @@ export function adjustImage(decoded, { shape = 'rect', aspect = 1, title = 'Adju
         // point at the frame's centre. Kept in source pixels so a resize or
         // rotation of the phone doesn't move anything.
         let zoom = 1, cx = iw / 2, cy = ih / 2;
+        let opened = !start;      // an earlier crop is applied on the first draw, once the frame has a size
+
+        const tint = overlay.querySelector('.iadj-tint');
+        const dimRange = overlay.querySelector('.iadj-dim-range');
+        const paintDim = () => {
+            if (!tint || !dimRange) return;
+            tint.style.opacity = String(Number(dimRange.value) / 100);
+            dimRange.parentElement.querySelector('output').textContent = dimRange.value + '%';
+        };
+        dimRange?.addEventListener('input', paintDim);
+        paintDim();
+        overlay.querySelector('.iadj-guide-toggle input')?.addEventListener('change', (e) => {
+            overlay.querySelector('.iadj-guide')?.classList.toggle('is-off', !e.target.checked);
+        });
 
         const frame = () => ({ W: stage.clientWidth, H: stage.clientHeight });
         const scale = () => { const { W, H } = frame(); return Math.max(W / iw, H / ih) * zoom; };
@@ -76,6 +109,16 @@ export function adjustImage(decoded, { shape = 'rect', aspect = 1, title = 'Adju
             cy = clamp(cy, hh, ih - hh);
         };
         const draw = () => {
+            if (!opened) {
+                const { W, H } = frame();
+                if (W && H && start.sw > 0 && start.sh > 0) {
+                    const base = Math.max(W / iw, H / ih);
+                    zoom = clamp((W / start.sw) / base, 1, MAX_ZOOM);
+                    cx = start.sx + start.sw / 2;
+                    cy = start.sy + start.sh / 2;
+                    opened = true;
+                }
+            }
             settle();
             const { W, H } = frame(), s = scale();
             const x = W / 2 - cx * s, y = H / 2 - cy * s;
@@ -164,6 +207,7 @@ export function adjustImage(decoded, { shape = 'rect', aspect = 1, title = 'Adju
                 crop = {
                     sx: clamp(cx - sw / 2, 0, iw - sw), sy: clamp(cy - sh / 2, 0, ih - sh), sw, sh,
                 };
+                if (dimRange) crop.dim = Number(dimRange.value);
             }
             overlay.remove();
             resolve(crop);
@@ -187,7 +231,8 @@ function injectStyles() {
     style.id = 'iadj-styles';
     style.textContent = `
         .iadj-overlay {
-            position: fixed; inset: 0; z-index: 100000; display: grid; place-items: center; padding: 16px;
+            /* Above every sheet that can open it, the first-run gate included. */
+            position: fixed; inset: 0; z-index: 2147483600; display: grid; place-items: center; padding: 16px;
             background: rgba(0,0,0,.72); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
         }
         .iadj {
@@ -201,6 +246,7 @@ function injectStyles() {
         }
         .iadj-head .iadj-link:first-child { justify-self: start; }
         .iadj-head .iadj-save { justify-self: end; font-weight: 700; }
+        .iadj-head strong { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .iadj-link {
             background: none; border: 0; color: #0a84ff; font: inherit; cursor: pointer;
             padding: 6px 4px; min-height: 36px;
@@ -210,6 +256,21 @@ function injectStyles() {
             cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; outline: none;
         }
         .iadj-stage.iadj-circle { width: min(360px, 100% - 32px); margin: 16px auto 0; border-radius: 12px; }
+        /* Tall frames fit the screen's height, not the dialog's width. */
+        .iadj-stage.iadj-tall { width: auto; height: min(56vh, 520px); max-width: calc(100% - 32px); margin: 16px auto 0; border-radius: 14px; }
+        .iadj-tint { position: absolute; inset: 0; pointer-events: none; background: rgb(var(--iadj-rgb)); }
+        .iadj-guide { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; gap: 3.2%; padding: 0 6% 6%; transition: opacity .2s ease; }
+        .iadj-guide.is-off { opacity: 0; }
+        .iadj-guide i { display: block; border-radius: 6px; background: rgba(255,255,255,.16); box-shadow: inset 0 0 0 1px rgba(255,255,255,.28); }
+        .iadj-guide .g-hero { height: 30%; margin: 0 -6.4%; border-radius: 0; background: none; box-shadow: inset 0 -1px 0 rgba(255,255,255,.35); }
+        .iadj-guide .g-title { height: 4.5%; width: 46%; }
+        .iadj-guide .g-sub { height: 2.4%; width: 30%; margin-top: -1.6%; }
+        .iadj-guide .g-route { height: 6%; border-radius: 999px; }
+        .iadj-guide .g-card { flex: 1; }
+        .iadj-dim { padding-top: 10px; font-size: .82rem; color: #c7c7cc; }
+        .iadj-dim output { width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+        .iadj-dim-range { flex: 1; min-width: 0; accent-color: #0a84ff; height: 28px; }
+        .iadj-guide-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 8px 16px 0; font-size: .78rem; color: #aeaeb2; cursor: pointer; }
         .iadj-stage:focus-visible { box-shadow: 0 0 0 2px #0a84ff inset; }
         .iadj-stage.is-dragging { cursor: grabbing; }
         .iadj-img { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
@@ -235,7 +296,7 @@ function injectStyles() {
             font: inherit; font-size: .8rem; cursor: pointer;
         }
         .iadj-hint { margin: 4px 16px 14px; font-size: .75rem; color: #8e8e93; text-align: center; }
-        @media (max-width: 480px) { .iadj-reset span { display: none; } }
+        @media (max-width: 480px) { .iadj-reset span { display: none; } .iadj-stage.iadj-tall { height: min(50vh, 460px); } }
     `;
     document.head.appendChild(style);
 }

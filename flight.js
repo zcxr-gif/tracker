@@ -13,6 +13,7 @@ import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
 import { PilotCardPrompt } from './pilotCardPrompt.js';
+import { adjustImage } from './imageAdjuster.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -25837,9 +25838,81 @@ async function saveHorizonCustomBg(blob) {
     return 'session';
 }
 
+/* The picture as picked, and how it was framed, so "Adjust" can reframe it
+ * from the original rather than re-cropping the crop. IndexedDB only, and
+ * best-effort: where it can't be kept, Adjust starts from the saved image. */
+const HORIZON_BG_SRC_MAX = 16 * 1024 * 1024;
+async function saveHorizonBgSource(file, crop) {
+    try {
+        if (!file || file.size > HORIZON_BG_SRC_MAX) { await HorizonBgStore.del('bg-src'); return; }
+        const buf = await blobToArrayBuffer(file);
+        const { sx, sy, sw, sh } = crop || {};
+        await HorizonBgStore.set('bg-src', { buf, type: file.type || 'image/jpeg', crop: crop ? { sx, sy, sw, sh } : null });
+    } catch (_) { /* Adjust falls back to the saved image */ }
+}
+async function getHorizonBgSource() {
+    const rec = await HorizonBgStore.get('bg-src');
+    return rec && rec.buf ? { blob: new Blob([rec.buf], { type: rec.type || 'image/jpeg' }), crop: rec.crop || null } : null;
+}
+
+async function decodeForAdjust(blob) {
+    if (typeof createImageBitmap === 'function') {
+        try {
+            const bm = await createImageBitmap(blob);
+            return { width: bm.width, height: bm.height, source: bm, close: () => bm.close && bm.close() };
+        } catch (_) { /* fall through to <img> */ }
+    }
+    const url = URL.createObjectURL(blob);
+    try {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        return { width: img.naturalWidth, height: img.naturalHeight, source: img, close() {} };
+    } catch (_) {
+        return null;
+    } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+}
+
+/* Frame a picture for the flight window: the tall adjuster, with a sketch of
+ * the window over it and the Dim slider laid in the window's own colour.
+ * Resolves to { blob, crop, dim }, null when cancelled, or { error }. */
+const WINDOW_IMAGE_ASPECT = 0.56;
+async function frameWindowImage(blob, { start = null, dim = null } = {}) {
+    const decoded = await decodeForAdjust(blob);
+    if (!decoded) return { error: 'That file couldn’t be read as an image. Try a JPEG or PNG.' };
+    try {
+        const mode = getFlightWindowMode();
+        const base = mode === 'horizon' ? getHorizonColor() : (WINDOW_STYLE_BASE[mode] || '#222225');
+        const f = (typeof mapFilters !== 'undefined') ? mapFilters : {};
+        const crop = await adjustImage(decoded, {
+            aspect: WINDOW_IMAGE_ASPECT,
+            title: 'Frame your image',
+            saveLabel: 'Use this',
+            guide: 'window',
+            dim: { value: dim != null ? dim : (Number(f.horizonBgDim) || 60), rgb: horizonTokens(base).bgRgb },
+            start,
+        });
+        if (!crop) return null;
+        const k = Math.min(1, 1440 / Math.max(crop.sw, crop.sh));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(crop.sw * k));
+        c.height = Math.max(1, Math.round(crop.sh * k));
+        const g = c.getContext('2d');
+        g.imageSmoothingQuality = 'high';
+        g.drawImage(decoded.source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, c.width, c.height);
+        const out = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.86));
+        return out ? { blob: out, crop, dim: crop.dim } : { error: 'That image couldn’t be saved. Try another.' };
+    } finally {
+        decoded.close();
+    }
+}
+
 async function removeHorizonCustomBg() {
     _horizonBgMemory = null;
     await HorizonBgStore.del('bg');
+    await HorizonBgStore.del('bg-src');
     try { localStorage.removeItem(HORIZON_BG_LS_KEY); } catch (_) {}
     if (_horizonCustomBgUrl && _horizonCustomBgUrl.startsWith('blob:')) URL.revokeObjectURL(_horizonCustomBgUrl);
     _horizonCustomBgUrl = null;
@@ -26214,7 +26287,7 @@ function buildHorizonBackgroundPicker(idPrefix) {
             }
             .sr-bg-seg button:hover { color: #e4e4e7; background: rgba(255,255,255,0.04); }
             .sr-bg-seg button.active { color: #fff; background: rgba(56,189,248,0.16); box-shadow: inset 0 0 0 1px rgba(56,189,248,0.45); }
-            .sr-bg-custom { display: none; align-items: center; gap: 10px; }
+            .sr-bg-custom { display: none; align-items: center; flex-wrap: wrap; gap: 10px; }
             .sr-bg-picker[data-mode="custom"] .sr-bg-custom { display: flex; }
             .sr-bg-thumb { width: 44px; height: 60px; border-radius: 8px; flex: 0 0 auto; background: #1f1f23 center / cover no-repeat; border: 1px solid rgba(255,255,255,0.12); }
             .sr-bg-btn {
@@ -26260,6 +26333,7 @@ function buildHorizonBackgroundPicker(idPrefix) {
             <span class="sr-bg-thumb"></span>
             <label class="sr-bg-btn"><i class="fa-solid fa-upload"></i><span>Choose image</span>
                 <input type="file" accept="image/*" id="${idPrefix}-horizon-bg-file" hidden></label>
+            <button type="button" class="sr-bg-btn sr-bg-adjust" hidden><i class="fa-solid fa-crop-simple"></i> Adjust</button>
             <button type="button" class="sr-bg-btn sr-bg-remove" hidden><i class="fa-solid fa-trash-can"></i> Remove</button>
         </div>
         <div class="sr-bg-note"></div>
@@ -26298,10 +26372,12 @@ function wireHorizonBackgroundPicker(root) {
     };
     box._paintShare = paintShare;
     paintShare();
+    const adjust = box.querySelector('.sr-bg-adjust');
     const paintCustom = async () => {
         const url = await getHorizonCustomBgUrl();
         thumb.style.backgroundImage = url ? `url("${url}")` : '';
         remove.hidden = !url;
+        if (adjust) adjust.hidden = !url;
     };
     const setMode = (m) => {
         box.dataset.mode = m;
@@ -26319,25 +26395,41 @@ function wireHorizonBackgroundPicker(root) {
         refreshOpenHorizonBackground();
         notifyWindowLookChanged();
     }));
-    box.querySelector('input[type="file"]').addEventListener('change', async (e) => {
-        const file = e.target.files && e.target.files[0];
-        e.target.value = '';
-        if (!file) return;
-        const src = URL.createObjectURL(file);
-        const blob = await processImageToBlob(src, { maxSide: 1440, quality: 0.85 });
-        URL.revokeObjectURL(src);
-        if (!blob) { note.textContent = 'That file couldn’t be read as an image. Try a JPEG or PNG.'; return; }
+    // Frame the picture, then keep it (and, where possible, the original).
+    const commit = async (framed, original) => {
+        if (!framed) return;
+        if (framed.error) { note.textContent = framed.error; return; }
         if (_horizonCustomBgUrl && _horizonCustomBgUrl.startsWith('blob:')) URL.revokeObjectURL(_horizonCustomBgUrl);
         _horizonCustomBgUrl = null;
-        const where = await saveHorizonCustomBg(blob);
+        const where = await saveHorizonCustomBg(framed.blob);
+        if (original) await saveHorizonBgSource(original, framed.crop);
         mapFilters.horizonBg = 'custom';
+        if (Number.isFinite(framed.dim)) mapFilters.horizonBgDim = framed.dim;
         save();
         // Any other mounted picker (the other screen's) shows the new image too.
         document.querySelectorAll('[data-sr-bg-picker]').forEach((b) => { if (b !== box && b._setMode) b._setMode(b.dataset.mode); });
         setMode('custom');
+        syncHorizonBackgroundPicker(box.parentElement || document);
         if (where === 'session') note.textContent = 'This browser won’t store images, so it’s shown until you close the app.';
         refreshOpenHorizonBackground();
         notifyWindowLookChanged();
+    };
+    box.querySelector('input[type="file"]').addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        await commit(await frameWindowImage(file), file);
+    });
+    adjust?.addEventListener('click', async () => {
+        const src = await getHorizonBgSource();
+        if (src) { await commit(await frameWindowImage(src.blob, { start: src.crop }), src.blob); return; }
+        // No original kept: reframe the saved image itself.
+        const url = await getHorizonCustomBgUrl();
+        if (!url) return;
+        try {
+            const blob = await (await fetch(url)).blob();
+            await commit(await frameWindowImage(blob), null);
+        } catch (_) { note.textContent = 'That image couldn’t be opened. Choose it again to reframe it.'; }
     });
     remove.addEventListener('click', async () => {
         await removeHorizonCustomBg();
@@ -26698,6 +26790,9 @@ function injectWindowLookStyles() {
         .wl-link i { font-size: 10px; opacity: 0.7; }
 
         .wl-mode-note { display: none; margin: 10px 0 0; font-size: 12px; line-height: 1.45; color: var(--wl-ui-dim); }
+        /* Compact: preview beside colour and background. */
+        .wl-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+        .wl-side .wl-group { margin: 0; padding: 0; border: 0; }
         @media (max-width: 480px) {
             /* Phones: the rows keep just the names; the chosen style's line sits under the preview. */
             .wl-top { grid-template-columns: 112px minmax(0, 1fr); gap: 12px; }
@@ -26718,28 +26813,41 @@ function injectWindowLookStyles() {
             .wl-style > i:first-child { width: 26px; height: 26px; font-size: 12px; }
             .wl-style-text b { font-size: 13.5px; }
             .wl-style-check { width: 18px; height: 18px; }
+            .wl-compact .wl-top { grid-template-columns: 1fr; }
+            .wl-compact .wl-pv-col { width: 132px; margin: 0 auto; }
+            .wl-compact .wl-pv { min-height: 0; height: 228px; flex: none; }
         }
         @media (prefers-reduced-motion: reduce) { .wl-pv, .wl-pv-img, .wl-pv-tint, .wl-style { transition: none; } }
     `;
     document.head.appendChild(st);
 }
 
-function buildWindowLookPanel(idPrefix) {
+// compact: no style list or saved setups — the preview beside colour and
+// background, for the first-run "Make it yours" step (the style was just
+// picked on the step before).
+function buildWindowLookPanel(idPrefix, { compact = false } = {}) {
     injectWindowLookStyles();
     const mode = getFlightWindowMode();
+    const colorGroup = `<div class="wl-group" data-wl-group="color">
+            <div class="wl-label"><span>Horizon colour</span><small>Text and panels adjust to stay readable.</small></div>
+            ${buildHorizonColorPicker(idPrefix)}
+        </div>`;
+    const bgGroup = `<div class="wl-group">
+            <div class="wl-label"><span>Background</span><small>Behind every window style — in the windows you open.</small></div>
+            ${buildHorizonBackgroundPicker(idPrefix)}
+        </div>`;
+    if (compact) {
+        return `<div class="wl wl-compact" data-wl data-mode="${mode}">
+            <div class="wl-top">
+                <div class="wl-pv-col">${windowLookPreviewHtml(mode)}<div class="wl-pv-cap">Preview</div></div>
+                <div class="wl-side">${colorGroup}${bgGroup}</div>
+            </div>
+        </div>`;
+    }
     return `<div class="wl" data-wl data-mode="${mode}">
         <div class="wl-top">
             <div class="wl-pv-col">
-                <div class="wl-pv" data-wl-preview data-style="${mode}" aria-hidden="true">
-                    <div class="wl-pv-img"></div>
-                    <div class="wl-pv-tint"></div>
-                    <div class="wl-pv-body">
-                        <div class="wl-pv-hero"></div>
-                        <div class="wl-pv-head"><b>DAL41</b><span>Delta · A350-900</span></div>
-                        <div class="wl-pv-route"><b>KLAX</b><i></i><b>KJFK</b></div>
-                        <div class="wl-pv-tiles"><span></span><span></span><span></span><span></span><span></span><span></span></div>
-                    </div>
-                </div>
+                ${windowLookPreviewHtml(mode)}
                 <div class="wl-pv-cap">Preview</div>
             </div>
             <div class="wl-styles" role="radiogroup" aria-label="Flight window style">
@@ -26752,17 +26860,24 @@ function buildWindowLookPanel(idPrefix) {
             </div>
         </div>
         <p class="wl-mode-note" data-wl-note>${(WINDOW_STYLE_INFO.find((s) => s.mode === mode) || {}).desc || ''}</p>
-        <div class="wl-group" data-wl-group="color">
-            <div class="wl-label"><span>Horizon colour</span><small>Text and panels adjust to stay readable.</small></div>
-            ${buildHorizonColorPicker(idPrefix)}
-        </div>
-        <div class="wl-group">
-            <div class="wl-label"><span>Background</span><small>Behind every window style — in the windows you open.</small></div>
-            ${buildHorizonBackgroundPicker(idPrefix)}
-        </div>
+        ${colorGroup}
+        ${bgGroup}
         <div class="wl-group">
             <div class="wl-label"><span>Saved setups</span></div>
             ${buildWindowSetups()}
+        </div>
+    </div>`;
+}
+
+function windowLookPreviewHtml(mode) {
+    return `<div class="wl-pv" data-wl-preview data-style="${mode}" aria-hidden="true">
+        <div class="wl-pv-img"></div>
+        <div class="wl-pv-tint"></div>
+        <div class="wl-pv-body">
+            <div class="wl-pv-hero"></div>
+            <div class="wl-pv-head"><b>DAL41</b><span>Delta · A350-900</span></div>
+            <div class="wl-pv-route"><b>KLAX</b><i></i><b>KJFK</b></div>
+            <div class="wl-pv-tiles"><span></span><span></span><span></span><span></span><span></span><span></span></div>
         </div>
     </div>`;
 }

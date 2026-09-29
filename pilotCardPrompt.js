@@ -22,7 +22,7 @@ const FIRST_DELAY_MS = 4000;    // after the map is ready
 const RETRY_MS = 4000;          // while something else is on screen
 const GIVE_UP_MS = 120000;      // try again next visit instead
 const PILLS = '#open-auth-btn, #ios-profile-btn';   // desktop nav pill, phone profile orb
-const BLOCKERS = '#fre-overlay, #fre-window-demo, .cl-overlay, #auth-modal-overlay.open, .iadj-overlay';
+const BLOCKERS = '#fre-overlay, #fre-window-demo, .cl-overlay, #auth-modal-overlay.open, .iadj-overlay, .acs-overlay';
 
 function wasSeen(userId) {
     try { return localStorage.getItem(SEEN_PREFIX + userId) === '1'; } catch (_) { return false; }
