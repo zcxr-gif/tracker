@@ -26680,10 +26680,10 @@ if (typeof window !== 'undefined') window.addEventListener('preferencesRestored'
  * leaves one showing stale values.
  */
 const WINDOW_STYLE_INFO = [
-    { mode: 'legacy', icon: 'fa-layer-group', name: 'Legacy', desc: 'The full window — every panel and number.' },
+    { mode: 'legacy', icon: 'fa-layer-group', name: 'Legacy', desc: 'The full window, instruments and all.' },
     { mode: 'horizon', icon: 'fa-sun', name: 'Horizon', desc: 'Legacy in a calmer skin, in your colour.' },
-    { mode: 'simple', icon: 'fa-window-maximize', name: 'Simple', desc: 'A compact sheet with the essentials.' },
-    { mode: 'embed', icon: 'fa-id-card', name: 'Card', desc: 'A photo-led flight card.' },
+    { mode: 'simple', icon: 'fa-window-maximize', name: 'Simple', desc: 'Clean cards: route, times and live numbers.' },
+    { mode: 'embed', icon: 'fa-id-card', name: 'Card', desc: 'Photo first, like the cards you share.' },
 ];
 // Each style's own window colour (Horizon's is the user's).
 const WINDOW_STYLE_BASE = { legacy: '#222225', simple: '#18181b', embed: '#1a1a1e' };
@@ -26708,62 +26708,17 @@ function injectWindowLookStyles() {
         .wl-pv-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
         .wl-pv-cap { text-align: center; font-size: 11px; color: var(--wl-ui-dim); letter-spacing: 0.02em; }
 
-        /* ---- Live preview: a small flight window ---- */
+        /* ---- Live preview: a real flight window, in miniature ----
+           The window is drawn at its own width (360px, see windowMockHtml)
+           and scaled to fit, so type, spacing and proportions are the real
+           ones. */
         .wl-pv {
-            position: relative; flex: 1; min-height: 236px; overflow: hidden; isolation: isolate;
-            border-radius: 14px; color: var(--wl-text); background: rgb(var(--wl-bg-rgb));
+            position: relative; flex: 1; min-height: 250px; overflow: hidden; isolation: isolate;
+            border-radius: 14px; background: #18181b;
             box-shadow: 0 12px 28px rgba(0,0,0,0.38), inset 0 0 0 1px rgba(255,255,255,0.08);
-            transition: background-color .3s ease, color .3s ease;
         }
-        .wl-pv-img, .wl-pv-tint { position: absolute; inset: 0; pointer-events: none; }
-        .wl-pv-img { z-index: 0; background: var(--wl-img, none) center / cover no-repeat; opacity: 0; transition: opacity .35s ease; }
-        .wl-pv.has-img .wl-pv-img { opacity: 1; }
-        .wl-pv.img-blur .wl-pv-img { filter: blur(9px) saturate(1.15); transform: scale(1.2); }
-        .wl-pv-tint { z-index: 1; background: rgba(var(--wl-bg-rgb), var(--wl-dim, 1)); transition: background-color .3s ease; }
-        .wl-pv-body { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; gap: 7px; padding-bottom: 10px; box-sizing: border-box; }
-        .wl-pv-hero { flex: 0 0 auto; height: 36%; min-height: 64px; background: var(--wl-photo) center / cover no-repeat; }
-        .wl-pv.has-img .wl-pv-hero {
-            -webkit-mask-image: linear-gradient(180deg, #000 0, #000 55%, transparent 100%);
-            mask-image: linear-gradient(180deg, #000 0, #000 55%, transparent 100%);
-        }
-        .wl-pv-head { display: flex; flex-direction: column; gap: 1px; padding: 0 10px; min-width: 0; }
-        .wl-pv-head b { font-size: 13px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; }
-        .wl-pv-head span { font-size: 8.5px; color: var(--wl-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .wl-pv-route {
-            display: flex; align-items: center; gap: 6px; margin: 0 10px; padding: 6px 8px; border-radius: 8px;
-            font-size: 8.5px; font-weight: 700; letter-spacing: 0.04em; background: var(--wl-surface-hi);
-        }
-        .wl-pv-route i { position: relative; flex: 1; height: 2px; border-radius: 2px; background: var(--wl-line); }
-        .wl-pv-route i::after { content: ''; position: absolute; inset: 0 38% 0 0; border-radius: 2px; background: var(--wl-accent); }
-        .wl-pv-tiles { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(0, 1fr); gap: 5px; margin: 0 10px; }
-        .wl-pv-tiles span { position: relative; min-height: 16px; border-radius: 7px; background: var(--wl-surface); }
-        .wl-pv-tiles span::before, .wl-pv-tiles span::after { content: ''; position: absolute; left: 7px; height: 3px; border-radius: 2px; background: var(--wl-faint); }
-        .wl-pv-tiles span::before { top: 7px; width: 34%; }
-        .wl-pv-tiles span::after { top: 14px; width: 52%; height: 5px; background: var(--wl-muted); opacity: 0.8; }
-        .wl-pv-tiles span:nth-child(n+5) { display: none; }
-        /* Legacy: square-cut, the callsign on the photo, a solid route band. */
-        .wl-pv[data-style="legacy"] { border-radius: 10px; }
-        .wl-pv[data-style="legacy"] .wl-pv-head { margin-top: -34px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
-        .wl-pv[data-style="legacy"] .wl-pv-head span { color: rgba(255,255,255,0.8); }
-        .wl-pv[data-style="legacy"] .wl-pv-route { margin: 2px 0 0; border-radius: 0; background: rgba(0,0,0,0.28); }
-        .wl-pv[data-style="legacy"] .wl-pv-tiles span { border-radius: 4px; }
-        .wl-pv[data-style="legacy"] .wl-pv-tiles span:nth-child(n+5) { display: block; }
-        /* Horizon: soft, generous, the accent carried by the progress line. */
-        .wl-pv[data-style="horizon"] .wl-pv-head b { font-size: 15px; }
-        .wl-pv[data-style="horizon"] .wl-pv-route { border-radius: 999px; padding: 6px 10px; }
-        .wl-pv[data-style="horizon"] .wl-pv-tiles span { border-radius: 10px; }
-        /* Simple: a compact sheet — thumbnail, three big figures. */
-        .wl-pv[data-style="simple"] .wl-pv-hero { height: 44px; min-height: 0; margin: 10px 10px 0; border-radius: 8px; -webkit-mask-image: none; mask-image: none; }
-        .wl-pv[data-style="simple"] .wl-pv-tiles { flex: 0 0 38px; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 38px; }
-        .wl-pv[data-style="simple"] .wl-pv-tiles span:nth-child(n+4) { display: none; }
-        /* Card: the photo inset in a card, rows beneath. */
-        .wl-pv[data-style="embed"] .wl-pv-hero { margin: 8px 8px 0; border-radius: 9px; height: 34%; -webkit-mask-image: none; mask-image: none; }
-        .wl-pv[data-style="embed"] .wl-pv-route { background: transparent; padding: 2px 0; margin: 0 10px; font-size: 11px; }
-        .wl-pv[data-style="embed"] .wl-pv-tiles { grid-template-columns: 1fr; gap: 0; }
-        .wl-pv[data-style="embed"] .wl-pv-tiles span { background: transparent; border-radius: 0; border-top: 1px solid var(--wl-line); }
-        .wl-pv[data-style="embed"] .wl-pv-tiles span::after { left: auto; right: 7px; top: 50%; width: 26%; margin-top: -2px; height: 4px; }
-        .wl-pv[data-style="embed"] .wl-pv-tiles span::before { top: 50%; margin-top: -1.5px; }
-
+        .wl-pv::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); pointer-events: none; z-index: 5; }
+        .wl-pv .wm-fit { position: absolute; left: 0; top: 0; width: 360px; transform-origin: 0 0; transform: scale(var(--wm-k, 0.45)); pointer-events: none; }
         /* ---- Style choice ---- */
         .wl-styles { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
         .wl-style {
@@ -26813,18 +26768,13 @@ function injectWindowLookStyles() {
         @media (max-width: 480px) {
             /* Phones: the rows keep just the names; the chosen style's line sits under the preview. */
             .wl-top { grid-template-columns: 112px minmax(0, 1fr); gap: 12px; }
-            .wl-pv { min-height: 200px; }
+            .wl-pv { min-height: 210px; }
             .wl-style-text small { display: none; }
             .wl-mode-note { display: block; }
             .wl .sr-color-row { gap: 6px; }
             .wl .sr-swatch { width: 28px; height: 28px; }
             .wl .sr-bg-seg button { padding: 8px 4px; font-size: 0.78rem; }
             .wl .sr-bg-seg button i { display: none; }
-            .wl-pv-body { gap: 6px; }
-            .wl-pv-hero { min-height: 52px; }
-            .wl-pv-head b { font-size: 11.5px; }
-            .wl-pv[data-style="horizon"] .wl-pv-head b { font-size: 13px; }
-            .wl-pv[data-style="legacy"] .wl-pv-head { margin-top: -30px; }
             .wl-styles { gap: 5px; }
             .wl-style { flex: 1; padding: 8px 10px; gap: 10px; border-radius: 11px; }
             .wl-style > i:first-child { width: 26px; height: 26px; font-size: 12px; }
@@ -26834,7 +26784,7 @@ function injectWindowLookStyles() {
             .wl-compact .wl-pv-col { width: 132px; margin: 0 auto; }
             .wl-compact .wl-pv { min-height: 0; height: 228px; flex: none; }
         }
-        @media (prefers-reduced-motion: reduce) { .wl-pv, .wl-pv-img, .wl-pv-tint, .wl-style { transition: none; } }
+        @media (prefers-reduced-motion: reduce) { .wl-style { transition: none; } }
     `;
     document.head.appendChild(st);
 }
@@ -26887,16 +26837,300 @@ function buildWindowLookPanel(idPrefix, { compact = false } = {}) {
 }
 
 function windowLookPreviewHtml(mode) {
-    return `<div class="wl-pv" data-wl-preview data-style="${mode}" aria-hidden="true">
-        <div class="wl-pv-img"></div>
-        <div class="wl-pv-tint"></div>
-        <div class="wl-pv-body">
-            <div class="wl-pv-hero"></div>
-            <div class="wl-pv-head"><b>DAL41</b><span>Delta · A350-900</span></div>
-            <div class="wl-pv-route"><b>KLAX</b><i></i><b>KJFK</b></div>
-            <div class="wl-pv-tiles"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    return `<div class="wl-pv" data-wl-preview data-style="${mode}" aria-hidden="true"><div class="wm-fit">${windowMockHtml(mode)}</div></div>`;
+}
+
+/* ---- The flight windows, in miniature ----
+ *
+ * One small, static copy of each real window — Legacy and Horizon (the
+ * native window, flight.js), Simple (flightinfo.html) and Card
+ * (embed-flight.html) — with the same layout, type and colours, laid out at
+ * 360px and scaled down by whoever shows it. The look is applied with CSS
+ * variables: --wm-base / --wm-tint (the window colour), --wm-img and
+ * --wm-dim (the background image), and Horizon's text tokens.
+ */
+const WINDOW_MOCK_WIDTH = 360;
+// Each style's own colours: solid when there is no image, and the tint laid
+// over an image (the values the real windows use for their glass).
+const WINDOW_MOCK_BASE = {
+    legacy: { solid: '#3a3a3a', tint: '34,34,37' },
+    simple: { solid: '#18181b', tint: '24,24,27' },
+    embed: { solid: '#1a1a1e', tint: '26,26,30' },
+};
+
+function injectWindowMockStyles() {
+    if (document.getElementById('wm-style')) return;
+    const st = document.createElement('style');
+    st.id = 'wm-style';
+    const P = WINDOW_PREVIEW_PHOTO;
+    st.textContent = `
+        .wm {
+            --wm-card: rgba(255,255,255,0.05); --wm-line: rgba(255,255,255,0.1);
+            position: relative; width: ${WINDOW_MOCK_WIDTH}px; min-height: 900px; overflow: hidden; box-sizing: border-box;
+            background: var(--wm-base, #18181b); color: #fff; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            -webkit-font-smoothing: antialiased; text-align: left; line-height: 1.25;
+        }
+        .wm * { box-sizing: border-box; }
+        .wm .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .wm-bg, .wm-tint { position: absolute; inset: 0; pointer-events: none; }
+        .wm-bg { background: var(--wm-img) center / cover no-repeat; display: none; }
+        .wm.has-img .wm-bg { display: block; }
+        .wm.img-blur .wm-bg { filter: blur(22px) saturate(1.15); transform: scale(1.15); }
+        .wm-tint { display: none; background: rgba(var(--wm-tint), var(--wm-dim, 0.6)); }
+        .wm.has-img .wm-tint { display: block; }
+        .wm.has-img { background: #111; --wm-card: rgba(var(--wm-tint), 0.62); }
+        .wm > :not(.wm-bg):not(.wm-tint) { position: relative; }
+        .wm-photo { background: url("${P}") center / cover no-repeat; }
+        .wm-btn { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 13px;
+            background: rgba(18,20,24,0.4); border: 1px solid rgba(255,255,255,0.16); color: rgba(255,255,255,0.92); }
+
+        /* Legacy */
+        .wmL-hero { height: 230px; display: flex; flex-direction: column; }
+        .wmL-hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(var(--wm-fade),0.18) 62%, rgba(var(--wm-fade),0.72) 88%, rgb(var(--wm-fade)) 100%); }
+        .wm.has-img .wmL-hero { -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent); mask-image: linear-gradient(180deg, #000 55%, transparent); }
+        .wm.has-img .wmL-hero::after { display: none; }
+        .wmL-top { position: relative; z-index: 1; padding: 20px 20px 0 24px; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+        .wmL-top h1 { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
+        .wmL-sub { margin-top: 6px; font-size: 11px; font-weight: 500; color: #cbd5e1; display: flex; gap: 8px; align-items: center; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+        .wmL-sub i { width: 3px; height: 3px; border-radius: 50%; background: #94a3b8; }
+        .wmL-btns { display: flex; gap: 6px; }
+        .wmL-route { margin: -32px 16px 0; padding: 14px 18px; border-radius: 12px; background: var(--wm-legacy-card, #3a3a3a); border: 1px solid rgba(255,255,255,0.1);
+            display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .wm.has-img .wmL-route { background: rgba(34,34,37,0.62); }
+        .wmL-node { display: flex; flex-direction: column; gap: 1px; }
+        .wmL-node.end { align-items: flex-end; text-align: right; }
+        .wmL-node small { font-size: 8.5px; font-weight: 600; color: #94a3b8; text-transform: uppercase; }
+        .wmL-node b { font-size: 20px; font-weight: 800; line-height: 1.1; }
+        .wmL-node span { font-size: 10.5px; font-weight: 600; color: #4ade80; }
+        .wmL-mid { flex: 1; max-width: 150px; display: flex; flex-direction: column; }
+        .wmL-phase { display: flex; align-items: center; justify-content: center; gap: 5px; margin-bottom: 8px; font-size: 9px; font-weight: 800; letter-spacing: 0.6px; }
+        .wmL-phase i { width: 6px; height: 6px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
+        .wmL-track { height: 4px; border-radius: 4px; background: rgba(255,255,255,0.1); }
+        .wmL-track span { display: block; position: relative; width: 58%; height: 100%; border-radius: 4px; background: #38bdf8; }
+        .wmL-track span i { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); font-size: 10px; color: #fff; filter: drop-shadow(0 0 4px #38bdf8); }
+        .wmL-dist { display: flex; justify-content: space-between; margin-top: 6px; font-size: 9px; font-weight: 700; color: #cbd5e1; }
+        .wmL-tabs { padding: 16px 16px 8px; display: flex; gap: 12px; align-items: center; }
+        .wmL-switch { flex: 1; display: flex; padding: 4px; border-radius: 12px; background: rgba(36,39,47,0.95); border: 1px solid rgba(255,255,255,0.06); }
+        .wm.has-img .wmL-switch { background: rgba(34,34,37,0.6); }
+        .wmL-switch > span { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 34px; border-radius: 9px; font-size: 10px; font-weight: 700; color: #cbd5e1; }
+        .wmL-switch > span.on { background: #3a3f4a; color: #fff; border: 1px solid rgba(255,255,255,0.08); }
+        .wmL-av { width: 20px; height: 20px; border-radius: 50%; background: #4a505c; display: grid; place-items: center; font-size: 8px; font-weight: 800; color: #fff; }
+        .wmL-pfd { margin: 6px 16px 0; height: 300px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); background: #0b0f17; }
+        .wmL-att { position: absolute; left: 54px; right: 54px; top: 20px; bottom: 56px; border-radius: 8px; overflow: hidden;
+            background: linear-gradient(180deg, #2f7fd0 0%, #3b8fdc 49.6%, #fff 49.6%, #fff 50.4%, #8a5a2b 50.4%, #6f4520 100%); }
+        .wmL-att::before { content: ''; position: absolute; left: 50%; top: 50%; width: 80px; height: 4px; margin: -2px 0 0 -40px; background: #facc15; box-shadow: 0 0 0 1px #000; }
+        .wmL-att::after { content: ''; position: absolute; left: 50%; top: 30%; width: 40px; height: 2px; margin-left: -20px; background: rgba(255,255,255,0.8); box-shadow: 0 16px 0 rgba(255,255,255,0.8), 0 60px 0 rgba(255,255,255,0.8), 0 76px 0 rgba(255,255,255,0.8); }
+        .wmL-tape { position: absolute; top: 20px; bottom: 56px; width: 42px; border-radius: 6px; background: rgba(40,44,52,0.9); display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; }
+        .wmL-tape.l { left: 8px; } .wmL-tape.r { right: 8px; }
+        .wmL-tape b { padding: 3px 4px; border: 1px solid #fff; border-radius: 3px; background: #000; font-size: 10px; }
+        .wmL-hdg { position: absolute; left: 70px; right: 70px; bottom: 12px; height: 30px; border-radius: 15px 15px 0 0; background: rgba(40,44,52,0.9); display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+
+        /* Horizon */
+        .wm-horizon { color: var(--wm-text); }
+        .wmH-hero { height: 206px; }
+        .wmH-hero .wm-photo { position: absolute; inset: 0; -webkit-mask-image: linear-gradient(180deg, #000 45%, transparent); mask-image: linear-gradient(180deg, #000 45%, transparent); }
+        .wmH-credit { position: absolute; top: 16px; left: 16px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; color: rgba(255,255,255,0.86); background: rgba(12,14,18,0.34); }
+        .wmH-btns { position: absolute; top: 14px; right: 14px; display: flex; gap: 6px; }
+        .wmH-id { padding: 0 20px 12px; margin-top: -30px; }
+        .wmH-eyebrow { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--wm-muted); }
+        .wmH-logo { width: 22px; height: 22px; border-radius: 6px; background: #fff; display: grid; place-items: center; color: #c8102e; font-size: 11px; font-weight: 900; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+        .wmH-id h1 { margin: 5px 0 0; font-size: 21px; font-weight: 600; letter-spacing: -0.01em; color: var(--wm-text); }
+        .wmH-route { margin: 0 20px; display: flex; flex-direction: column; gap: 8px; }
+        .wmH-ends { display: flex; justify-content: space-between; }
+        .wmH-ends div { display: flex; flex-direction: column; gap: 1px; }
+        .wmH-ends div:last-child { align-items: flex-end; }
+        .wmH-ends b { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; }
+        .wmH-ends small { font-size: 10px; color: var(--wm-muted); }
+        .wmH-line { height: 3px; border-radius: 3px; background: var(--wm-line); }
+        .wmH-line span { display: block; position: relative; width: 58%; height: 100%; border-radius: 3px; background: var(--wm-accent); }
+        .wmH-line span i { position: absolute; right: -7px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--wm-accent); }
+        .wmH-times { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--wm-muted); }
+        .wmH-tabs { margin: 16px 16px 8px; display: flex; padding: 4px; border-radius: 999px; background: var(--wm-surface-hi); }
+        .wmH-tabs span { flex: 1; height: 32px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 10.5px; font-weight: 600; color: var(--wm-muted); }
+        .wmH-tabs span.on { background: var(--wm-surface-hi); color: var(--wm-text); box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+        .wmH-glance { margin: 8px 16px 0; padding: 14px 12px; border-radius: 16px; background: var(--wm-surface); display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .wm.has-img .wmH-glance, .wm.has-img .wmH-status { background: rgba(var(--wm-tint), 0.45); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+        .wmH-glance div { display: flex; flex-direction: column; gap: 4px; }
+        .wmH-glance small { font-size: 9px; font-weight: 600; letter-spacing: 0.08em; color: var(--wm-faint); }
+        .wmH-glance b { font-size: 14px; font-weight: 600; }
+        .wmH-status { margin: 10px 16px 0; padding: 14px; border-radius: 16px; background: var(--wm-surface); display: flex; align-items: center; justify-content: space-between; }
+        .wmH-status b { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
+        .wmH-status b i { width: 7px; height: 7px; border-radius: 50%; background: var(--wm-accent); }
+        .wmH-status span { font-size: 11px; color: var(--wm-muted); }
+        .wmH-cards { margin: 10px 16px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .wmH-cards div { height: 86px; border-radius: 16px; background: var(--wm-surface); }
+
+        /* Simple (flightinfo.html) */
+        .wmS-top { padding: 18px 18px 14px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .wmS-top h1 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+        .wmS-pilot { margin-top: 4px; display: flex; align-items: center; gap: 7px; font-size: 11px; color: #d4d4d8; }
+        .wmS-pilot i { width: 18px; height: 18px; border-radius: 50%; background: #3f3f46; }
+        .wmS-pilot em { font-style: normal; font-size: 9px; font-weight: 800; letter-spacing: 0.06em; color: #4ade80; border: 1px solid rgba(74,222,128,0.4); background: rgba(74,222,128,0.12); padding: 1px 5px; border-radius: 4px; }
+        .wmS-acts { display: flex; gap: 10px; align-items: center; }
+        .wmS-round { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); font-size: 13px; }
+        .wmS-pill { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: #38bdf8; background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.35); }
+        .wmS-pill i { width: 6px; height: 6px; border-radius: 50%; background: #38bdf8; }
+        .wmS-card { margin: 0 8px 12px; border-radius: 16px; background: var(--wm-card); border: 1px solid var(--wm-line); }
+        .wmS-photo { margin: 0 8px 12px; height: 156px; border-radius: 16px; overflow: hidden; border: 1px solid var(--wm-line); }
+        .wmS-photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 45%, rgba(0,0,0,0.6)); }
+        .wmS-chip { position: absolute; z-index: 1; padding: 3px 8px; border-radius: 7px; font-size: 9.5px; font-weight: 600; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.18); }
+        .wmS-type { position: absolute; z-index: 1; left: 16px; bottom: 14px; }
+        .wmS-type b { display: block; font-size: 17px; font-weight: 700; }
+        .wmS-type small { font-size: 11px; color: #d4d4d8; }
+        .wmS-reg { position: absolute; z-index: 1; right: 14px; bottom: 14px; padding: 6px 10px; border-radius: 7px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.2); }
+        .wmS-route { padding: 18px 18px 14px; display: flex; align-items: center; justify-content: space-between; }
+        .wmS-route div { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .wmS-route b { font-size: 38px; font-weight: 800; line-height: 1; }
+        .wmS-route small { font-size: 10px; font-weight: 700; color: #a1a1aa; letter-spacing: 0.04em; }
+        .wmS-plane { width: 34px; height: 34px; border-radius: 50%; background: #38bdf8; display: grid; place-items: center; color: #fff; font-size: 14px; }
+        .wmS-times { display: grid; grid-template-columns: 1fr 1fr; }
+        .wmS-times div { padding: 16px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--wm-line); }
+        .wmS-times div:nth-child(odd) { border-right: 1px solid var(--wm-line); }
+        .wmS-times div:nth-last-child(-n+2) { border-bottom: 0; }
+        .wmS-times small { font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em; color: #71717a; }
+        .wmS-times b { font-size: 15px; font-weight: 700; }
+        .wmS-prog { padding: 16px 16px 14px; }
+        .wmS-bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,0.12); }
+        .wmS-bar span { display: block; position: relative; width: 58%; height: 100%; border-radius: 4px; background: #38bdf8; }
+        .wmS-bar span i { position: absolute; right: -8px; top: 50%; transform: translateY(-50%); color: #38bdf8; font-size: 15px; }
+        .wmS-dist { display: flex; justify-content: space-between; margin-top: 10px; font-size: 11px; color: #a1a1aa; }
+        .wmS-plan { padding: 13px; text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #d4d4d8; }
+        .wmS-sec { margin: 16px 12px 8px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; color: #52525b; }
+        .wmS-tele { margin: 0 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .wmS-tele div { padding: 16px; border-radius: 12px; background: var(--wm-card); border: 1px solid var(--wm-line); }
+        .wmS-tele small { display: block; font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; color: #a1a1aa; margin-bottom: 14px; }
+        .wmS-tele b { font-size: 22px; font-weight: 700; }
+        .wmS-tele em { font-style: normal; font-size: 11px; color: #52525b; }
+
+        /* Card (embed-flight.html) */
+        .wmC-photo { height: 200px; }
+        .wmC-photo .wm-photo { position: absolute; inset: 0; }
+        .wmC-photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgba(var(--wm-fade),1)); }
+        .wm.has-img .wmC-photo::after { display: none; }
+        .wm.has-img .wmC-photo .wm-photo { -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent); mask-image: linear-gradient(180deg, #000 55%, transparent); }
+        .wmC-share { position: absolute; top: 12px; left: 12px; z-index: 1; }
+        .wmC-credit { position: absolute; z-index: 1; right: 12px; bottom: 10px; padding: 3px 8px; border-radius: 6px; font-size: 9px; font-weight: 600; background: rgba(0,0,0,0.55); }
+        .wmC-id { padding: 20px 16px 0; text-align: center; }
+        .wmC-id h1 { margin: 0; font-size: 23px; font-weight: 800; }
+        .wmC-id div { margin-top: 3px; font-size: 13px; color: #d4d4d8; }
+        .wmC-id small { font-size: 11px; color: #71717a; }
+        .wmC-acts { margin: 16px 12px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .wmC-acts span { height: 56px; border-radius: 12px; background: rgba(255,255,255,0.08); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; font-size: 12px; font-weight: 700; }
+        .wmC-acts span.primary { background: #fff; color: #111; }
+        .wmC-pilot { margin: 24px 12px 0; padding: 12px; border-radius: 12px; background: var(--wm-card); display: flex; align-items: center; gap: 12px; }
+        .wmC-pilot i { width: 38px; height: 38px; border-radius: 50%; background: #3f3f46; display: grid; place-items: center; font-style: normal; font-size: 11px; font-weight: 800; border: 1.5px solid rgba(255,255,255,0.5); }
+        .wmC-pilot b { flex: 1; font-size: 12px; letter-spacing: 0.06em; }
+        .wmC-pilot small { font-size: 8.5px; font-weight: 700; letter-spacing: 0.08em; color: #d4d4d8; }
+        .wmC-stats { margin: 22px 12px 0; display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; }
+        .wmC-stats small { display: block; font-size: 12px; color: #a1a1aa; margin-bottom: 3px; }
+        .wmC-stats b { font-size: 15px; font-weight: 700; }
+        .wmC-stats b.ok { color: #22c55e; }
+        .wmC-h { margin: 22px 14px 10px; font-size: 17px; font-weight: 700; }
+        .wmC-route { margin: 0 12px; padding: 18px 16px; border-radius: 14px; background: var(--wm-card); border: 1px solid var(--wm-line); display: flex; align-items: center; justify-content: space-between; }
+        .wmC-route div { display: flex; flex-direction: column; align-items: center; }
+        .wmC-route b { font-size: 30px; font-weight: 800; }
+        .wmC-route small { font-size: 9px; font-weight: 700; color: #a1a1aa; }
+        .wmC-route i { width: 32px; height: 32px; border-radius: 50%; background: #fff; color: #111; display: grid; place-items: center; font-size: 13px; }
+    `;
+    document.head.appendChild(st);
+}
+
+function windowMockHtml(mode) {
+    injectWindowMockStyles();
+    const plane = '<i class="fa-solid fa-plane"></i>';
+    const layers = '<div class="wm-bg"></div><div class="wm-tint"></div>';
+    if (mode === 'horizon') {
+        return `<div class="wm wm-horizon">${layers}
+            <div class="wmH-hero"><div class="wm-photo"></div><span class="wmH-credit">© Contributor</span>
+                <div class="wmH-btns"><span class="wm-btn"><i class="fa-solid fa-thumbtack"></i></span><span class="wm-btn"><i class="fa-solid fa-circle-play"></i></span><span class="wm-btn"><i class="fa-solid fa-camera"></i></span></div></div>
+            <div class="wmH-id"><div class="wmH-eyebrow"><span class="wmH-logo">▲</span><span>Delta</span><span>·</span><span>A350-900</span></div><h1>DAL41</h1></div>
+            <div class="wmH-route">
+                <div class="wmH-ends"><div><b>KLAX</b><small>Los Angeles</small></div><div><b>KJFK</b><small>New York</small></div></div>
+                <div class="wmH-line"><span>${plane}</span></div>
+                <div class="wmH-times"><span>14:05 Z</span><span>21:40 Z</span></div>
+            </div>
+            <div class="wmH-tabs"><span class="on"><i class="fa-solid fa-gauge-high"></i> Flight Display</span><span>JANE_DOE</span></div>
+            <div class="wmH-glance">
+                <div><small>ALT</small><b>36,000</b></div><div><small>SPEED</small><b>482 kt</b></div><div><small>V/S</small><b>0</b></div><div><small>HDG</small><b>072°</b></div>
+            </div>
+            <div class="wmH-status"><b><i></i>CRUISE</b><span>2h 55m flown · 2h 10m to go</span></div>
+            <div class="wmH-cards"><div></div><div></div></div>
+        </div>`;
+    }
+    if (mode === 'simple') {
+        return `<div class="wm wm-simple">${layers}
+            <div class="wmS-top"><div><h1>DAL41</h1><div class="wmS-pilot"><i></i>JANE_DOE <em>ACTIVE</em></div></div>
+                <div class="wmS-acts"><span class="wmS-round"><i class="fa-solid fa-sliders"></i></span><span class="wmS-pill"><i></i>CRUISE</span></div></div>
+            <div class="wmS-photo wm-photo"><span class="wmS-chip" style="left:10px;top:10px">© CONTRIBUTOR</span><span class="wmS-chip" style="right:10px;top:10px">Less info</span>
+                <div class="wmS-type"><b>A350-900</b><small>Delta</small></div><span class="wmS-reg mono">N501DN</span></div>
+            <div class="wmS-card wmS-route"><div><b class="mono">KLAX</b><small>LOS ANGELES INTL</small></div><span class="wmS-plane">${plane}</span><div><b class="mono">KJFK</b><small>JOHN F KENNEDY…</small></div></div>
+            <div class="wmS-card wmS-times">
+                <div><small>SCHEDULED</small><b class="mono">14:00 Z</b></div><div><small>SCHEDULED</small><b class="mono">21:50 Z</b></div>
+                <div><small>ACTUAL</small><b class="mono">14:05 Z</b></div><div><small>ESTIMATED</small><b class="mono">21:40 Z</b></div>
+            </div>
+            <div class="wmS-card wmS-prog"><div class="wmS-bar"><span>${plane}</span></div><div class="wmS-dist"><span>1450 nm · 2h 55m ago</span><span>1020 nm · in 02:10</span></div></div>
+            <div class="wmS-card wmS-plan">FLIGHT PLAN</div>
+            <div class="wmS-sec">LIVE TELEMETRY</div>
+            <div class="wmS-tele"><div><small>ALTITUDE</small><b class="mono">36,000</b> <em>ft</em></div><div><small>GND SPEED</small><b class="mono">482</b> <em>kts</em></div></div>
+        </div>`;
+    }
+    if (mode === 'embed') {
+        return `<div class="wm wm-embed">${layers}
+            <div class="wmC-photo"><div class="wm-photo"></div><span class="wm-btn wmC-share"><i class="fa-solid fa-arrow-up-from-bracket"></i></span><span class="wmC-credit">© CONTRIBUTOR</span></div>
+            <div class="wmC-id"><h1>DAL41</h1><div>A350-900 · jane_doe</div><small>Delta · N501DN</small></div>
+            <div class="wmC-acts"><span class="primary">${plane}02:10</span><span><i class="fa-solid fa-clock-rotate-left"></i>Replay</span><span><i class="fa-solid fa-arrow-up-from-bracket"></i>Share</span></div>
+            <div class="wmC-pilot"><i>JA</i><b>JANE_DOE</b><small>VIEW PROFILE ›</small></div>
+            <div class="wmC-stats"><div><small>Status</small><b class="ok">CRUISE</b></div><div><small>Altitude</small><b>36,000 ft</b></div><div><small>Speed</small><b>482 kts</b></div></div>
+            <div class="wmC-h">Route</div>
+            <div class="wmC-route"><div><b>KLAX</b><small>LOS ANGELES INTL</small></div><i>${plane}</i><div><b>KJFK</b><small>JOHN F KENNEDY INTL</small></div></div>
+        </div>`;
+    }
+    return `<div class="wm wm-legacy">${layers}
+        <div class="wmL-hero wm-photo"><div class="wmL-top"><div><h1>DAL41</h1><div class="wmL-sub"><span>A350-900</span><i></i><span>Delta</span></div></div>
+            <div class="wmL-btns"><span class="wm-btn"><i class="fa-solid fa-thumbtack"></i></span><span class="wm-btn"><i class="fa-solid fa-circle-play"></i></span><span class="wm-btn"><i class="fa-solid fa-camera"></i></span></div></div></div>
+        <div class="wmL-route">
+            <div class="wmL-node"><small>Los Angeles</small><b class="mono">KLAX</b><span>14:05 Z</span></div>
+            <div class="wmL-mid"><div class="wmL-phase"><i></i>CRUISE</div><div class="wmL-track"><span>${plane}</span></div><div class="wmL-dist"><span>2470 NM</span><span>ETE: 02:10</span></div></div>
+            <div class="wmL-node end"><small>New York</small><b class="mono">KJFK</b><span>21:40 Z</span></div>
         </div>
+        <div class="wmL-tabs"><div class="wmL-switch"><span class="on"><i class="fa-solid fa-gauge-high"></i> Flight Display</span><span><span class="wmL-av">JA</span> JANE_DOE</span></div><span class="wm-btn"><i class="fa-solid fa-arrows-left-right-to-line"></i></span></div>
+        <div class="wmL-pfd"><div class="wmL-att"></div><div class="wmL-tape l"><b>482</b></div><div class="wmL-tape r"><b>36000</b></div><div class="wmL-hdg">072</div></div>
     </div>`;
+}
+
+/* Dress a mock in a look: the style's own colour (Horizon: `color`), and
+ * optionally a background image at a dim. Returns the .wm element. */
+function styleWindowMock(wm, mode, { color = null, img = null, imgCss = null, blur = false, dim = 0.6 } = {}) {
+    if (!wm) return wm;
+    const base = WINDOW_MOCK_BASE[mode];
+    const t = horizonTokens(mode === 'horizon' ? (color || getHorizonColor()) : (base ? base.solid : '#18181b'));
+    const vars = {
+        '--wm-base': t.bg,
+        '--wm-fade': mode === 'horizon' ? t.bgRgb : (mode === 'legacy' ? '58,58,58' : (base ? base.tint : '24,24,27')),
+        '--wm-tint': mode === 'horizon' ? t.bgRgb : (base ? base.tint : t.bgRgb),
+        '--wm-dim': String(dim),
+        '--wm-text': t.text, '--wm-muted': t.muted, '--wm-faint': t.faint, '--wm-accent': t.accent,
+        '--wm-surface': t.surface, '--wm-surface-hi': t.surfaceHi, '--wm-line': t.light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
+    };
+    Object.entries(vars).forEach(([k, v]) => wm.style.setProperty(k, v));
+    // imgCss: a painted background (a pilot's theme gradient) instead of a photo.
+    if (img) wm.style.setProperty('--wm-img', `url("${String(img).replace(/"/g, '%22')}")`);
+    else if (imgCss) wm.style.setProperty('--wm-img', imgCss);
+    wm.classList.toggle('has-img', !!(img || imgCss));
+    wm.classList.toggle('img-blur', !!img && blur);
+    wm.classList.toggle('is-light', mode === 'horizon' && t.light);
+    return wm;
+}
+
+// Scale a .wm-fit to its box's width; kept current as the box resizes.
+function fitWindowMock(box) {
+    if (!box) return;
+    const fit = () => { const w = box.clientWidth; if (w) box.style.setProperty('--wm-k', String(w / WINDOW_MOCK_WIDTH)); };
+    fit();
+    if (!box._wmObserved && typeof ResizeObserver !== 'undefined') {
+        box._wmObserved = true;
+        new ResizeObserver(fit).observe(box);
+    }
 }
 
 // Repaints one panel's style choice and preview from mapFilters.
@@ -26913,16 +27147,11 @@ async function paintWindowLookPanel(box) {
     if (note) note.textContent = (WINDOW_STYLE_INFO.find((s) => s.mode === mode) || {}).desc || '';
     const pv = box.querySelector('[data-wl-preview]');
     if (!pv) return;
-    const t = horizonTokens(mode === 'horizon' ? getHorizonColor() : WINDOW_STYLE_BASE[mode]);
-    pv.dataset.style = mode;
-    pv.classList.toggle('is-light', t.light);
-    const vars = {
-        '--wl-bg-rgb': t.bgRgb, '--wl-text': t.text, '--wl-muted': t.muted, '--wl-faint': t.faint,
-        '--wl-accent': mode === 'horizon' ? t.accent : '#38bdf8',
-        '--wl-surface': t.surface, '--wl-surface-hi': t.surfaceHi, '--wl-line': t.light ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.14)',
-        '--wl-photo': `url("${WINDOW_PREVIEW_PHOTO}")`,
-    };
-    Object.entries(vars).forEach(([k, v]) => pv.style.setProperty(k, v));
+    if (pv.dataset.style !== mode || !pv.querySelector('.wm')) {
+        pv.dataset.style = mode;
+        pv.innerHTML = `<div class="wm-fit">${windowMockHtml(mode)}</div>`;
+    }
+    fitWindowMock(pv);
     const bgMode = mapFilters.horizonBg || 'color';
     const dim = Math.min(90, Math.max(20, Number(mapFilters.horizonBgDim) || 60)) / 100;
     const token = {};
@@ -26931,10 +27160,13 @@ async function paintWindowLookPanel(box) {
         : bgMode === 'custom' ? await getHorizonCustomBgUrl()
         : null;
     if (pv._wlToken !== token) return;      // superseded by a later change
-    if (url) pv.style.setProperty('--wl-img', `url("${url}")`);
-    pv.style.setProperty('--wl-dim', String(url ? dim : 1));
-    pv.classList.toggle('has-img', !!url);
-    pv.classList.toggle('img-blur', bgMode === 'aircraft');
+    styleWindowMock(pv.querySelector('.wm'), mode, { img: url, blur: bgMode === 'aircraft', dim });
+}
+
+if (typeof window !== 'undefined') {
+    window.windowMockHtml = windowMockHtml;
+    window.styleWindowMock = styleWindowMock;
+    window.fitWindowMock = fitWindowMock;
 }
 
 // Brings every window-look control under `root` back in line with mapFilters.

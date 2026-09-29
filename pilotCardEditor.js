@@ -315,6 +315,13 @@ export const PilotCardEditor = {
     // A small stand-in for the flight window, dressed the way others will
     // see it: the photo (dimmed with the colour), or the theme, or the colour.
     _windowPreview({ theme, color, photo, dim }) {
+        // The real window, in miniature (flight.js's windowMockHtml), dressed
+        // in the look the way the viewer's window applies it: see _dressMock.
+        if (typeof window !== 'undefined' && typeof window.windowMockHtml === 'function') {
+            this._look = { theme, color, photo, dim };
+            const mode = typeof window.getFlightWindowMode === 'function' ? window.getFlightWindowMode() : 'horizon';
+            return `<div class="pce-win-preview pce-win-real" data-win-mock="${mode}" aria-hidden="true"><div class="wm-fit">${window.windowMockHtml(mode)}</div></div>`;
+        }
         const base = color || (theme ? null : '#16181c');
         let bg;
         if (photo) {
@@ -428,8 +435,32 @@ export const PilotCardEditor = {
         if (msg) msg.before(rules); else body.append(rules);
     },
 
+    // Mirrors resolveOwnerBackground/ownerColor in flight.js: a photo is laid
+    // under the colour at the pilot's dim; a theme paints its gradient and
+    // lends Horizon its darkest stop taken towards night; a colour alone is
+    // Horizon's colour and a gentle wash in the other styles.
+    _dressMock() {
+        const box = this._host?.querySelector('[data-win-mock]');
+        if (!box || typeof window.styleWindowMock !== 'function') return;
+        const mode = box.dataset.winMock;
+        const { theme, color, photo, dim } = this._look || {};
+        const horizon = mode === 'horizon';
+        const firstStop = theme ? ((presetGradient(theme).match(/#[0-9a-f]{6}/i) || [])[0] || '#16181c') : null;
+        const look = {};
+        if (photo) {
+            Object.assign(look, { img: photo, dim: (Number(dim) || 60) / 100, color: color || (firstStop ? mix(firstStop, '#0e1014', 0.55) : null) });
+        } else if (theme && !color) {
+            Object.assign(look, { imgCss: presetGradient(theme), dim: horizon ? 0.55 : 0.4, color: mix(firstStop, '#0e1014', 0.55) });
+        } else if (color) {
+            Object.assign(look, horizon ? { color } : { imgCss: `linear-gradient(180deg, ${mix(color, '#ffffff', 0.18)}, ${color}, ${mix(color, '#000000', 0.55)})`, dim: 0.35 });
+        }
+        window.styleWindowMock(box.querySelector('.wm'), mode, look);
+        if (typeof window.fitWindowMock === 'function') window.fitWindowMock(box);
+    },
+
     _wire() {
         const host = this._host;
+        this._dressMock();
         this._applyStanding();
         if (!this._standingHooked) {
             this._standingHooked = true;
@@ -650,6 +681,8 @@ export const PilotCardEditor = {
                 transition: background .3s ease;
             }
             .pce-win-preview.is-light { color: #15171b; }
+            .pce-win-real { padding: 0; background: #18181b; }
+            .pce-win-real .wm-fit { position: absolute; left: 0; top: 0; width: 360px; transform-origin: 0 0; transform: scale(var(--wm-k, .37)); pointer-events: none; }
             .pce-win-hero {
                 height: 74px; margin: 0 -10px; border-radius: 0;
                 background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0));
@@ -679,6 +712,7 @@ export const PilotCardEditor = {
                 .pce-win-preview { flex: none; width: 100%; height: 170px; }
                 .pce-win-hero { height: 58px; }
                 .pce-win-card.is-short { display: none; }
+                .pce-win-preview.pce-win-real { width: 150px; height: 266px; margin: 0 auto; }
             }
         `;
         document.head.appendChild(style);

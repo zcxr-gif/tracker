@@ -455,14 +455,11 @@ export const AccountSetup = {
             .acs-quiet { background: none; border-color: transparent; color: rgba(235,235,245,.7); padding: 0 12px; }
             .acs-primary { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7; min-width: 96px; }
 
+            /* Phones: a centred card inset from the edges, scrolling inside. */
             @media (max-width: 768px) {
-                .acs-overlay { place-items: end stretch; padding: 0; }
-                .acs-sheet {
-                    width: 100%; max-height: 94vh; border-radius: 20px 20px 0 0; border-bottom: 0; padding: 10px 16px 0;
-                    opacity: 1; transform: translate3d(0, 100%, 0); transition: transform .5s cubic-bezier(.32,.72,0,1);
-                }
-                .acs-grab { display: block; width: 36px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.22); margin: 0 auto 12px; }
-                .acs-foot { margin: 16px -16px 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+                .acs-overlay { padding: 12px; }
+                .acs-sheet { width: 100%; max-height: calc(100dvh - 24px); border-radius: 20px; padding: 16px 16px 0; }
+                .acs-foot { margin: 16px -16px 0; padding: 12px 16px 14px; border-radius: 0 0 20px 20px; }
                 .acs-title { font-size: 1.15rem; }
                 .acs-look { padding: 12px; margin: 0 -4px; }
                 .acs-perks { grid-template-columns: 1fr; }

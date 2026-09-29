@@ -249,17 +249,15 @@ export const PilotCardPrompt = {
             .pcp-btn:hover { filter: brightness(1.15); }
             .pcp-primary { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7; }
 
-            /* Phones: a bottom sheet. */
+            /* Phones: the same centred card, inset from the edges and
+               scrolling inside itself — not a sheet up from the bottom. */
             @media (max-width: 768px) {
-                .pcp-overlay { place-items: end stretch; padding: 0; }
+                .pcp-overlay { padding: 14px; }
                 .pcp-sheet {
-                    width: 100%; max-height: 88vh; border-radius: 18px 18px 0 0; border-bottom: 0;
-                    padding: 10px 16px calc(14px + env(safe-area-inset-bottom));
-                    opacity: 1; transform: translate3d(0, 100%, 0);
-                    transition: transform .5s cubic-bezier(.32, .72, 0, 1);
+                    width: 100%; box-sizing: border-box; max-height: calc(100dvh - 28px);
+                    border-radius: 20px; padding: 20px 16px 14px;
                 }
-                .pcp-grab { display: block; width: 36px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .22); margin: 0 auto 14px; }
-                .pcp-x { top: 16px; }
+                .pcp-foot { flex-wrap: wrap; }
             }
             @media (prefers-reduced-motion: reduce) {
                 .pcp-overlay, .pcp-sheet { transition: none; }

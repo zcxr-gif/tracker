@@ -277,8 +277,8 @@ export const PilotStanding = {
             .pst-primary { background: #f2f2f7; color: #1c1c1e; }
             .pst-btn:disabled { opacity: .6; cursor: default; }
             @media (max-width: 768px) {
-                .pst-overlay { place-items: end stretch; padding: 0; }
-                .pst-sheet { width: 100%; max-height: 92vh; border-radius: 20px 20px 0 0; padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); }
+                .pst-overlay { padding: 12px; }
+                .pst-sheet { width: 100%; max-height: calc(100dvh - 24px); border-radius: 20px; padding: 20px 16px 16px; }
                 .pst-btn { flex: 1; }
             }
             @media (prefers-reduced-motion: reduce) { .pst-overlay, .pst-sheet { transition: none; } }
