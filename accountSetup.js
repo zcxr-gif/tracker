@@ -18,9 +18,19 @@
  *
  * Finishing — or skipping — stamps user_metadata.onboarding_complete, so it
  * runs once per account; everything it sets can be changed later in Settings
- * and the account screen.
+ * and the account screen. Pro and free accounts read different words: a free
+ * account is told what Pro adds, a Pro one is shown how to use it.
+ *
+ * UPGRADING. The first time an account becomes Pro, a shorter sheet
+ * (mode 'pro') walks through what just unlocked: the window others see for
+ * your flight (colour, photo, map glow), the photo banner, and saved window
+ * setups. user_metadata.pro_seen marks an account that has had Pro, so a
+ * renewal after a lapse gets no sheet at all — the Pro look was kept and
+ * simply comes back (see pilot-window-style.sql). Accounts that were already
+ * Pro when this shipped are stamped quietly the first time they're seen.
  *
  *   AccountSetup.open({ supabase, user, onDone(updatedUser) })
+ *   AccountSetup.watchUpgrades(supabase)   // once, at boot
  */
 
 import { PilotCardEditor } from './pilotCardEditor.js';
@@ -37,31 +47,61 @@ function isPro(user) {
     return !!(user && user.isPro);
 }
 
-const STEPS = [
-    {
+// The steps, worded for the account in front of us.
+function stepsFor(mode, pro) {
+    const welcome = {
         key: 'welcome',
         icon: 'fa-plane-departure',
-        title: 'Welcome aboard',
-        sub: 'A few optional touches to make Inflight yours. Skip anything — it all lives in Settings later.',
-    },
-    {
+        title: pro ? 'Welcome aboard, Pro' : 'Welcome aboard',
+        sub: pro
+            ? 'Everything is unlocked. A few optional touches to make Inflight yours — skip anything, it all lives in Settings later.'
+            : 'A few optional touches to make Inflight yours. Skip anything — it all lives in Settings later.',
+    };
+    const card = {
         key: 'card',
         icon: 'fa-id-badge',
         title: 'Your pilot card',
-        sub: 'Pick a handle, add a picture and choose a banner. It’s what other pilots see when they open your aircraft on the map.',
-    },
-    {
+        sub: pro
+            ? 'Pick a handle, add a picture and choose a banner — or use your own photo as the banner. It’s what other pilots see when they open your aircraft on the map.'
+            : 'Pick a handle, add a picture and choose a banner. It’s what other pilots see when they open your aircraft on the map.',
+    };
+    const window_ = {
         key: 'window',
         icon: 'fa-window-maximize',
         title: 'Your flight window',
-        sub: 'How the flight windows you open look. Pick a style, a colour and a background — even your own image, framed however you like.',
-    },
-    {
+        sub: pro
+            ? 'How the flight windows you open look: a style, a colour and a background — even your own image, framed however you like. Save a few looks as setups and switch in one tap.'
+            : 'How the flight windows you open look. Pick a style, a colour and a background — even your own image, framed however you like.',
+    };
+    const others = {
         key: 'others',
         icon: 'fa-eye',
         title: 'Your flight, seen by others',
-        sub: 'Style the window everyone else sees when they open your flight. A painted theme is free; your own colour and photo are part of Inflight Pro.',
-    },
+        sub: pro
+            ? 'Style the window everyone else sees when they open your flight: a theme, your own colour or your own photo — plus a soft glow on your plane on the map.'
+            : 'Pick a painted theme for the window everyone else sees when they open your flight. Inflight Pro adds your own colour, a photo and a glow on the map.',
+    };
+    if (mode === 'pro') {
+        return [
+            {
+                key: 'pro-intro',
+                icon: 'fa-crown',
+                title: 'Welcome to Inflight Pro',
+                sub: 'Thanks for upgrading. Here’s what just unlocked for your profile and your windows — set them up now or any time later.',
+            },
+            Object.assign({}, others, { sub: 'Your own colour or photo behind the window everyone sees when they open your flight, and a soft glow on your plane on the map.' }),
+            Object.assign({}, card, { title: 'A photo banner', sub: 'Use your own photo as the banner on your pilot card — drag and zoom it into place.' }),
+            Object.assign({}, window_, { title: 'Saved window setups', sub: 'Save the look of your flight window as a setup, then switch between setups in one tap.' }),
+        ];
+    }
+    return [welcome, card, window_, others];
+}
+
+const PRO_PERKS = [
+    { icon: 'fa-eye', title: 'Your flight, your look', text: 'A colour or photo behind the window others see for your flight.' },
+    { icon: 'fa-wand-magic-sparkles', title: 'Pro flair', text: 'A soft glow around your plane on the map and a shimmer on your card.' },
+    { icon: 'fa-image', title: 'Photo banner', text: 'Your own photo across the top of your pilot card.' },
+    { icon: 'fa-bookmark', title: 'Saved window setups', text: 'Keep several window looks and switch in one tap.' },
 ];
 
 export const AccountSetup = {
@@ -70,11 +110,12 @@ export const AccountSetup = {
     _opts: null,
     _user: null,
 
-    open({ supabase, user, onDone } = {}) {
+    open({ supabase, user, onDone, mode = 'new' } = {}) {
         if (this._root || !supabase || !user) return false;
-        this._opts = { supabase, onDone };
+        this._opts = { supabase, onDone, mode };
         this._user = user;
         this._step = 0;
+        this._steps = stepsFor(mode, isPro(user));
         this._injectStyles();
         // The card prompt would offer the same thing on top of this.
         try { localStorage.setItem(CARD_PROMPT_SEEN + user.id, '1'); } catch (_) { /* private mode */ }
@@ -85,8 +126,8 @@ export const AccountSetup = {
             <div class="acs-sheet" role="dialog" aria-modal="true" aria-labelledby="acs-title" tabindex="-1">
                 <div class="acs-grab" aria-hidden="true"></div>
                 <header class="acs-head">
-                    <div class="acs-progress" aria-hidden="true">${STEPS.map(() => '<span></span>').join('')}</div>
-                    <button type="button" class="acs-skip-all" data-act="skip-all">Skip setup</button>
+                    <div class="acs-progress" aria-hidden="true">${this._steps.map(() => '<span></span>').join('')}</div>
+                    <button type="button" class="acs-skip-all" data-act="skip-all">${mode === 'pro' ? 'Later' : 'Skip setup'}</button>
                 </header>
                 <div class="acs-hero">
                     <span class="acs-icon"><i class="fa-solid"></i></span>
@@ -114,7 +155,14 @@ export const AccountSetup = {
             else if (act === 'back') this._go(this._step - 1);
             else if (act === 'skip-all') this._finish();
         });
-        this._onPro = () => { if (this._root && (STEPS[this._step].key === 'card' || STEPS[this._step].key === 'others')) this._renderStep(); };
+        // Pro can resolve after the sheet opens (a fresh sign-up): reword it,
+        // and redraw the editors so their Pro controls unlock.
+        this._onPro = () => {
+            if (!this._root) return;
+            this._steps = stepsFor(this._opts.mode, isPro(this._user));
+            if (this._steps[this._step].key !== 'welcome') this._renderStep();
+            else this._paintHead();
+        };
         window.addEventListener('proStatusChanged', this._onPro);
 
         this._renderStep();
@@ -125,40 +173,83 @@ export const AccountSetup = {
 
     isOpen() { return !!this._root; },
 
+    /* The first time an account becomes Pro, show the 'pro' sheet; a renewal
+     * gets nothing. "Became Pro" means Pro now after not-Pro last time — in
+     * this session, or across the reload a Stripe redirect makes (the last
+     * known state is read from the cache before this boot rewrites it). */
+    watchUpgrades(supabase) {
+        if (this._watching || !supabase) return;
+        this._watching = true;
+        let last = null;
+        try {
+            const v = localStorage.getItem('inflight_is_pro');
+            last = v === 'true' ? true : v === 'false' ? false : null;
+        } catch (_) { /* private mode */ }
+        let busy = false;
+        window.addEventListener('proStatusChanged', async (e) => {
+            const now = !!(e && e.detail && e.detail.isPro);
+            const was = last;
+            last = now;
+            if (!now || busy) return;
+            busy = true;
+            try {
+                const { data: { session } = {} } = await supabase.auth.getSession();
+                const user = session && session.user;
+                const meta = (user && user.user_metadata) || {};
+                if (!user || meta.pro_seen) return;           // renewal, or already welcomed
+                // Stamp first, so a second tab or a failed sheet never repeats it.
+                const { data } = await supabase.auth.updateUser({ data: { pro_seen: true } });
+                const fresh = (data && data.user) || user;
+                // A brand-new account gets the full setup (already Pro-worded);
+                // an account that was Pro before this shipped gets nothing.
+                if (was !== false || !meta.onboarding_complete || this._root) return;
+                this.open({ supabase, user: Object.assign(fresh, { isPro: true }), mode: 'pro' });
+            } catch (_) { /* nothing shown; nothing lost */ } finally {
+                busy = false;
+            }
+        });
+    },
+
     _go(i) {
-        if (i < 0 || i >= STEPS.length) return;
+        if (i < 0 || i >= this._steps.length) return;
         this._step = i;
         this._renderStep();
         this._root.querySelector('.acs-sheet').scrollTop = 0;
     },
 
     async _next(save) {
-        const step = STEPS[this._step];
+        const step = this._steps[this._step];
         if (save && step.key === 'welcome') {
             const ok = await this._saveWelcome();
             if (!ok) return;
         }
-        if (this._step === STEPS.length - 1) { this._finish(); return; }
+        if (this._step === this._steps.length - 1) { this._finish(); return; }
         this._go(this._step + 1);
     },
 
-    _renderStep() {
+    _paintHead() {
         const root = this._root;
-        const step = STEPS[this._step];
-        const last = this._step === STEPS.length - 1;
+        const step = this._steps[this._step];
+        const last = this._step === this._steps.length - 1;
         root.dataset.step = step.key;
         root.querySelectorAll('.acs-progress span').forEach((s, i) => {
             s.classList.toggle('is-done', i < this._step);
             s.classList.toggle('is-on', i === this._step);
         });
         root.querySelector('.acs-icon i').className = `fa-solid ${step.icon}`;
-        root.querySelector('.acs-count').textContent = `Step ${this._step + 1} of ${STEPS.length}`;
+        root.querySelector('.acs-count').textContent = `Step ${this._step + 1} of ${this._steps.length}`;
         root.querySelector('.acs-title').textContent = step.title;
         root.querySelector('.acs-sub').textContent = step.sub;
         root.querySelector('[data-act="back"]').style.visibility = this._step === 0 ? 'hidden' : '';
         root.querySelector('[data-act="next"]').textContent = last ? 'Finish' : 'Next';
-        root.querySelector('[data-act="skip"]').hidden = last;
+        root.querySelector('[data-act="skip"]').hidden = last || step.key === 'pro-intro';
+        root.classList.toggle('is-pro-mode', this._opts.mode === 'pro');
+    },
 
+    _renderStep() {
+        this._paintHead();
+        const root = this._root;
+        const step = this._steps[this._step];
         const body = root.querySelector('.acs-body');
         const { supabase } = this._opts;
         const user = this._user;
@@ -183,6 +274,12 @@ export const AccountSetup = {
                     </div>
                 </div>
                 <p class="acs-msg" id="acs-msg" role="status"></p>`;
+            return;
+        }
+        if (step.key === 'pro-intro') {
+            body.innerHTML = `<ul class="acs-perks">${PRO_PERKS.map((p) => `
+                <li><span class="acs-perk-ic"><i class="fa-solid ${p.icon}"></i></span>
+                    <span><b>${p.title}</b><small>${p.text}</small></span></li>`).join('')}</ul>`;
             return;
         }
         if (step.key === 'card') {
@@ -243,7 +340,9 @@ export const AccountSetup = {
         btns.forEach(b => { b.disabled = true; });
         let user = this._user;
         try {
-            const { data, error } = await this._opts.supabase.auth.updateUser({ data: { onboarding_complete: true } });
+            const stamp = { onboarding_complete: true };
+            if (isPro(this._user)) stamp.pro_seen = true;
+            const { data, error } = await this._opts.supabase.auth.updateUser({ data: stamp });
             if (!error && data && data.user) user = Object.assign(data.user, { isPro: this._user.isPro });
         } catch (_) { /* the account screen still opens; setup shows again next time */ }
         this._close();
@@ -325,6 +424,20 @@ export const AccountSetup = {
             .acs-note i { font-size: .72rem; }
             .acs-look { padding: 14px; border-radius: 16px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); }
             .acs-editor .pce-preview { margin-top: 2px; }
+            .acs-perks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+            .acs-perks li {
+                display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 14px;
+                background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07);
+            }
+            .acs-perks b { display: block; font-size: .9rem; margin-bottom: 3px; }
+            .acs-perks small { display: block; font-size: .8rem; line-height: 1.45; color: rgba(235,235,245,.6); }
+            .acs-perk-ic {
+                flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+                background: rgba(245,210,122,.12); color: #f5d27a; font-size: 14px;
+            }
+            .is-pro-mode .acs-icon { background: linear-gradient(135deg, rgba(245,210,122,.28), rgba(245,210,122,.06)); color: #f5d27a; box-shadow: inset 0 0 0 1px rgba(245,210,122,.35); }
+            .is-pro-mode .acs-progress span.is-done { background: rgba(245,210,122,.5); }
+            .is-pro-mode .acs-progress span.is-on { background: #f5d27a; }
             .acs-foot {
                 position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px;
                 margin: 20px -22px 0; padding: 14px 22px calc(16px + env(safe-area-inset-bottom));
@@ -352,6 +465,7 @@ export const AccountSetup = {
                 .acs-foot { margin: 16px -16px 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
                 .acs-title { font-size: 1.15rem; }
                 .acs-look { padding: 12px; margin: 0 -4px; }
+                .acs-perks { grid-template-columns: 1fr; }
             }
             @media (prefers-reduced-motion: reduce) { .acs-overlay, .acs-sheet { transition: none; } }
         `;

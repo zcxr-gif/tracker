@@ -14,6 +14,7 @@ import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
 import { PilotCardPrompt } from './pilotCardPrompt.js';
 import { adjustImage } from './imageAdjuster.js';
+import { AccountSetup } from './accountSetup.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -102,6 +103,8 @@ supabase.auth.onAuthStateChange(() => { setTimeout(refreshNavAccount, 0); });
 window.addEventListener('inflight:pilot-profile-changed', refreshNavAccount);
 // Signed in with no picture yet: a one-time popup and a dot on the pill.
 PilotCardPrompt.init(supabase);
+// First upgrade to Pro: a short "what just unlocked" sheet. Renewals: nothing.
+AccountSetup.watchUpgrades(supabase);
 
 // 2. Initialize Mobile Dashboard
 MobileDashboardUI.init(supabase);
