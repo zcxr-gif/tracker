@@ -466,6 +466,7 @@ export const MobileSettingsUI = {
                                     <div class="m-row-right"><button type="button" class="wl-link" data-wl-own-style>Edit <i class="fa-solid fa-chevron-right"></i></button></div>
                                 </div>
                             </div>
+                            <p class="m-settings-note">What everyone else sees when they open your flight. A painted theme is free; your own colour and a photo of your choosing are part of Inflight Pro. The background above only changes the windows you open.</p>
 
                             <div class="mobile-section-header">Behaviour</div>
                             <div class="m-settings-list">

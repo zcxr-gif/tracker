@@ -20400,6 +20400,7 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-user-pen"></i> Your Window, as Others See It</div>
                                 <button type="button" class="wl-link" data-wl-own-style>Edit in profile <i class="fa-solid fa-chevron-right"></i></button>
                             </div>
+                            <p class="iw-tz-hint" style="margin: -2px 0 8px;">What everyone else sees when they open your flight. A painted theme is free; your own colour and a photo of your choosing are part of Inflight Pro. The background above only changes the windows you open.</p>
                         </div>
 
                         <div class="settings-section">
@@ -26225,6 +26226,19 @@ function buildHorizonBackgroundPicker(idPrefix) {
             .sr-bg-btn.sr-bg-remove { color: #fca5a5; }
             .sr-bg-btn[hidden] { display: none; }
             .sr-bg-note { font-size: 0.74rem; color: #8b8b94; line-height: 1.45; }
+            .sr-bg-share {
+                display: none; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px;
+                background: rgba(245,210,122,0.06); border: 1px solid rgba(245,210,122,0.18);
+                font-size: 0.76rem; line-height: 1.45; color: #d4d4d8;
+            }
+            .sr-bg-picker[data-mode="custom"] .sr-bg-share { display: flex; }
+            .sr-bg-share > i { color: #f5d27a; margin-top: 2px; }
+            .sr-bg-share b { color: #fff; font-weight: 600; }
+            .sr-bg-share button {
+                appearance: none; border: 0; background: none; padding: 0; margin-top: 4px; cursor: pointer; display: inline-flex;
+                align-items: center; gap: 6px; font: inherit; font-weight: 600; color: #f5d27a;
+            }
+            .sr-bg-share button i { font-size: 0.65rem; }
             .sr-bg-dim { display: none; align-items: center; gap: 10px; font-size: 0.78rem; color: #a1a1aa; }
             .sr-bg-picker:not([data-mode="color"]) .sr-bg-dim { display: flex; }
             .sr-bg-dim input { flex: 1; accent-color: #38bdf8; }
@@ -26249,6 +26263,7 @@ function buildHorizonBackgroundPicker(idPrefix) {
             <button type="button" class="sr-bg-btn sr-bg-remove" hidden><i class="fa-solid fa-trash-can"></i> Remove</button>
         </div>
         <div class="sr-bg-note"></div>
+        <div class="sr-bg-share" data-sr-bg-share></div>
         <label class="sr-bg-dim"><span>Dim</span><input type="range" min="20" max="90" step="5" value="${dim}"><output>${dim}%</output></label>
     </div>`;
 }
@@ -26264,8 +26279,25 @@ function wireHorizonBackgroundPicker(root) {
     const notes = {
         color: '',
         aircraft: 'Each flight’s own aircraft photo, softly blurred, fills the flight window — in every window style.',
-        custom: 'Pick any image — it fills the flight window top to bottom, in every window style. Tall (portrait) images fit best. Stored on this device only.',
+        custom: 'Pick any image — it fills the flight window top to bottom, in every window style. Tall (portrait) images fit best.',
     };
+    // "Your image" is this viewer's own, on this device. Showing a photo to
+    // everyone who opens your flight is the Pro window photo in the profile.
+    const share = box.querySelector('[data-sr-bg-share]');
+    const paintShare = () => {
+        if (!share) return;
+        const pro = isProViewer();
+        share.innerHTML = '<i class="fa-solid fa-eye" aria-hidden="true"></i><div>'
+            + '<b>Only you see this image</b> — it stays on this device and shows in the windows you open. '
+            + (pro
+                ? 'To show a photo to everyone who opens <b>your</b> flight, set it as your window photo.'
+                  + '<br><button type="button" data-sr-bg-own>Show a photo on my flight <i class="fa-solid fa-chevron-right"></i></button>'
+                : 'With <b>Inflight Pro</b>, your own flight’s window can carry a photo that everyone who opens it sees.')
+            + '</div>';
+        share.querySelector('[data-sr-bg-own]')?.addEventListener('click', openOwnWindowStyleEditor);
+    };
+    box._paintShare = paintShare;
+    paintShare();
     const paintCustom = async () => {
         const url = await getHorizonCustomBgUrl();
         thumb.style.backgroundImage = url ? `url("${url}")` : '';
@@ -26725,7 +26757,7 @@ function buildWindowLookPanel(idPrefix) {
             ${buildHorizonColorPicker(idPrefix)}
         </div>
         <div class="wl-group">
-            <div class="wl-label"><span>Background</span><small>Behind every window style.</small></div>
+            <div class="wl-label"><span>Background</span><small>Behind every window style — in the windows you open.</small></div>
             ${buildHorizonBackgroundPicker(idPrefix)}
         </div>
         <div class="wl-group">
@@ -26850,6 +26882,7 @@ if (typeof window !== 'undefined') {
     // One listener for every Saved setups box, rather than one per render.
     window.addEventListener('proStatusChanged', () => {
         document.querySelectorAll('[data-iw-setups][data-wired="1"]').forEach((b) => paintWindowSetups(b));
+        document.querySelectorAll('[data-sr-bg-picker]').forEach((b) => { if (b._paintShare) b._paintShare(); });
     });
 }
 
