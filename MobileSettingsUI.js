@@ -344,7 +344,7 @@ export const MobileSettingsUI = {
                         <button class="m-tab" data-tab="aircraft" type="button"><i class="fa-solid fa-plane-up"></i><span>Aircraft</span></button>
                         <button class="m-tab" data-tab="labels" type="button"><i class="fa-solid fa-tag"></i><span>Labels</span></button>
                         <button class="m-tab" data-tab="filters" type="button"><i class="fa-solid fa-layer-group"></i><span>Overlays</span></button>
-                        <button class="m-tab" data-tab="general" type="button"><i class="fa-solid fa-gear"></i><span>More</span></button>
+                        <button class="m-tab" data-tab="general" type="button"><i class="fa-solid fa-gear"></i><span>More</span>${this.isNewUnseen() ? '<span class="m-tab-new" aria-label="New"></span>' : ''}</button>
                     </div>
 
                     <div class="sheet-content custom-scroll">
@@ -1447,9 +1447,19 @@ export const MobileSettingsUI = {
         });
     },
 
+    // A quiet dot on More while the rebuilt Flight window section is unseen
+    // (shared with desktop's sidebar "New"; see SettingsUI).
+    isNewUnseen() {
+        try { return localStorage.getItem('inflight_new_seen:windowlook') !== '1'; } catch (_) { return false; }
+    },
+
     switchTab(tab) {
         if (!tab) return;
         this._activeTab = tab;
+        if (tab === 'general') {
+            try { localStorage.setItem('inflight_new_seen:windowlook', '1'); } catch (_) { /* private mode */ }
+            document.querySelectorAll('.m-tab-new, .gs-new').forEach(d => d.remove());
+        }
         const container = document.getElementById('mobile-settings-nexus');
         if (!container) return;
         container.querySelectorAll('.m-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
@@ -3030,6 +3040,7 @@ export const MobileSettingsUI = {
 
                 /* ---- Filters tab ---- */
                 .m-tab { position: relative; }
+                .m-tab-new { position: absolute; top: 6px; right: calc(50% - 16px); width: 7px; height: 7px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 0 2px #18181b; }
                 .m-tab-badge {
                     display: none; position: absolute; top: 2px; right: calc(50% - 22px);
                     min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px;

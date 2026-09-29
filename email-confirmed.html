@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Email confirmed · Inflight</title>
+<meta name="robots" content="noindex">
+<!--
+  Where an email-change confirmation link lands (emailChange.js passes this
+  page as emailRedirectTo). Supabase has already done the work by the time the
+  browser gets here — the address changes when its /verify endpoint accepts
+  the link — so this page only says what happened and tells the Inflight tab
+  that is already open, which then updates in place.
+
+  Deliberately NOT the app: no map, no loading screen, no Supabase client. A
+  pilot changing their email goes back and forth between their inbox and
+  Inflight, and each trip through the app's launch splash would be a wait for
+  nothing. It also means the session tokens Supabase appends to the URL are
+  never picked up here; they are wiped from the address bar straight away.
+
+  What Supabase appends, in the URL fragment:
+    #message=Confirmation+link+accepted…   first of two links (Secure email
+                                            change on) — the other inbox next
+    #access_token=…&type=email_change        done
+    #error=…&error_description=…             expired or already used
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100svh; display: grid; place-items: center; padding: 28px;
+    background: #09090b; color: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { width: 100%; max-width: 400px; text-align: center; }
+  .mark {
+    width: 62px; height: 62px; margin: 0 auto 22px; display: grid; place-items: center; border-radius: 50%;
+    background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.35); font-size: 27px; line-height: 1;
+  }
+  body[data-state="step"] .mark { background: rgba(56, 189, 248, 0.12); border-color: rgba(56, 189, 248, 0.32); }
+  body[data-state="error"] .mark { background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.35); }
+  h1 { margin: 0 0 10px; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+  p { margin: 0 auto; max-width: 36ch; font-size: 14px; line-height: 1.55; color: #a1a1aa; }
+  .open {
+    display: inline-block; margin-top: 26px; padding: 14px 30px; border-radius: 13px;
+    background: #38bdf8; color: #04131c; font-size: 15px; font-weight: 700; text-decoration: none;
+  }
+  .hint { margin-top: 16px; font-size: 12px; color: #52525b; }
+</style>
+</head>
+<body data-state="done">
+<main>
+  <div class="mark" id="mark">✓</div>
+  <h1 id="headline">Email confirmed</h1>
+  <p id="detail">Your Inflight account now uses your new address.</p>
+  <a class="open" href="/" id="open">Back to Inflight</a>
+  <p class="hint" id="hint">If Inflight is already open in another tab, it has updated — you can close this one.</p>
+</main>
+<script>
+  (function () {
+    var h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+    var q = new URLSearchParams(location.search || '');
+    var error = h.get('error_description') || q.get('error_description');
+    var message = h.get('message') || q.get('message');
+    // Never leave tokens sitting in the address bar or the history.
+    try { history.replaceState(null, '', location.pathname); } catch (_) {}
+
+    var set = function (state, mark, headline, detail) {
+      document.body.dataset.state = state;
+      document.getElementById('mark').textContent = mark;
+      document.getElementById('headline').textContent = headline;
+      document.getElementById('detail').textContent = detail;
+    };
+
+    if (error) {
+      set('error', '!', 'That link didn’t work',
+        /expired|invalid/i.test(error)
+          ? 'It has expired or was already used. Go back to Inflight and choose “Resend link” to get a fresh one.'
+          : error.replace(/\+/g, ' '));
+      document.getElementById('hint').textContent = '';
+      return;
+    }
+    if (message) {
+      set('step', '1/2', 'One more link',
+        'This address is confirmed. Now open the link we sent to your other address to finish — your email changes once both are opened.');
+    }
+
+    // Tell an open Inflight tab to look again. Two ways, because not every
+    // browser has BroadcastChannel.
+    try { new BroadcastChannel('inflight-account').postMessage({ type: 'email-confirmed', step: message ? 1 : 2 }); } catch (_) {}
+    try { localStorage.setItem('inflight_email_confirmed_ping', String(Date.now())); } catch (_) {}
+  })();
+</script>
+</body>
+</html>

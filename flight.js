@@ -19624,6 +19624,10 @@ const SettingsUI = {
             }
             #global-settings-modal-overlay .gs-page-head .close-modal:hover { background: rgba(255, 255, 255, 0.13) !important; color: #fff !important; }
             #global-settings-modal-overlay .settings-content-wrapper { padding: 4px 32px 36px !important; }
+            #global-settings-modal-overlay .gs-new {
+                margin-left: auto; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700;
+                letter-spacing: .02em; color: #7dd3fc; background: rgba(56, 189, 248, 0.14);
+            }
 
             /* ---- Sections: a label above a rounded group of rows ---- */
             #global-settings-modal-overlay .settings-section {
@@ -19894,6 +19898,7 @@ const SettingsUI = {
                                         <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
                                             <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
                                             <span class="nexus-label">${cat.label}</span>
+                                            ${key === 'windows' && MobileSettingsUI.isNewUnseen() ? '<span class="gs-new">New</span>' : ''}
                                         </button>`;
                                     }).join('')}
                                 </div>
@@ -20594,6 +20599,11 @@ renderCategory(catId) {
             }
 
             container.innerHTML = html;
+            // Seen the rebuilt Flight window page: the quiet "New" marks go.
+            if (catId === 'windows') {
+                try { localStorage.setItem('inflight_new_seen:windowlook', '1'); } catch (_) { /* private mode */ }
+                document.querySelectorAll('.gs-new, .m-tab-new').forEach(d => d.remove());
+            }
             const meta = this.categories[catId] || {};
             const titleEl = document.getElementById('gs-page-title');
             const descEl = document.getElementById('gs-page-desc');
@@ -26976,9 +26986,15 @@ function wireWindowLookPanel(root) {
 // (pilotCardEditor.js). Close Settings, open the profile on its Settings tab
 // and bring that section into view once the editor has drawn it.
 function openOwnWindowStyleEditor() {
+    openAccountSettingsAt('#pce-window-style');
+}
+
+// The account screen's Settings tab, scrolled to `selector` once it has drawn
+// (signed out: sign-in instead). Closes whichever Settings screen is open.
+function openAccountSettingsAt(selector) {
     const user = (typeof ProfileUI !== 'undefined') ? ProfileUI._currentUser : null;
     if (typeof SettingsUI !== 'undefined' && SettingsUI._isVisible) SettingsUI.toggle(false);
-    document.getElementById('mobile-settings-close')?.click();
+    if (document.querySelector('#mobile-settings-nexus .mobile-bottom-sheet.open')) document.getElementById('mobile-settings-close')?.click();
     if (!user) {
         if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signin');
         return;
@@ -26988,11 +27004,22 @@ function openOwnWindowStyleEditor() {
     try { dash.switchTab('settings'); } catch (_) {}
     let tries = 0;
     const seek = () => {
-        const el = document.getElementById('pce-window-style');
+        const el = document.querySelector(selector);
         if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
         if (++tries < 40) setTimeout(seek, 150);
     };
     setTimeout(seek, 150);
+}
+
+// Settings › Flight window, on whichever screen this is.
+function openFlightWindowSettings() {
+    if (window.innerWidth <= 768) {
+        window.dispatchEvent(new CustomEvent('openMobileSettings'));
+        try { MobileSettingsUI.switchTab('general'); } catch (_) {}
+        setTimeout(() => document.getElementById('m-window-look')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 260);
+    } else {
+        window.dispatchEvent(new CustomEvent('openSettings', { detail: { category: 'windows' } }));
+    }
 }
 
 if (typeof window !== 'undefined') {
@@ -27009,6 +27036,8 @@ if (typeof window !== 'undefined') {
     window.wireWindowLookPanel = wireWindowLookPanel;
     window.syncWindowLookControls = syncWindowLookControls;
     window.openOwnWindowStyleEditor = openOwnWindowStyleEditor;
+    window.openFlightWindowSettings = openFlightWindowSettings;
+    window.openAccountEmail = () => openAccountSettingsAt('#pui-email-change, #mdui-email-change');
     window.buildWindowSetups = buildWindowSetups;
     window.wireWindowSetups = wireWindowSetups;
     window.buildHorizonColorPicker = buildHorizonColorPicker;

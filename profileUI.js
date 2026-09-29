@@ -21,6 +21,7 @@
 
 import { ProAccess } from './proAccess.js';
 import { AccountSetup } from './accountSetup.js';
+import { EmailChange } from './emailChange.js';
 
 // Accounts the setup sheet has already been shown to this session, so a
 // failed "onboarding_complete" save can't bring it straight back.
@@ -4289,11 +4290,8 @@ if (this._activeTab === 'flight-plan') {
 
                                 <div class="pui-input-group">
                                     <label>${this.t('set.email')}</label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-envelope pui-input-icon"></i>
-                                        <input type="email" class="pui-input has-icon" value="${email}" disabled>
-                                    </div>
-                                    <p class="pui-help-text">Email address cannot be changed directly.</p>
+                                    <!-- Change-with-confirmation, see emailChange.js. -->
+                                    <div id="pui-email-change"><input type="email" class="pui-input" value="${email}" disabled></div>
                                 </div>
 
                                 <div class="pui-input-group">
@@ -5255,6 +5253,13 @@ const contentRoot = document.getElementById('pui-content');
             // Self-contained: it renders itself, wires its own listeners and
             // tears down when this host leaves the DOM. See discordPresenceUI.js.
             // ─── Picture & banner (pilot profile) ─────────────────────────
+            EmailChange.mount(document.getElementById('pui-email-change'), {
+                supabase: this._supabase,
+                user: this._currentUser,
+                variant: 'desktop',
+                onChanged: (u) => { this._currentUser = Object.assign(u, { isPro: this._currentUser?.isPro }); },
+            });
+
             const pilotCardHost = document.getElementById('pui-pilot-card-editor');
             if (pilotCardHost) {
                 PilotCardEditor.mount(pilotCardHost, {

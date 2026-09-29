@@ -8,6 +8,7 @@
 
 import { ProAccess } from './proAccess.js';
 import { PilotCardEditor } from './pilotCardEditor.js';
+import { EmailChange } from './emailChange.js';
 import { StripeCheckoutModal } from './stripeCheckoutModal.js';
 import { CareerModule } from './careerModule.js';
 import { PredictiveAirspaceNetwork } from './PredictiveQueueManager.js';
@@ -3196,7 +3197,8 @@ init(supabaseClient) {
                               <input type="text" id="mdui-edit-name" placeholder="Captain" value="${name.replace(/"/g, '&quot;')}">
                           </span>
                       </div>
-                      <div class="mdui-form-line">
+                      <!-- Change-with-confirmation, see emailChange.js. -->
+                      <div class="mdui-form-line mdui-email-line" id="mdui-email-change">
                           <span class="mdui-form-line-label">Email</span>
                           <span class="mdui-form-line-control">
                               <input type="email" value="${email}" disabled>
@@ -4171,6 +4173,13 @@ _attachListeners() {
         }
 
         if (this._activeTab === 'settings') {
+            EmailChange.mount(document.getElementById('mdui-email-change'), {
+                supabase: this._supabase,
+                user: this._currentUser,
+                variant: 'mobile',
+                onChanged: (u) => { this._currentUser = Object.assign(u, { isPro: this._currentUser?.isPro }); },
+            });
+
             const pilotCardHost = document.getElementById('mdui-pilot-card-editor');
             if (pilotCardHost) {
                 PilotCardEditor.mount(pilotCardHost, {
