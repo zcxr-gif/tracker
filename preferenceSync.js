@@ -78,6 +78,14 @@ export const SYNCED_KEYS = [
 ];
 
 /**
+ * What a signed-in FREE account syncs: just the flight window's look
+ * (style, colour, background, dim, pilots'-styles switch), which flight.js
+ * mirrors into this one key. Pro doesn't need it — mapFilters, which holds
+ * the same values, already syncs through profiles.map_filters.
+ */
+export const FREE_SYNCED_KEYS = ['inflight_window_look'];
+
+/**
  * Keys that must never sync, named rather than merely omitted.
  *
  * The allowlist already excludes them; this is here so that anyone adding to
@@ -115,11 +123,18 @@ export const PreferenceSync = {
     _lastSeen: null,        // serialised snapshot, to notice changes
     _started: false,
     _applying: false,       // guards the poll against seeing our own pull as a local edit
+    _signedIn: false,
+    _remote: null,          // last pulled blob, so a free push keeps the Pro keys in it
 
     /** Everything on the allowlist that this device actually has a value for. */
+    /** Pro syncs the full allowlist; a free account only its window look. */
+    keys() {
+        return this._isPro() ? SYNCED_KEYS : FREE_SYNCED_KEYS;
+    },
+
     snapshot() {
         const out = {};
-        for (const key of SYNCED_KEYS) {
+        for (const key of this.keys()) {
             const value = readLocal(key);
             if (value !== null) out[key] = value;
         }
@@ -138,7 +153,7 @@ export const PreferenceSync = {
         this._applying = true;
         let applied = 0;
         try {
-            for (const key of SYNCED_KEYS) {
+            for (const key of this.keys()) {
                 if (!Object.prototype.hasOwnProperty.call(blob, key)) continue;
                 const value = blob[key];
                 if (value === null || typeof value === 'object') continue;
@@ -159,9 +174,14 @@ export const PreferenceSync = {
         return applied;
     },
 
-    isEligible() {
+    _isPro() {
         try { return typeof window.isInflightPro === 'function' && window.isInflightPro(); }
         catch (_) { return false; }
+    },
+
+    // Pro, or any signed-in account (which syncs FREE_SYNCED_KEYS only).
+    isEligible() {
+        return this._isPro() || this._signedIn;
     },
 
     async _userId() {
@@ -204,6 +224,7 @@ export const PreferenceSync = {
                 return { applied: 0, reason: 'local-newer' };
             }
 
+            this._remote = data.preferences;
             const applied = this.apply(data.preferences);
             this._lastSeen = JSON.stringify(this.snapshot());
             writeLocal(LOCAL_SYNC_KEY, String(remoteAt));
@@ -228,7 +249,11 @@ export const PreferenceSync = {
         const userId = await this._userId();
         if (!userId) return false;
 
-        const preferences = this.snapshot();
+        // A free account writes only its window look; keep whatever else the
+        // row holds (a lapsed Pro's settings come back with Pro).
+        const preferences = this._isPro()
+            ? this.snapshot()
+            : Object.assign({}, this._remote && typeof this._remote === 'object' ? this._remote : {}, this.snapshot());
         const at = new Date().toISOString();
         try {
             const { error } = await this._supabase
@@ -238,7 +263,8 @@ export const PreferenceSync = {
                 console.warn('[PreferenceSync] push failed:', error.message);
                 return false;
             }
-            this._lastSeen = JSON.stringify(preferences);
+            this._remote = preferences;
+            this._lastSeen = JSON.stringify(this.snapshot());
             writeLocal(LOCAL_SYNC_KEY, String(Date.parse(at)));
             writeLocal(LOCAL_STAMP_KEY, String(Date.parse(at)));
             return true;
@@ -276,9 +302,10 @@ export const PreferenceSync = {
 
         window.addEventListener('proStatusChanged', () => { this.pull(); });
         try {
-            supabase.auth.onAuthStateChange((event) => {
+            supabase.auth.onAuthStateChange((event, session) => {
+                this._signedIn = !!session?.user;
                 if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') this.pull();
-                if (event === 'SIGNED_OUT') this._lastSeen = null;
+                if (event === 'SIGNED_OUT') { this._lastSeen = null; this._remote = null; }
             });
         } catch (_) { /* older client */ }
 
@@ -291,7 +318,13 @@ export const PreferenceSync = {
             if (document.visibilityState === 'hidden') flush();
         });
 
-        this.pull();
+        // Free accounts are eligible once signed in, which is only known
+        // after the session is read.
+        Promise.resolve()
+            .then(() => supabase.auth.getSession())
+            .then(({ data } = {}) => { this._signedIn = !!data?.session?.user; })
+            .catch(() => {})
+            .then(() => this.pull());
     },
 
     stop() {

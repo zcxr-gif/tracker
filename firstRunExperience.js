@@ -65,10 +65,12 @@ function persistAcceptance() {
     } catch (_) { /* storage unavailable; nothing we can do */ }
 }
 
-// Map an onboarding choice ('standard' | 'simple' | 'card') to the canonical
-// flight-window mode used everywhere else ('legacy' | 'simple' | 'embed'). The
-// picker labels the full avionics panel "Standard"; internally that's 'legacy'.
+// Map an onboarding choice ('standard' | 'horizon' | 'simple' | 'card') to the
+// canonical flight-window mode used everywhere else ('legacy' | 'horizon' |
+// 'simple' | 'embed'). The picker labels the full avionics panel "Standard";
+// internally that's 'legacy'.
 function choiceToWindowMode(choice) {
+    if (choice === 'horizon') return 'horizon';
     if (choice === 'simple') return 'simple';
     if (choice === 'card') return 'embed';
     return 'legacy';
@@ -77,8 +79,9 @@ function choiceToWindowMode(choice) {
 /**
  * Record the flight-window choice and apply it to the live app immediately so
  * the very next aircraft the user taps respects it.
- * @param {string} choice  'standard' (avionics panel), 'simple' (card window),
- *                          or 'card' (embed-style FR24 card).
+ * @param {string} choice  'standard' (avionics panel), 'horizon' (the avionics
+ *                          window in the calm photo-led skin), 'simple' (card
+ *                          window), or 'card' (embed-style FR24 card).
  */
 function persistWindowChoice(choice) {
     const mode = choiceToWindowMode(choice);
@@ -213,9 +216,9 @@ function runLegalStep(map, { restoreChrome } = {}) {
 /**
  * Step 2: one-time "which flight info window?" picker.
  *
- * Preferred path is a hands-on, live demo — we open three real, randomly chosen
+ * Preferred path is a hands-on, live demo — we open four real, randomly chosen
  * flights' info windows (one per style) and let the user flip between the
- * Standard, Simple and Card styles before committing, so they *see* each one
+ * Standard, Horizon, Simple and Card styles before committing, so they *see* each one
  * rather than reading about it. We wait for the live socket to actually deliver
  * flights first. If too few arrive (offline, or the feed is empty) we fall back
  * to the self-contained mockup picker so the gate never stalls the boot.
@@ -227,9 +230,12 @@ function runLegalStep(map, { restoreChrome } = {}) {
 async function runWindowChoiceStep({ restoreChrome } = {}) {
     // Wait (reasonably) for the socket to populate live flights before deciding.
     // One distinct flight per style keeps every switch a genuine re-open.
-    const flights = await waitForLiveFlights(3, 25000);
+    const flights = await waitForLiveFlights(4, 25000);
     if (flights.length >= 3) {
-        await runWindowDemoStep(flights[0], flights[1], flights[2], { restoreChrome });
+        // A fourth flight for Horizon when the feed has one; otherwise it
+        // borrows Standard's, and openStyle() closes the window first so the
+        // re-open isn't swallowed.
+        await runWindowDemoStep(flights[0], flights[1], flights[2], flights[3] || flights[0], { restoreChrome });
     } else {
         await runWindowMockupStep({ restoreChrome });
     }
@@ -237,10 +243,11 @@ async function runWindowChoiceStep({ restoreChrome } = {}) {
 
 /**
  * Live picker: opens a real flight window and lets the user flip between the
- * three styles — Standard, Simple and Card — each backed by its own flight so
- * every switch is a real re-open (handleAircraftClick bails on a repeat).
+ * four styles — Standard, Horizon, Simple and Card — each backed by its own
+ * flight so every switch is a real re-open (handleAircraftClick bails on a
+ * repeat).
  */
-function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, { restoreChrome } = {}) {
+function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, horizonFlight, { restoreChrome } = {}) {
     return new Promise((resolve) => {
         const { overlay, segs, continueBtn } = buildWindowDemoBanner();
         document.body.appendChild(overlay);
@@ -255,7 +262,8 @@ function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, { restoreCh
         // example; tapping a segment opens the other style's flight live.
         let selected = 'standard';
         let switching = false;
-        const flightForStyle = { standard: standardFlight, simple: simpleFlight, card: cardFlight };
+        const flightForStyle = { standard: standardFlight, horizon: horizonFlight, simple: simpleFlight, card: cardFlight };
+        let shownFlight = null;
 
         // Open the chosen style's flight via the real app path. Awaiting the
         // whole call means the in-app loading guard has cleared before we allow
@@ -273,8 +281,15 @@ function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, { restoreCh
                     window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
                 }
                 const fp = flightForStyle[choice] || standardFlight;
+                // Same flight as the one showing (Horizon sharing Standard's):
+                // close first, or handleAircraftClick ignores the repeat.
+                if (fp === shownFlight && typeof window.closeAircraftWindow === 'function') {
+                    window.closeAircraftWindow();
+                    await new Promise((r) => setTimeout(r, 320));
+                }
                 if (typeof window.handleAircraftClick === 'function') {
                     await window.handleAircraftClick(fp);
+                    shownFlight = fp;
                 }
             } catch (_) { /* best-effort demo */ }
             switching = false;
@@ -612,6 +627,24 @@ function buildWindowChoiceModal() {
                     </span>
                     <span class="fre-choice-desc">The full avionics panel with detailed instruments and tabs.</span>
                 </button>
+                <button type="button" class="fre-choice" data-window="horizon">
+                    <span class="fre-preview fre-preview-horizon" aria-hidden="true">
+                        <span class="pv-h-photo">
+                            <span class="pv-h-id"><span class="pv-h-eyebrow"></span><span class="pv-h-call"></span></span>
+                        </span>
+                        <span class="pv-h-route">
+                            <span class="pv-h-icao"></span>
+                            <span class="pv-h-line"><span></span></span>
+                            <span class="pv-h-icao"></span>
+                        </span>
+                        <span class="pv-h-glance"><span></span><span></span><span></span><span></span></span>
+                    </span>
+                    <span class="fre-choice-head">
+                        <i class="fa-solid fa-sun fre-choice-ic"></i>
+                        <span class="fre-choice-name">Horizon</span>
+                    </span>
+                    <span class="fre-choice-desc">The full avionics window, calmer: a big aircraft photo, live numbers first, your own colour.</span>
+                </button>
                 <button type="button" class="fre-choice" data-window="card">
                     <span class="fre-preview fre-preview-card" aria-hidden="true">
                         <span class="pv-c-head">
@@ -664,6 +697,9 @@ function buildWindowDemoBanner() {
             <div class="fre-seg" role="group" aria-label="Flight window style">
                 <button type="button" class="fre-seg-btn fre-seg-active" data-window="standard">
                     <i class="fa-solid fa-gauge-high" aria-hidden="true"></i><span>Standard</span>
+                </button>
+                <button type="button" class="fre-seg-btn" data-window="horizon">
+                    <i class="fa-solid fa-sun" aria-hidden="true"></i><span>Horizon</span>
                 </button>
                 <button type="button" class="fre-seg-btn" data-window="simple">
                     <i class="fa-solid fa-window-maximize" aria-hidden="true"></i><span>Simple</span>
@@ -994,6 +1030,24 @@ function injectStyles() {
         #fre-overlay .pv-d-tabs > span { flex: 1; height: 8px; border-radius: 3px; background: rgba(255,255,255,0.10); }
         #fre-overlay .pv-d-tabs > span:first-child { background: ${ACCENT}; }
 
+        /* Horizon: photo band fading into the window, identity on its edge,
+           a slim route line, then a row of live numbers */
+        #fre-overlay .fre-preview-horizon { gap: 7px; padding: 0 0 10px; }
+        #fre-overlay .pv-h-photo {
+            position: relative; height: 46px; flex: 0 0 auto;
+            background: linear-gradient(180deg, rgba(24,24,27,0) 30%, #1c1c1f 100%),
+                        linear-gradient(160deg, #6f93b8 0%, #9fb9d3 45%, #506f8f 100%);
+        }
+        #fre-overlay .pv-h-id { position: absolute; left: 11px; bottom: 4px; display: flex; flex-direction: column; gap: 4px; }
+        #fre-overlay .pv-h-eyebrow { width: 30px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.55); }
+        #fre-overlay .pv-h-call { width: 64px; height: 8px; border-radius: 3px; background: #fff; }
+        #fre-overlay .pv-h-route { display: flex; align-items: center; gap: 8px; padding: 0 11px; }
+        #fre-overlay .pv-h-icao { width: 26px; height: 9px; border-radius: 3px; background: rgba(255,255,255,0.85); }
+        #fre-overlay .pv-h-line { position: relative; flex: 1; height: 2px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.3) 0 4px, transparent 4px 7px); }
+        #fre-overlay .pv-h-line > span { position: absolute; inset: -1px 55% -1px 0; border-radius: 2px; background: ${ACCENT}; }
+        #fre-overlay .pv-h-glance { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 0 11px; }
+        #fre-overlay .pv-h-glance > span { height: 14px; border-radius: 5px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.06); }
+
         /* Card: embed-style shareable card — logo header, city route, stat row */
         #fre-overlay .fre-preview-card { gap: 8px; }
         #fre-overlay .pv-c-head { display: flex; align-items: center; gap: 7px; }
@@ -1101,6 +1155,10 @@ function injectStyles() {
             transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
         }
         #fre-window-demo .fre-seg-btn i { font-size: 0.85rem; color: ${ACCENT}; }
+        @media (max-width: 440px) {
+            #fre-window-demo .fre-seg { gap: 4px; padding: 4px; }
+            #fre-window-demo .fre-seg-btn { flex-direction: column; gap: 4px; padding: 8px 2px; font-size: 0.78rem; }
+        }
         #fre-window-demo .fre-seg-btn.fre-seg-active {
             color: #18181b;
             background: linear-gradient(180deg, #f4f4f5 0%, ${ACCENT} 100%);
