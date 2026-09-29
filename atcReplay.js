@@ -122,7 +122,8 @@ export const AtcReplay = (() => {
         'sector-ops-live-flights-layer',
         'sector-ops-live-flights-natural-layer',
         'sector-ops-live-flights-hover-layer',
-        'sector-ops-live-flights-labels'
+        'sector-ops-live-flights-labels',
+        'sector-ops-pilot-flair-layer'
     ];
     const HIDE_ALL_FILTER = ['==', ['get', 'flightId'], '__none__'];
 

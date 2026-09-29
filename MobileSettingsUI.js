@@ -466,7 +466,13 @@ export const MobileSettingsUI = {
                                 <div class="m-horizon-color-label"><i class="fa-solid fa-image"></i><span>Window background</span></div>
                                 ${(typeof window !== 'undefined' && window.buildHorizonBackgroundPicker) ? window.buildHorizonBackgroundPicker('m') : ''}
                             </div>
+                            <!-- Pro: saved window setups, switched in one tap. -->
+                            <div class="m-horizon-color">
+                                <div class="m-horizon-color-label"><i class="fa-solid fa-bookmark"></i><span>Saved setups</span></div>
+                                ${(typeof window !== 'undefined' && window.buildWindowSetups) ? window.buildWindowSetups() : ''}
+                            </div>
                             <div class="m-settings-list">
+                                ${this.renderToggle('showPilotStyles', 'Show pilots\' window styles', 'fa-wand-magic-sparkles')}
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
                                 ${this.renderToggle('use12hClock', '12-Hour Clock (AM/PM)', 'fa-clock')}
                                 <div class="m-setting-row m-tz-row">
@@ -1790,6 +1796,8 @@ export const MobileSettingsUI = {
                 }
                 if (window.updateMapFilters) window.updateMapFilters();
                 if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+                // Re-dress an open flight window and the map glow straight away.
+                if (setting === 'showPilotStyles' && window.setShowPilotStyles) window.setShowPilotStyles(e.target.checked);
                 this.updateFilterBadge();
             });
         });
@@ -2426,6 +2434,7 @@ export const MobileSettingsUI = {
 
         if (window.wireHorizonColorPicker) window.wireHorizonColorPicker(sheet);
         if (window.wireHorizonBackgroundPicker) window.wireHorizonBackgroundPicker(sheet);
+        if (window.wireWindowSetups) window.wireWindowSetups(sheet);
 
         // Pro time-zone picker (flight-window times in the user's own zone).
         // Gated: ignore changes while the row is locked (non-Pro), and revert

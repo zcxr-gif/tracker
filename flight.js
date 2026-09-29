@@ -1529,6 +1529,9 @@ let mapFilters = {
         // laid over the image, in percent, so text stays readable.
         horizonBg: 'color',
         horizonBgDim: 60,
+        // Show each pilot's own window look (theme / Pro colour and photo)
+        // on their flight instead of this viewer's colour and background.
+        showPilotStyles: true,
         // Airport-info window presentation: 'standard' (the built-in tabbed
         // window) or 'embed' (embed-airport.html — the embed's airport card).
         airportWindowMode: 'standard',
@@ -1983,6 +1986,8 @@ window.getPilotRelation = function (username) {
             mapFilters.__savedAt = Date.now();
             const filtersJson = JSON.stringify(mapFilters);
             localStorage.setItem('mapFilters', filtersJson);
+            // The window look alone, for free accounts' sync (preferenceSync.js).
+            writeWindowLook();
 
             // 2. Cloud Sync for Pro Users (immediate, or debounced)
             if (cloudSyncTimeout) { clearTimeout(cloudSyncTimeout); cloudSyncTimeout = null; }
@@ -5364,6 +5369,45 @@ function injectCustomStyles() {
             }
             .ac-pilot-go i { font-size: 9px; }
             .ac-info-tab-btn.pilot-tab-btn:hover .ac-pilot-go { opacity: 1; }
+
+            /* Pro pilots: a small PRO mark by the name, and their profile
+               accent on the picture's ring. */
+            .ac-pilot-pro {
+                flex: 0 0 auto;
+                padding: 2px 6px;
+                border-radius: 999px;
+                font-size: 8.5px !important;
+                font-weight: 800;
+                letter-spacing: 0.8px;
+                line-height: 1.2;
+                color: #1a1407;
+                background: linear-gradient(135deg, #ffe7a3, #f5c451 55%, #e9a93a);
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+                text-shadow: none;
+            }
+            .ac-info-tab-btn.pilot-tab-btn.is-pro .ac-pilot-avatar {
+                border-color: var(--pilot-accent, #f5c451);
+                box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25), 0 0 12px color-mix(in srgb, var(--pilot-accent, #f5c451) 55%, transparent);
+            }
+            /* Pro flair: a slow band of light across the banner. */
+            .ac-info-tab-btn.pilot-tab-btn.has-flair::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                z-index: 0;
+                border-radius: inherit;
+                pointer-events: none;
+                background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.16) 45%, rgba(255, 255, 255, 0.28) 50%, rgba(255, 255, 255, 0.16) 55%, transparent 70%);
+                background-size: 250% 100%;
+                animation: ac-pilot-shimmer 5.5s ease-in-out infinite;
+            }
+            @keyframes ac-pilot-shimmer {
+                0%, 35% { background-position: 130% 0; }
+                75%, 100% { background-position: -30% 0; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .ac-info-tab-btn.pilot-tab-btn.has-flair::after { animation: none; opacity: 0; }
+            }
 
             /* The route card pulls itself up over the photo with a -32px top
                margin. Its wrapper (.ac-route-bar-backdrop, solid #3a3a3a) had
@@ -12135,12 +12179,73 @@ function updateMapFilters() {
     updateToolbarButtonStates();
 }
 
+// --- Pro flair on the map ---
+// A soft gold glow under the aircraft of Pro pilots who have flair on
+// (pilot_flair_usernames). Uses the aircraft layers' own visibility filter,
+// so a plane hidden by the viewer's traffic filters doesn't leave a glow
+// behind, and the viewer's "Show pilots' window styles" switch hides it.
+const PILOT_FLAIR_LAYER_ID = 'sector-ops-pilot-flair-layer';
+let _pilotFlairSet = new Set();
+let _liveFlightsFilter = null;
+let _pilotFlairTimer = null;
+
+function pilotFlairFilter() {
+    const flair = ['==', 'proFlair', showPilotStylesOn() && _pilotFlairSet.size ? true : '__off__'];
+    return _liveFlightsFilter ? ['all', _liveFlightsFilter, flair] : flair;
+}
+
+function ensurePilotFlairLayer() {
+    if (!sectorOpsMap || !sectorOpsMap.getSource('sector-ops-live-flights-source')) return;
+    if (sectorOpsMap.getLayer(PILOT_FLAIR_LAYER_ID)) return;
+    const before = sectorOpsMap.getLayer('sector-ops-live-flights-natural-layer')
+        ? 'sector-ops-live-flights-natural-layer' : 'sector-ops-live-flights-layer';
+    try {
+        sectorOpsMap.addLayer({
+            id: PILOT_FLAIR_LAYER_ID,
+            type: 'circle',
+            source: 'sector-ops-live-flights-source',
+            filter: pilotFlairFilter(),
+            paint: {
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 8, 6, 13, 10, 20, 14, 28],
+                'circle-color': '#f5c451',
+                'circle-opacity': 0.42,
+                'circle-blur': 1,
+                'circle-pitch-alignment': 'map',
+            },
+        }, sectorOpsMap.getLayer(before) ? before : undefined);
+    } catch (_) { /* style mid-swap: the next refresh adds it */ }
+}
+
+function refreshPilotFlairGlow() {
+    if (!sectorOpsMap) return;
+    ensurePilotFlairLayer();
+    if (sectorOpsMap.getLayer(PILOT_FLAIR_LAYER_ID)) sectorOpsMap.setFilter(PILOT_FLAIR_LAYER_ID, pilotFlairFilter());
+}
+
+// Fetch who has flair (cached 10 min in PilotProfiles), re-tag the cached
+// aircraft, and repaint. Re-run every ten minutes.
+function loadPilotFlair() {
+    PilotProfiles.flairUsernames().then((set) => {
+        _pilotFlairSet = set || new Set();
+        Object.values(currentMapFeatures).forEach((f) => {
+            if (!f || !f.properties) return;
+            const u = f.properties.username;
+            f.properties.proFlair = !!(u && _pilotFlairSet.has(String(u).toLowerCase()));
+        });
+        if (typeof pushLiveTrafficNow === 'function') pushLiveTrafficNow();
+        refreshPilotFlairGlow();
+    });
+    if (!_pilotFlairTimer) _pilotFlairTimer = setInterval(loadPilotFlair, 10 * 60 * 1000);
+}
+
 // Apply a visibility filter to BOTH aircraft layers (SDF + natural) at once.
 // The SDF/natural split is handled inside the icon-image expressions, so both
 // layers must share the same visibility filter or one half of the fleet would
 // ignore the user's tactical/quick-search filters.
 function setLiveFlightsFilter(filter) {
     if (!sectorOpsMap) return;
+    _liveFlightsFilter = filter;
+    if (sectorOpsMap.getLayer(PILOT_FLAIR_LAYER_ID)) sectorOpsMap.setFilter(PILOT_FLAIR_LAYER_ID, pilotFlairFilter());
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
     }
@@ -13571,6 +13676,9 @@ function handleSocketFlightUpdate(data) {
                 if (watchSet.has(flightUser)) return 'watchlist';
                 return 'none';
             })(),
+
+            // Pro pilots with flair on get a soft glow (refreshPilotFlairGlow).
+            proFlair: !!(flight.username && _pilotFlairSet.has(String(flight.username).toLowerCase())),
 
             communityImageUrl: existingProps.communityImageUrl || null,
             contributorName: existingProps.contributorName || null,
@@ -17431,6 +17539,9 @@ function initializeAircraftLayer() {
             // than waiting for the next tap.
             markSelectedAircraft(currentFlightInWindow);
 
+            // Pro flair glow under the aircraft (re-added after a style swap).
+            loadPilotFlair();
+
             // Bootstrap pilot-relation colors. Covers the case where flight
             // features were already cached (or where ProfileUI populated
             // before the layer existed) — the auth handler in profileUI.js
@@ -20284,12 +20395,19 @@ renderCategory(catId) {
                             <!-- Every flight window's background: colour, the aircraft's photo, or your own image. -->
                             <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-image"></i> Window Background</div>
                             ${buildHorizonBackgroundPicker('set')}
+                            <!-- Pro: named snapshots of the look above, switched in one tap. -->
+                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-bookmark"></i> Saved Setups</div>
+                            ${buildWindowSetups()}
                             <!-- Which side of the map the flight window opens on.
                                  Used to be a button in the window's own tab bar. -->
                             <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
                             <div class="iw-seg" data-seg="flight-window-side">
                                 <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') === 'left' ? ' active' : ''}" data-mode="left"><i class="fa-solid fa-arrow-left"></i> Left</button>
                                 <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') !== 'left' ? ' active' : ''}" data-mode="right"><i class="fa-solid fa-arrow-right"></i> Right</button>
+                            </div>
+                            <div class="settings-row">
+                                <div class="row-label" title="Pilots can style the window others see for their flight. Turn this off to always see your own colour and background."><i class="fa-solid fa-wand-magic-sparkles"></i> Show Pilots' Window Styles</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-show-pilot-styles" ${mapFilters.showPilotStyles !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
@@ -20614,6 +20732,8 @@ renderCategory(catId) {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', (e) => update(ids[id], e.target.checked));
         });
+        const pilotStylesEl = document.getElementById('set-show-pilot-styles');
+        if (pilotStylesEl) pilotStylesEl.addEventListener('change', (e) => setShowPilotStyles(e.target.checked));
 
         // --- 4b. Flight- / Airport-window presentation segmented controls ---
         // Legacy | Simple | Card for flights; Standard | Card for airports.
@@ -20633,6 +20753,7 @@ renderCategory(catId) {
         wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
         wireHorizonColorPicker(document.getElementById('global-settings-modal-overlay') || document);
         wireHorizonBackgroundPicker(document.getElementById('global-settings-modal-overlay') || document);
+        wireWindowSetups(document.getElementById('global-settings-modal-overlay') || document);
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
 
         // Window side: same preference the old move-window button kept, and
@@ -23896,6 +24017,8 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // .mobile-legacy-sheet has its own !important rules that win anyway.
             // Desktop boots the simple frame straight into its expanded layout;
             // setting it after load animated a collapsed bar into the full card.
+            // The pilot's own window look (posted to the frame with the background).
+            loadOwnerWindowStyle(windowEl, flightProps.username);
             const _fwSrc = _fwMode === 'embed'
                 ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
                 : ('flightinfo.html' + (onMobile ? '' : '?phase=expanded'));
@@ -24804,6 +24927,20 @@ function decoratePilotTab(btn) {
     const apply = (profile) => {
         if (!profile || !btn.isConnected) return;
         btn.classList.add('has-profile');
+        // Pro pilots: a PRO mark by the name, their accent on the picture's
+        // ring, and (flair on) a shimmer across the banner.
+        btn.classList.toggle('is-pro', !!profile.isPro);
+        if (profile.accent) btn.style.setProperty('--pilot-accent', profile.accent);
+        if (profile.isPro && !btn.querySelector('.ac-pilot-pro')) {
+            const go = btn.querySelector('.ac-pilot-go');
+            const mark = document.createElement('span');
+            mark.className = 'ac-pilot-pro';
+            mark.textContent = 'PRO';
+            btn.insertBefore(mark, go || null);
+        }
+        const st = PilotProfiles.peekWindowStyle(uname);
+        if (st !== undefined) markPilotFlair(btn, st);
+        else PilotProfiles.windowStyle(uname).then((s) => { if (btn.isConnected) markPilotFlair(btn, s); });
         const banner = btn.querySelector('.ac-pilot-banner');
         if (banner) {
             banner.style.backgroundImage = profile.bannerUrl
@@ -25533,7 +25670,7 @@ function getHorizonColor() {
 
 function applyHorizonColor(windowEl) {
     if (!windowEl) return;
-    const t = horizonTokens(getHorizonColor());
+    const t = horizonTokens(ownerColor(windowEl) || getHorizonColor());
     const vars = {
         '--sr-bg': t.bg, '--sr-bg-rgb': t.bgRgb, '--sr-ink-rgb': t.inkRgb,
         '--sr-text': t.text, '--sr-muted': t.muted, '--sr-faint': t.faint,
@@ -25758,7 +25895,10 @@ async function horizonAircraftBgUrl(src) {
 
 // The chosen background for any flight window: { url, dim } (url null when
 // the setting is Colour or nothing usable is available).
-async function resolveWindowBackground(photoSrc) {
+async function resolveWindowBackground(photoSrc, windowEl) {
+    // The pilot's own look for their flight comes first (see ownerLook).
+    const owned = await resolveOwnerBackground(windowEl || document.getElementById('aircraft-info-window'));
+    if (owned) return owned;
     const f = (typeof mapFilters !== 'undefined') ? mapFilters : {};
     const mode = f.horizonBg || 'color';
     const dim = Math.min(90, Math.max(20, Number(f.horizonBgDim) || 60)) / 100;
@@ -25776,8 +25916,14 @@ async function applyHorizonBackground(windowEl, photoSrc) {
     const token = {};
     windowEl._srBgToken = token;
     const src = photoSrc || windowEl.querySelector('#ac-overview-panel')?.dataset.currentPath;
-    const bg = await resolveWindowBackground(src);
+    const bg = await resolveWindowBackground(src, windowEl);
     if (windowEl._srBgToken !== token) return;       // superseded
+    // Legacy's glass takes the owner's colour when it's a dark one (its
+    // text is white); otherwise its own grey.
+    const oc = ownerColor(windowEl);
+    const ot = oc ? horizonTokens(oc) : null;
+    if (ot && !ot.light) windowEl.style.setProperty('--wb-rgb', ot.bgRgb);
+    else windowEl.style.removeProperty('--wb-rgb');
     const framed = !!windowEl.querySelector('#simple-flight-window-frame');
     const horizon = windowEl.classList.contains('iw-horizon');
     windowEl.style.setProperty('--sr-dim', String(bg.dim));
@@ -25792,7 +25938,7 @@ async function applyHorizonBackground(windowEl, photoSrc) {
 // or data: URL, both readable there) and they paint it themselves.
 async function postWindowBackground(frame, photoSrc) {
     if (!frame || !frame.contentWindow) return;
-    const bg = await resolveWindowBackground(photoSrc);
+    const bg = await resolveWindowBackground(photoSrc, frame.closest('#aircraft-info-window'));
     try { frame.contentWindow.postMessage({ type: 'WINDOW_BACKGROUND', url: bg.url, dim: bg.dim }, '*'); } catch (_) {}
 }
 
@@ -25804,6 +25950,217 @@ function refreshOpenHorizonBackground() {
     else applyHorizonBackground(w);
 }
 
+/**
+ * "Your window, seen by others."
+ *
+ * A pilot can style the flight window everyone else sees for their flight
+ * (supabase/sql/pilot-window-style.sql, edited in pilotCardEditor.js): a
+ * painted theme for free, or — Pro — their own colour and photo. That look
+ * replaces the viewer's own colour and background for that one flight, in
+ * every window style, unless the viewer has switched "Show pilots' window
+ * styles" off. Pro-only values are blanked by the server when Pro lapses, so
+ * nothing here checks Pro.
+ *
+ * The style is kept on the window element (windowEl._ownerStyle), so every
+ * re-apply of the colour or background — a settings change, a photo swap —
+ * sees it without another lookup.
+ */
+function showPilotStylesOn() {
+    return !(typeof mapFilters !== 'undefined' && mapFilters.showPilotStyles === false);
+}
+
+function ownerLook(windowEl) {
+    const s = windowEl && windowEl._ownerStyle;
+    return (s && s.hasLook && showPilotStylesOn()) ? s : null;
+}
+
+function mixHex(a, b, t) {
+    const pa = horizonTokens(a).bgRgb.split(',').map(Number);
+    const pb = horizonTokens(b).bgRgb.split(',').map(Number);
+    return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+
+// The window colour the owner's look implies: their Pro colour, else their
+// theme's top stop taken down towards night so the window stays calm.
+function ownerColor(windowEl) {
+    const s = ownerLook(windowEl);
+    if (!s) return null;
+    if (s.color) return s.color;
+    return s.themeStops ? mixHex(s.themeStops[0], '#0e1014', 0.55) : null;
+}
+
+// Painted backgrounds (themes, and a Pro colour with no photo) are drawn to
+// a canvas once, so the same blob: URL works in the native windows and in
+// the Simple/Card frames (which only accept blob:/data: images).
+const _paintedBgCache = new Map();
+function paintedBackgroundUrl(stops) {
+    const key = stops.join(',');
+    if (_paintedBgCache.has(key)) return _paintedBgCache.get(key);
+    const p = new Promise((resolve) => {
+        try {
+            const c = document.createElement('canvas');
+            c.width = 360; c.height = 900;
+            const g = c.getContext('2d');
+            const grad = g.createLinearGradient(0, 0, 0, c.height);
+            stops.forEach((hex, i) => grad.addColorStop(i / Math.max(1, stops.length - 1), hex));
+            g.fillStyle = grad;
+            g.fillRect(0, 0, c.width, c.height);
+            // A soft glow near the top, where the photo fades in.
+            const glow = g.createRadialGradient(c.width * 0.5, c.height * 0.12, 0, c.width * 0.5, c.height * 0.12, c.width * 0.9);
+            glow.addColorStop(0, 'rgba(255,255,255,0.14)');
+            glow.addColorStop(1, 'rgba(255,255,255,0)');
+            g.fillStyle = glow;
+            g.fillRect(0, 0, c.width, c.height);
+            c.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null), 'image/jpeg', 0.9);
+        } catch (_) { resolve(null); }
+    });
+    _paintedBgCache.set(key, p);
+    return p;
+}
+
+// The owner's photo, fetched into a blob: URL (public bucket, CORS open).
+const _ownerPhotoCache = new Map();
+function ownerPhotoUrl(url) {
+    if (_ownerPhotoCache.has(url)) return _ownerPhotoCache.get(url);
+    const p = fetch(url, { mode: 'cors' })
+        .then((r) => (r.ok ? r.blob() : null))
+        .then((b) => (b && /^image\//.test(b.type) ? URL.createObjectURL(b) : null))
+        .catch(() => null);
+    _ownerPhotoCache.set(url, p);
+    return p;
+}
+
+// { url, dim, mode } for the owner's look, or null to use the viewer's own.
+async function resolveOwnerBackground(windowEl) {
+    const s = ownerLook(windowEl);
+    if (!s) return null;
+    if (s.bgUrl) {
+        const url = await ownerPhotoUrl(s.bgUrl);
+        if (url) return { url, dim: s.dim, mode: 'owner' };
+    }
+    const horizon = windowEl && windowEl.classList.contains('iw-horizon')
+        && !windowEl.querySelector('#simple-flight-window-frame');
+    if (s.themeStops && !s.color) {
+        return { url: await paintedBackgroundUrl(s.themeStops), dim: horizon ? 0.55 : 0.4, mode: 'theme' };
+    }
+    if (s.color) {
+        // Horizon paints the colour itself; the other styles get it as a
+        // gentle three-stop wash.
+        if (horizon) return { url: null, dim: s.dim, mode: 'owner' };
+        const stops = [mixHex(s.color, '#ffffff', 0.18), s.color, mixHex(s.color, '#000000', 0.55)];
+        return { url: await paintedBackgroundUrl(stops), dim: 0.35, mode: 'owner' };
+    }
+    return null;
+}
+
+// Look up (cache first) the style of the pilot flying this flight, and
+// re-dress the open window when it arrives. Synchronous on a cache hit so a
+// re-rendered window never flashes the viewer's own look first.
+function loadOwnerWindowStyle(windowEl, username) {
+    if (!windowEl) return;
+    const key = username && username !== 'N/A' ? String(username) : null;
+    windowEl._ownerStyleFor = key;
+    if (!key) { windowEl._ownerStyle = null; return; }
+    const cached = PilotProfiles.peekWindowStyle(key);
+    if (cached !== undefined) { windowEl._ownerStyle = cached; return; }
+    windowEl._ownerStyle = null;
+    PilotProfiles.windowStyle(key).then((style) => {
+        if (windowEl._ownerStyleFor !== key) return;
+        windowEl._ownerStyle = style;
+        const tab = windowEl.querySelector('.ac-info-tab-btn.pilot-tab-btn');
+        if (tab) markPilotFlair(tab, style);
+        if (style && style.hasLook) restyleOpenWindow(windowEl);
+    });
+}
+
+function restyleOpenWindow(windowEl) {
+    if (!windowEl) return;
+    if (windowEl.classList.contains('iw-horizon')) applyHorizonColor(windowEl);
+    refreshOpenHorizonBackground();
+    mountOwnerStyleNote(windowEl);
+}
+
+// A quiet line under the pilot card whenever the window is wearing the
+// pilot's look rather than the viewer's: who styled it, a way to stop seeing
+// pilots' styles, and a report (profile_reports, the moderation queue the
+// iOS app's reports already feed).
+function mountOwnerStyleNote(windowEl) {
+    if (!windowEl) return;
+    windowEl.querySelectorAll('.iw-owner-note').forEach((n) => n.remove());
+    const s = ownerLook(windowEl);
+    const tabs = windowEl.querySelector('.ac-info-window-tabs');
+    if (!s || !tabs) return;
+    if (!document.getElementById('iw-owner-note-style')) {
+        const st = document.createElement('style');
+        st.id = 'iw-owner-note-style';
+        st.textContent = `
+            #aircraft-info-window .iw-owner-note {
+                display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+                margin: -2px 16px 10px; padding: 0 2px;
+                font-size: 11px; line-height: 1.4; color: rgba(255,255,255,0.7);
+                text-shadow: 0 1px 3px rgba(0,0,0,0.55);
+            }
+            #aircraft-info-window.sr-light:not(.sr-bgimg) .iw-owner-note { text-shadow: none; }
+            #aircraft-info-window.iw-horizon .iw-owner-note { color: var(--sr-muted); }
+            #aircraft-info-window .iw-owner-note i { font-size: 10px; opacity: 0.8; }
+            #aircraft-info-window .iw-owner-note b { font-weight: 600; color: inherit; filter: brightness(1.25); }
+            #aircraft-info-window .iw-owner-note .iw-owner-sp { flex: 1; }
+            #aircraft-info-window .iw-owner-note button {
+                appearance: none; border: 0; background: none; padding: 2px 4px; cursor: pointer;
+                font: inherit; font-size: 11px; color: inherit; opacity: 0.85; text-decoration: underline;
+                text-underline-offset: 2px; text-decoration-color: rgba(127,127,127,0.5);
+            }
+            #aircraft-info-window .iw-owner-note button:hover { opacity: 1; }
+            #aircraft-info-window .iw-owner-note button:disabled { text-decoration: none; cursor: default; }
+        `;
+        document.head.appendChild(st);
+    }
+    const note = document.createElement('div');
+    note.className = 'iw-owner-note';
+    note.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>'
+        + '<span>Window styled by <b></b></span><span class="iw-owner-sp"></span>'
+        + '<button type="button" data-act="hide" title="Always see your own window colour and background (Settings › Flight Window)">Hide styles</button>'
+        + '<button type="button" data-act="report">Report</button>';
+    note.querySelector('b').textContent = '@' + s.handle;
+    note.querySelector('[data-act="hide"]').addEventListener('click', () => setShowPilotStyles(false));
+    const report = note.querySelector('[data-act="report"]');
+    report.addEventListener('click', async () => {
+        if (!window.confirm(`Report @${s.handle}'s window style as not safe for work or abusive?`)) return;
+        report.disabled = true;
+        try {
+            const { error } = await supabase.rpc('pilot_report', {
+                p_handle: s.handle, p_reason: 'other', p_detail: 'Flight window style (colour / photo)',
+            });
+            if (error) throw error;
+            report.textContent = 'Reported — thanks';
+        } catch (e) {
+            report.disabled = false;
+            report.textContent = /sign in/i.test(e?.message || '') ? 'Sign in to report' : 'Couldn’t report — try again';
+        }
+    });
+    tabs.after(note);
+}
+
+// Pro flair on the pilot card: a slow shimmer across the banner.
+function markPilotFlair(btn, style) {
+    if (!btn) return;
+    btn.classList.toggle('has-flair', !!(style && style.flair && style.isPro && showPilotStylesOn()));
+}
+
+function setShowPilotStyles(on) {
+    if (typeof mapFilters === 'undefined') return;
+    mapFilters.showPilotStyles = !!on;
+    if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
+    const w = document.getElementById('aircraft-info-window');
+    if (w) {
+        const tab = w.querySelector('.ac-info-tab-btn.pilot-tab-btn');
+        if (tab) markPilotFlair(tab, w._ownerStyle);
+        restyleOpenWindow(w);
+    }
+    if (typeof refreshPilotFlairGlow === 'function') refreshPilotFlairGlow();
+}
+if (typeof window !== 'undefined') window.setShowPilotStyles = setShowPilotStyles;
+
 // Legacy's own bands are solid greys; with an image they turn to glass so
 // the image shows through, and the header photo fades out into it.
 function injectLegacyWindowBackgroundStyle() {
@@ -25813,7 +26170,7 @@ function injectLegacyWindowBackgroundStyle() {
     st.textContent = `
         ${W}, ${W}.mobile-legacy-sheet {
             background:
-                linear-gradient(rgba(34,34,37, var(--sr-dim, 0.6)), rgba(34,34,37, var(--sr-dim, 0.6))),
+                linear-gradient(rgba(var(--wb-rgb, 34,34,37), var(--sr-dim, 0.6)), rgba(var(--wb-rgb, 34,34,37), var(--sr-dim, 0.6))),
                 var(--sr-bgimg) center / cover no-repeat,
                 #222225 !important;
         }
@@ -25959,7 +26316,212 @@ function wireHorizonBackgroundPicker(root) {
     range.addEventListener('change', save);
 }
 
+// Lets a later change of settings (a saved setup) repaint the picker.
+function syncHorizonBackgroundPicker(root) {
+    const box = root && root.querySelector('[data-sr-bg-picker]');
+    if (!box || typeof mapFilters === 'undefined') return;
+    const m = mapFilters.horizonBg || 'color';
+    const dim = Math.min(90, Math.max(20, Number(mapFilters.horizonBgDim) || 60));
+    box.dataset.mode = m;
+    box.querySelectorAll('[data-bg-mode]').forEach((b) => b.classList.toggle('active', b.dataset.bgMode === m));
+    const range = box.querySelector('.sr-bg-dim input');
+    const out = box.querySelector('.sr-bg-dim output');
+    if (range) range.value = String(dim);
+    if (out) out.textContent = dim + '%';
+}
+
+/**
+ * Saved window setups (Pro).
+ *
+ * A setup is a named snapshot of how this viewer's flight window looks —
+ * style, Horizon colour, background and dim, and whether pilots' own styles
+ * show — so switching between, say, "Night flying" and "Spotting" is one tap.
+ * Kept in mapFilters.windowSetups, so it travels with Pro's cloud settings.
+ * A "Your image" background is on this device only; on another device that
+ * setup falls back to no image.
+ */
+const WINDOW_SETUP_KEYS = ['flightWindowMode', 'horizonColor', 'horizonBg', 'horizonBgDim', 'showPilotStyles'];
+const WINDOW_SETUP_MAX = 6;
+
+function isProViewer() {
+    try { return typeof window.isInflightPro === 'function' && window.isInflightPro(); } catch (_) { return false; }
+}
+
+function getWindowSetups() {
+    const list = (typeof mapFilters !== 'undefined' && Array.isArray(mapFilters.windowSetups)) ? mapFilters.windowSetups : [];
+    return list.filter((x) => x && typeof x.name === 'string').slice(0, WINDOW_SETUP_MAX);
+}
+
+function applyWindowSetup(setup, root) {
+    if (!setup || typeof mapFilters === 'undefined') return;
+    WINDOW_SETUP_KEYS.forEach((k) => { if (k in setup && k !== 'flightWindowMode') mapFilters[k] = setup[k]; });
+    setFlightWindowMode(setup.flightWindowMode || getFlightWindowMode());   // also saves
+    const w = document.getElementById('aircraft-info-window');
+    if (w && w.classList.contains('iw-horizon')) applyHorizonColor(w);
+    refreshOpenHorizonBackground();
+    setShowPilotStyles(setup.showPilotStyles !== false);
+    // Repaint whichever Settings screen is open.
+    if (root) {
+        const mode = getFlightWindowMode();
+        root.querySelectorAll('.iw-seg[data-seg="flight-window-mode"] .iw-seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+        root.querySelectorAll('.m-setting-pill[data-setting="flightWindowMode"]').forEach((b) => b.classList.toggle('active', b.dataset.value === mode));
+        const cur = getHorizonColor().toLowerCase();
+        root.querySelectorAll('[data-sr-color-row] .sr-swatch').forEach((b) => {
+            b.classList.toggle('active', b.dataset.color ? b.dataset.color === cur : !HORIZON_PRESETS.some((p) => p.hex === cur));
+        });
+        const ci = root.querySelector('[data-sr-color-row] input[type="color"]');
+        if (ci) ci.value = cur;
+        syncHorizonBackgroundPicker(root);
+        const on = mapFilters.showPilotStyles !== false;
+        root.querySelectorAll('#set-show-pilot-styles, input[data-setting="showPilotStyles"]').forEach((c) => { c.checked = on; });
+    }
+    if (typeof showNotification === 'function') showNotification(`“${setup.name}” applied — reopen the flight window if its style changed.`, 'info');
+}
+
+function buildWindowSetups() {
+    if (!document.getElementById('iw-setups-style')) {
+        const st = document.createElement('style');
+        st.id = 'iw-setups-style';
+        st.textContent = `
+            .iw-setups { display: flex; flex-direction: column; gap: 8px; }
+            .iw-setups-row { display: flex; flex-wrap: wrap; gap: 8px; }
+            .iw-setup-chip {
+                display: inline-flex; align-items: stretch; border-radius: 999px; overflow: hidden;
+                border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06);
+            }
+            .iw-setup-chip button {
+                appearance: none; border: 0; background: none; color: #e4e4e7; cursor: pointer;
+                font: inherit; font-size: 0.8rem; font-weight: 600; padding: 7px 10px 7px 12px;
+                display: inline-flex; align-items: center; gap: 7px;
+            }
+            .iw-setup-chip button:hover { background: rgba(255,255,255,0.08); }
+            .iw-setup-chip .iw-setup-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35); }
+            .iw-setup-chip .iw-setup-del { padding: 7px 10px 7px 6px; color: #8b8b94; font-weight: 400; }
+            .iw-setup-chip .iw-setup-del:hover { color: #fca5a5; }
+            .iw-setup-add {
+                appearance: none; cursor: pointer; border-radius: 999px; padding: 7px 12px;
+                border: 1px dashed rgba(255,255,255,0.24); background: none; color: #cbd5e1;
+                font: inherit; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 7px;
+            }
+            .iw-setup-add:hover { border-color: rgba(255,255,255,0.4); color: #fff; }
+            .iw-setups-note { font-size: 0.74rem; color: #8b8b94; line-height: 1.45; }
+            .iw-setups.is-locked .iw-setup-add { opacity: 0.55; cursor: not-allowed; }
+            .iw-setups-pro {
+                display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 5px; font-size: 0.6rem;
+                font-weight: 800; letter-spacing: 0.06em; color: #1c1c1e; background: linear-gradient(135deg, #f5d27a, #e0a93b);
+            }
+        `;
+        document.head.appendChild(st);
+    }
+    return '<div class="iw-setups" data-iw-setups></div>';
+}
+
+function paintWindowSetups(box) {
+    const pro = isProViewer();
+    box.classList.toggle('is-locked', !pro);
+    const list = getWindowSetups();
+    const modeIcon = { legacy: 'fa-layer-group', horizon: 'fa-sun', simple: 'fa-window-maximize', embed: 'fa-id-card' };
+    const chips = list.map((x, i) => {
+        const dot = horizonTokens(x.horizonColor || HORIZON_DEFAULT_COLOR).bg;
+        const name = String(x.name).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        return `<span class="iw-setup-chip">
+            <button type="button" data-apply="${i}" title="Apply"><span class="iw-setup-dot" style="background:${dot}"></span><i class="fa-solid ${modeIcon[x.flightWindowMode] || 'fa-layer-group'}" style="font-size:0.72rem;opacity:.7"></i>${name}</button>
+            <button type="button" class="iw-setup-del" data-del="${i}" title="Delete" aria-label="Delete ${name}">×</button>
+        </span>`;
+    }).join('');
+    const canAdd = pro && list.length < WINDOW_SETUP_MAX;
+    box.innerHTML = `
+        <div class="iw-setups-row">
+            ${pro ? chips : ''}
+            ${(canAdd || !pro) ? `<button type="button" class="iw-setup-add" data-add ${pro ? '' : 'disabled aria-disabled="true"'}><i class="fa-solid ${pro ? 'fa-plus' : 'fa-lock'}"></i> Save current look${pro ? '' : '<span class="iw-setups-pro">PRO</span>'}</button>` : ''}
+        </div>
+        <div class="iw-setups-note">${pro
+            ? (list.length ? 'Tap a setup to switch your window style, colour and background in one go.' : 'Save your current window style, colour and background as a setup, then switch between setups in one tap.')
+            : 'Save several window looks and switch between them in one tap — an Inflight Pro feature.'}</div>`;
+}
+
+function wireWindowSetups(root) {
+    const box = root && root.querySelector('[data-iw-setups]');
+    if (!box || box.dataset.wired === '1') return;
+    box.dataset.wired = '1';
+    paintWindowSetups(box);
+    window.addEventListener('proStatusChanged', () => { if (box.isConnected) paintWindowSetups(box); });
+    box.addEventListener('click', (e) => {
+        const t = e.target.closest('button');
+        if (!t || typeof mapFilters === 'undefined') return;
+        const list = getWindowSetups();
+        if (t.hasAttribute('data-add')) {
+            if (!isProViewer()) return;
+            const suggestion = { legacy: 'Legacy', horizon: 'Horizon', simple: 'Simple', embed: 'Card' }[getFlightWindowMode()] + ' look';
+            const name = (window.prompt('Name this setup', suggestion) || '').trim().slice(0, 24);
+            if (!name) return;
+            const snap = { name };
+            WINDOW_SETUP_KEYS.forEach((k) => { snap[k] = k === 'flightWindowMode' ? getFlightWindowMode() : mapFilters[k]; });
+            mapFilters.windowSetups = list.concat([snap]).slice(0, WINDOW_SETUP_MAX);
+            saveFiltersToLocalStorage();
+            paintWindowSetups(box);
+        } else if (t.dataset.del != null) {
+            list.splice(Number(t.dataset.del), 1);
+            mapFilters.windowSetups = list;
+            saveFiltersToLocalStorage();
+            paintWindowSetups(box);
+        } else if (t.dataset.apply != null) {
+            if (!isProViewer()) return;
+            applyWindowSetup(list[Number(t.dataset.apply)], root);
+        }
+    });
+}
+
+/**
+ * Free accounts: the window look travels with the account. Pro already
+ * syncs all of mapFilters (profiles.map_filters); for a signed-in free
+ * account, preferenceSync.js carries this one localStorage key instead, and
+ * hands it back with 'preferencesRestored'.
+ */
+const WINDOW_LOOK_LS_KEY = 'inflight_window_look';
+const WINDOW_LOOK_KEYS = ['flightWindowMode', 'horizonColor', 'horizonBg', 'horizonBgDim', 'showPilotStyles'];
+
+function writeWindowLook() {
+    if (typeof mapFilters === 'undefined') return;
+    try {
+        const look = {};
+        WINDOW_LOOK_KEYS.forEach((k) => { if (mapFilters[k] !== undefined) look[k] = mapFilters[k]; });
+        const json = JSON.stringify(look);
+        if (localStorage.getItem(WINDOW_LOOK_LS_KEY) !== json) localStorage.setItem(WINDOW_LOOK_LS_KEY, json);
+    } catch (_) { /* private mode */ }
+}
+
+function readSyncedWindowLook() {
+    if (typeof mapFilters === 'undefined' || isProViewer()) return;
+    let look = null;
+    try { look = JSON.parse(localStorage.getItem(WINDOW_LOOK_LS_KEY) || 'null'); } catch (_) { return; }
+    if (!look || typeof look !== 'object') return;
+    let changed = false;
+    WINDOW_LOOK_KEYS.forEach((k) => {
+        if (!(k in look) || k === 'flightWindowMode') return;
+        const v = look[k];
+        const ok = k === 'horizonColor' ? /^#[0-9a-f]{6}$/i.test(v)
+            : k === 'horizonBg' ? ['color', 'aircraft', 'custom'].includes(v)
+            : k === 'horizonBgDim' ? Number.isFinite(Number(v))
+            : typeof v === 'boolean';
+        if (ok && mapFilters[k] !== v) { mapFilters[k] = v; changed = true; }
+    });
+    if (['legacy', 'horizon', 'simple', 'embed'].includes(look.flightWindowMode) && look.flightWindowMode !== getFlightWindowMode()) {
+        setFlightWindowMode(look.flightWindowMode);
+        changed = true;
+    }
+    if (changed) {
+        saveFiltersToLocalStorage();
+        const w = document.getElementById('aircraft-info-window');
+        if (w && w.classList.contains('iw-horizon')) applyHorizonColor(w);
+        refreshOpenHorizonBackground();
+    }
+}
+if (typeof window !== 'undefined') window.addEventListener('preferencesRestored', readSyncedWindowLook);
+
 if (typeof window !== 'undefined') {
+    window.buildWindowSetups = buildWindowSetups;
+    window.wireWindowSetups = wireWindowSetups;
     window.buildHorizonColorPicker = buildHorizonColorPicker;
     window.wireHorizonColorPicker = wireHorizonColorPicker;
     window.setHorizonColor = setHorizonColor;
@@ -26627,6 +27189,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
     // --- Safety Check: Ensure the container exists ---
     const windowEl = document.getElementById('aircraft-info-window');
     if (!windowEl) return;
+
+    // The pilot's own window look, if they've set one (before any colour or
+    // background is applied, so a cached look paints on the first frame).
+    loadOwnerWindowStyle(windowEl, baseProps.username);
 
     // Horizon is this same window in a softer skin (see HORIZON_WINDOW_CSS).
     const horizonSkin = getFlightWindowMode() === 'horizon';
@@ -27693,6 +28259,7 @@ let totalDistanceNM = 0;
     // pane. Phones keep the pane.
     const pilotTabBtn = windowEl.querySelector('.ac-info-tab-btn.pilot-tab-btn');
     decoratePilotTab(pilotTabBtn);
+    mountOwnerStyleNote(windowEl);
 
     mainTabBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {
