@@ -241,7 +241,7 @@ export const PilotCardEditor = {
     _windowSection() {
         const row = this._profile?.row || {};
         const { isPro } = this._opts;
-        const head = `<div class="pce-label pce-label-lg">Your flight window</div>
+        const head = `<div class="pce-label pce-label-lg" id="pce-window-style">Your flight window</div>
             <p class="pce-help pce-help-top">What other pilots see when they open your flight. They can switch pilots' styles off for themselves.</p>`;
         if (!('window_theme' in row)) {
             return head + '<p class="pce-help">Window styles are being switched on — check back soon.</p>';
@@ -563,7 +563,7 @@ export const PilotCardEditor = {
             @media (max-width: 560px) { .pce-swatches { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
             /* Your flight window */
-            .pce-label-lg { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--pui-border, rgba(255,255,255,.1)); }
+            .pce-label-lg { scroll-margin-top: 84px; margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--pui-border, rgba(255,255,255,.1)); }
             .pce-help-top { margin: -2px 0 12px; }
             .pce-sublabel { font-size: .72rem; font-weight: 600; color: var(--pui-text-muted, #94a3b8); margin: 14px 0 8px; }
             .pce-sublabel:first-child { margin-top: 0; }

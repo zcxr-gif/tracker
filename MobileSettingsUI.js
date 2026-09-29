@@ -450,29 +450,25 @@ export const MobileSettingsUI = {
                         <!-- ====================== GENERAL ====================== -->
                         <div class="m-panel" data-panel="general">
                             <div class="mobile-section-header">Flight Window</div>
-                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
-                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="legacy"><i class="fa-solid fa-layer-group"></i><span>Legacy</span></button>
-                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="horizon"><i class="fa-solid fa-sun"></i><span>Horizon</span></button>
-                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="simple"><i class="fa-solid fa-window-maximize"></i><span>Simple</span></button>
-                                <button class="m-setting-pill" data-setting="flightWindowMode" data-value="embed"><i class="fa-solid fa-id-card"></i><span>Card</span></button>
-                            </div>
-                            <!-- Horizon's colour; text and surfaces adapt to stay readable. -->
-                            <div class="m-horizon-color">
-                                <div class="m-horizon-color-label"><i class="fa-solid fa-palette"></i><span>Horizon colour</span></div>
-                                ${(typeof window !== 'undefined' && window.buildHorizonColorPicker) ? window.buildHorizonColorPicker('m') : ''}
-                            </div>
-                            <!-- Every flight window's background: none, the aircraft's photo, or your own image. -->
-                            <div class="m-horizon-color">
-                                <div class="m-horizon-color-label"><i class="fa-solid fa-image"></i><span>Window background</span></div>
-                                ${(typeof window !== 'undefined' && window.buildHorizonBackgroundPicker) ? window.buildHorizonBackgroundPicker('m') : ''}
-                            </div>
-                            <!-- Pro: saved window setups, switched in one tap. -->
-                            <div class="m-horizon-color">
-                                <div class="m-horizon-color-label"><i class="fa-solid fa-bookmark"></i><span>Saved setups</span></div>
-                                ${(typeof window !== 'undefined' && window.buildWindowSetups) ? window.buildWindowSetups() : ''}
-                            </div>
+                            <!-- Style, colour, background and saved setups beside a live
+                                 preview. Shared with desktop Settings (buildWindowLookPanel in
+                                 flight.js); mounted and wired in attachMobileListeners. -->
+                            <div class="m-wl-card" id="m-window-look"></div>
+
+                            <div class="mobile-section-header">Pilots' Window Styles</div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('showPilotStyles', 'Show pilots\' window styles', 'fa-wand-magic-sparkles')}
+                            </div>
+                            <p class="m-settings-note">Pilots can style the window others see for their flight. Turn this off to always see your own colour and background.</p>
+                            <div class="m-settings-list" style="margin-top: 12px;">
+                                <div class="m-setting-row">
+                                    <div class="m-row-left"><i class="fa-solid fa-user-pen"></i><span>Your window, as others see it</span></div>
+                                    <div class="m-row-right"><button type="button" class="wl-link" data-wl-own-style>Edit <i class="fa-solid fa-chevron-right"></i></button></div>
+                                </div>
+                            </div>
+
+                            <div class="mobile-section-header">Behaviour</div>
+                            <div class="m-settings-list">
                                 ${this.renderToggle('autoCyclePhotos', 'Auto-Cycle Photos', 'fa-images')}
                                 ${this.renderToggle('use12hClock', '12-Hour Clock (AM/PM)', 'fa-clock')}
                                 <div class="m-setting-row m-tz-row">
@@ -1384,6 +1380,17 @@ export const MobileSettingsUI = {
             try { localStorage.setItem('mobileDisplayMode', 'legacy'); } catch (e) {}
         }
         if (window.showNotification) window.showNotification('Flight window mode updated — reopen the flight to apply.', 'info');
+    },
+
+    // The Flight Window card (style, colour, background, saved setups and a
+    // live preview) is flight.js's shared panel. Mounted here rather than in
+    // the template so it is never left empty if the helper loads late; the
+    // "Edit" row under Pilots' Window Styles is wired by the same call.
+    mountWindowLook(sheet) {
+        const host = sheet && sheet.querySelector('#m-window-look');
+        if (!host || typeof window.buildWindowLookPanel !== 'function') return;
+        if (!host.firstElementChild) host.innerHTML = window.buildWindowLookPanel('m');
+        window.wireWindowLookPanel(sheet);
     },
 
     // Airport-window presentation: 'standard' (built-in tabbed window) or
@@ -2432,9 +2439,7 @@ export const MobileSettingsUI = {
             });
         });
 
-        if (window.wireHorizonColorPicker) window.wireHorizonColorPicker(sheet);
-        if (window.wireHorizonBackgroundPicker) window.wireHorizonBackgroundPicker(sheet);
-        if (window.wireWindowSetups) window.wireWindowSetups(sheet);
+        this.mountWindowLook(sheet);
 
         // Pro time-zone picker (flight-window times in the user's own zone).
         // Gated: ignore changes while the row is locked (non-Pro), and revert
@@ -2540,6 +2545,10 @@ export const MobileSettingsUI = {
                 input.checked = !!filters[input.dataset.setting];
             }
         });
+
+        // Flight Window card: style, preview, colour, background, setups and
+        // the pilots'-styles switch (on unless switched off).
+        if (typeof window.syncWindowLookControls === 'function') window.syncWindowLookControls(container);
 
         // Label field row toggles
         const cfg = filters.labelConfig || {};
@@ -2747,9 +2756,8 @@ export const MobileSettingsUI = {
                 .m-fw-mode-grid .m-setting-pill span { font-size: 0.78rem; }
                 .m-fw-mode-grid-2 { grid-template-columns: repeat(2, 1fr); }
                 .m-fw-mode-grid-3 { grid-template-columns: repeat(3, 1fr); }
-                .m-horizon-color { padding: 4px 20px 14px; }
-                .m-horizon-color-label { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 0.9rem; color: #e4e4e7; }
-                .m-horizon-color-label i { color: #a1a1aa; width: 18px; text-align: center; }
+                .m-wl-card { margin: 0 20px; padding: 14px; border-radius: 16px; background: rgba(255,255,255,0.03); }
+                .m-setting-row .wl-link { padding: 6px 11px; font-size: 0.8rem; }
 
                 /* ---- Map style preview cards ---- */
                 .m-style-grid {

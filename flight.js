@@ -17700,6 +17700,7 @@ function setFlightWindowMode(mode) {
     mapFilters.flightWindowMode = mode;
     mapFilters.useSimpleFlightWindow = (mode === 'simple');
     if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
+    notifyWindowLookChanged();
 }
 
 function getAirportWindowMode() {
@@ -20383,31 +20384,34 @@ renderCategory(catId) {
                     html = `
                         <div class="settings-section">
                             <label class="config-header">Flight Window</label>
-                            <div class="iw-seg" data-seg="flight-window-mode">
-                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'legacy' ? ' active' : ''}" data-mode="legacy"><i class="fa-solid fa-layer-group"></i> Legacy</button>
-                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'simple' ? ' active' : ''}" data-mode="simple"><i class="fa-solid fa-window-maximize"></i> Simple</button>
-                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
-                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'horizon' ? ' active' : ''}" data-mode="horizon" title="The Legacy window in a softer, calmer style"><i class="fa-solid fa-sun"></i> Horizon</button>
+                            <!-- Style, colour, background and saved setups beside a live
+                                 preview. Shared with the phone sheet (buildWindowLookPanel). -->
+                            <div style="padding: 12px 0 14px;">${buildWindowLookPanel('set')}</div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Pilots' Window Styles</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-wand-magic-sparkles"></i> Show Pilots' Window Styles</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-show-pilot-styles" ${mapFilters.showPilotStyles !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
-                            <!-- Horizon's colour. Text and surfaces adapt so it stays readable. -->
-                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-palette"></i> Horizon Colour</div>
-                            ${buildHorizonColorPicker('set')}
-                            <!-- Every flight window's background: colour, the aircraft's photo, or your own image. -->
-                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-image"></i> Window Background</div>
-                            ${buildHorizonBackgroundPicker('set')}
-                            <!-- Pro: named snapshots of the look above, switched in one tap. -->
-                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-bookmark"></i> Saved Setups</div>
-                            ${buildWindowSetups()}
+                            <p class="iw-tz-hint" style="margin: -2px 0 8px;">Pilots can style the window others see for their flight. Turn this off to always see your own colour and background.</p>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-user-pen"></i> Your Window, as Others See It</div>
+                                <button type="button" class="wl-link" data-wl-own-style>Edit in profile <i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Behaviour</label>
                             <!-- Which side of the map the flight window opens on.
                                  Used to be a button in the window's own tab bar. -->
-                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
-                            <div class="iw-seg" data-seg="flight-window-side">
-                                <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') === 'left' ? ' active' : ''}" data-mode="left"><i class="fa-solid fa-arrow-left"></i> Left</button>
-                                <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') !== 'left' ? ' active' : ''}" data-mode="right"><i class="fa-solid fa-arrow-right"></i> Right</button>
-                            </div>
                             <div class="settings-row">
-                                <div class="row-label" title="Pilots can style the window others see for their flight. Turn this off to always see your own colour and background."><i class="fa-solid fa-wand-magic-sparkles"></i> Show Pilots' Window Styles</div>
-                                <label class="toggle-switch"><input type="checkbox" id="set-show-pilot-styles" ${mapFilters.showPilotStyles !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                                <div class="row-label"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
+                                <div class="iw-seg" data-seg="flight-window-side" style="margin: 0 !important;">
+                                    <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') === 'left' ? ' active' : ''}" data-mode="left"><i class="fa-solid fa-arrow-left"></i> Left</button>
+                                    <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') !== 'left' ? ' active' : ''}" data-mode="right"><i class="fa-solid fa-arrow-right"></i> Right</button>
+                                </div>
                             </div>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
@@ -20421,7 +20425,7 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Time Zone</div>
                                 <select id="set-user-timezone" class="iw-tz-select">${buildTimezoneOptions(mapFilters.userTimezone)}</select>
                             </div>
-                            <div class="iw-tz-hint">Show flight-window times (departure / arrival) in your own time zone and clock format instead of 24-hour Zulu.</div>
+                            <div class="iw-tz-hint" style="margin: -2px 0 8px;">Show flight-window times (departure / arrival) in your own time zone and clock format instead of 24-hour Zulu.</div>
                         </div>
 
                         <div class="settings-section">
@@ -20735,8 +20739,9 @@ renderCategory(catId) {
         const pilotStylesEl = document.getElementById('set-show-pilot-styles');
         if (pilotStylesEl) pilotStylesEl.addEventListener('change', (e) => setShowPilotStyles(e.target.checked));
 
-        // --- 4b. Flight- / Airport-window presentation segmented controls ---
-        // Legacy | Simple | Card for flights; Standard | Card for airports.
+        // --- 4b. Window presentation ---
+        // The flight window's look is the shared panel (wireWindowLookPanel);
+        // the airport window keeps its Standard | Card segmented control.
         const wireWindowModeSeg = (seg, apply, label) => {
             const wrap = document.querySelector(`.iw-seg[data-seg="${seg}"]`);
             if (!wrap) return;
@@ -20750,10 +20755,7 @@ renderCategory(catId) {
                 });
             });
         };
-        wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
-        wireHorizonColorPicker(document.getElementById('global-settings-modal-overlay') || document);
-        wireHorizonBackgroundPicker(document.getElementById('global-settings-modal-overlay') || document);
-        wireWindowSetups(document.getElementById('global-settings-modal-overlay') || document);
+        wireWindowLookPanel(document.getElementById('global-settings-modal-overlay') || document);
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
 
         // Window side: same preference the old move-window button kept, and
@@ -25687,6 +25689,7 @@ function setHorizonColor(hex) {
     if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
     const w = document.getElementById('aircraft-info-window');
     if (w && w.classList.contains('iw-horizon')) applyHorizonColor(w);
+    notifyWindowLookChanged();
 }
 
 // Swatches + a free colour picker, shared by desktop and mobile Settings.
@@ -26158,6 +26161,7 @@ function setShowPilotStyles(on) {
         restyleOpenWindow(w);
     }
     if (typeof refreshPilotFlairGlow === 'function') refreshPilotFlairGlow();
+    notifyWindowLookChanged();
 }
 if (typeof window !== 'undefined') window.setShowPilotStyles = setShowPilotStyles;
 
@@ -26273,6 +26277,7 @@ function wireHorizonBackgroundPicker(root) {
         note.textContent = notes[m] || '';
         if (m === 'custom') paintCustom();
     };
+    box._setMode = setMode;       // for syncHorizonBackgroundPicker
     setMode(box.dataset.mode || 'color');
     box.querySelectorAll('[data-bg-mode]').forEach((b) => b.addEventListener('click', () => {
         if (typeof mapFilters === 'undefined') return;
@@ -26280,6 +26285,7 @@ function wireHorizonBackgroundPicker(root) {
         save();
         setMode(b.dataset.bgMode);
         refreshOpenHorizonBackground();
+        notifyWindowLookChanged();
     }));
     box.querySelector('input[type="file"]').addEventListener('change', async (e) => {
         const file = e.target.files && e.target.files[0];
@@ -26294,9 +26300,12 @@ function wireHorizonBackgroundPicker(root) {
         const where = await saveHorizonCustomBg(blob);
         mapFilters.horizonBg = 'custom';
         save();
+        // Any other mounted picker (the other screen's) shows the new image too.
+        document.querySelectorAll('[data-sr-bg-picker]').forEach((b) => { if (b !== box && b._setMode) b._setMode(b.dataset.mode); });
         setMode('custom');
         if (where === 'session') note.textContent = 'This browser won’t store images, so it’s shown until you close the app.';
         refreshOpenHorizonBackground();
+        notifyWindowLookChanged();
     });
     remove.addEventListener('click', async () => {
         await removeHorizonCustomBg();
@@ -26304,30 +26313,42 @@ function wireHorizonBackgroundPicker(root) {
         save();
         setMode('color');
         refreshOpenHorizonBackground();
+        notifyWindowLookChanged();
     });
     const range = box.querySelector('.sr-bg-dim input');
     const out = box.querySelector('.sr-bg-dim output');
     range.addEventListener('input', () => {
         out.textContent = range.value + '%';
         if (typeof mapFilters !== 'undefined') mapFilters.horizonBgDim = Number(range.value);
+        // Live on the native window — unless it is wearing the pilot's own
+        // look, whose dim is theirs.
         const w = document.getElementById('aircraft-info-window');
-        if (w) w.style.setProperty('--sr-dim', String(Number(range.value) / 100));
+        if (w && !ownerLook(w)) w.style.setProperty('--sr-dim', String(Number(range.value) / 100));
+        notifyWindowLookChanged();
     });
-    range.addEventListener('change', save);
+    // On release: save, and hand the new dim to Simple / Card, which paint
+    // the background inside their own frame.
+    range.addEventListener('change', () => { save(); refreshOpenHorizonBackground(); });
 }
 
 // Lets a later change of settings (a saved setup) repaint the picker.
 function syncHorizonBackgroundPicker(root) {
-    const box = root && root.querySelector('[data-sr-bg-picker]');
-    if (!box || typeof mapFilters === 'undefined') return;
+    if (!root || typeof mapFilters === 'undefined') return;
     const m = mapFilters.horizonBg || 'color';
     const dim = Math.min(90, Math.max(20, Number(mapFilters.horizonBgDim) || 60));
-    box.dataset.mode = m;
-    box.querySelectorAll('[data-bg-mode]').forEach((b) => b.classList.toggle('active', b.dataset.bgMode === m));
-    const range = box.querySelector('.sr-bg-dim input');
-    const out = box.querySelector('.sr-bg-dim output');
-    if (range) range.value = String(dim);
-    if (out) out.textContent = dim + '%';
+    root.querySelectorAll('[data-sr-bg-picker]').forEach((box) => {
+        if (box.dataset.mode !== m) {
+            if (box._setMode) box._setMode(m);
+            else {
+                box.dataset.mode = m;
+                box.querySelectorAll('[data-bg-mode]').forEach((b) => b.classList.toggle('active', b.dataset.bgMode === m));
+            }
+        }
+        const range = box.querySelector('.sr-bg-dim input');
+        const out = box.querySelector('.sr-bg-dim output');
+        if (range && range.value !== String(dim)) range.value = String(dim);
+        if (out) out.textContent = dim + '%';
+    });
 }
 
 /**
@@ -26352,7 +26373,7 @@ function getWindowSetups() {
     return list.filter((x) => x && typeof x.name === 'string').slice(0, WINDOW_SETUP_MAX);
 }
 
-function applyWindowSetup(setup, root) {
+function applyWindowSetup(setup) {
     if (!setup || typeof mapFilters === 'undefined') return;
     WINDOW_SETUP_KEYS.forEach((k) => { if (k in setup && k !== 'flightWindowMode') mapFilters[k] = setup[k]; });
     setFlightWindowMode(setup.flightWindowMode || getFlightWindowMode());   // also saves
@@ -26360,21 +26381,8 @@ function applyWindowSetup(setup, root) {
     if (w && w.classList.contains('iw-horizon')) applyHorizonColor(w);
     refreshOpenHorizonBackground();
     setShowPilotStyles(setup.showPilotStyles !== false);
-    // Repaint whichever Settings screen is open.
-    if (root) {
-        const mode = getFlightWindowMode();
-        root.querySelectorAll('.iw-seg[data-seg="flight-window-mode"] .iw-seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
-        root.querySelectorAll('.m-setting-pill[data-setting="flightWindowMode"]').forEach((b) => b.classList.toggle('active', b.dataset.value === mode));
-        const cur = getHorizonColor().toLowerCase();
-        root.querySelectorAll('[data-sr-color-row] .sr-swatch').forEach((b) => {
-            b.classList.toggle('active', b.dataset.color ? b.dataset.color === cur : !HORIZON_PRESETS.some((p) => p.hex === cur));
-        });
-        const ci = root.querySelector('[data-sr-color-row] input[type="color"]');
-        if (ci) ci.value = cur;
-        syncHorizonBackgroundPicker(root);
-        const on = mapFilters.showPilotStyles !== false;
-        root.querySelectorAll('#set-show-pilot-styles, input[data-setting="showPilotStyles"]').forEach((c) => { c.checked = on; });
-    }
+    // Every open Settings screen repaints on this (syncWindowLookControls).
+    notifyWindowLookChanged();
     if (typeof showNotification === 'function') showNotification(`“${setup.name}” applied — reopen the flight window if its style changed.`, 'info');
 }
 
@@ -26445,7 +26453,6 @@ function wireWindowSetups(root) {
     if (!box || box.dataset.wired === '1') return;
     box.dataset.wired = '1';
     paintWindowSetups(box);
-    window.addEventListener('proStatusChanged', () => { if (box.isConnected) paintWindowSetups(box); });
     box.addEventListener('click', (e) => {
         const t = e.target.closest('button');
         if (!t || typeof mapFilters === 'undefined') return;
@@ -26467,7 +26474,7 @@ function wireWindowSetups(root) {
             paintWindowSetups(box);
         } else if (t.dataset.apply != null) {
             if (!isProViewer()) return;
-            applyWindowSetup(list[Number(t.dataset.apply)], root);
+            applyWindowSetup(list[Number(t.dataset.apply)]);
         }
     });
 }
@@ -26515,11 +26522,342 @@ function readSyncedWindowLook() {
         const w = document.getElementById('aircraft-info-window');
         if (w && w.classList.contains('iw-horizon')) applyHorizonColor(w);
         refreshOpenHorizonBackground();
+        notifyWindowLookChanged();
     }
 }
 if (typeof window !== 'undefined') window.addEventListener('preferencesRestored', readSyncedWindowLook);
 
+/**
+ * Settings › Flight window: one panel for desktop and the phone sheet.
+ *
+ * Style, colour, background and saved setups sit in one card beside a live
+ * preview of the window they make. Each control still goes through its own
+ * setter (setFlightWindowMode, setHorizonColor, the background picker, a
+ * saved setup, …); each of those announces the change with
+ * 'inflight:window-look', and every mounted panel repaints from mapFilters —
+ * so a setup applied, a cloud restore or the other screen's panel never
+ * leaves one showing stale values.
+ */
+const WINDOW_STYLE_INFO = [
+    { mode: 'legacy', icon: 'fa-layer-group', name: 'Legacy', desc: 'The full window — every panel and number.' },
+    { mode: 'horizon', icon: 'fa-sun', name: 'Horizon', desc: 'Legacy in a calmer skin, in your colour.' },
+    { mode: 'simple', icon: 'fa-window-maximize', name: 'Simple', desc: 'A compact sheet with the essentials.' },
+    { mode: 'embed', icon: 'fa-id-card', name: 'Card', desc: 'A photo-led flight card.' },
+];
+// Each style's own window colour (Horizon's is the user's).
+const WINDOW_STYLE_BASE = { legacy: '#222225', simple: '#18181b', embed: '#1a1a1e' };
+const WINDOW_PREVIEW_PHOTO = '/CommunityPlanes/a350.webp';
+
+function notifyWindowLookChanged() {
+    if (typeof window === 'undefined') return;
+    try { window.dispatchEvent(new CustomEvent('inflight:window-look')); } catch (_) {}
+}
+
+function injectWindowLookStyles() {
+    if (document.getElementById('wl-panel-style')) return;
+    const st = document.createElement('style');
+    st.id = 'wl-panel-style';
+    st.textContent = `
+        .wl {
+            --wl-ui-text: var(--gs-text, #e4e4e7); --wl-ui-dim: var(--gs-dim, #8b8b94);
+            --wl-ui-line: var(--gs-line, rgba(255,255,255,0.08)); --wl-ui-accent: #38bdf8;
+            display: flex; flex-direction: column; color: var(--wl-ui-text);
+        }
+        .wl-top { display: grid; grid-template-columns: 164px minmax(0, 1fr); gap: 18px; align-items: stretch; }
+        .wl-pv-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+        .wl-pv-cap { text-align: center; font-size: 11px; color: var(--wl-ui-dim); letter-spacing: 0.02em; }
+
+        /* ---- Live preview: a small flight window ---- */
+        .wl-pv {
+            position: relative; flex: 1; min-height: 236px; overflow: hidden; isolation: isolate;
+            border-radius: 14px; color: var(--wl-text); background: rgb(var(--wl-bg-rgb));
+            box-shadow: 0 12px 28px rgba(0,0,0,0.38), inset 0 0 0 1px rgba(255,255,255,0.08);
+            transition: background-color .3s ease, color .3s ease;
+        }
+        .wl-pv-img, .wl-pv-tint { position: absolute; inset: 0; pointer-events: none; }
+        .wl-pv-img { z-index: 0; background: var(--wl-img, none) center / cover no-repeat; opacity: 0; transition: opacity .35s ease; }
+        .wl-pv.has-img .wl-pv-img { opacity: 1; }
+        .wl-pv.img-blur .wl-pv-img { filter: blur(9px) saturate(1.15); transform: scale(1.2); }
+        .wl-pv-tint { z-index: 1; background: rgba(var(--wl-bg-rgb), var(--wl-dim, 1)); transition: background-color .3s ease; }
+        .wl-pv-body { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; gap: 7px; padding-bottom: 10px; box-sizing: border-box; }
+        .wl-pv-hero { flex: 0 0 auto; height: 36%; min-height: 64px; background: var(--wl-photo) center / cover no-repeat; }
+        .wl-pv.has-img .wl-pv-hero {
+            -webkit-mask-image: linear-gradient(180deg, #000 0, #000 55%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0, #000 55%, transparent 100%);
+        }
+        .wl-pv-head { display: flex; flex-direction: column; gap: 1px; padding: 0 10px; min-width: 0; }
+        .wl-pv-head b { font-size: 13px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; }
+        .wl-pv-head span { font-size: 8.5px; color: var(--wl-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .wl-pv-route {
+            display: flex; align-items: center; gap: 6px; margin: 0 10px; padding: 6px 8px; border-radius: 8px;
+            font-size: 8.5px; font-weight: 700; letter-spacing: 0.04em; background: var(--wl-surface-hi);
+        }
+        .wl-pv-route i { position: relative; flex: 1; height: 2px; border-radius: 2px; background: var(--wl-line); }
+        .wl-pv-route i::after { content: ''; position: absolute; inset: 0 38% 0 0; border-radius: 2px; background: var(--wl-accent); }
+        .wl-pv-tiles { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(0, 1fr); gap: 5px; margin: 0 10px; }
+        .wl-pv-tiles span { position: relative; min-height: 16px; border-radius: 7px; background: var(--wl-surface); }
+        .wl-pv-tiles span::before, .wl-pv-tiles span::after { content: ''; position: absolute; left: 7px; height: 3px; border-radius: 2px; background: var(--wl-faint); }
+        .wl-pv-tiles span::before { top: 7px; width: 34%; }
+        .wl-pv-tiles span::after { top: 14px; width: 52%; height: 5px; background: var(--wl-muted); opacity: 0.8; }
+        .wl-pv-tiles span:nth-child(n+5) { display: none; }
+        /* Legacy: square-cut, the callsign on the photo, a solid route band. */
+        .wl-pv[data-style="legacy"] { border-radius: 10px; }
+        .wl-pv[data-style="legacy"] .wl-pv-head { margin-top: -34px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
+        .wl-pv[data-style="legacy"] .wl-pv-head span { color: rgba(255,255,255,0.8); }
+        .wl-pv[data-style="legacy"] .wl-pv-route { margin: 2px 0 0; border-radius: 0; background: rgba(0,0,0,0.28); }
+        .wl-pv[data-style="legacy"] .wl-pv-tiles span { border-radius: 4px; }
+        .wl-pv[data-style="legacy"] .wl-pv-tiles span:nth-child(n+5) { display: block; }
+        /* Horizon: soft, generous, the accent carried by the progress line. */
+        .wl-pv[data-style="horizon"] .wl-pv-head b { font-size: 15px; }
+        .wl-pv[data-style="horizon"] .wl-pv-route { border-radius: 999px; padding: 6px 10px; }
+        .wl-pv[data-style="horizon"] .wl-pv-tiles span { border-radius: 10px; }
+        /* Simple: a compact sheet — thumbnail, three big figures. */
+        .wl-pv[data-style="simple"] .wl-pv-hero { height: 44px; min-height: 0; margin: 10px 10px 0; border-radius: 8px; -webkit-mask-image: none; mask-image: none; }
+        .wl-pv[data-style="simple"] .wl-pv-tiles { flex: 0 0 38px; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 38px; }
+        .wl-pv[data-style="simple"] .wl-pv-tiles span:nth-child(n+4) { display: none; }
+        /* Card: the photo inset in a card, rows beneath. */
+        .wl-pv[data-style="embed"] .wl-pv-hero { margin: 8px 8px 0; border-radius: 9px; height: 34%; -webkit-mask-image: none; mask-image: none; }
+        .wl-pv[data-style="embed"] .wl-pv-route { background: transparent; padding: 2px 0; margin: 0 10px; font-size: 11px; }
+        .wl-pv[data-style="embed"] .wl-pv-tiles { grid-template-columns: 1fr; gap: 0; }
+        .wl-pv[data-style="embed"] .wl-pv-tiles span { background: transparent; border-radius: 0; border-top: 1px solid var(--wl-line); }
+        .wl-pv[data-style="embed"] .wl-pv-tiles span::after { left: auto; right: 7px; top: 50%; width: 26%; margin-top: -2px; height: 4px; }
+        .wl-pv[data-style="embed"] .wl-pv-tiles span::before { top: 50%; margin-top: -1.5px; }
+
+        /* ---- Style choice ---- */
+        .wl-styles { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        .wl-style {
+            appearance: none; display: flex; align-items: center; gap: 12px; width: 100%; margin: 0;
+            padding: 10px 12px; border-radius: 12px; cursor: pointer; text-align: left;
+            border: 1px solid var(--wl-ui-line); background: rgba(255,255,255,0.025); color: var(--wl-ui-text);
+            font: inherit; transition: border-color .15s ease, background-color .15s ease;
+        }
+        .wl-style:hover { background: rgba(255,255,255,0.05); }
+        .wl-style:focus-visible { outline: 2px solid var(--wl-ui-accent); outline-offset: 2px; }
+        .wl-style > i:first-child {
+            flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center;
+            border-radius: 8px; background: rgba(255,255,255,0.06); color: #b3b8c0; font-size: 13px;
+        }
+        .wl-style-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .wl-style-text b { font-size: 13.5px; font-weight: 600; }
+        .wl-style-text small { font-size: 11.5px; line-height: 1.35; color: var(--wl-ui-dim); }
+        .wl-style-check {
+            flex: 0 0 auto; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%;
+            border: 1.5px solid rgba(255,255,255,0.22); color: transparent; font-size: 10px;
+        }
+        .wl-style.active { border-color: rgba(56,189,248,0.55); background: rgba(56,189,248,0.08); }
+        .wl-style.active > i:first-child { background: rgba(56,189,248,0.16); color: #7dd3fc; }
+        .wl-style.active .wl-style-check { background: var(--wl-ui-accent); border-color: var(--wl-ui-accent); color: #0b1220; }
+
+        /* ---- Groups under the preview ---- */
+        .wl-group { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--wl-ui-line); }
+        .wl-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-bottom: 10px; }
+        .wl-label > span { font-size: 13.5px; font-weight: 600; color: var(--wl-ui-text); }
+        .wl-label > small { font-size: 11.5px; color: var(--wl-ui-dim); }
+        .wl:not([data-mode="horizon"]) [data-wl-group="color"] { display: none; }
+        .wl .sr-swatch { width: 32px; height: 32px; }
+
+        /* "Edit in profile" beside a row label. */
+        .wl-link {
+            appearance: none; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+            padding: 7px 12px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.06); color: #e4e4e7; font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+        }
+        .wl-link:hover { background: rgba(255,255,255,0.1); }
+        .wl-link i { font-size: 10px; opacity: 0.7; }
+
+        .wl-mode-note { display: none; margin: 10px 0 0; font-size: 12px; line-height: 1.45; color: var(--wl-ui-dim); }
+        @media (max-width: 480px) {
+            /* Phones: the rows keep just the names; the chosen style's line sits under the preview. */
+            .wl-top { grid-template-columns: 112px minmax(0, 1fr); gap: 12px; }
+            .wl-pv { min-height: 200px; }
+            .wl-style-text small { display: none; }
+            .wl-mode-note { display: block; }
+            .wl .sr-color-row { gap: 6px; }
+            .wl .sr-swatch { width: 28px; height: 28px; }
+            .wl .sr-bg-seg button { padding: 8px 4px; font-size: 0.78rem; }
+            .wl .sr-bg-seg button i { display: none; }
+            .wl-pv-body { gap: 6px; }
+            .wl-pv-hero { min-height: 52px; }
+            .wl-pv-head b { font-size: 11.5px; }
+            .wl-pv[data-style="horizon"] .wl-pv-head b { font-size: 13px; }
+            .wl-pv[data-style="legacy"] .wl-pv-head { margin-top: -30px; }
+            .wl-styles { gap: 5px; }
+            .wl-style { flex: 1; padding: 8px 10px; gap: 10px; border-radius: 11px; }
+            .wl-style > i:first-child { width: 26px; height: 26px; font-size: 12px; }
+            .wl-style-text b { font-size: 13.5px; }
+            .wl-style-check { width: 18px; height: 18px; }
+        }
+        @media (prefers-reduced-motion: reduce) { .wl-pv, .wl-pv-img, .wl-pv-tint, .wl-style { transition: none; } }
+    `;
+    document.head.appendChild(st);
+}
+
+function buildWindowLookPanel(idPrefix) {
+    injectWindowLookStyles();
+    const mode = getFlightWindowMode();
+    return `<div class="wl" data-wl data-mode="${mode}">
+        <div class="wl-top">
+            <div class="wl-pv-col">
+                <div class="wl-pv" data-wl-preview data-style="${mode}" aria-hidden="true">
+                    <div class="wl-pv-img"></div>
+                    <div class="wl-pv-tint"></div>
+                    <div class="wl-pv-body">
+                        <div class="wl-pv-hero"></div>
+                        <div class="wl-pv-head"><b>DAL41</b><span>Delta · A350-900</span></div>
+                        <div class="wl-pv-route"><b>KLAX</b><i></i><b>KJFK</b></div>
+                        <div class="wl-pv-tiles"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                    </div>
+                </div>
+                <div class="wl-pv-cap">Preview</div>
+            </div>
+            <div class="wl-styles" role="radiogroup" aria-label="Flight window style">
+                ${WINDOW_STYLE_INFO.map((s) => `
+                    <button type="button" role="radio" class="wl-style${s.mode === mode ? ' active' : ''}" data-wl-style="${s.mode}" aria-checked="${s.mode === mode}">
+                        <i class="fa-solid ${s.icon}" aria-hidden="true"></i>
+                        <span class="wl-style-text"><b>${s.name}</b><small>${s.desc}</small></span>
+                        <span class="wl-style-check" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
+                    </button>`).join('')}
+            </div>
+        </div>
+        <p class="wl-mode-note" data-wl-note>${(WINDOW_STYLE_INFO.find((s) => s.mode === mode) || {}).desc || ''}</p>
+        <div class="wl-group" data-wl-group="color">
+            <div class="wl-label"><span>Horizon colour</span><small>Text and panels adjust to stay readable.</small></div>
+            ${buildHorizonColorPicker(idPrefix)}
+        </div>
+        <div class="wl-group">
+            <div class="wl-label"><span>Background</span><small>Behind every window style.</small></div>
+            ${buildHorizonBackgroundPicker(idPrefix)}
+        </div>
+        <div class="wl-group">
+            <div class="wl-label"><span>Saved setups</span></div>
+            ${buildWindowSetups()}
+        </div>
+    </div>`;
+}
+
+// Repaints one panel's style choice and preview from mapFilters.
+async function paintWindowLookPanel(box) {
+    if (!box || typeof mapFilters === 'undefined') return;
+    const mode = getFlightWindowMode();
+    box.dataset.mode = mode;
+    box.querySelectorAll('[data-wl-style]').forEach((b) => {
+        const on = b.dataset.wlStyle === mode;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', String(on));
+    });
+    const note = box.querySelector('[data-wl-note]');
+    if (note) note.textContent = (WINDOW_STYLE_INFO.find((s) => s.mode === mode) || {}).desc || '';
+    const pv = box.querySelector('[data-wl-preview]');
+    if (!pv) return;
+    const t = horizonTokens(mode === 'horizon' ? getHorizonColor() : WINDOW_STYLE_BASE[mode]);
+    pv.dataset.style = mode;
+    pv.classList.toggle('is-light', t.light);
+    const vars = {
+        '--wl-bg-rgb': t.bgRgb, '--wl-text': t.text, '--wl-muted': t.muted, '--wl-faint': t.faint,
+        '--wl-accent': mode === 'horizon' ? t.accent : '#38bdf8',
+        '--wl-surface': t.surface, '--wl-surface-hi': t.surfaceHi, '--wl-line': t.light ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.14)',
+        '--wl-photo': `url("${WINDOW_PREVIEW_PHOTO}")`,
+    };
+    Object.entries(vars).forEach(([k, v]) => pv.style.setProperty(k, v));
+    const bgMode = mapFilters.horizonBg || 'color';
+    const dim = Math.min(90, Math.max(20, Number(mapFilters.horizonBgDim) || 60)) / 100;
+    const token = {};
+    pv._wlToken = token;
+    const url = bgMode === 'aircraft' ? WINDOW_PREVIEW_PHOTO
+        : bgMode === 'custom' ? await getHorizonCustomBgUrl()
+        : null;
+    if (pv._wlToken !== token) return;      // superseded by a later change
+    if (url) pv.style.setProperty('--wl-img', `url("${url}")`);
+    pv.style.setProperty('--wl-dim', String(url ? dim : 1));
+    pv.classList.toggle('has-img', !!url);
+    pv.classList.toggle('img-blur', bgMode === 'aircraft');
+}
+
+// Brings every window-look control under `root` back in line with mapFilters.
+function syncWindowLookControls(root) {
+    if (!root || typeof mapFilters === 'undefined') return;
+    root.querySelectorAll('[data-wl]').forEach((box) => { paintWindowLookPanel(box); });
+    const cur = getHorizonColor().toLowerCase();
+    const isPreset = HORIZON_PRESETS.some((p) => p.hex === cur);
+    root.querySelectorAll('[data-sr-color-row]').forEach((row) => {
+        row.querySelectorAll('.sr-swatch').forEach((b) => b.classList.toggle('active', b.dataset.color ? b.dataset.color === cur : !isPreset));
+        const ci = row.querySelector('input[type="color"]');
+        if (ci && ci.value.toLowerCase() !== cur) ci.value = cur;
+    });
+    syncHorizonBackgroundPicker(root);
+    root.querySelectorAll('[data-iw-setups]').forEach((b) => { if (b.dataset.wired === '1') paintWindowSetups(b); });
+    const on = mapFilters.showPilotStyles !== false;
+    root.querySelectorAll('#set-show-pilot-styles, input[data-setting="showPilotStyles"]').forEach((c) => { c.checked = on; });
+}
+
+function wireWindowLookPanel(root) {
+    if (!root) return;
+    wireHorizonColorPicker(root);
+    wireHorizonBackgroundPicker(root);
+    wireWindowSetups(root);
+    const box = root.querySelector('[data-wl]');
+    if (box && box.dataset.wired !== '1') {
+        box.dataset.wired = '1';
+        box.querySelectorAll('[data-wl-style]').forEach((b) => b.addEventListener('click', () => {
+            const mode = b.dataset.wlStyle;
+            if (mode === getFlightWindowMode()) return;
+            window.InflightHaptics?.select?.();
+            setFlightWindowMode(mode);
+            // Horizon is the Legacy window re-skinned: on phones it rides the legacy sheet.
+            if (mode === 'legacy' || mode === 'horizon') {
+                try { localStorage.setItem('mobileDisplayMode', 'legacy'); } catch (_) {}
+            }
+            // The preview shows the change; a window that's open needs reopening.
+            const w = document.getElementById('aircraft-info-window');
+            if (w && w.classList.contains('visible') && typeof showNotification === 'function') {
+                showNotification('Window style changed — reopen the flight to see it.', 'info');
+            }
+        }));
+        paintWindowLookPanel(box);
+    }
+    root.querySelectorAll('[data-wl-own-style]').forEach((b) => {
+        if (b.dataset.wired === '1') return;
+        b.dataset.wired = '1';
+        b.addEventListener('click', openOwnWindowStyleEditor);
+    });
+}
+
+// "Your window, as others see it" lives with the pilot card in the profile
+// (pilotCardEditor.js). Close Settings, open the profile on its Settings tab
+// and bring that section into view once the editor has drawn it.
+function openOwnWindowStyleEditor() {
+    const user = (typeof ProfileUI !== 'undefined') ? ProfileUI._currentUser : null;
+    if (typeof SettingsUI !== 'undefined' && SettingsUI._isVisible) SettingsUI.toggle(false);
+    document.getElementById('mobile-settings-close')?.click();
+    if (!user) {
+        if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signin');
+        return;
+    }
+    ProfileUI.open(user);
+    const dash = (window.innerWidth <= 768 && typeof MobileDashboardUI !== 'undefined') ? MobileDashboardUI : ProfileUI;
+    try { dash.switchTab('settings'); } catch (_) {}
+    let tries = 0;
+    const seek = () => {
+        const el = document.getElementById('pce-window-style');
+        if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+        if (++tries < 40) setTimeout(seek, 150);
+    };
+    setTimeout(seek, 150);
+}
+
 if (typeof window !== 'undefined') {
+    window.addEventListener('inflight:window-look', () => syncWindowLookControls(document));
+    // One listener for every Saved setups box, rather than one per render.
+    window.addEventListener('proStatusChanged', () => {
+        document.querySelectorAll('[data-iw-setups][data-wired="1"]').forEach((b) => paintWindowSetups(b));
+    });
+}
+
+if (typeof window !== 'undefined') {
+    window.buildWindowLookPanel = buildWindowLookPanel;
+    window.wireWindowLookPanel = wireWindowLookPanel;
+    window.syncWindowLookControls = syncWindowLookControls;
+    window.openOwnWindowStyleEditor = openOwnWindowStyleEditor;
     window.buildWindowSetups = buildWindowSetups;
     window.wireWindowSetups = wireWindowSetups;
     window.buildHorizonColorPicker = buildHorizonColorPicker;
