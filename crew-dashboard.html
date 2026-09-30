@@ -154,6 +154,12 @@
     <script src="/crewCodeshare.js"></script>
     <!-- Tours and challenges: what the airline sets its pilots to fly. -->
     <script src="/crewGoals.js"></script>
+    <!-- The airline's own look: artwork showcase, section covers, theme file
+         and custom CSS, and the studio that edits them. -->
+    <script src="/crewDesign.js"></script>
+    <!-- The Airline interface's own pieces: departures board, boarding pass,
+         crew ID card. Drawn only when that interface is on. -->
+    <script src="/crewAirline.js"></script>
     <!-- Being away on purpose, and spotting the pilots slipping away by
          accident while there is still time to say something. -->
     <script src="/crewLeave.js"></script>
@@ -463,7 +469,8 @@
            inside a flex column the same rule shrinks them to their content's
            WIDTH instead, which drew the wall a third of its column wide. */
         .crew-grid.is-arranged .crew-col > *{ align-self:stretch; }
-        .crew-col > .r-social, .crew-col > .r-tools.is-rail{ position:sticky; top:5rem; }
+        .crew-grid:not(.is-narrow) .crew-col > .r-social, .crew-col > .r-tools.is-rail{ position:sticky; top:5rem; }
+        .crew-grid.is-narrow .r-social{ position:static; }
         /* THE LIVE MAP HAS A HEIGHT OF ITS OWN. It used to take whatever the
            row gave it, which is how it became the tallest thing on the page.
            A map needs a sensible viewport, not "the rest of the column". */
@@ -749,6 +756,11 @@
                 <div class="p-5"><div class="text-[11px] font-semibold uppercase tracking-wider faint">Flight reports</div><div class="mt-1.5 text-2xl font-extrabold tracking-tight stat-num" data-stat="pireps">—</div><div class="text-xs muted mt-1" data-stat-sub="pireps">&nbsp;</div></div>
             </section>
 
+            <!-- THE AIRLINE'S OWN ARTWORK — liveries, posters, wallpapers — as a
+                 rotating showcase. Painted by crewDesign.js and hidden until
+                 the airline has uploaded something to show. -->
+            <section id="showcaseCard" class="r-showcase hidden"></section>
+
             <!-- LIVE MAP (moved here from behind the hero) -->
             <section class="r-live surface rounded-xl overflow-hidden flex flex-col">
                 <div class="flex items-center justify-between px-4 py-2.5 border-b hair-soft">
@@ -758,6 +770,10 @@
                 <div id="liveHost" class="flex-1 grid place-items-center text-sm faint p-6">Connect a callsign to see live traffic.</div>
                 <iframe id="liveMap" title="Live flights" class="hidden" loading="lazy" scrolling="no"></iframe>
             </section>
+
+            <!-- DEPARTURES — the week's schedule as an airport board. Part of
+                 the Airline interface (crewAirline.js); hidden in the others. -->
+            <section id="departuresBoard" class="r-board al-only"></section>
 
             <!-- TOOLS -->
             <section class="r-tools">
@@ -2849,6 +2865,7 @@
             {icon:'store',label:'Shop',desc:'What a flight is worth',action:'shop'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
             {icon:'user-plus',label:'Recruitment',desc:'Joining, quizzes & who is waiting',action:'recruit'},
+            {icon:'palette',label:'Design studio',desc:'Your artwork, theme & interface',action:'design'},
             {icon:'settings',label:'Settings',desc:'Layout & data',action:'settings'},
         ];
         // What each tool tile needs before it is worth offering. Keyed by the
@@ -2879,6 +2896,8 @@
             // instead, which is the read-only half.
             ifLive:'schedules.manage',
             embeds:'settings.branding',
+            // The airline's look: the same capability as the logo and accent.
+            design:'settings.branding',
             website:'site.manage',
             partnership:'partnership.view',
             // Statistics name individual pilots and rank them, which is roster
@@ -2953,7 +2972,7 @@
             TILES_DRAWN=key;
 
             document.getElementById('toolGrid').innerHTML=tools.map((t,i)=>`
-                <a data-i="${i}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
+                <a data-i="${i}" data-action="${escapeHtml(t.action)}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
                     <div><div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div><div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div></div>
                 </a>`).join('');
@@ -2975,6 +2994,9 @@
                 el.addEventListener('click', ()=>{ const open=TILE_OPEN[t.action]; if(open) open(); });
             });
             registerTopics(tools);
+            // The airline's cover pictures, if it has set any. Tiles are
+            // redrawn when /me lands, so the covers go back on each time.
+            if(window.CrewDesign) CrewDesign.paintTiles(document.getElementById('toolGrid'));
         }
 
         // ---- Topics ----
@@ -2995,7 +3017,7 @@
             embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
             documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
             ifLive:'#cif-panel',
-            codeshare:'#crewCodeshare', goals:'#crewGoals',
+            codeshare:'#crewCodeshare', goals:'#crewGoals', design:'#crewDesignStudio',
         };
         const TOPIC_CLOSE={
             roster:()=>closeRoster(), routes:()=>closeRoutes(), fleet:()=>closeFleet(), partners:()=>closePartners(), pireps:()=>closePireps(),
@@ -3012,6 +3034,7 @@
             ifLive:()=>{ if(window.CrewIF) CrewIF.close(); },
             codeshare:()=>{ if(window.CrewCodeshare) CrewCodeshare.close(); },
             goals:()=>{ if(window.CrewGoals) CrewGoals.close(); },
+            design:()=>{ if(window.CrewDesign) CrewDesign.closeStudio(); },
         };
         const TOPIC_OPEN={
             roster:()=>openRoster(), routes:()=>openRoutes(), fleet:()=>openFleet(), partners:()=>openPartners(), pireps:()=>openPireps(), shop:()=>openShop(),
@@ -3022,7 +3045,7 @@
             partnership:()=>openPartnership(), insights:()=>openInsights(),
             documents:()=>openDocuments(), inbox:()=>openInbox(), links:()=>openLinks(),
             ifLive:()=>openIfLive(),
-            codeshare:()=>openCodeshare(), goals:()=>openGoals(),
+            codeshare:()=>openCodeshare(), goals:()=>openGoals(), design:()=>openDesign(),
         };
         // What a TILE opens, which is every topic plus the website builder —
         // that one is a page of its own rather than a panel on this one, so it
@@ -3677,6 +3700,21 @@
         function openCodeshare(tab){ if(window.CrewCodeshare) CrewCodeshare.open({ api: crewApi(), backend: BACKEND, slug: getSlug(), token: sessionToken, tab }); }
         function openHubs(){ if(window.CrewHubs) CrewHubs.open({ api: crewApi() }); }
         function openGoals(tab){ if(window.CrewGoals) CrewGoals.open({ api: crewApi(), tab }); }
+        // The airline's own look. What it saves is pushed straight into this
+        // page, so the owner sees the showcase, the covers and the CSS change
+        // behind the studio as they work.
+        function openDesign(tab){
+            if(!window.CrewDesign) return;
+            CrewDesign.openStudio({ api: crewApi(), backend: BACKEND, slug: getSlug(), token: sessionToken, tab,
+                onChange:(b)=>{ CREW_BRANDING={ ...(CREW_BRANDING||{}), ...b }; paintDesign(); } });
+        }
+        function paintDesign(){
+            if(!window.CrewDesign) return;
+            CrewDesign.showcase(document.getElementById('showcaseCard'), CREW_BRANDING);
+            const hero=CREW_BRANDING && CREW_BRANDING.art && CREW_BRANDING.art.hero;
+            const bg=document.getElementById('identityBg');
+            if(bg && hero && isSafeImageUrl(hero)){ bg.src=hero; bg.classList.remove('hidden'); const tint=document.getElementById('identityTint'); if(tint) tint.classList.add('hidden'); }
+        }
         if(window.CrewPanels){
             CrewPanels.on('routes:changed', ()=>{ fetchRoutes().then(()=>{ if(typeof renderRoutes==='function') renderRoutes(); }).catch(()=>{}); });
             CrewPanels.on('codeshare:counts', (d)=>paintCodeshareBadge(d && d.incoming));
@@ -3827,38 +3865,36 @@
          */
         const LAYOUT_COLUMNS={
             // One reading column, the wall beside it.
-            editorial:{ widths:['minmax(0,1fr)'], cols:[['stats','live','tools','myflying','activity','event']] },
+            editorial:{ widths:['minmax(0,1fr)'], cols:[['showcase','stats','live','board','tools','myflying','activity','event']],
+                mobile:['showcase','stats','live','board','tools','myflying','social','activity','event'] },
             // A slim tool rail, then the board.
-            console:{ widths:['240px','minmax(0,1fr)'], cols:[['tools'],['stats','live','myflying','activity','event']], rail:'tools' },
+            console:{ widths:['240px','minmax(0,1fr)'], cols:[['tools'],['showcase','stats','live','board','myflying','activity','event']], rail:'tools',
+                mobile:['showcase','tools','stats','live','board','myflying','social','activity','event'] },
             // The map leads on the left; the controls stack on the right.
-            split:{ widths:['minmax(0,1.5fr)','minmax(0,1fr)'], cols:[['live','activity'],['stats','tools','myflying','event']], side:'tools' },
+            split:{ widths:['minmax(0,1.5fr)','minmax(0,1fr)'], cols:[['live','board','showcase','activity'],['stats','tools','myflying','event']], side:'tools',
+                mobile:['showcase','live','board','stats','tools','myflying','social','activity','event'] },
             // A main column and a sidebar; the map as a full-width band below.
-            classic:{ widths:['minmax(0,1fr)','320px'], cols:[['tools','activity'],['stats','myflying','event']], after:['live'], side:'none' },
+            classic:{ widths:['minmax(0,1fr)','320px'], cols:[['showcase','tools','activity'],['stats','myflying','event']], after:['live','board'], side:'none',
+                mobile:['showcase','stats','myflying','social','activity','event','tools','live','board'] },
         };
         const DESKTOP=window.matchMedia?window.matchMedia('(min-width:1024px)'):{ matches:true, addEventListener(){} };
         function arrangeGrid(){
             const grid=document.getElementById('grid');
             if(!grid) return;
             const block=(k)=>grid.querySelector(`:scope .r-${k}`);
-            const all=['identity','stats','live','tools','myflying','activity','event','social','trust'];
             const plan=LAYOUT_COLUMNS[CREW_LAYOUT]||LAYOUT_COLUMNS.editorial;
             const tools=block('tools');
             const social=block('social');
-            if(!DESKTOP.matches){
-                // Phones: flat, in source order — the area map does the rest.
-                if(!grid.classList.contains('is-arranged')) return;
-                all.forEach(k=>{ const el=block(k); if(el && el.parentElement!==grid) grid.appendChild(el); });
-                grid.querySelectorAll(':scope > .crew-cols, :scope > .crew-after').forEach(n=>n.remove());
-                grid.classList.remove('is-arranged');
-                if(tools) tools.classList.remove('is-rail','is-side');
-                if(social) social.classList.remove('is-side');
-                return;
-            }
+            const wide=DESKTOP.matches;
             const withSocial=!!(social && !social.classList.contains('hidden'));
-            const widths=[...plan.widths, ...(withSocial?['360px']:[])];
-            const cols=[...plan.cols.map(c=>c.slice()), ...(withSocial?[['social']]:[])];
+            // Phones: one column, in the layout's own phone order — the same
+            // machinery, so a block added to the page is placed in one list
+            // per layout rather than in eight area maps.
+            const widths=wide ? [...plan.widths, ...(withSocial?['360px']:[])] : ['minmax(0,1fr)'];
+            const cols=wide ? [...plan.cols.map(c=>c.slice()), ...(withSocial?[['social']]:[])] : [plan.mobile.slice()];
+            const afterList=wide ? (plan.after||[]) : [];
             // The target, as a key: nothing is moved unless it changes.
-            const key=`${CREW_LAYOUT}|${withSocial}`;
+            const key=`${CREW_LAYOUT}|${withSocial}|${wide}`;
             if(grid.dataset.arranged===key && grid.classList.contains('is-arranged')) return;
             grid.dataset.arranged=key;
             let wrap=grid.querySelector(':scope > .crew-cols');
@@ -3866,30 +3902,31 @@
             wrap.style.gridTemplateColumns=widths.join(' ');
             // Reuse the column nodes that exist so a block already in the
             // right column is not taken out and put back (which reloads the map).
-            const colEls=[...wrap.children];
+            const colEls=[...wrap.children].filter(c=>c.classList.contains('crew-col'));
             while(colEls.length<cols.length){ const c=document.createElement('div'); c.className='crew-col'; wrap.appendChild(c); colEls.push(c); }
-            colEls.slice(cols.length).forEach(c=>{ [...c.children].forEach(ch=>grid.appendChild(ch)); c.remove(); });
+            colEls.slice(cols.length).forEach(c=>{ [...c.children].forEach(ch=>colEls[0].appendChild(ch)); c.remove(); });
             const identity=block('identity'), trust=block('trust');
             if(identity && grid.firstElementChild!==identity) grid.insertBefore(identity, grid.firstElementChild);
             if(wrap.parentElement!==grid || wrap.previousElementSibling!==identity) grid.insertBefore(wrap, identity?identity.nextSibling:grid.firstChild);
             cols.forEach((names,i)=>{
                 names.forEach(k=>{ const el=block(k); if(el && el.parentElement!==colEls[i]) colEls[i].appendChild(el); });
                 // Keep the declared order inside the column.
-                names.forEach(k=>{ const el=block(k); if(el) colEls[i].appendChild(el); });
+                names.forEach(k=>{ const el=block(k); if(el && el.parentElement===colEls[i]) colEls[i].appendChild(el); });
             });
             let after=grid.querySelector(':scope > .crew-after');
-            if(plan.after && plan.after.length){
+            if(afterList.length){
                 if(!after){ after=document.createElement('div'); after.className='crew-after crew-col'; }
                 if(after.previousElementSibling!==wrap) wrap.after(after);
-                plan.after.forEach(k=>{ const el=block(k); if(el && el.parentElement!==after) after.appendChild(el); });
+                afterList.forEach(k=>{ const el=block(k); if(el && el.parentElement!==after) after.appendChild(el); });
             } else if(after){ [...after.children].forEach(ch=>colEls[0].appendChild(ch)); after.remove(); }
             if(trust) grid.appendChild(trust);
             grid.classList.add('is-arranged');
+            grid.classList.toggle('is-narrow', !wide);
             if(tools){
-                tools.classList.toggle('is-rail', plan.rail==='tools');
-                tools.classList.toggle('is-side', plan.side==='tools');
+                tools.classList.toggle('is-rail', wide && plan.rail==='tools');
+                tools.classList.toggle('is-side', wide && plan.side==='tools');
             }
-            if(social) social.classList.toggle('is-side', withSocial);
+            if(social) social.classList.toggle('is-side', wide && withSocial);
         }
         if(DESKTOP.addEventListener) DESKTOP.addEventListener('change', ()=>{ const g=document.getElementById('grid'); if(g) delete g.dataset.arranged; arrangeGrid(); });
         function renderLayoutOpts(){
@@ -11093,6 +11130,9 @@
             // the next visit paints in it from the first frame instead of
             // flipping once the record lands.
             if(window.CrewSkin) CrewSkin.applyRecord(b);
+            // Pictures and the designer's CSS. After CrewBrand, which owns the
+            // colours, so a stylesheet written against them lands on top.
+            if(window.CrewDesign){ CrewDesign.apply(b); paintDesign(); }
             if(Array.isArray(b.allowedLayouts) && b.allowedLayouts.length){
                 ALLOWED = b.allowedLayouts.filter(l=>LAYOUT_META[l]);
                 if(!ALLOWED.length) ALLOWED=['editorial'];
@@ -11411,9 +11451,13 @@
             // already seen. All that is left for the boot to do is `done`.
             wireLiveUpdates();
             renderTiles(); readSession();
-            const b = await resolveBranding();
+            // The airline's hero picture stands in for its directory banner on
+            // these pages — see CrewDesign.effective.
+            const raw = await resolveBranding();
+            const b = window.CrewDesign ? CrewDesign.effective(raw) : raw;
             applyBranding(b);
             applyLayout(resolveLayout(b));
+            if(window.CrewAirline) CrewAirline.mountBoard(document.getElementById('departuresBoard'), { api: crewApi(), branding: b });
             // How a topic opens. Set before anything can be clicked, because
             // the mode is CSS on <html> and a panel opened first would appear
             // as a sheet and then jump to full width under the reader.

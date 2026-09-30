@@ -885,3 +885,138 @@ html:not(.dark) .ifc-prev-aurora{
 @media (prefers-reduced-motion: reduce){
     .ifc-opt,.ifc-cell,.ifc-hero,.ifc-toggle i,.ifc-toggle svg{ transition:none !important; }
 }
+
+/* ============================================================================
+   17. AIRLINE
+
+   The third interface, and the one that is not a mood but a costume: the
+   airline's own livery worn by the whole crew centre, and the three objects
+   an airline actually hands its people drawn as themselves — a boarding pass,
+   a departures board and a crew ID card (crewAirline.js draws those; they are
+   hidden in the other two interfaces by `.al-only`).
+
+   The rules it follows:
+     · The ACCENT is the livery. Every strong colour on the page is it: the top
+       bar, the cheatline under each card, the hero wash, the stat tiles. A VA
+       with a red tail gets a red airline; one with a navy tail gets navy.
+     · Airport signage for labels: small caps, wide tracking, bold.
+     · Departure boards for figures: dark tiles, amber monospace digits.
+     · Nothing depends on a picture. A VA with no artwork still gets an airline.
+   ========================================================================== */
+
+.al-only{ display:none !important; }
+:root[data-skin="airline"] .al-only{ display:block !important; }
+
+:root[data-skin="airline"]{
+    --bg:         var(--brand-bg,        #EDF1F6);
+    --surface:    var(--brand-surface,   #FFFFFF);
+    --surface-2:  var(--brand-surface2,  #F5F8FB);
+    --line:       var(--brand-line,      #D9E0EA);
+    --line-soft:  var(--brand-lineSoft,  #E8EDF4);
+    --ink:        var(--brand-ink,       #0B1A33);
+    --muted:      var(--brand-muted,     #4D5B73);
+    --faint:      var(--brand-faint,     #8391A8);
+    --accent:     var(--brand-accent,    #C8102E);
+    --al-livery-2: color-mix(in srgb, var(--accent) 55%, #0B1A33);
+    --al-board: #0E1116;
+    --al-board-ink: #FFC53D;
+    --al-cheat: 4px;
+    color-scheme: light dark;
+}
+:root[data-skin="airline"].dark{
+    --bg:         var(--brand-bg,        #060D1A);
+    --surface:    var(--brand-surface,   #0E1A2E);
+    --surface-2:  var(--brand-surface2,  #13223A);
+    --line:       var(--brand-line,      #1F3050);
+    --line-soft:  var(--brand-lineSoft,  #172641);
+    --ink:        var(--brand-ink,       #EAF0FA);
+    --muted:      var(--brand-muted,     #9FB0CB);
+    --faint:      var(--brand-faint,     #6A7C99);
+    --accent:     var(--brand-accent,    #FF3B55);
+    --al-livery-2: color-mix(in srgb, var(--accent) 45%, #060D1A);
+}
+
+/* ---- The top bar is painted in the livery -------------------------------- */
+:root[data-skin="airline"] body > header{
+    background:linear-gradient(100deg, var(--accent), var(--al-livery-2)) !important;
+    border-bottom:0 !important; color:#fff;
+    box-shadow:0 10px 30px -22px color-mix(in srgb, var(--accent) 90%, transparent);
+}
+/* Inside the bar the page's own ink tokens are white, so every control and
+   readout in it — the clock, the search, the menu — follows without being
+   named one by one. */
+:root[data-skin="airline"] body > header{ --ink:#FFFFFF; --muted:rgb(255 255 255 / .8); --faint:rgb(255 255 255 / .62); color:var(--ink); }
+:root[data-skin="airline"] body > header .muted,
+:root[data-skin="airline"] body > header .faint{ color:rgb(255 255 255 / .78) !important; }
+:root[data-skin="airline"] body > header .accent-bg{ background:#fff !important; color:var(--accent) !important; }
+:root[data-skin="airline"] body > header input{
+    background:rgb(255 255 255 / .14) !important; border-color:rgb(255 255 255 / .22) !important; color:#fff !important; }
+:root[data-skin="airline"] body > header input::placeholder{ color:rgb(255 255 255 / .7); }
+:root[data-skin="airline"] body > header button,
+:root[data-skin="airline"] body > header a{ color:inherit; }
+:root[data-skin="airline"] #navMonogram,
+:root[data-skin="airline"] #idMonogram{ background:#fff !important; color:var(--accent) !important; }
+
+/* ---- Cards carry a cheatline -------------------------------------------- */
+:root[data-skin="airline"] .surface{ border-radius:.6rem; box-shadow:0 1px 2px rgb(11 26 51 / .06), 0 12px 28px -24px rgb(11 26 51 / .5); }
+:root[data-skin="airline"] .crew-col > section.surface,
+:root[data-skin="airline"] .crew-after > section.surface,
+:root[data-skin="airline"] main > section > .surface{ position:relative; overflow:hidden; }
+:root[data-skin="airline"] .crew-col > section.surface::before,
+:root[data-skin="airline"] .crew-after > section.surface::before{
+    content:''; position:absolute; left:0; right:0; top:0; height:var(--al-cheat);
+    background:linear-gradient(90deg, var(--accent) 0 62%, var(--al-livery-2) 62% 80%, transparent 80%);
+}
+:root[data-skin="airline"] h2,
+:root[data-skin="airline"] .cp-label,
+:root[data-skin="airline"] .text-\[11px\].uppercase{
+    letter-spacing:.14em;
+}
+:root[data-skin="airline"] .crew-col h2.text-lg,
+:root[data-skin="airline"] main h2.text-lg{ text-transform:uppercase; font-size:.86rem; font-weight:800; letter-spacing:.16em; }
+
+/* ---- The identity card and the pilot hero wear the livery --------------- */
+:root[data-skin="airline"] .r-identity{ background:linear-gradient(115deg, var(--accent), var(--al-livery-2)) !important; color:#fff; border:0 !important; }
+:root[data-skin="airline"] .r-identity .muted,
+:root[data-skin="airline"] .r-identity .faint{ color:rgb(255 255 255 / .8) !important; }
+:root[data-skin="airline"] .r-identity > div[style*="linear-gradient"]{ background:linear-gradient(105deg, rgb(0 0 0 / .35), transparent 70%) !important; }
+:root[data-skin="airline"] #identityTint{ opacity:0 !important; }
+:root[data-skin="airline"] .r-identity .accent-bg{ background:#fff !important; color:var(--accent) !important; }
+:root[data-skin="airline"] .r-identity .surface{ background:rgb(255 255 255 / .12) !important; color:#fff; border-color:rgb(255 255 255 / .3) !important; }
+:root[data-skin="airline"] #heroFallback{ background:linear-gradient(115deg, var(--accent), var(--al-livery-2)) !important; opacity:1 !important; }
+
+/* ---- Figures are a departure board -------------------------------------- */
+:root[data-skin="airline"] #crewStats{ background:var(--al-board) !important; border:0 !important; }
+:root[data-skin="airline"] #crewStats > div{ border-color:rgb(255 255 255 / .08) !important; }
+:root[data-skin="airline"] #crewStats .faint,
+:root[data-skin="airline"] #crewStats .muted{ color:rgb(255 255 255 / .55) !important; }
+:root[data-skin="airline"] #crewStats .stat-num{
+    color:var(--al-board-ink); font-family:ui-monospace, 'SF Mono', Menlo, Consolas, monospace; letter-spacing:.06em;
+    text-shadow:0 0 12px color-mix(in srgb, var(--al-board-ink) 35%, transparent);
+}
+
+/* ---- Tiles are wayfinding signs ----------------------------------------- */
+:root[data-skin="airline"] .tile{ border-radius:.55rem; border:1px solid var(--line); }
+:root[data-skin="airline"] .tile > span:first-child:not(.tile-cover){
+    width:2.4rem; height:2.4rem; border-radius:.45rem; display:grid; place-items:center;
+    background:var(--accent); color:#fff !important;
+}
+:root[data-skin="airline"] .tile:hover{ border-color:var(--accent); transform:translateY(-2px); }
+:root[data-skin="airline"] .tile .font-semibold{ text-transform:uppercase; letter-spacing:.06em; font-size:.84rem; font-weight:800; }
+:root[data-skin="airline"] .r-tools.is-rail .tile > span:first-child:not(.tile-cover){ width:1.8rem; height:1.8rem; }
+
+/* ---- Controls ----------------------------------------------------------- */
+:root[data-skin="airline"] .cp-btn{ border-radius:.45rem; }
+:root[data-skin="airline"] .cp-btn-primary,
+:root[data-skin="airline"] .accent-bg{ background:linear-gradient(100deg, var(--accent), var(--al-livery-2)); }
+
+/* ---- The chooser's miniature -------------------------------------------- */
+.ifc-prev-airline{
+    --p-bg:#EDF1F6; --p-surface:#FFFFFF; --p-ink:#0B1A33;
+    --p-card-radius:3px; --p-bar-radius:2px; --p-hero-tint:.9; --p-keyline:2px;
+}
+.ifc-prev-airline .ifc-bar{ background:var(--accent); border-color:transparent; }
+.ifc-prev-airline .ifc-bar .ifc-dot{ background:#fff; }
+.ifc-prev-airline .ifc-bar .ifc-line{ background:rgb(255 255 255 / .6); }
+.ifc-prev-airline .ifc-cell:first-child{ background:#0E1116; }
+.dark .ifc-prev-airline{ --p-bg:#060D1A; --p-surface:#0E1A2E; --p-ink:#EAF0FA; }

@@ -120,6 +120,11 @@
     <script src="/crewAwards.js"></script>
     <!-- Tours and challenges the airline has set, and how far along they are. -->
     <script src="/crewGoals.js"></script>
+    <!-- The airline's own look: its artwork showcase, the covers on each tile
+         and the designer's custom CSS. -->
+    <script src="/crewDesign.js"></script>
+    <!-- The Airline interface's own pieces: crew ID, boarding pass, departures. -->
+    <script src="/crewAirline.js"></script>
     <!-- …and all of it at the top of the page: rank, club, awards and anything
          they have claimed, in one row across the hero. One fetch, because it is
          one row and a hero does not get to flicker. -->
@@ -573,6 +578,18 @@
              page of somebody who just joined is the opposite of encouraging. -->
         <section id="awardStrip" class="mt-6 cp-hidden"></section>
 
+        <!-- ============ THE AIRLINE INTERFACE ============
+             This pilot's crew ID beside their next boarding pass, then the
+             departures board. Drawn by crewAirline.js, and only while the
+             Airline interface is on (.al-only). -->
+        <section class="al-only mt-6"><div class="al-pair"><div id="crewIdCard"></div><div id="boardingPass"></div></div></section>
+        <section id="pilotBoard" class="al-only mt-6"></section>
+
+        <!-- ============ THE AIRLINE'S ARTWORK ============
+             Liveries, posters and wallpapers, rotating. crewDesign.js paints
+             it, and hides it until the airline has something to show. -->
+        <section id="showcase" class="mt-6 cp-hidden"></section>
+
         <!-- ============ WHAT THEY'RE FLYING TOWARD ============
              The tour they are part-way round, with the next leg called out, and
              the live challenge they are closest to. Painted by crewGoals.js and
@@ -923,7 +940,7 @@
         ];
         function renderActions(){
             document.getElementById('quickGrid').innerHTML=ACTIONS.map((t,i)=>`
-                <a data-i="${i}" class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
+                <a data-i="${i}" data-action="${escapeHtml(t.action)}" class="tile surface rounded-lg p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors flex items-center gap-2">
                         <i data-lucide="${t.icon}" class="w-6 h-6"></i>
                         ${t.badge?'<span id="inboxBadge" class="cp-hidden"></span>':''}
@@ -954,6 +971,8 @@
                 if(act==='staffjobs') el.addEventListener('click', openStaffJobs);
                 if(act==='quizzes') el.addEventListener('click', ()=>openQuizzes());
             });
+            // The airline's cover pictures on its tiles, once they exist.
+            if(window.CrewDesign) CrewDesign.paintTiles(document.getElementById('quickGrid'));
             // Both hosts only exist once the tiles have been drawn, so they are
             // handed over here rather than at mount. Each module keeps painting
             // its own host from then on.
@@ -1689,6 +1708,12 @@
             // The interface the VA chose for its crew, unless this pilot has
             // picked their own from the top bar.
             if(window.CrewSkin) CrewSkin.applyRecord(b);
+            // Pictures and the designer's CSS, after CrewBrand's colours so a
+            // stylesheet written against them lands on top.
+            if(window.CrewDesign){
+                CrewDesign.apply(b);
+                CrewDesign.showcase(document.getElementById('showcase'), b);
+            }
             const name=b.name||b.code||'';
             CREW_NAME=name;
             if(name){
@@ -2257,8 +2282,16 @@
             mountLinks();
             mountIfFleet();     // the VA's Live fleet, read-only
             loadNotices();
-            const b = await resolveBranding();
+            // The airline's hero picture stands in for its directory banner on
+            // these pages — see CrewDesign.effective.
+            const raw = await resolveBranding();
+            const b = window.CrewDesign ? CrewDesign.effective(raw) : raw;
             applyBranding(b);
+            if(window.CrewAirline){
+                CrewAirline.mountCrewCard(document.getElementById('crewIdCard'), { api: crewApi(), branding: b });
+                CrewAirline.mountPass(document.getElementById('boardingPass'), { api: crewApi(), branding: b });
+                CrewAirline.mountBoard(document.getElementById('pilotBoard'), { api: crewApi(), branding: b });
+            }
             // After applyBranding, not before: the card has the airline's name
             // and mark on the front of it, and both arrive with the record.
             mountShopCard();
