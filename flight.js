@@ -1697,15 +1697,20 @@ function publishServerCounts(data) {
     window.dispatchEvent(new CustomEvent('serverCountsUpdated', { detail: counts }));
 }
 
-function formatServerCount(n) {
-    return Number.isFinite(n) ? `${n.toLocaleString()} online` : '';
+// 'compact' is for tight slots like the mobile server pill: 1234 → "1.2k".
+function formatServerCount(n, format) {
+    if (!Number.isFinite(n)) return '';
+    if (format === 'compact') {
+        return n < 1000 ? String(n) : `${(n / 1000).toFixed(n < 10000 ? 1 : 0).replace(/\.0$/, '')}k`;
+    }
+    return `${n.toLocaleString()} online`;
 }
 
 function paintServerCounts(root = document) {
     const counts = window.ifServerCounts || {};
     root.querySelectorAll('[data-server-count]').forEach(el => {
         const n = counts[el.dataset.serverCount];
-        el.textContent = formatServerCount(n);
+        el.textContent = formatServerCount(n, el.dataset.serverCountFormat);
         el.hidden = !Number.isFinite(n);
     });
 }
