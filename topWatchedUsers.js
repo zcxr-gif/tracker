@@ -424,6 +424,14 @@ export const TopWatchedUsers = {
                 font-weight: 700;
                 font-size: 0.9rem;
             }
+            .twu-server-opt .twu-server-count {
+                font-size: 0.75rem;
+                font-weight: 600;
+                font-variant-numeric: tabular-nums;
+                opacity: 0.65;
+                white-space: nowrap;
+            }
+            .twu-server-opt .twu-server-count[hidden] { display: none; }
             .twu-server-opt .twu-server-check {
                 opacity: 0;
                 color: var(--lui-accent, #38bdf8);
@@ -567,6 +575,9 @@ export const TopWatchedUsers = {
     },
 
     _serverOptionsHTML(activeShort) {
+        // Pilots online per server — published by flight.js (window.ifServerCounts)
+        // and repainted there on every sessions fetch via data-server-count.
+        const counts = window.ifServerCounts || {};
         return SERVERS.map(s => `
             <button type="button" class="twu-server-opt ${s.val === activeShort ? 'active' : ''}"
                     data-server="${s.val}">
@@ -574,6 +585,7 @@ export const TopWatchedUsers = {
                     <i class="fa-solid ${s.icon}"></i>
                 </span>
                 <span class="twu-server-name">${s.label}</span>
+                <span class="twu-server-count" data-server-count="${s.val}"${Number.isFinite(counts[s.val]) ? '' : ' hidden'}>${Number.isFinite(counts[s.val]) ? `${counts[s.val].toLocaleString()} online` : ''}</span>
                 <i class="fa-solid fa-check twu-server-check"></i>
             </button>
         `).join('');

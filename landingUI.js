@@ -775,9 +775,9 @@ export const LandingUI = {
                             <i class="fa-solid fa-chevron-down dropdown-arrow"></i>
                         </div>
                         <div class="server-menu">
-                            <div class="server-option" data-val="Expert">Expert</div>
-                            <div class="server-option" data-val="Training">Training</div>
-                            <div class="server-option" data-val="Casual">Casual</div>
+                            <div class="server-option" data-val="Expert"><span>Expert</span><span class="server-option-count" data-server-count="Expert" hidden></span></div>
+                            <div class="server-option" data-val="Training"><span>Training</span><span class="server-option-count" data-server-count="Training" hidden></span></div>
+                            <div class="server-option" data-val="Casual"><span>Casual</span><span class="server-option-count" data-server-count="Casual" hidden></span></div>
                         </div>
                     </div>
 
@@ -1127,9 +1127,13 @@ export const LandingUI = {
             }
         });
 
+        // Pilots-online counts are painted by flight.js (paintServerCounts);
+        // fill them now in case the first sessions fetch beat this render.
+        window.paintServerCounts?.();
+
         document.querySelectorAll('.server-option').forEach(opt => {
-            opt.addEventListener('click', (e) => {
-                const val = e.target.dataset.val;
+            opt.addEventListener('click', () => {
+                const val = opt.dataset.val;
                 this._currentServer = val;
                 document.getElementById('landing-server-name').textContent = `${val.toUpperCase()} SERVER`;
                 window.dispatchEvent(new CustomEvent('serverChange', { detail: { server: val } }));
@@ -2330,6 +2334,20 @@ export const LandingUI = {
                 background: var(--lui-accent-hover);
                 color: var(--lui-accent);
             }
+            .server-option {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 14px;
+            }
+            .server-option-count {
+                font-size: 0.72rem;
+                font-weight: 600;
+                font-variant-numeric: tabular-nums;
+                opacity: 0.65;
+                white-space: nowrap;
+            }
+            .server-option-count[hidden] { display: none; }
 
             .weather-nexus-container { position: relative; display: flex; flex-direction: column-reverse; align-items: center; gap: 15px; }
             .weather-spread {

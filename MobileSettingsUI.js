@@ -481,6 +481,13 @@ export const MobileSettingsUI = {
                             </div>
                             <p class="m-tz-hint">Show flight-window times (departure / arrival) in your own time zone and clock format instead of 24-hour Zulu.</p>
 
+                            <div class="mobile-section-header">Airport Codes</div>
+                            <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
+                                <button class="m-setting-pill" data-setting="airportCodeFormat" data-value="icao"><span>ICAO · KJFK</span></button>
+                                <button class="m-setting-pill" data-setting="airportCodeFormat" data-value="iata"><span>IATA · JFK</span></button>
+                            </div>
+                            <p class="m-tz-hint">How origin and destination read in flight windows. Airports without an IATA code keep their ICAO.</p>
+
                             <div class="mobile-section-header">Airport Window</div>
                             <div class="settings-mobile-grid m-fw-mode-grid m-fw-mode-grid-2">
                                 <button class="m-setting-pill" data-setting="airportWindowMode" data-value="standard"><i class="fa-solid fa-table-columns"></i><span>Standard</span></button>
@@ -2318,6 +2325,13 @@ export const MobileSettingsUI = {
                 }
                 if (setting === 'airportWindowMode') {
                     this.setAirportWindowMode(value);
+                    return;
+                }
+                // Flight-window text only — nothing on the map to refilter.
+                if (setting === 'airportCodeFormat') {
+                    window.mapFilters.airportCodeFormat = value === 'iata' ? 'iata' : 'icao';
+                    if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
+                    if (window.refreshDisplayedAirportCodes) window.refreshDisplayedAirportCodes();
                     return;
                 }
                 window.mapFilters[setting] = value;

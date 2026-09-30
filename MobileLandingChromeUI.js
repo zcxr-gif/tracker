@@ -166,6 +166,7 @@ export const MobileLandingChromeUI = {
                                 <span class="ios-sheet-row-label">${name}</span>
                                 <span class="ios-sheet-row-sub">${meta.desc}</span>
                             </span>
+                            <span class="ios-sheet-row-count" data-server-count="${name}" hidden></span>
                             <i class="fa-solid fa-check ios-sheet-row-check"></i>
                         </button>
                     `).join('')}
@@ -646,6 +647,8 @@ export const MobileLandingChromeUI = {
         const sheet = document.getElementById('ios-server-sheet');
         if (!sheet) return;
         this._serverSheetOpen = true;
+        // Pilots-online counts (painted by flight.js on every sessions fetch).
+        window.paintServerCounts?.(sheet);
         sheet.classList.add('is-open');
         document.body.style.overflow = 'hidden';
     },
@@ -1938,6 +1941,15 @@ export const MobileLandingChromeUI = {
                 color: var(--ios-text-3);
                 letter-spacing: -0.1px;
             }
+            .ios-sheet-row-count {
+                flex: 0 0 auto;
+                font-size: 13px;
+                font-weight: 500;
+                color: var(--ios-text-3);
+                font-variant-numeric: tabular-nums;
+                white-space: nowrap;
+            }
+            .ios-sheet-row-count[hidden] { display: none; }
             .ios-sheet-row-check {
                 flex: 0 0 auto;
                 color: var(--ios-accent);
