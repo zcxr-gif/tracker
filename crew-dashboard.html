@@ -149,6 +149,11 @@
     <script src="/crewLogbook.js"></script>
     <!-- What a pilot has to show for it, off flights already approved. -->
     <script src="/crewAwards.js"></script>
+    <!-- Codeshares agreed with other crew centres (request, review, sync,
+         end) and the hubs the airline says it is based at. -->
+    <script src="/crewCodeshare.js"></script>
+    <!-- Tours and challenges: what the airline sets its pilots to fly. -->
+    <script src="/crewGoals.js"></script>
     <!-- Being away on purpose, and spotting the pilots slipping away by
          accident while there is still time to say something. -->
     <script src="/crewLeave.js"></script>
@@ -1951,6 +1956,16 @@
                     <button onclick="closeRoutes()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-5 h-5"></i></button>
                 </div>
             </div>
+            <!-- The network's own tools, for whoever may edit it: agreements
+                 with other airlines, where the airline is based, and ticking
+                 routes to take some of them out as a spreadsheet. A row of its
+                 own rather than more header buttons — the header is already
+                 full on a phone. -->
+            <div id="routeTools" class="hidden px-5 pt-3 flex flex-wrap gap-2">
+                <button type="button" onclick="openCodeshare()" title="Codeshares agreed with other crew centres" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="arrow-left-right" class="w-3.5 h-3.5"></i> Codeshare partners <span id="csReqBadge" class="hidden min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold grid place-items-center"></span></button>
+                <button type="button" onclick="openHubs()" title="The airports your airline is based at" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i> Hubs</button>
+                <button type="button" id="routeSelectBtn" onclick="toggleRouteSelect()" title="Tick routes to export just those" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="list-checks" class="w-3.5 h-3.5"></i> <span>Select</span></button>
+            </div>
             <div id="addRouteForm" class="hidden p-5 border-b hair">
                 <div id="routeFormTitle" class="text-sm font-semibold mb-2.5">Add route</div>
                 <div class="grid grid-cols-2 gap-2.5">
@@ -2069,6 +2084,15 @@
                 </div>
             </div>
             <div id="routeList" class="p-5 space-y-2.5"></div>
+            <!-- Selecting: what is ticked, and what to do with it. Sticky so a
+                 VA ticking down a two-hundred-route list never has to scroll
+                 back up to act on it. -->
+            <div id="routeSelectBar" class="hidden sticky bottom-0 z-10 px-5 py-3 border-t hair flex flex-wrap items-center gap-2" style="background:var(--surface);">
+                <span id="routeSelectCount" class="text-sm font-semibold mr-auto">0 selected</span>
+                <button type="button" onclick="selectShownRoutes()" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition">Tick all shown</button>
+                <button type="button" onclick="clearRouteSelect()" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition">Clear</button>
+                <button type="button" id="routeSelectExport" onclick="exportSelectedRoutes(this)" class="accent-bg text-white text-xs font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1.5"><i data-lucide="download" class="w-3.5 h-3.5"></i> Export selected</button>
+            </div>
         </div>
     </div>
 
@@ -2090,6 +2114,18 @@
             <div class="rounded-xl hair p-3.5 mb-3">
                 <div class="text-sm font-semibold mb-1">Take it out</div>
                 <p class="text-xs muted mb-2.5">Every column, including the ones the editor doesn’t show. Opens in Excel, Numbers or Sheets.</p>
+                <!-- Routes only: which slice of the network goes out. The
+                     combined sheet puts every airline in one file with an
+                     `operator` column, which imports straight back and sorts
+                     itself into own legs and codeshares. -->
+                <div id="csvScope" class="hidden mb-2.5 grid gap-1.5 text-xs">
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="csvScope" value="all" class="mt-0.5" checked> <span>The whole network</span></label>
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="csvScope" value="own" class="mt-0.5"> <span>Only our own routes</span></label>
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="csvScope" value="codeshare" class="mt-0.5"> <span>Only codeshares</span></label>
+                    <label id="csvScopePartnerRow" class="hidden flex items-start gap-2 cursor-pointer"><input type="radio" name="csvScope" value="partner" class="mt-0.5"> <span class="flex-1">Codeshares with one partner <select id="csvScopePartner" class="surface hair rounded px-1.5 py-0.5 ml-1 text-xs"></select></span></label>
+                    <label id="csvScopeSelectedRow" class="hidden flex items-start gap-2 cursor-pointer"><input type="radio" name="csvScope" value="selected" class="mt-0.5"> <span>Only the <b id="csvScopeSelectedN">0</b> routes you ticked</span></label>
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="csvScope" value="combined" class="mt-0.5"> <span>Combined sheet — every airline in one file <span class="faint">(an <span class="font-mono">operator</span> column first; share it with partners, import it back as-is)</span></span></label>
+                </div>
                 <!-- Shown once a file has been imported (or just previewed): the
                      export can then go out in that file's own columns. -->
                 <div id="csvLayoutPick" class="hidden mb-2.5 space-y-1.5 text-xs">
@@ -2756,6 +2792,8 @@
             {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
             {icon:'graduation-cap',label:'Training',desc:'Check-rides & the ladder',action:'training'},
             {icon:'award',label:'Awards',desc:'What pilots have to show for it',action:'awards'},
+            {icon:'flag',label:'Tours & challenges',desc:'What to fly, and who’s ahead',action:'goals'},
+            {icon:'arrow-left-right',label:'Codeshares',desc:'Partner airlines & requests',action:'codeshare'},
             {icon:'heart-pulse',label:'Crew health',desc:'Who’s slipping away',action:'leave'},
             {icon:'store',label:'Shop',desc:'What a flight is worth',action:'shop'},
             {icon:'handshake',label:'Partnership',desc:'Inflight partnership',action:'partnership'},
@@ -2770,6 +2808,11 @@
             // A partner airline is part of the network, so whoever may edit
             // routes may set one up.
             partners:'routes.manage',
+            // Agreeing a codeshare changes the network on both sides, so it is
+            // the network's own capability.
+            codeshare:'routes.manage',
+            // goals: readable by any crew member; the editor inside is gated by
+            // the server's own canManage (events.manage), like Events.
             // The fleet is what the routes are flown on, and the same people
             // keep both.
             fleet:'routes.manage',
@@ -2901,6 +2944,7 @@
             embeds:'#cePanel', partnership:'#cptPanel', insights:'#insPanel',
             documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
             ifLive:'#cif-panel',
+            codeshare:'#crewCodeshare', goals:'#crewGoals',
         };
         const TOPIC_CLOSE={
             roster:()=>closeRoster(), routes:()=>closeRoutes(), fleet:()=>closeFleet(), partners:()=>closePartners(), pireps:()=>closePireps(),
@@ -2915,6 +2959,8 @@
             inbox:()=>{ if(window.CrewInbox) CrewInbox.close(); },
             links:()=>{ if(window.CrewLinks) CrewLinks.close(); },
             ifLive:()=>{ if(window.CrewIF) CrewIF.close(); },
+            codeshare:()=>{ if(window.CrewCodeshare) CrewCodeshare.close(); },
+            goals:()=>{ if(window.CrewGoals) CrewGoals.close(); },
         };
         const TOPIC_OPEN={
             roster:()=>openRoster(), routes:()=>openRoutes(), fleet:()=>openFleet(), partners:()=>openPartners(), pireps:()=>openPireps(), shop:()=>openShop(),
@@ -2925,6 +2971,7 @@
             partnership:()=>openPartnership(), insights:()=>openInsights(),
             documents:()=>openDocuments(), inbox:()=>openInbox(), links:()=>openLinks(),
             ifLive:()=>openIfLive(),
+            codeshare:()=>openCodeshare(), goals:()=>openGoals(),
         };
         // What a TILE opens, which is every topic plus the website builder —
         // that one is a page of its own rather than a panel on this one, so it
@@ -3570,6 +3617,32 @@
         function openTraining(){ if(window.CrewTraining) CrewTraining.open({ api: crewApi(), view: can('roster.manage')?'queue':'me' }); }
         function openAwards(){ if(window.CrewAwards) CrewAwards.open({ api: crewApi() }); }
         function openLeave(){ if(window.CrewLeave) CrewLeave.open({ api: crewApi(), view: can('roster.manage')?'health':'me' }); }
+
+        // ---- Codeshares, hubs, tours & challenges ----
+        //
+        // The same shape as the three above. A codeshare accepted, synced or
+        // ended changes this airline's route list, so the panel says so and
+        // the drawer re-reads rather than showing yesterday's network.
+        function openCodeshare(tab){ if(window.CrewCodeshare) CrewCodeshare.open({ api: crewApi(), backend: BACKEND, slug: getSlug(), token: sessionToken, tab }); }
+        function openHubs(){ if(window.CrewHubs) CrewHubs.open({ api: crewApi() }); }
+        function openGoals(tab){ if(window.CrewGoals) CrewGoals.open({ api: crewApi(), tab }); }
+        if(window.CrewPanels){
+            CrewPanels.on('routes:changed', ()=>{ fetchRoutes().then(()=>{ if(typeof renderRoutes==='function') renderRoutes(); }).catch(()=>{}); });
+            CrewPanels.on('codeshare:counts', (d)=>paintCodeshareBadge(d && d.incoming));
+        }
+        // Requests other airlines are waiting on this one for. Shown on the
+        // routes drawer's Codeshare button, because a request nobody sees is
+        // an answer of "no" by default.
+        function paintCodeshareBadge(n){
+            const b=document.getElementById('csReqBadge');
+            if(!b) return;
+            b.textContent=n>9?'9+':String(n||'');
+            b.classList.toggle('hidden', !n);
+        }
+        async function refreshCodeshareBadge(){
+            if(!window.CrewCodeshare || !can('routes.manage') || !sessionToken()) return;
+            paintCodeshareBadge(await CrewCodeshare.incoming(crewApi()));
+        }
 
         // ---- The search box, and the bell ----
         //
@@ -5748,6 +5821,45 @@
 
         // ---- Route network ----
         let ROUTES=[], ROUTE_EDITING=null, ROUTES_CANMANAGE=false;
+        // Ticking routes to take some of them out. A Set of ids, kept across
+        // filter changes so a VA can tick the Oslo legs, switch to codeshares,
+        // tick three more, and export the lot.
+        let ROUTE_SELECTING=false;
+        const ROUTE_SELECTED=new Set();
+        // The list currently on screen, so "tick all shown" means what it says.
+        let ROUTES_SHOWN=[];
+        function toggleRouteSelect(force){
+            ROUTE_SELECTING = typeof force==='boolean' ? force : !ROUTE_SELECTING;
+            if(!ROUTE_SELECTING) ROUTE_SELECTED.clear();
+            const b=document.getElementById('routeSelectBtn');
+            if(b){ b.querySelector('span').textContent=ROUTE_SELECTING?'Done selecting':'Select'; b.classList.toggle('accent-text', ROUTE_SELECTING); }
+            renderRoutes();
+        }
+        function paintRouteSelect(){
+            const bar=document.getElementById('routeSelectBar');
+            if(!bar) return;
+            bar.classList.toggle('hidden', !ROUTE_SELECTING);
+            bar.classList.toggle('flex', ROUTE_SELECTING);
+            const n=ROUTE_SELECTED.size;
+            document.getElementById('routeSelectCount').textContent=`${n} selected`;
+            document.getElementById('routeSelectExport').disabled=!n;
+        }
+        function selectShownRoutes(){ ROUTES_SHOWN.forEach(r=>r.id&&ROUTE_SELECTED.add(String(r.id))); renderRoutes(); }
+        function clearRouteSelect(){ ROUTE_SELECTED.clear(); renderRoutes(); }
+        async function exportSelectedRoutes(btn){
+            const token=sessionToken(), slug=getSlug();
+            if(!ROUTE_SELECTED.size||!token) return;
+            const done=busy(btn,'Preparing…');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes/export`,{
+                    method:'POST', headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+                    body:JSON.stringify({ ids:[...ROUTE_SELECTED] }) });
+                if(!res.ok){ const d=await res.json().catch(()=>({})); say(d.error||'Could not export those.','bad'); return; }
+                await downloadBlob(res,'routes-selected.csv');
+                say(`${ROUTE_SELECTED.size} route${ROUTE_SELECTED.size===1?'':'s'} exported.`,'ok');
+            }catch{ say('Server unreachable.','bad'); }
+            finally{ done(); }
+        }
         // A route's airports are a handoff point: the crew center knows the ICAO,
         // the app knows where it is. crewBridge picks these up by attribute and
         // either asks the host to fly there (framed in the app) or opens the
@@ -5784,7 +5896,15 @@
             // airline set one — a "Gate —" under every ICAO on a network that
             // publishes none would be a second line of nothing on every card.
             const standHtml=(g)=>g?`<span class="block text-[10px] uppercase tracking-wider faint leading-tight">Gate ${escapeHtml(g)}</span>`:'';
+            // A codeshare agreed through the crew centre follows its partner's
+            // own route. Said on the card, with the way to the airline that
+            // flies it, so "why did BR12 change?" answers itself.
+            const linked = cs && r.partnerSlug
+                ? `<a href="/crew/${encodeURIComponent(r.partnerSlug)}" target="_blank" rel="noopener" title="Kept in step with ${escapeHtml(r.partnerName||'the partner')}’s own route" class="inline-flex items-center gap-1 text-[10px] font-semibold muted hover:text-[var(--ink)]"><i data-lucide="link" class="w-3 h-3"></i>synced</a>` : '';
+            const tick = ROUTE_SELECTING && r.id
+                ? `<input type="checkbox" data-rsel aria-label="Select ${escapeHtml(r.origin)} to ${escapeHtml(r.destination)}" ${ROUTE_SELECTED.has(String(r.id))?'checked':''} class="w-4 h-4 shrink-0" style="accent-color:var(--accent)">` : '';
             return `<div class="surface rounded-xl p-3.5 flex items-center gap-3 ${r.active?'':'opacity-60'} ${r.locked?'opacity-75':''}" data-rid="${r.id||''}">
+                ${tick}
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2 flex-wrap">
                         <span class="leading-tight">${airportChipHtml(r.origin)}${standHtml(r.departureGate)}</span>
@@ -5792,7 +5912,7 @@
                         <span class="leading-tight">${airportChipHtml(r.destination)}${standHtml(r.arrivalGate)}</span>
                         ${r.flightNumber?`<span class="text-xs faint">${escapeHtml(r.flightNumber)}</span>`:''}${draft}
                     </div>
-                    <div class="flex items-center gap-1.5 flex-wrap mt-1">${csBadge}${gate}${ac}${dist}${r.notes?`<span class="text-xs muted truncate">${escapeHtml(r.notes)}</span>`:''}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap mt-1">${csBadge}${linked}${gate}${ac}${dist}${r.notes?`<span class="text-xs muted truncate">${escapeHtml(r.notes)}</span>`:''}</div>
                 </div>
                 ${ROUTES_CANMANAGE?`<div class="flex items-center gap-0.5 shrink-0">
                     <button data-redit title="Edit route" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="pencil" class="w-4 h-4"></i></button>
@@ -5920,6 +6040,11 @@
                     && String(r.partnerName||'').toLowerCase()===ROUTE_PARTNER.toLowerCase());
             }
             renderPartnerStrip(cs);
+            ROUTES_SHOWN=list;
+            const tools=document.getElementById('routeTools');
+            if(tools) tools.classList.toggle('hidden', !ROUTES_CANMANAGE);
+            if(!ROUTES_CANMANAGE && ROUTE_SELECTING){ ROUTE_SELECTING=false; ROUTE_SELECTED.clear(); }
+            paintRouteSelect();
             document.getElementById('routeCount').textContent = visible.length
                 ? `· ${visible.length}${cs.length?` (${own.length} own)`:''}` : '';
             const host=document.getElementById('routeList');
@@ -6021,7 +6146,7 @@
                 document.getElementById('routesCsvBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
                 document.getElementById('routesLibBtn').classList.toggle('hidden', !ROUTES_CANMANAGE);
             };
-            fetchRoutes().then(()=>{ renderRoutes(); routeTools(); });
+            fetchRoutes().then(()=>{ renderRoutes(); routeTools(); refreshCodeshareBadge(); });
             routeTools();
             if(window.lucide) lucide.createIcons();
         }
@@ -6077,6 +6202,7 @@
             document.getElementById('csvMatchHint').textContent=k.match;
             csvReset();
             csvShowLayout();
+            csvShowScope();
             const m=document.getElementById('csvModal');
             m.classList.remove('hidden');
             // Opened from inside a drawer that already holds the page. The lock
@@ -6117,6 +6243,43 @@
         // The export is a straight authenticated GET, so it cannot be a plain
         // <a download> — the session token has to travel in a header. Fetch it,
         // then hand the browser a blob under the filename the server chose.
+        // Routes only: which slice of the network the export button sends.
+        function csvShowScope(){
+            const box=document.getElementById('csvScope');
+            const on=CSV_KIND==='routes';
+            box.classList.toggle('hidden', !on);
+            if(!on) return;
+            const partners=(ROUTE_PARTNERS||[]).filter(p=>p.routes);
+            document.getElementById('csvScopePartnerRow').classList.toggle('hidden', !partners.length);
+            document.getElementById('csvScopePartner').innerHTML=partners.map(p=>`<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)} (${p.routes})</option>`).join('');
+            const n=ROUTE_SELECTED.size;
+            document.getElementById('csvScopeSelectedRow').classList.toggle('hidden', !n);
+            document.getElementById('csvScopeSelectedN').textContent=String(n);
+            // Opened with routes ticked: that is almost certainly what they want out.
+            const pick=n?'selected':'all';
+            const r=box.querySelector(`input[name="csvScope"][value="${pick}"]`); if(r) r.checked=true;
+        }
+        // The route export's options, from the dialog, in the shape
+        // POST /routes/export takes.
+        function csvRouteScope(){
+            const v=(document.querySelector('input[name="csvScope"]:checked')||{}).value||'all';
+            if(v==='own'||v==='codeshare') return { scope:v };
+            if(v==='partner') return { partner: document.getElementById('csvScopePartner').value };
+            if(v==='selected') return { ids:[...ROUTE_SELECTED] };
+            if(v==='combined') return { combined:true };
+            return {};
+        }
+        // A file out of the backend, as a download. The session token has to
+        // travel in a header, so it is fetched and handed over as a blob.
+        async function downloadBlob(res, fallback){
+            const blob=await res.blob();
+            const name=(res.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/);
+            const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');
+            a.href=url; a.download=(name&&name[1])||fallback;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(()=>URL.revokeObjectURL(url), 2000);
+        }
         async function exportCsv(){
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ csvMsg('Sign in as owner or staff to export.','warn'); return; }
@@ -6126,6 +6289,18 @@
                 const layout=csvLoad('layout');
                 const yours=Array.isArray(layout)&&layout.length
                     && (document.querySelector('input[name="csvLayout"]:checked')||{}).value==='yours';
+                if(CSV_KIND==='routes'){
+                    // Routes go by POST: a selection of four hundred ids does
+                    // not fit in a URL. A combined sheet brings its own columns.
+                    const scope=csvRouteScope();
+                    const body={ ...scope, ...(yours && !scope.combined ? { layout, id: document.getElementById('csvIncludeId').checked } : {}) };
+                    const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes/export`,{
+                        method:'POST', headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'}, body:JSON.stringify(body) });
+                    if(!res.ok){ const d=await res.json().catch(()=>({})); csvMsg(d.error||'Could not export.','error'); return; }
+                    await downloadBlob(res,'routes.csv');
+                    csvMsg('Downloaded.','ok');
+                    return;
+                }
                 const qs=yours
                     ? `?layout=${encodeURIComponent(JSON.stringify(layout))}&id=${document.getElementById('csvIncludeId').checked?'1':'0'}` : '';
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}.csv${qs}`,{ headers:{Authorization:'Bearer '+token} });
@@ -7319,6 +7494,14 @@
             }catch{ say('Server unreachable — nothing was changed.','bad'); }
             finally{ done(); }
         }
+        document.addEventListener('change', e=>{
+            const t=e.target.closest('#routeList [data-rsel]');
+            if(!t) return;
+            const c=t.closest('[data-rid]'); const id=c&&c.getAttribute('data-rid');
+            if(!id) return;
+            if(t.checked) ROUTE_SELECTED.add(String(id)); else ROUTE_SELECTED.delete(String(id));
+            paintRouteSelect();
+        });
         document.addEventListener('click', e=>{
             const ed=e.target.closest('#routeList [data-redit]');
             if(ed){ const c=ed.closest('[data-rid]'); const id=c&&c.getAttribute('data-rid'); const r=ROUTES.find(x=>String(x.id)===String(id)); if(r) openRouteForm(r); return; }

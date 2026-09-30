@@ -39,7 +39,8 @@
    `hubs` and `partners` are WORKED OUT from the route map rather than stored
    anywhere — a route map already knows which airports carry the most sectors
    and which of those are flown with somebody else — so neither can go stale,
-   which is the whole point of this file.
+   which is the whole point of this file. The one exception is hubs an airline
+   has DECLARED, which win over the guess (see hubs below).
 
    `fleet` guarantees a picture for every aircraft: the airline's own livery
    upload where there is one, and a silhouette this file DRAWS where there is
@@ -988,11 +989,35 @@
      * is a fact the crew centre already holds. Ranked by routes, then by
      * departures, so a tie breaks on the busier airport rather than on
      * whichever order the store happened to return.
+     *
+     * UNLESS THE AIRLINE HAS SAID. A VA can now declare its hubs and focus
+     * cities (crew centre → Routes → Hubs), and an airline based somewhere it
+     * flies little from is exactly the one the guess gets wrong. Declared hubs
+     * win, in the airline's own order, each still carrying its route counts
+     * from the map; `kind` is 'hub' or 'focus', `declared` is true. A VA that
+     * has declared none keeps the worked-out answer, with `declared` false.
      * ------------------------------------------------------------------- */
     function hubs(opts) {
         opts = opts || {};
         var limit = Number(opts.limit) || 6;
-        return network().then(function (n) {
+        return Promise.all([network(), brandRaw().catch(function () { return null; })]).then(function (got) {
+            var n = got[0];
+            var said = got[1] && Array.isArray(got[1].hubs) ? got[1].hubs : [];
+            var at = (n && n.airports) || {};
+            if (said.length) {
+                return said.slice(0, Math.max(limit, said.length)).map(function (h) {
+                    var a = at[h.icao] || {};
+                    return {
+                        icao: text(h.icao),
+                        name: text(h.name),
+                        kind: h.kind === 'focus' ? 'focus' : 'hub',
+                        declared: true,
+                        routes: a.routes || 0,
+                        departures: a.departures || 0,
+                        arrivals: a.arrivals || 0,
+                    };
+                });
+            }
             if (!n || !n.airports) return null;
             var rows = Object.keys(n.airports)
                 .map(function (k) { return n.airports[k]; })
@@ -1002,6 +1027,8 @@
                 .map(function (a) {
                     return {
                         icao: a.icao,
+                        kind: 'hub',
+                        declared: false,
                         routes: a.routes,
                         departures: a.departures,
                         arrivals: a.arrivals,

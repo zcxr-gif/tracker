@@ -876,6 +876,22 @@ const ROUTES = [
         ok('a tie on routes breaks on departures', bases[1].icao === 'MMMY', JSON.stringify(bases[1]));
         ok('the limit is honoured', bases.length === 2);
 
+        ok('…a worked-out hub says so', bases[0].declared === false && bases[0].kind === 'hub');
+
+        // The airline has said where it is based: Guadalajara, which the map
+        // would never have picked, with Mexico City as a focus city.
+        const { feed: said } = loadFeed({
+            '/route-map': MAP,
+            '/by-slug/amv': { body: { name: 'Aeromexico Virtual', hubs: [
+                { icao: 'MMGL', name: 'Guadalajara', kind: 'hub' }, { icao: 'MMMX', kind: 'focus' },
+            ] } },
+        });
+        const declared = await said.hubs({ limit: 1 });
+        ok('declared hubs win, in the airline’s own order', declared.map((h) => h.icao).join() === 'MMGL,MMMX', JSON.stringify(declared));
+        ok('…all of them, whatever the limit', declared.length === 2);
+        ok('…named, kinded and marked declared', declared[0].name === 'Guadalajara' && declared[1].kind === 'focus' && declared[0].declared === true);
+        ok('…still carrying their counts from the map', declared[1].routes === 12, JSON.stringify(declared[1]));
+
         const { feed: f2 } = loadFeed({ '/route-map': MAP });
         const co = await f2.partners();
         ok('a codeshare partner is listed once, not per sector', co.length === 1, JSON.stringify(co));

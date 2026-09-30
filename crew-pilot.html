@@ -118,6 +118,8 @@
     <script src="/crewTraining.js"></script>
     <!-- What they have to show for it. -->
     <script src="/crewAwards.js"></script>
+    <!-- Tours and challenges the airline has set, and how far along they are. -->
+    <script src="/crewGoals.js"></script>
     <!-- …and all of it at the top of the page: rank, club, awards and anything
          they have claimed, in one row across the hero. One fetch, because it is
          one row and a hero does not get to flicker. -->
@@ -571,6 +573,12 @@
              page of somebody who just joined is the opposite of encouraging. -->
         <section id="awardStrip" class="mt-6 cp-hidden"></section>
 
+        <!-- ============ WHAT THEY'RE FLYING TOWARD ============
+             The tour they are part-way round, with the next leg called out, and
+             the live challenge they are closest to. Painted by crewGoals.js and
+             hidden until there is one of either. -->
+        <section id="goalStrip" class="mt-6 cp-hidden"></section>
+
         <!-- ============ QUICK ACTIONS ============ -->
         <section class="mt-6">
             <div id="quickGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4"></div>
@@ -890,6 +898,7 @@
             {icon:'store',label:'Shop',desc:'Spend what you’ve flown',action:'shop'},
             {icon:'graduation-cap',label:'Training',desc:'Your ladder & check-rides',action:'training'},
             {icon:'award',label:'Awards',desc:'What you’ve earned',action:'awards'},
+            {icon:'flag',label:'Tours & challenges',desc:'Journeys and targets to fly',action:'goals'},
             // The description names both answers now. A pilot who wants out
             // permanently has nowhere else to look for the door, and "Pause
             // the roster sweep" is not a sentence anybody reads as "leave".
@@ -938,6 +947,7 @@
                 if(act==='shop') el.addEventListener('click', openShop);
                 if(act==='training') el.addEventListener('click', openTraining);
                 if(act==='awards') el.addEventListener('click', openAwards);
+                if(act==='goals') el.addEventListener('click', ()=>openGoals());
                 if(act==='leave') el.addEventListener('click', openLeave);
                 if(act==='network') el.addEventListener('click', openNetwork);
                 if(act==='suggest') el.addEventListener('click', openSuggestions);
@@ -1478,6 +1488,7 @@
         function crewApi(){ return CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken }); }
         function openTraining(){ if(window.CrewTraining) CrewTraining.open({ api: crewApi(), view:'me' }); }
         function openAwards(){ if(window.CrewAwards) CrewAwards.open({ api: crewApi() }); }
+        function openGoals(tab){ if(window.CrewGoals) CrewGoals.open({ api: crewApi(), tab }); }
         function openLeave(){ if(window.CrewLeave) CrewLeave.open({ api: crewApi(), view:'me' }); }
         function openStaffJobs(){ if(window.CrewStaffApply) CrewStaffApply.open({ api: crewApi() }); }
         function openQuizzes(token){ if(window.CrewQuiz) CrewQuiz.open({ api: crewApi(), token: token || '' }); }
@@ -1567,6 +1578,11 @@
         function mountAwardStrip(){
             const host=document.getElementById('awardStrip');
             if(host && window.CrewAwards) CrewAwards.mountStrip(host, { api: crewApi() });
+            // Beside it, what they are flying toward. Same moment, same reason:
+            // both are about this one pilot and both stay hidden until there is
+            // something to show.
+            const goals=document.getElementById('goalStrip');
+            if(goals && window.CrewGoals) CrewGoals.mountStrip(goals, { api: crewApi() });
         }
 
         function openStandings(){
