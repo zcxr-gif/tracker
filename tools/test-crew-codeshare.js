@@ -49,6 +49,7 @@ const ROUTES = [
     { id: 'a2', flightNumber: 'AU2', origin: 'EGLL', destination: 'LFPG', aircraft: 'Airbus A320-200', distanceNm: 190, active: true, kind: 'own' },
     { id: 'a3', flightNumber: 'AU3', origin: 'EGLL', destination: 'EDDF', aircraft: 'Airbus A320-200', distanceNm: 350, active: true, kind: 'own' },
     { id: 'c1', flightNumber: 'BR1', origin: 'ENGM', destination: 'EGLL', aircraft: 'Boeing 737-800', distanceNm: 650, active: true, kind: 'codeshare', partnerName: 'Borealis Virtual', partnerSlug: 'borealis' },
+    { id: 'c2', flightNumber: 'NV1', origin: 'EKCH', destination: 'EGLL', aircraft: 'Airbus A320-200', distanceNm: 530, active: true, kind: 'codeshare', partnerName: 'Nordic Virtual', partnerSlug: 'ext:x1' },
 ];
 const BOREALIS = [
     { id: 'b1', flightNumber: 'BR1', origin: 'ENGM', destination: 'EGLL', aircraft: 'Boeing 737-800', distanceNm: 650, kind: 'own', active: true },
@@ -56,6 +57,12 @@ const BOREALIS = [
     { id: 'b3', flightNumber: 'BR3', origin: 'ENGM', destination: 'ESSA', aircraft: 'Boeing 737-800', distanceNm: 220, kind: 'own', active: true },
 ];
 const sel = (mode, routeIds = []) => ({ mode, routeIds });
+const EXT = {
+    id: 'x1', name: 'Nordic Virtual', logo: '', website: 'https://nordic.example', platform: 'vamsys', feedUrl: 'https://nordic.example/routes.csv',
+    format: 'auto', take: sel('all'), share: sel('selected', ['a1']), autoSync: true, active: true, notes: '', partnerSlug: 'ext:x1',
+    lastSync: { at: new Date().toISOString(), routes: 12, created: 0, updated: 1, removed: 0, error: '' },
+    ourFeed: { csv: 'https://api.example/api/crew-feed/codeshare/abc.csv', json: 'https://api.example/api/crew-feed/codeshare/abc.json' },
+};
 const INCOMING = {
     id: 'ag2', status: 'pending', direction: 'incoming', partner: { slug: 'cirrus', name: 'Cirrus Air', logo: '' },
     iTake: sel('all'), iWant: sel('all'), theyTake: sel('all'), theyAllowMe: sel('all'), iAllowThem: sel('all'),
@@ -99,6 +106,10 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
             const body = () => { try { return JSON.parse(req.postData() || '{}'); } catch { return {}; } };
             if (m !== 'GET') sent.push({ m, p, body: body() });
             if (p.endsWith('/routes/export')) return route.fulfill({ status: 200, contentType: 'text/csv', headers: { 'Content-Disposition': 'attachment; filename="x.csv"' }, body: 'a,b\n' });
+            if (p.endsWith('/codeshare/external') && m === 'GET') return json({ partners: [EXT], platforms: [], max: 40 });
+            if (p.endsWith('/codeshare/external/preview')) return json({ total: 2, errors: 1, format: 'csv', routes: [{ id: 'id:N1', flightNumber: 'NV1', origin: 'EKCH', destination: 'EGLL' }, { id: 'id:N2', flightNumber: 'NV2', origin: 'EKCH', destination: 'LFPG' }] });
+            if (p.endsWith('/codeshare/external') && m === 'POST') return json({ partner: { ...EXT, id: 'x2', name: body().name }, sync: { routes: 1, created: 1, updated: 0, removed: 0 } }, 201);
+            if (/\/codeshare\/external\/[^/]+\/sync$/.test(p)) return json({ sync: { routes: 2, created: 0, updated: 2, removed: 0 } });
             if (p.endsWith('/codeshare/directory')) return json({ airlines: [{ slug: 'borealis', name: 'Borealis Virtual', callsign: 'BRL', standing: '' }, { slug: 'cirrus', name: 'Cirrus Air', standing: 'incoming' }] });
             if (p.includes('/codeshare/network/borealis')) return json({ airline: { slug: 'borealis', name: 'Borealis Virtual' }, routes: BOREALIS });
             if (p.includes('/codeshare/network/cirrus')) return json({ airline: { slug: 'cirrus', name: 'Cirrus Air' }, routes: [{ id: 'z1', flightNumber: 'CI1', origin: 'LIRF', destination: 'EGLL', kind: 'own', active: true }] });
@@ -142,6 +153,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     ok('staff get the network tools', await page.isVisible('#routeTools'));
     ok('…with a badge for the request waiting on them', (await page.textContent('#csReqBadge')).trim() === '1');
     ok('a synced codeshare says so on its card', await page.evaluate(() => !!document.querySelector('#routeList [data-rid="c1"] a[href="/crew/borealis"]')));
+    ok('…and one read from an outside airline does not link to a crew centre here', await page.evaluate(() => !document.querySelector('#routeList [data-rid="c2"] a[href^="/crew/"]') && /synced/.test(document.querySelector('#routeList [data-rid="c2"]').textContent)));
 
     console.log('\n ticking routes and exporting them');
     await page.click('#routeSelectBtn');
@@ -204,6 +216,35 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     const acc = last(/accept$/);
     ok('accepting sends the narrowed offer', acc && acc.body.offer.mode === 'selected' && acc.body.offer.routeIds.join() === 'a1,a2', JSON.stringify(acc && acc.body));
     ok('…and takes what they offered', acc && acc.body.take.mode === 'all');
+
+    console.log('\n an outside airline');
+    await page.click('#crewCodeshare [data-cs-tab="outside"]');
+    await page.waitForSelector('#crewCodeshare [data-ext-id="x1"]');
+    ok('an outside partner shows its feed for them to import',
+        await page.evaluate(() => [...document.querySelectorAll('#crewCodeshare [data-ext-id="x1"] input[readonly]')].map((i) => i.value).join() === 'https://api.example/api/crew-feed/codeshare/abc.csv,https://api.example/api/crew-feed/codeshare/abc.json'));
+    await page.click('#crewCodeshare [data-ext-id="x1"] [data-ext-sync]');
+    await page.waitForTimeout(300);
+    ok('sync now re-reads their list', !!last(/external\/x1\/sync$/));
+    await page.click('#crewCodeshare [data-ext-add]');
+    await page.waitForSelector('#extName');
+    await page.fill('#extName', 'Fjord Air');
+    await page.selectOption('#extPlatform', 'phpvms');
+    await page.fill('#extFeed', 'https://fjord.example/export.csv');
+    await page.click('#crewCodeshare [data-ext-check]');
+    await page.waitForSelector('#pk-extTake');
+    await page.waitForTimeout(200);
+    ok('checking the feed shows what it found', /2 routes found · 1 row skipped/.test(await page.textContent('#crewCodeshare [data-ext-preview]')));
+    ok('the form keeps what was typed through a redraw', await page.inputValue('#extName') === 'Fjord Air');
+    await page.click('#pk-extTake [data-pk-mode="selected"]');
+    await page.uncheck('#pk-extTake [data-pk-id="id:N2"]');
+    await page.click('#pk-extShare [data-pk-mode="all"]');
+    await page.click('#crewCodeshare [data-ext-save]');
+    await page.waitForTimeout(400);
+    const add = last(/codeshare\/external$/);
+    ok('adding sends the partner, their routes to fly and ours to share',
+        add && add.body.name === 'Fjord Air' && add.body.platform === 'phpvms' && add.body.feedUrl === 'https://fjord.example/export.csv'
+        && add.body.take.mode === 'selected' && add.body.take.routeIds.join() === 'id:N1' && add.body.share.mode === 'all', JSON.stringify(add && add.body));
+    ok('no word of selling', await page.evaluate(() => !/\bsell/i.test(document.querySelector('#crewCodeshare').textContent)));
     await page.evaluate(() => CrewCodeshare.close());
 
     console.log('\n hubs');

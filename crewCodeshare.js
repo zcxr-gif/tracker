@@ -4,13 +4,14 @@
    WHAT IT DRAWS
 
      • PARTNERS   every airline this one codeshares with: how much each side
-                  sells, when it last synced, and the four things a VA does to
+                  flies of the other's network, when it last synced, and the four
+                  things a VA does to
                   an agreement — choose routes, sync, download, end.
      • REQUESTS   what other airlines have asked, and what this one has asked
                   them. An incoming request opens a review: tick what they may
-                  sell of yours, tick what you will sell of theirs, accept.
+                  fly of yours, tick what your pilots will fly of theirs, accept.
      • FIND       every other airline on the platform with a crew centre. Pick
-                  one, tick their routes you want to sell (or "all of them"),
+                  one, tick their routes you want your pilots to fly (or "all of them"),
                   offer some of yours back if you like, send.
 
    And a small second sheet, CrewHubs, for the airports the airline says it is
@@ -28,7 +29,7 @@
      select shown / clear      — acts on what the search left on screen
 
    A route the other airline has not allowed is drawn but cannot be ticked, and
-   says why, rather than vanishing — "why can't I sell BR12?" has an answer.
+   says why, rather than vanishing — "why can't we fly BR12?" has an answer.
 
    WHAT IT NEEDS FROM ITS HOST
 
@@ -350,7 +351,12 @@
     async function load() {
         S.loading = true; S.error = null;
         draw();
-        try { S.data = await S.api('/codeshare'); } catch (err) { S.error = err; }
+        const [main, ext] = await Promise.all([
+            S.api('/codeshare').then((d) => ({ d }), (err) => ({ err })),
+            S.api('/codeshare/external').then((d) => ({ d }), (err) => ({ err })),
+        ]);
+        if (main.err) S.error = main.err; else S.data = main.d;
+        S.ext = ext.err ? { list: [], error: ext.err } : { list: ext.d.partners || [], error: null, max: ext.d.max };
         S.loading = false;
         draw();
         P.emit('codeshare:counts', { incoming: S.data ? S.data.incoming : 0 });
@@ -405,11 +411,14 @@
         let body = '';
         if (S.tab === 'partners') body = partnersHtml(active);
         else if (S.tab === 'requests') body = requestsHtml(all);
+        else if (S.tab === 'outside') body = outsideHtml();
         else body = findHtml();
+        const outside = (S.ext && S.ext.list) ? S.ext.list.length : 0;
         return `<div class="cs-tabs" role="tablist">
                 ${tab('partners', `Partners${active.length ? ` · ${active.length}` : ''}`, 'handshake', 0)}
                 ${tab('requests', 'Requests', 'inbox', incoming)}
                 ${tab('find', 'Find a partner', 'search', 0)}
+                ${tab('outside', `Outside airlines${outside ? ` · ${outside}` : ''}`, 'globe', 0)}
             </div>
             ${S.data.schemaLinks === false ? `<div class="cp-card cp-note cp-note-warn">Your database is on an older version, so codeshares can be added and updated but not tidied away when a partner drops a route. <button class="cp-btn cp-btn-sm" data-cp-fix-store style="margin-left:.4rem">Update my database</button></div>` : ''}
             ${body}`;
@@ -425,7 +434,7 @@
     function partnersHtml(active) {
         const exportRow = `<div class="cp-card">
             <div class="cp-card-title" style="margin-bottom:.35rem">Take it out</div>
-            <div class="cp-note" style="margin-bottom:.6rem">A spreadsheet of the flights you sell on other airlines’ metal — or one sheet with every airline in it, which imports straight back.</div>
+            <div class="cp-note" style="margin-bottom:.6rem">A spreadsheet of the partner flights on your network — or one sheet with every airline in it, which imports straight back.</div>
             <div class="cs-actions" style="margin-top:0">
                 <button type="button" class="cp-btn cp-btn-sm" data-cs-export="codeshare"><i data-lucide="download"></i> All our codeshares</button>
                 <button type="button" class="cp-btn cp-btn-sm" data-cs-export="combined"><i data-lucide="sheet"></i> Combined sheet — every airline</button>
@@ -435,7 +444,7 @@
             <span><b>Let other airlines ask us</b><br><span class="cp-note">Off hides ${esc((S.data.me && S.data.me.name) || 'your airline')} from the partner search. Agreements you already have carry on.</span></span></label>`;
         if (!active.length) {
             return `<div class="cp-empty"><i data-lucide="handshake"></i>
-                    No codeshares yet. Another airline’s routes, sold by your pilots — and yours by theirs — kept up to date on their own.
+                    No codeshares yet. Another airline’s routes flown by your pilots — and yours by theirs — kept up to date on their own.
                     <div style="margin-top:.9rem"><button type="button" class="cp-btn cp-btn-primary" data-cs-tab="find"><i data-lucide="search"></i> Find a partner</button></div>
                 </div>${settings}${exportRow}`;
         }
@@ -473,8 +482,8 @@
                     ${a.status !== 'pending' ? `<span class="cp-chip cp-chip-mute">${esc(a.status)}</span>` : ''}
                 </div>
                 <div class="cp-note" style="margin-top:.55rem">${a.direction === 'incoming'
-                    ? `They would sell <b>${esc(selText(a.theyTake))}</b> of yours, and offer you <b>${esc(selText(a.iWant))}</b> of theirs.`
-                    : `You asked to sell <b>${esc(selText(a.iWant))}</b> of theirs, and offered <b>${esc(selText(a.iAllowThem))}</b> of yours.`}</div>
+                    ? `Their pilots would fly <b>${esc(selText(a.theyTake))}</b> of yours, and offer you <b>${esc(selText(a.iWant))}</b> of theirs.`
+                    : `You asked to fly <b>${esc(selText(a.iWant))}</b> of theirs, and offered <b>${esc(selText(a.iAllowThem))}</b> of yours.`}</div>
                 ${a.message ? `<div class="cs-msg">“${esc(a.message)}”</div>` : ''}
                 ${a.reply ? `<div class="cs-msg">Reply: “${esc(a.reply)}”</div>` : ''}
                 ${buttons ? `<div class="cs-actions">${buttons}</div>` : ''}
@@ -498,7 +507,7 @@
         return `<div class="cp-card">
                 <label class="cp-label" for="csDirQ">Find an airline on Inflight</label>
                 <input id="csDirQ" class="cp-input" type="search" placeholder="Name, callsign or crew centre handle" value="${esc(S.dir.q)}" autocomplete="off">
-                <div class="cp-note" style="margin-top:.45rem">Every airline with a crew centre that takes requests. You choose what you would sell of theirs; they choose what they allow, and can offer yours back.</div>
+                <div class="cp-note" style="margin-top:.45rem">Every airline with a crew centre that takes requests. You choose which of their routes your pilots would fly; they choose what they allow, and can offer yours back.</div>
             </div>
             <div class="cs-dir" id="csDirList">${dirListHtml()}</div>`;
     }
@@ -524,11 +533,328 @@
         try { icons(); } catch (_) {}
     }
 
+    /* =====================================================================
+     * OUTSIDE AIRLINES
+     *
+     * Partners who run their crew centre somewhere else — vAMSYS, phpVMS,
+     * VAM, a spreadsheet. There is no request to accept: staff here add them,
+     * point at the route list they publish (or upload it), and hand them back
+     * a private feed address listing whatever of ours they may fly. Their
+     * list is re-read every few hours; a feed that fails or comes back empty
+     * removes nothing.
+     * =================================================================== */
+
+    const PLATFORM_NAMES = { vamsys: 'vAMSYS', phpvms: 'phpVMS', vam: 'VAM', fsairlines: 'FSAirlines', sheet: 'A spreadsheet', website: 'Their own website', other: 'Somewhere else' };
+    const EXT_MAX_BYTES = 4 * 1024 * 1024;
+    const extById = (id) => ((S.ext && S.ext.list) || []).find((p) => p.id === id);
+
+    function extSyncLine(p) {
+        const s = p.lastSync || {};
+        if (!p.active) return `<div class="cp-note" style="margin-top:.5rem">Paused — their flights stay on your network but are not re-read.</div>`;
+        if (s.error) return `<div class="cp-note cp-note-warn" style="margin-top:.5rem"><i data-lucide="triangle-alert" style="width:.9rem;height:.9rem;vertical-align:-2px"></i> ${esc(s.error)}${s.at ? ` <span class="cp-faint">(${esc(relativeText(s.at))})</span>` : ''} Nothing was removed.</div>`;
+        if (!s.at) return `<div class="cp-note" style="margin-top:.5rem">${p.feedUrl ? 'Not read yet — press Sync now.' : 'No routes yet — upload their spreadsheet, or add the address of their route list.'}</div>`;
+        const moved = [s.created && `${s.created} added`, s.updated && `${s.updated} updated`, s.removed && `${s.removed} removed`].filter(Boolean).join(', ');
+        return `<div class="cp-note" style="margin-top:.5rem">Read ${esc(relativeText(s.at))}${moved ? ` · ${esc(moved)}` : ''}.${p.feedUrl && p.autoSync ? ' Re-read every 6 hours.' : ''}</div>`;
+    }
+
+    function outsideHtml() {
+        const E = S.ext || { list: [] };
+        const off = E.error && E.error.status === 404;
+        const intro = `<div class="cp-card">
+            <div class="cs-row"><span class="cs-logo"><i data-lucide="globe" style="width:1.2rem;height:1.2rem"></i></span>
+                <div class="cs-grow"><div class="cs-name">Airlines outside Inflight</div>
+                <div class="cp-note">For partners whose crew centre is on vAMSYS, phpVMS, VAM, a spreadsheet or their own site. Point at their route list — or upload it — and their flights join your network as codeshares, kept up to date. They get a private address listing the routes of yours they may fly.</div></div></div>
+            ${off ? '' : `<div class="cs-actions"><button type="button" class="cp-btn cp-btn-sm cp-btn-primary" data-ext-add ${E.max && E.list.length >= E.max ? 'disabled' : ''}><i data-lucide="plus"></i> Add an outside airline</button></div>`}
+        </div>`;
+        if (E.error) {
+            if (off) return intro + `<p class="cp-note">Outside partners need the latest server — it is not switched on for this crew centre yet.</p>`;
+            return intro + `<div class="cp-empty"><i data-lucide="triangle-alert"></i>${esc(E.error.message || 'Those could not be read.')}</div>`;
+        }
+        if (!E.list.length) return intro;
+        return intro + E.list.map((p) => `<div class="cp-card" data-ext-id="${esc(p.id)}">
+                <div class="cs-row">
+                    ${logoHtml(p)}
+                    <div class="cs-grow">
+                        <div class="cs-name">${esc(p.name)}</div>
+                        <div class="cp-note">${esc(PLATFORM_NAMES[p.platform] || 'Outside Inflight')}${p.website && P.safeUrl(p.website) ? ` · <a href="${esc(p.website)}" target="_blank" rel="noopener" class="cp-muted">their site ↗</a>` : ''}</div>
+                    </div>
+                    ${p.active ? '' : '<span class="cp-chip cp-chip-mute">Paused</span>'}
+                </div>
+                <div class="cs-flow">
+                    <div class="cs-side"><b>${p.lastSync && p.lastSync.routes != null ? p.lastSync.routes : '—'}</b>of their flights on your network <span class="cp-faint">(${esc(selText(p.take))})</span></div>
+                    <i data-lucide="arrow-left-right"></i>
+                    <div class="cs-side"><b>${esc(selText(p.share))}</b>of yours in the feed you give them</div>
+                </div>
+                ${extSyncLine(p)}
+                <div class="cp-note" style="margin-top:.55rem;overflow-wrap:anywhere">Reads from: ${p.feedUrl ? `<span class="cp-muted">${esc(p.feedUrl)}</span>` : 'an uploaded spreadsheet'}</div>
+                <details style="margin-top:.55rem">
+                    <summary class="cp-note" style="cursor:pointer;font-weight:700">Their copy of your routes</summary>
+                    <div class="cp-note" style="margin:.45rem 0">Give ${esc(p.name)} one of these. It always lists exactly what you share with them — change the routes and the address stays the same. Most crew centres import the CSV; a Google Sheet pulls it live with <code>=IMPORTDATA("…csv")</code>.</div>
+                    <div style="display:grid;gap:.35rem">
+                        ${['csv', 'json'].map((f) => `<div class="cs-row" style="gap:.4rem"><input class="cp-input" readonly value="${esc(p.ourFeed[f])}" aria-label="${f.toUpperCase()} feed address" style="font-size:.75rem">
+                            <button type="button" class="cp-btn cp-btn-sm" data-ext-copy="${f}"><i data-lucide="clipboard-copy"></i> ${f.toUpperCase()}</button></div>`).join('')}
+                    </div>
+                </details>
+                <input type="file" hidden data-ext-file="sync" accept=".csv,.tsv,.txt,.json,.xlsx,.xlsm,.xls,.ods,text/csv,text/plain,application/json">
+                <div class="cs-actions">
+                    <button type="button" class="cp-btn cp-btn-sm cp-btn-primary" data-ext-edit><i data-lucide="list-checks"></i> Choose routes &amp; edit</button>
+                    ${p.feedUrl ? `<button type="button" class="cp-btn cp-btn-sm" data-ext-sync><i data-lucide="refresh-cw"></i> Sync now</button>` : ''}
+                    <button type="button" class="cp-btn cp-btn-sm" data-ext-upload><i data-lucide="upload"></i> Upload their sheet</button>
+                    <button type="button" class="cp-btn cp-btn-sm" data-cs-export="partner" data-name="${esc(p.name)}"><i data-lucide="download"></i> These codeshares</button>
+                    <button type="button" class="cp-btn cp-btn-sm" data-ext-pause>${p.active ? '<i data-lucide="pause"></i> Pause' : '<i data-lucide="play"></i> Resume'}</button>
+                    <button type="button" class="cp-btn cp-btn-sm" data-ext-token title="The old address stops working at once"><i data-lucide="key-round"></i> New feed address</button>
+                    <button type="button" class="cp-btn cp-btn-sm cp-btn-bad" data-ext-end><i data-lucide="unlink"></i> End</button>
+                </div>
+            </div>`).join('');
+    }
+
+    function extFormHtml(v) {
+        const d = v.draft;
+        const pv = v.preview;
+        const src = v.upload ? `Uploaded ${esc(v.upload.name)}` : d.feedUrl ? 'Their feed' : '';
+        const previewNote = v.previewing ? 'Reading their routes…'
+            : v.previewError ? `<span class="cp-note-bad">${esc(v.previewError)}</span>`
+                : pv ? `${src} · ${pv.total} route${pv.total === 1 ? '' : 's'} found${pv.errors ? ` · ${pv.errors} row${pv.errors === 1 ? '' : 's'} skipped (no airports)` : ''}.`
+                    : v.partner ? 'Press “Check their routes” to choose from their list, or leave it on All.' : 'Add an address or upload a sheet to see their routes.';
+        return `<div class="cp-card" style="display:grid;gap:.6rem">
+                <div class="cs-row">${logoHtml({ name: d.name || '?', logo: d.logo })}<div class="cs-grow"><div class="cs-name">${esc(v.partner ? v.partner.name : 'A new outside partner')}</div>
+                    <div class="cp-note">An airline whose crew centre is not on Inflight.</div></div></div>
+                <div><label class="cp-label" for="extName">Airline name</label><input id="extName" class="cp-input" data-ext-f="name" maxlength="80" value="${esc(d.name)}" placeholder="e.g. Nordic Virtual"></div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.6rem">
+                    <div><label class="cp-label" for="extPlatform">Their crew centre runs on</label><select id="extPlatform" class="cp-select" data-ext-f="platform">${Object.entries(PLATFORM_NAMES).map(([k, n]) => `<option value="${k}" ${d.platform === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+                    <div><label class="cp-label" for="extSite">Website (optional)</label><input id="extSite" class="cp-input" data-ext-f="website" value="${esc(d.website)}" placeholder="https://"></div>
+                    <div><label class="cp-label" for="extLogo">Logo address (optional)</label><input id="extLogo" class="cp-input" data-ext-f="logo" value="${esc(d.logo)}" placeholder="https://…/logo.png"></div>
+                </div>
+            </div>
+            <div class="cs-step">1 · Where their routes come from</div>
+            <div class="cp-card" style="display:grid;gap:.55rem">
+                <div><label class="cp-label" for="extFeed">Address of their route list</label>
+                    <div class="cs-row" style="gap:.4rem"><input id="extFeed" class="cp-input" data-ext-f="feedUrl" value="${esc(d.feedUrl)}" placeholder="https://… (CSV, JSON or a shared Google Sheet)">
+                    <select class="cp-select" data-ext-f="format" aria-label="Format" style="width:auto">${['auto', 'csv', 'json'].map((f) => `<option value="${f}" ${d.format === f ? 'selected' : ''}>${f === 'auto' ? 'Detect' : f.toUpperCase()}</option>`).join('')}</select></div>
+                    <div class="cp-note" style="margin-top:.35rem">A route export from their crew centre, or a Google Sheet shared “anyone with the link”. We re-read it every 6 hours.</div></div>
+                <label class="cs-toggle"><input type="checkbox" data-ext-f="autoSync" ${d.autoSync ? 'checked' : ''}><span>Keep it up to date on its own</span></label>
+                <div class="cs-actions" style="margin-top:0">
+                    <button type="button" class="cp-btn cp-btn-sm" data-ext-check><i data-lucide="scan-search"></i> Check their routes</button>
+                    <button type="button" class="cp-btn cp-btn-sm" data-ext-pickfile><i data-lucide="upload"></i> Or upload their spreadsheet</button>
+                    <input type="file" hidden data-ext-file="form" multiple accept=".csv,.tsv,.txt,.json,.xlsx,.xlsm,.xls,.ods,text/csv,text/plain,application/json">
+                </div>
+                <div class="cp-note" data-ext-preview>${previewNote}</div>
+            </div>
+            <div class="cs-step">2 · Their flights your pilots fly</div>
+            ${picker('extTake', { title: `${d.name || 'Their'} routes`, routes: pv ? pv.routes : v.noRoutes, sel: (S.pick.extTake && S.pick.extTake.sel) || (v.partner ? v.partner.take : { mode: 'all', routeIds: [] }), hint: '“All of them” keeps up as they add routes.' })}
+            <div class="cs-step">3 · Your flights they may fly — optional</div>
+            ${picker('extShare', { title: 'Your routes', routes: v.mine, sel: (S.pick.extShare && S.pick.extShare.sel) || (v.partner ? v.partner.share : { mode: 'none', routeIds: [] }), hint: 'These go in the private feed you give them. Only your own published legs — never a draft, never someone else’s codeshare.' })}
+            <div><label class="cp-label" for="extNotes">Notes for your staff (optional)</label><textarea id="extNotes" class="cp-textarea" data-ext-f="notes" maxlength="500" placeholder="Who to talk to, what was agreed.">${esc(d.notes)}</textarea></div>
+            <button type="button" class="cp-btn cp-btn-primary" data-ext-save style="justify-content:center"><i data-lucide="save"></i> ${v.partner ? 'Save and sync' : 'Add partner'}</button>`;
+    }
+
+    async function openExtForm(partner) {
+        S.pick = {};
+        const p = partner || {};
+        S.view = {
+            kind: 'ext-form', partner: partner || null, noRoutes: [], mine: [],
+            draft: { name: p.name || '', logo: p.logo || '', website: p.website || '', platform: p.platform || 'other', feedUrl: p.feedUrl || '', format: p.format || 'auto', autoSync: p.autoSync !== false, notes: p.notes || '' },
+            preview: null, previewing: false, previewError: '', upload: null,
+        };
+        draw();
+        try {
+            const mine = await myRoutes();
+            if (S.view && S.view.kind === 'ext-form') { S.view.mine = mine; draw(); }
+        } catch (_) {}
+        // An existing partner opens with their list read, so "Choose" has
+        // something in it.
+        if (partner && partner.feedUrl) extPreview({ feedUrl: partner.feedUrl, format: partner.format });
+    }
+
+    async function extPreview(body, upload = null) {
+        const v = S.view;
+        if (!v || v.kind !== 'ext-form') return;
+        v.previewing = true; v.previewError = '';
+        draw();
+        try {
+            const d = await S.api('/codeshare/external/preview', { method: 'POST', body });
+            if (S.view !== v) return;
+            v.preview = { routes: d.routes || [], total: d.total || 0, errors: d.errors || 0 };
+            v.upload = upload;
+        } catch (err) { if (S.view === v) v.previewError = err.message || 'Those routes could not be read.'; }
+        if (S.view !== v) return;
+        v.previewing = false;
+        draw();
+    }
+
+    // The same reading as the route import: CSV/JSON as text, every tab of a
+    // workbook as a sheet of CSV.
+    let xlsxReady = null;
+    function loadXlsx() {
+        if (window.XLSX) return Promise.resolve(window.XLSX);
+        if (xlsxReady) return xlsxReady;
+        const srcs = ['https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'];
+        xlsxReady = new Promise((ok, no) => {
+            const at = (i) => {
+                if (i >= srcs.length) { xlsxReady = null; no(new Error('Could not load the spreadsheet reader. Save it as CSV and try again.')); return; }
+                const s = document.createElement('script'); s.src = srcs[i]; s.async = true;
+                s.onload = () => (window.XLSX ? ok(window.XLSX) : at(i + 1));
+                s.onerror = () => { s.remove(); at(i + 1); };
+                document.head.appendChild(s);
+            };
+            at(0);
+        });
+        return xlsxReady;
+    }
+
+    async function readSheetFiles(files) {
+        if (!files.length) return null;
+        if (files.reduce((n, f) => n + (f.size || 0), 0) > EXT_MAX_BYTES) throw new Error('That is more than 4 MB of spreadsheet — send just the routes tab.');
+        const sheets = [];
+        for (const file of files) {
+            if (/\.(xlsx|xlsm|xls|ods)$/i.test(file.name)) {
+                const X = await loadXlsx();
+                const wb = X.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+                for (const name of wb.SheetNames) if (wb.Sheets[name] && wb.Sheets[name]['!ref']) sheets.push({ name, csv: X.utils.sheet_to_csv(wb.Sheets[name]) });
+            } else sheets.push({ name: file.name, csv: await file.text() });
+        }
+        const name = files.length > 1 ? `${files.length} files` : files[0].name;
+        // One plain file goes as `csv`, so a JSON export is read as JSON.
+        return sheets.length === 1 ? { name, body: { csv: sheets[0].csv } } : { name, body: { sheets } };
+    }
+
+    function extSyncToast(s, name) {
+        if (!s) return;
+        if (s.error) { P.toast(s.error, 'bad'); return; }
+        const moved = [s.created && `${s.created} added`, s.updated && `${s.updated} updated`, s.removed && `${s.removed} removed`].filter(Boolean).join(', ');
+        P.toast(moved ? `${name}: ${moved}. ${s.routes} of their flights on your network.` : `${name} is up to date — ${s.routes} of their flights on your network.`, 'ok');
+    }
+
+    async function onExtFile(input) {
+        const kind = input.getAttribute('data-ext-file');
+        let got;
+        try { got = await readSheetFiles([...(input.files || [])]); } catch (err) { P.toast(err.message, 'bad'); return; } finally { input.value = ''; }
+        if (!got) return;
+        if (kind === 'form') { extPreview(got.body, got); return; }
+        const card = input.closest('[data-ext-id]');
+        const p = card && extById(card.getAttribute('data-ext-id'));
+        if (!p) return;
+        const btn = card.querySelector('[data-ext-upload]');
+        const res = await withBusy(btn, 'Reading…', () => S.api(`/codeshare/external/${encodeURIComponent(p.id)}/sync`, { method: 'POST', body: got.body }));
+        if (!res) return;
+        extSyncToast(res.sync, p.name);
+        P.emit('routes:changed');
+        load();
+    }
+
+    async function copyText(text) {
+        try { await navigator.clipboard.writeText(text); return true; } catch (_) {}
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (_) {}
+        ta.remove();
+        return ok;
+    }
+
+    /** Handles every data-ext-* button. True when it was one of them. */
+    async function onExtClick(t) {
+        if (![...t.attributes].some((a) => a.name.startsWith('data-ext-'))) return false;
+        const card = t.closest('[data-ext-id]');
+        const p = card ? extById(card.getAttribute('data-ext-id')) : null;
+        const v = S.view && S.view.kind === 'ext-form' ? S.view : null;
+
+        if (t.hasAttribute('data-ext-add')) { openExtForm(null); return true; }
+        if (t.hasAttribute('data-ext-edit') && p) { openExtForm(p); return true; }
+        if (t.hasAttribute('data-ext-copy') && p) {
+            const ok = await copyText(p.ourFeed[t.getAttribute('data-ext-copy')]);
+            P.toast(ok ? `Copied. Send it to ${p.name}.` : 'Could not copy — select the address and copy it.', ok ? 'ok' : 'bad');
+            return true;
+        }
+        if (t.hasAttribute('data-ext-upload') && card) { const f = card.querySelector('[data-ext-file="sync"]'); if (f) f.click(); return true; }
+        if (t.hasAttribute('data-ext-pickfile')) { const f = S.panel.body.querySelector('[data-ext-file="form"]'); if (f) f.click(); return true; }
+        if (t.hasAttribute('data-ext-sync') && p) {
+            const res = await withBusy(t, 'Reading their routes…', () => S.api(`/codeshare/external/${encodeURIComponent(p.id)}/sync`, { method: 'POST', body: {} }));
+            if (!res) return true;
+            extSyncToast(res.sync, p.name);
+            P.emit('routes:changed');
+            load();
+            return true;
+        }
+        if (t.hasAttribute('data-ext-pause') && p) {
+            const res = await withBusy(t, p.active ? 'Pausing…' : 'Resuming…', () => S.api(`/codeshare/external/${encodeURIComponent(p.id)}`, { method: 'PATCH', body: { active: !p.active } }));
+            if (res) { P.toast(p.active ? `${p.name} paused. Their flights stay; they are no longer re-read.` : `${p.name} resumed.`, 'ok'); load(); }
+            return true;
+        }
+        if (t.hasAttribute('data-ext-token') && p) {
+            if (!await P.ask({ title: 'Give them a new feed address?', body: `The address ${p.name} has now stops working at once. Send them the new one.`, confirm: 'New address' })) return true;
+            const res = await withBusy(t, 'Working…', () => S.api(`/codeshare/external/${encodeURIComponent(p.id)}/token`, { method: 'POST' }));
+            if (res) { P.toast('New address ready — copy it from “Their copy of your routes”.', 'ok'); load(); }
+            return true;
+        }
+        if (t.hasAttribute('data-ext-end') && p) {
+            if (!await P.ask({
+                title: `End the codeshare with ${p.name}?`,
+                body: 'Their flights come off your network and the feed you gave them stops working. Routes you added by hand are not touched.',
+                confirm: 'End it', danger: true,
+            })) return true;
+            const res = await withBusy(t, 'Ending…', () => S.api(`/codeshare/external/${encodeURIComponent(p.id)}`, { method: 'DELETE' }));
+            if (!res) return true;
+            P.toast(`Ended. ${res.removed || 0} codeshare${res.removed === 1 ? '' : 's'} removed from your network.`, 'ok');
+            P.emit('routes:changed');
+            load();
+            return true;
+        }
+        if (t.hasAttribute('data-ext-check') && v) {
+            const url = v.draft.feedUrl.trim();
+            if (!/^https:\/\//i.test(url)) { P.toast('Add the https:// address of their route list first — or upload their spreadsheet.', 'bad'); return true; }
+            await extPreview({ feedUrl: url, format: v.draft.format });
+            return true;
+        }
+        if (t.hasAttribute('data-ext-save') && v) {
+            const d = v.draft;
+            if (!d.name.trim()) { P.toast('Give the airline a name.', 'bad'); return true; }
+            if (d.feedUrl.trim() && !/^https:\/\//i.test(d.feedUrl.trim())) { P.toast('Their route list needs an https:// address.', 'bad'); return true; }
+            const body = {
+                name: d.name.trim(), logo: d.logo.trim(), website: d.website.trim(), platform: d.platform,
+                feedUrl: d.feedUrl.trim(), format: d.format, autoSync: d.autoSync, notes: d.notes,
+                take: pickerValue('extTake'), share: pickerValue('extShare'),
+            };
+            let res;
+            if (!v.partner) {
+                res = await withBusy(t, 'Adding…', () => S.api('/codeshare/external', { method: 'POST', body: { ...body, ...(v.upload ? v.upload.body : {}) } }));
+            } else {
+                res = await withBusy(t, 'Saving…', async () => {
+                    const r = await S.api(`/codeshare/external/${encodeURIComponent(v.partner.id)}`, { method: 'PATCH', body });
+                    // A fresh upload, or a new choice of routes with no feed
+                    // to re-read, is applied with what was just uploaded.
+                    if (v.upload) r.sync = (await S.api(`/codeshare/external/${encodeURIComponent(v.partner.id)}/sync`, { method: 'POST', body: v.upload.body })).sync;
+                    return r;
+                });
+            }
+            if (!res) return true;
+            if (res.sync) extSyncToast(res.sync, body.name);
+            else P.toast(v.partner ? 'Saved.' : `${body.name} added. Upload their spreadsheet or add their route list to bring their flights in.`, 'ok');
+            S.view = null; S.pick = {}; S.tab = 'outside';
+            P.emit('routes:changed');
+            load();
+            return true;
+        }
+        return false;
+    }
+
+    function onExtInput(ev) {
+        const t = ev.target;
+        const v = S.view && S.view.kind === 'ext-form' ? S.view : null;
+        if (!v || !t || !t.hasAttribute('data-ext-f')) return;
+        const f = t.getAttribute('data-ext-f');
+        v.draft[f] = t.type === 'checkbox' ? t.checked : t.value;
+        // A new address makes the list read from the old one stale.
+        if (f === 'feedUrl' && v.preview && !v.upload) v.preview = null;
+    }
+
     /* ---- The step views ---- */
 
     function viewHtml() {
         const v = S.view;
         const back = `<button type="button" class="cs-back" data-cs-back><i data-lucide="arrow-left"></i> Back</button>`;
+        if (v.kind === 'ext-form') return back + extFormHtml(v);
         if (v.loading) return `${back}<p class="cp-note" style="text-align:center;padding:2rem 0">Reading ${esc(v.partner.name)}’s network…</p>`;
         if (v.error) return `${back}<div class="cp-empty"><i data-lucide="triangle-alert"></i>${esc(v.error.message || 'That could not be read.')}</div>`;
         const head = `<div class="cp-card"><div class="cs-row">${logoHtml(v.partner)}<div class="cs-grow">
@@ -538,7 +864,7 @@
 
         if (v.kind === 'request') {
             return `${back}${head}
-                <div class="cs-step">1 · Their flights you want to sell</div>
+                <div class="cs-step">1 · Their flights you want to fly</div>
                 ${picker('take', { title: `${v.partner.name}’s routes`, routes: v.theirs, sel: v.take, hint: '“All of them” keeps up as they add routes.' })}
                 <div class="cs-step">2 · Your flights you offer them — optional</div>
                 ${picker('offer', { title: 'Your routes', routes: v.mine, sel: v.offer, hint: 'Only your own published legs can be shared — never a draft, never a codeshare.' })}
@@ -550,10 +876,10 @@
             const a = v.agreement;
             return `${back}${head}
                 ${a.message ? `<div class="cs-msg">“${esc(a.message)}”${a.requestedBy ? ` — ${esc(a.requestedBy)}` : ''}</div>` : ''}
-                <div class="cs-step">Your flights they may sell</div>
-                ${picker('offer', { title: 'Your routes', routes: v.mine, sel: v.offer, hint: a.theyTake.mode === 'all' ? 'They asked for all of them. Untick anything you would rather keep to yourselves.' : 'Ticked: what they asked for. Anything you untick is simply not sold.' })}
-                <div class="cs-step">Their flights you will sell</div>
-                ${picker('take', { title: `${v.partner.name}’s routes`, routes: v.theirs, sel: v.take, allowed: a.theyAllowMe, hint: a.theyAllowMe.mode === 'none' ? 'They did not offer any of theirs — this can be one-way.' : 'What they offered you. Set it to “None” to let them sell yours without selling theirs.' })}
+                <div class="cs-step">Your flights they may fly</div>
+                ${picker('offer', { title: 'Your routes', routes: v.mine, sel: v.offer, hint: a.theyTake.mode === 'all' ? 'They asked for all of them. Untick anything you would rather keep to yourselves.' : 'Ticked: what they asked for. Anything you untick simply stays yours alone.' })}
+                <div class="cs-step">Their flights your pilots will fly</div>
+                ${picker('take', { title: `${v.partner.name}’s routes`, routes: v.theirs, sel: v.take, allowed: a.theyAllowMe, hint: a.theyAllowMe.mode === 'none' ? 'They did not offer any of theirs — this can be one-way.' : 'What they offered you. Set it to “None” to let them fly yours without your pilots flying theirs.' })}
                 <textarea class="cp-textarea" data-cs-reply maxlength="800" placeholder="A reply (optional)">${esc(v.reply || '')}</textarea>
                 <div class="cs-actions">
                     <button type="button" class="cp-btn cp-btn-primary" data-cs-accept><i data-lucide="check"></i> Accept</button>
@@ -563,9 +889,9 @@
         if (v.kind === 'edit') {
             const a = v.agreement;
             return `${back}${head}
-                <div class="cs-step">Their flights you sell</div>
+                <div class="cs-step">Their flights your pilots fly</div>
                 ${picker('take', { title: `${v.partner.name}’s routes`, routes: v.theirs, sel: a.iWant, allowed: a.theyAllowMe, hint: a.theyAllowMe.mode === 'all' ? 'They allow all of them.' : 'Greyed-out legs are ones they have not offered you.' })}
-                <div class="cs-step">Your flights they may sell</div>
+                <div class="cs-step">Your flights they may fly</div>
                 ${picker('offer', { title: 'Your routes', routes: v.mine, sel: a.iAllowThem, hint: 'Narrow this and their copies of anything you untick come off their network at once.' })}
                 <button type="button" class="cp-btn cp-btn-primary" data-cs-save style="justify-content:center"><i data-lucide="save"></i> Save and sync</button>`;
         }
@@ -591,7 +917,7 @@
             v.mine = mine;
             if (kind === 'review') {
                 // Until I answer, my "want" slot holds what they offered me, and
-                // what they would sell of mine is exactly what they asked for.
+                // what they would fly of mine is exactly what they asked for.
                 // Both pickers start there; I only ever narrow.
                 v.take = agreement.iWant;
                 v.offer = agreement.theyTake;
@@ -624,6 +950,7 @@
             return;
         }
         if (t.hasAttribute('data-cs-back')) { S.view = null; S.pick = {}; draw(); return; }
+        if (await onExtClick(t)) return;
         if (t.hasAttribute('data-cs-open')) {
             const open = t.checked;
             try { await S.api('/codeshare/settings', { method: 'POST', body: { open } }); S.data.open = open; P.toast(open ? 'Other airlines can find you.' : 'Hidden from the partner search.', 'ok'); } catch (err) { t.checked = !open; P.toast(err.message, 'bad'); }
@@ -644,7 +971,7 @@
             const v = S.view;
             const take = pickerValue('take');
             const offer = pickerValue('offer');
-            if (take.mode === 'none' && offer.mode === 'none') { P.toast('Pick at least one route — theirs to sell, or yours to offer.', 'bad'); return; }
+            if (take.mode === 'none' && offer.mode === 'none') { P.toast('Pick at least one route — theirs to fly, or yours to offer.', 'bad'); return; }
             const message = (S.panel.body.querySelector('[data-cs-msg]') || {}).value || '';
             const ok = await withBusy(t, 'Sending…', () => S.api('/codeshare', { method: 'POST', body: { partner: v.partner.slug, take, offer, message } }));
             if (!ok) return;
@@ -732,6 +1059,7 @@
         }
         if (ev.target && ev.target.hasAttribute('data-cs-msg') && S.view) S.view.message = ev.target.value;
         if (ev.target && ev.target.hasAttribute('data-cs-reply') && S.view) S.view.reply = ev.target.value;
+        onExtInput(ev);
     }
 
     function open({ api, backend, slug, token, tab } = {}) {
@@ -747,6 +1075,10 @@
             S.panel = P.sheet({ id: 'crewCodeshare', title: 'Codeshare partners', icon: 'handshake', wide: true });
             S.panel.body.addEventListener('click', (ev) => { onClick(ev).catch((err) => P.toast(err.message || 'That didn’t work.', 'bad')); });
             S.panel.body.addEventListener('input', onInput);
+            S.panel.body.addEventListener('change', (ev) => {
+                if (ev.target && ev.target.matches('[data-ext-file]')) onExtFile(ev.target).catch((err) => P.toast(err.message || 'That didn’t work.', 'bad'));
+                else onExtInput(ev);
+            });
         }
         S.panel.open();
         draw();
