@@ -571,6 +571,7 @@ export const MobileSettingsUI = {
                                     </div>
                                     <div class="m-row-right"><i class="fa-solid fa-chevron-right m-legal-chevron"></i></div>
                                 </div>
+                                ${window.InflightAppPromo ? window.InflightAppPromo.rowHtml() : ''}
                             </div>
 
                             ${this.renderLegalSection()}

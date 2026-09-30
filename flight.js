@@ -20594,6 +20594,7 @@ renderCategory(catId) {
                     html = `
                         <div class="settings-section">
                             <label class="config-header">What's New</label>
+                            ${window.InflightAppPromo ? window.InflightAppPromo.cardHtml() : ''}
                             ${(window.InflightChangelog && typeof window.InflightChangelog.renderSettingsPanel === 'function')
                                 ? window.InflightChangelog.renderSettingsPanel()
                                 : '<p style="font-size: 0.8rem; color: #71717a;">Release notes unavailable.</p>'}

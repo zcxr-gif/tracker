@@ -37,6 +37,10 @@
             nudge: { text: 'Give your flight window your own colour and background.', action: 'window-settings' },
             entries: [
                 {
+                    tag: 'new', icon: 'fa-mobile-screen-button', action: 'ios-app', iosPromo: true,
+                    text: 'InFlight is on the App Store. The live map, your pilot profile and your flights on iPhone and iPad — sign in with this same account and it is all already there.'
+                },
+                {
                     tag: 'new', icon: 'fa-sun', action: 'window-settings',
                     text: 'Horizon: the full flight window in a calmer skin, in any colour you pick. Text and panels adjust by themselves so it always reads.'
                 },
@@ -785,13 +789,16 @@
         'window-settings': { label: 'Open Flight window settings', run: () => window.openFlightWindowSettings && window.openFlightWindowSettings() },
         'own-style': { label: 'Style your flight', run: () => window.openOwnWindowStyleEditor && window.openOwnWindowStyleEditor() },
         'account-email': { label: 'Change email', run: () => window.openAccountEmail && window.openAccountEmail() },
+        // Opened inside the click itself, or the browser treats it as a popup.
+        'ios-app': { label: 'Get it on the App Store', now: true, run: () => window.InflightAppPromo && window.InflightAppPromo.open() },
     };
     function runAction(id) {
         const a = ACTIONS[id];
         if (!a) return;
+        if (a.now) { try { a.run(); } catch (_) { /* nothing to open */ } }
         closeModal();
         closeNudge();
-        setTimeout(() => { try { a.run(); } catch (_) { /* the notes already closed */ } }, 60);
+        if (!a.now) setTimeout(() => { try { a.run(); } catch (_) { /* the notes already closed */ } }, 60);
     }
     document.addEventListener('click', (e) => {
         const btn = e.target.closest && e.target.closest('[data-cl-action]');
@@ -1040,6 +1047,9 @@
     // ---------------------------------------------------------------------
 
     function entryHTML(e) {
+        // App Store news is for the website only (see appPromo.js): not inside
+        // the iOS app, and not on Android.
+        if (e.iosPromo && !(window.InflightAppPromo && window.InflightAppPromo.available)) return '';
         const meta = TAG_META[e.tag] || TAG_META.new;
         // e.visual is trusted markup authored in this file (never user data):
         // a small inline mockup shown behind an optional <details> dropdown.
