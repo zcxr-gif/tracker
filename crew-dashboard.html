@@ -432,6 +432,57 @@
             .r-social .cs-strip{ max-height:calc(100vh - 8rem); overflow-y:auto; overscroll-behavior:contain; }
         }
 
+        /* =====================================================================
+           COLUMN STACKS — what the desktop layouts actually use now.
+
+           The named-area maps above put one block across several rows ("tools"
+           down the console rail, "live" down the split, "stats" down the
+           classic sidebar, the Instagram wall down every layout). A grid row
+           is as tall as the tallest thing in it, so a twenty-tile rail or a
+           tall wall of posts made every row it touched grow to match — and
+           every block BESIDE it in those rows stretched to fill the row: the
+           stat strip at 1,260px, the event card at 600px around 85px of
+           content, and the live map (height:100%) at two and a half thousand
+           pixels. That is the "stretched boxes with empty space under them"
+           and the "huge tracker widget", and no amount of align-self fixes it
+           — start-aligning just moves the empty space from inside the box to
+           under it.
+
+           So on a desktop each layout is arranged as COLUMNS instead of rows
+           (arrangeGrid() in the script moves the blocks): every column is its
+           own stack, as tall as its own contents and no taller, and nothing
+           in one column can size anything in another. The area maps above
+           still drive phones, where it is one column and nothing spans, and
+           are the fallback if the script never runs.
+           ===================================================================== */
+        .crew-grid.is-arranged{ display:flex; flex-direction:column; gap:1rem; }
+        .crew-cols{ display:grid; gap:1rem; align-items:start; }
+        .crew-col{ display:flex; flex-direction:column; gap:1rem; min-width:0; }
+        /* Full column width, always. The area maps start-align the rail and the
+           wall (align-self:start) so they would not stretch down their rows —
+           inside a flex column the same rule shrinks them to their content's
+           WIDTH instead, which drew the wall a third of its column wide. */
+        .crew-grid.is-arranged .crew-col > *{ align-self:stretch; }
+        .crew-col > .r-social, .crew-col > .r-tools.is-rail{ position:sticky; top:5rem; }
+        /* THE LIVE MAP HAS A HEIGHT OF ITS OWN. It used to take whatever the
+           row gave it, which is how it became the tallest thing on the page.
+           A map needs a sensible viewport, not "the rest of the column". */
+        .crew-grid.is-arranged .r-live{ height:clamp(340px, 44vh, 460px); min-height:0; }
+        .crew-grid.is-arranged .r-live iframe{ flex:1 1 auto; height:auto; min-height:0; }
+        :root[data-layout="split"] .crew-grid.is-arranged .r-live{ height:clamp(440px, 66vh, 640px); }
+        /* A rail of twenty tiles is taller than any screen. As a rail they
+           are one line each — icon and name — and the rail scrolls inside
+           itself rather than pushing the page. */
+        .r-tools.is-rail #toolGrid{ grid-template-columns:1fr !important; gap:.35rem; }
+        .r-tools.is-rail #toolGrid a{ flex-direction:row; align-items:center; gap:.65rem; padding:.55rem .75rem; }
+        .r-tools.is-rail #toolGrid a .text-sm{ display:none; }
+        .r-tools.is-rail #toolGrid a i{ width:1.1rem; height:1.1rem; }
+        .r-tools.is-rail{ max-height:calc(100vh - 6rem); overflow-y:auto; overscroll-behavior:contain; padding-right:.25rem; }
+        /* A tool column beside something else is two tiles wide and tight. */
+        .r-tools.is-side #toolGrid{ grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:.5rem; }
+        .r-tools.is-side #toolGrid a{ padding:.8rem; gap:.5rem; }
+        .r-social.is-side .cs-strip{ max-height:calc(100vh - 8rem); overflow-y:auto; overscroll-behavior:contain; }
+
         /* ---- The wall itself ------------------------------------------------
            On a phone it is a row you swipe, which is the same gesture the
            console layout already uses for its tools — a vertical feed here would
@@ -3757,8 +3808,90 @@
         function applyLayout(layout){
             CREW_LAYOUT=layout;
             document.documentElement.setAttribute('data-layout', layout);
+            arrangeGrid();
             renderLayoutOpts();
         }
+
+        /* ---- The desktop arrangement: columns, not spanning rows ----
+         *
+         * See COLUMN STACKS in the stylesheet for why. Each layout names its
+         * columns and what stacks in each; identity leads and trust closes,
+         * full width. The Instagram wall, when there is one, gets a column of
+         * its own on the right rather than being threaded through rows.
+         *
+         * Blocks are MOVED, not copied, so every listener and every painter
+         * that holds a reference keeps working. The one cost is that moving an
+         * iframe reloads it, so nothing moves that is already where it belongs
+         * — a resize that stays on the same side of the breakpoint, or a
+         * re-arrange to the same layout, touches nothing.
+         */
+        const LAYOUT_COLUMNS={
+            // One reading column, the wall beside it.
+            editorial:{ widths:['minmax(0,1fr)'], cols:[['stats','live','tools','myflying','activity','event']] },
+            // A slim tool rail, then the board.
+            console:{ widths:['240px','minmax(0,1fr)'], cols:[['tools'],['stats','live','myflying','activity','event']], rail:'tools' },
+            // The map leads on the left; the controls stack on the right.
+            split:{ widths:['minmax(0,1.5fr)','minmax(0,1fr)'], cols:[['live','activity'],['stats','tools','myflying','event']], side:'tools' },
+            // A main column and a sidebar; the map as a full-width band below.
+            classic:{ widths:['minmax(0,1fr)','320px'], cols:[['tools','activity'],['stats','myflying','event']], after:['live'], side:'none' },
+        };
+        const DESKTOP=window.matchMedia?window.matchMedia('(min-width:1024px)'):{ matches:true, addEventListener(){} };
+        function arrangeGrid(){
+            const grid=document.getElementById('grid');
+            if(!grid) return;
+            const block=(k)=>grid.querySelector(`:scope .r-${k}`);
+            const all=['identity','stats','live','tools','myflying','activity','event','social','trust'];
+            const plan=LAYOUT_COLUMNS[CREW_LAYOUT]||LAYOUT_COLUMNS.editorial;
+            const tools=block('tools');
+            const social=block('social');
+            if(!DESKTOP.matches){
+                // Phones: flat, in source order — the area map does the rest.
+                if(!grid.classList.contains('is-arranged')) return;
+                all.forEach(k=>{ const el=block(k); if(el && el.parentElement!==grid) grid.appendChild(el); });
+                grid.querySelectorAll(':scope > .crew-cols, :scope > .crew-after').forEach(n=>n.remove());
+                grid.classList.remove('is-arranged');
+                if(tools) tools.classList.remove('is-rail','is-side');
+                if(social) social.classList.remove('is-side');
+                return;
+            }
+            const withSocial=!!(social && !social.classList.contains('hidden'));
+            const widths=[...plan.widths, ...(withSocial?['360px']:[])];
+            const cols=[...plan.cols.map(c=>c.slice()), ...(withSocial?[['social']]:[])];
+            // The target, as a key: nothing is moved unless it changes.
+            const key=`${CREW_LAYOUT}|${withSocial}`;
+            if(grid.dataset.arranged===key && grid.classList.contains('is-arranged')) return;
+            grid.dataset.arranged=key;
+            let wrap=grid.querySelector(':scope > .crew-cols');
+            if(!wrap){ wrap=document.createElement('div'); wrap.className='crew-cols'; }
+            wrap.style.gridTemplateColumns=widths.join(' ');
+            // Reuse the column nodes that exist so a block already in the
+            // right column is not taken out and put back (which reloads the map).
+            const colEls=[...wrap.children];
+            while(colEls.length<cols.length){ const c=document.createElement('div'); c.className='crew-col'; wrap.appendChild(c); colEls.push(c); }
+            colEls.slice(cols.length).forEach(c=>{ [...c.children].forEach(ch=>grid.appendChild(ch)); c.remove(); });
+            const identity=block('identity'), trust=block('trust');
+            if(identity && grid.firstElementChild!==identity) grid.insertBefore(identity, grid.firstElementChild);
+            if(wrap.parentElement!==grid || wrap.previousElementSibling!==identity) grid.insertBefore(wrap, identity?identity.nextSibling:grid.firstChild);
+            cols.forEach((names,i)=>{
+                names.forEach(k=>{ const el=block(k); if(el && el.parentElement!==colEls[i]) colEls[i].appendChild(el); });
+                // Keep the declared order inside the column.
+                names.forEach(k=>{ const el=block(k); if(el) colEls[i].appendChild(el); });
+            });
+            let after=grid.querySelector(':scope > .crew-after');
+            if(plan.after && plan.after.length){
+                if(!after){ after=document.createElement('div'); after.className='crew-after crew-col'; }
+                if(after.previousElementSibling!==wrap) wrap.after(after);
+                plan.after.forEach(k=>{ const el=block(k); if(el && el.parentElement!==after) after.appendChild(el); });
+            } else if(after){ [...after.children].forEach(ch=>colEls[0].appendChild(ch)); after.remove(); }
+            if(trust) grid.appendChild(trust);
+            grid.classList.add('is-arranged');
+            if(tools){
+                tools.classList.toggle('is-rail', plan.rail==='tools');
+                tools.classList.toggle('is-side', plan.side==='tools');
+            }
+            if(social) social.classList.toggle('is-side', withSocial);
+        }
+        if(DESKTOP.addEventListener) DESKTOP.addEventListener('change', ()=>{ const g=document.getElementById('grid'); if(g) delete g.dataset.arranged; arrangeGrid(); });
         function renderLayoutOpts(){
             const host=document.getElementById('layoutOpts');
             host.innerHTML=ALLOWED.map(k=>{
@@ -5148,6 +5281,8 @@
             const on=CrewSocial.hasContent(SOCIAL);
             card.classList.toggle('hidden', !on);
             if(grid) grid.classList.toggle('has-social', on);
+            // The wall opens or closes a column, so the columns are redrawn.
+            arrangeGrid();
             const edit=document.getElementById('socialEditBtn');
             if(edit) edit.classList.toggle('hidden', !can('settings.branding'));
             if(on) CrewSocial.render(document.getElementById('socialWall'), SOCIAL);
