@@ -89,7 +89,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
             const fields = crewCsv.ROUTES_SPEC.columns.map(c => ({ key: c.key, header: c.header, required: !!c.required }));
             if (plan.error) return json({ error: plan.error, sheets: plan.sheets, fields }, 400);
             const summary = { kind: 'routes', create: plan.create.length, update: plan.update.length, unchanged: plan.unchanged,
-                errors: plan.errors.slice(0, 50), errorCount: plan.errors.length, matchedOn: plan.matchedOn,
+                errors: plan.errors.slice(0, 50), errorCount: plan.errors.length, warningCount: plan.warningCount || 0, matchedOn: plan.matchedOn,
                 columns: plan.columns, missing: plan.missing, sheets: plan.sheets, layout: plan.layout, fields };
             if (b.dryRun !== false) return json({ dryRun: true, ...summary });
             if (plan.errors.length && !(b.skipErrors === true && b.expectErrors === plan.errors.length)) {
@@ -155,6 +155,29 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
         return [...document.querySelectorAll('#csvPreview select')].every(s => s.getBoundingClientRect().right <= m.right);
     }));
 
+    console.log('\n what it looks like');
+    ok('the table shows the tab’s own headings, and what each became',
+        await page.evaluate(() => /depICAO/.test(document.querySelector('#csvTable thead').innerText)
+            && /Departure airport/.test(document.querySelector('#csvTable thead').innerText)));
+    ok('each row says what will happen to it',
+        await page.evaluate(() => [...document.querySelectorAll('#csvTable tbody tr')].map(tr => tr.cells[0].innerText.split('\n')[1]).join()) === 'New,New,New,New,Problem');
+    ok('the bad cell is marked with its reason',
+        await page.evaluate(() => /arrICAO “Tokyo” is not an airport code/.test(document.querySelector('#csvTable tbody tr:last-child').innerText)));
+    await page.check('#csvTable input[type=checkbox]');
+    ok('“only rows to fix” narrows it to the problem',
+        await page.evaluate(() => document.querySelectorAll('#csvTable tbody tr').length) === 1);
+    await page.click('#csvTable button:has-text("Europe")');
+    ok('another tab can be looked at', await page.evaluate(() => /EY11/.test(document.getElementById('csvTable').innerText) || /Nothing to fix/.test(document.getElementById('csvTable').innerText)));
+    await page.click('#csvTable input[type=checkbox]');
+    ok('…and shows its rows', await page.evaluate(() => /EY11/.test(document.getElementById('csvTable').innerText)));
+    await page.click('#csvTable button:has-text("Sheet5")');
+    await page.evaluate(() => {
+        // The first-visit tour is not what this screenshot is of.
+        document.querySelectorAll('[class*="tour"], [id*="tour"], [id*="Tour"]').forEach(e => { if (!e.closest('#csvModal')) e.remove(); });
+        document.getElementById('csvTable').scrollIntoView({ block: 'start' });
+    });
+    await page.screenshot({ path: path.join(require('os').tmpdir(), 'crew-csv-table.png'), fullPage: false });
+
     console.log('\n correcting a column');
     await page.selectOption('select[data-h="estFlightTime"]', '+notes');
     await page.waitForTimeout(500);
@@ -183,6 +206,17 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     const file = await dl;
     const text = fs.readFileSync(await file.path(), 'utf8').replace(/^﻿/, '');
     ok('the file goes out under their headers', text.split('\r\n')[0] === 'routeNumber,depICAO,arrICAO,aircraft,rank,notes,id', text.split('\r\n')[0]);
+
+    console.log('\n a sheet with no headings, in IATA codes');
+    const bare = path.join(require('os').tmpdir(), 'crew-csv-bare.csv');
+    fs.writeFileSync(bare, 'EY201,AUH-CDG,A380\nEY202,CDG-AUH,A380\n');
+    await page.evaluate(() => openCsv('routes'));
+    await page.setInputFiles('#csvFile', bare);
+    await page.waitForTimeout(700);
+    const t = await page.evaluate(() => document.getElementById('csvTable').innerText);
+    ok('its columns are named like a spreadsheet’s', /Column A/.test(t) && /Column B/.test(t));
+    ok('the leg column is read as both airports, in ICAO', /OMAA → LFPG/.test(t) && /from “AUH-CDG”/.test(t), t.slice(0, 300));
+    ok('the first row is kept as a route', /2 new routes/.test(await page.evaluate(() => document.getElementById('csvPreview').innerText)));
 
     ok('no page errors', errs.length === 0, errs.join(' | '));
     console.log(`\n${pass} passed, ${fail} failed\n`);

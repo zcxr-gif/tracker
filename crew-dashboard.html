@@ -2080,7 +2080,7 @@
          should set off blind. Nothing is written until the second button. -->
     <div id="csvModal" class="hidden fixed inset-0 z-[60]">
         <div class="absolute inset-0 bg-black/50" onclick="closeCsv()"></div>
-        <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-lg max-h-[86vh] overflow-y-auto surface hair rounded-2xl p-5">
+        <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-2xl max-h-[86vh] overflow-y-auto surface hair rounded-2xl p-5">
             <div class="flex items-start justify-between gap-3 mb-1">
                 <div class="font-semibold tracking-tight" id="csvTitle">Roster · CSV</div>
                 <button onclick="closeCsv()" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)] shrink-0"><i data-lucide="x" class="w-4 h-4"></i></button>
@@ -6061,6 +6061,10 @@
         // CSV_MAP is the VA's own answer to "what is this column", which beats
         // the backend's guess and is remembered for the next file.
         let CSV_KIND='roster', CSV_SHEETS=null, CSV_PLAN=null, CSV_MAP={};
+        // Which tab the "what it looks like" table shows, and whether it shows
+        // only the rows with something wrong. Kept across re-previews, so
+        // fixing a column doesn't throw the VA back to the first tab.
+        let CSV_VIEW={ sheet:0, problems:false };
         const CSV_MAX_BYTES=20*1024*1024;
         const csvStoreKey=(what)=>`crew:csv:${what}:${getSlug()}:${CSV_KIND}`;
         function csvLoad(what){ try{ return JSON.parse(localStorage.getItem(csvStoreKey(what))||'null'); }catch{ return null; } }
@@ -6087,7 +6091,7 @@
             if(m.dataset.open==='1'){ delete m.dataset.open; if(window.CrewPanels) CrewPanels.unlockScroll(); }
         }
         function csvReset(){
-            CSV_SHEETS=null; CSV_PLAN=null; CSV_MAP=csvLoad('map')||{};
+            CSV_SHEETS=null; CSV_PLAN=null; CSV_MAP=csvLoad('map')||{}; CSV_VIEW={ sheet:0, problems:false };
             const f=document.getElementById('csvFile'); if(f) f.value='';
             const commit=document.getElementById('csvCommitBtn'); if(commit) commit.disabled=false;
             const exp=document.getElementById('csvExportBtn'); if(exp) exp.disabled=false;
@@ -6162,7 +6166,7 @@
             r.onload=()=>ok(r.result); r.onerror=()=>no(r.error);
             // Text with an explicit encoding so an exported file's BOM and any
             // non-ASCII names come back the way they went out.
-            how==='text' ? r.readAsText(file,'utf-8') : r.readAsArrayBuffer(file);
+            how==='buffer' ? r.readAsArrayBuffer(file) : r.readAsText(file, how==='text'?'utf-8':how);
         });
         // Every file picked, and every tab of every workbook, becomes one sheet
         // of CSV. The backend reads each on its own terms, so the tabs do not
@@ -6191,7 +6195,12 @@
                                 csv: '\n'.repeat(top)+X.utils.sheet_to_csv(ws,{blankrows:true}) });
                         }
                     }else{
-                        sheets.push({ name:file.name.replace(/\.[^.]+$/,''), csv:String(await readAs(file,'text')||'') });
+                        let text=String(await readAs(file,'text')||'');
+                        // Not UTF-8 — usually Excel on Windows saving "CSV".
+                        // Read it again as that code page, or every accented
+                        // name in it arrives as a question mark in a box.
+                        if(text.includes('\uFFFD')) text=String(await readAs(file,'windows-1252')||text);
+                        sheets.push({ name:file.name.replace(/\.[^.]+$/,''), csv:text });
                     }
                 }
             }catch{ csvMsg('We couldn’t open that file. If it’s a spreadsheet, try saving it as .xlsx or .csv.','error'); return; }
@@ -6234,6 +6243,7 @@
         function csvColumnsHtml(d){
             const fields=d.fields||[];
             const hasNotes=fields.some(f=>f.key==='notes');
+            const hasPair=fields.some(f=>f.key==='origin')&&fields.some(f=>f.key==='destination');
             // One picker per header, however many tabs share it.
             const seen=new Map();
             for(const sh of d.sheets||[]) for(const c of sh.columns||[]){
@@ -6245,9 +6255,11 @@
             const rows=[...seen.values()].map(c=>{
                 const opts=[opt('','Don’t import',c.key)]
                     .concat(fields.map(f=>opt(f.key,(CSV_FIELD_LABELS[f.key]||f.header)+(f.required?' *':''),c.key)))
+                    .concat(hasPair?[opt('+pair','Both airports (e.g. OMAA-KJFK)',c.key)]:[])
                     .concat(hasNotes?[opt('+notes','Add to notes',c.key)]:[]).join('');
                 const why=c.reason?`<div class="text-[11px] text-amber-600 dark:text-amber-400">${escapeHtml(c.reason)}</div>`
-                    : (c.source==='unknown'?'<div class="text-[11px] faint">not recognised</div>':'');
+                    : c.source==='unknown'?'<div class="text-[11px] faint">not recognised</div>'
+                    : c.source==='contents'?'<div class="text-[11px] faint">worked out from what’s in it</div>':'';
                 return `<div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-2 items-center py-1.5 border-t hair">
                     <div class="min-w-0"><div class="text-xs font-mono font-semibold truncate" title="${escapeHtml(c.header)}">${escapeHtml(c.header)}</div>
                         ${c.example?`<div class="text-[11px] faint truncate" title="${escapeHtml(c.example)}">${escapeHtml(c.example)}</div>`:''}${why}</div>
@@ -6260,7 +6272,92 @@
                 <div class="text-[11px] faint mt-1.5">Change any of these and the preview updates. Your choices are remembered for the next file.</div>
             </details>`;
         }
+        // "What it looks like": the VA's own rows, under their own headings,
+        // each cell showing what we read it as and each row what will happen
+        // to it. A mismatch — a column read as the wrong thing, a code that
+        // isn't an airport, a leg that folds into another — is something you
+        // see here before it is something you find on the routes screen.
+        const CSV_STATUS={
+            create:{ label:'New', cls:'text-emerald-600 dark:text-emerald-400' },
+            update:{ label:'Update', cls:'accent-text' },
+            unchanged:{ label:'Same', cls:'faint' },
+            merged:{ label:'Merged', cls:'muted' },
+            error:{ label:'Problem', cls:'text-red-500' },
+            skipped:{ label:'Skipped', cls:'faint' },
+        };
+        function csvTargetLabel(t){
+            if(!t) return '';
+            if(t==='+notes') return 'Added to notes';
+            if(t==='+pair') return 'Departure → arrival';
+            return CSV_FIELD_LABELS[t]||t;
+        }
+        function csvTableHtml(d){
+            const tabs=(d.sheets||[]).map((s,i)=>({ s, i })).filter(x=>x.s.preview&&x.s.preview.rows&&x.s.preview.rows.length);
+            if(!tabs.length) return '';
+            if(!tabs.some(x=>x.i===CSV_VIEW.sheet)) CSV_VIEW.sheet=tabs[0].i;
+            const sh=d.sheets[CSV_VIEW.sheet], pv=sh.preview;
+            const bad=r=>r.status==='error'||r.warn;
+            const rows=CSV_VIEW.problems ? pv.rows.filter(bad) : pv.rows;
+            const problemCount=pv.rows.filter(bad).length;
+            // Columns with nothing in any shown row and no heading are noise
+            // (a spreadsheet's trailing empties).
+            const cols=pv.headers.map((h,j)=>j).filter(j=>pv.headers[j]||pv.rows.some(r=>r.cells[j]&&r.cells[j].v));
+            const tabBtns=tabs.length>1 ? `<div class="flex flex-wrap gap-1 mb-2">${tabs.map(x=>`<button type="button" onclick="csvViewSheet(${x.i})" class="px-2 py-0.5 rounded-md text-xs font-semibold hair ${x.i===CSV_VIEW.sheet?'accent-bg text-white':'surface'}">${escapeHtml(x.s.name)}</button>`).join('')}</div>` : '';
+            const head=cols.map(j=>{
+                const t=pv.targets&&pv.targets[j];
+                return `<th class="text-left align-bottom px-2 py-1.5 font-normal border-b hair whitespace-nowrap">
+                    <div class="font-mono font-semibold text-[11px]">${escapeHtml(pv.headers[j]||'(no heading)')}</div>
+                    <div class="text-[10px] ${t?'accent-text font-semibold':'faint'}">${escapeHtml(t?'→ '+csvTargetLabel(t):'not imported')}</div></th>`;
+            }).join('');
+            const body=rows.map(r=>{
+                const st=CSV_STATUS[r.status]||CSV_STATUS.unchanged;
+                const note=r.message||(r.warn&&r.status!=='error'?r.warn:'');
+                const cells=cols.map(j=>{
+                    const c=r.cells[j]||{}, t=pv.targets&&pv.targets[j];
+                    const changed=r.status==='update'&&t&&(r.changes||[]).some(k=>k===t||(t==='+pair'&&(k==='origin'||k==='destination')));
+                    const tint=c.e?'background:color-mix(in srgb,#ef4444 16%,transparent)'
+                        : c.w?'background:color-mix(in srgb,#f59e0b 16%,transparent)'
+                        : changed?'background:color-mix(in srgb,var(--accent) 12%,transparent)':'';
+                    const tip=c.e||c.w||'';
+                    const main=c.r!=null
+                        ? `<div class="font-semibold">${escapeHtml(c.r||'—')}</div><div class="text-[10px] faint">from “${escapeHtml(c.v||'')}”</div>`
+                        : `<div class="${t?'':'faint'}">${escapeHtml(c.v||'')}</div>`;
+                    return `<td class="align-top px-2 py-1.5 border-b hair" style="min-width:5rem;max-width:14rem;overflow-wrap:anywhere;${tint}"${tip?` title="${escapeHtml(tip)}"`:''}>${main}${tip?`<div class="text-[10px] ${c.e?'text-red-500':'text-amber-600 dark:text-amber-400'}">${escapeHtml(tip)}</div>`:''}</td>`;
+                }).join('');
+                return `<tr class="${r.status==='skipped'||r.status==='unchanged'?'opacity-70':''}">
+                    <td class="align-top px-2 py-1.5 border-b hair sticky left-0 surface" style="width:6.5rem;min-width:6.5rem;max-width:6.5rem;white-space:normal;overflow-wrap:anywhere">
+                        <div class="text-[10px] faint">Row ${escapeHtml(String(r.line))}</div>
+                        <div class="text-[11px] font-semibold ${st.cls}">${escapeHtml(st.label)}</div>
+                        ${note?`<div class="text-[10px] muted">${escapeHtml(note)}</div>`:''}
+                    </td>${cells}</tr>`;
+            }).join('');
+            const more=pv.more>0&&!CSV_VIEW.problems ? `<div class="text-[11px] faint mt-1.5">…and ${escapeHtml(String(pv.more))} more row${pv.more===1?'':'s'} like these, not shown.</div>` : '';
+            return `<div class="mt-3">
+                <div class="flex items-center justify-between gap-2 mb-1.5">
+                    <div class="text-xs font-semibold uppercase tracking-wider faint">What it looks like</div>
+                    ${problemCount||CSV_VIEW.problems?`<label class="text-xs flex items-center gap-1.5 cursor-pointer"><input type="checkbox" onchange="csvViewProblems(this.checked)"${CSV_VIEW.problems?' checked':''}> Only rows to fix (${escapeHtml(String(problemCount))})</label>`:''}
+                </div>
+                ${tabBtns}
+                <div class="overflow-auto rounded-lg hair" style="max-height:22rem">
+                    <table class="text-xs w-full border-collapse">
+                        <thead class="sticky top-0 surface" style="z-index:2"><tr><th class="text-left px-2 py-1.5 border-b hair sticky left-0 surface font-normal text-[10px] faint" style="width:6.5rem;min-width:6.5rem;z-index:3">Row</th>${head}</tr></thead>
+                        <tbody>${body||`<tr><td class="px-2 py-3 muted" colspan="${cols.length+1}">Nothing to fix on this tab.</td></tr>`}</tbody>
+                    </table>
+                </div>
+                ${more}
+                <div class="text-[11px] faint mt-1.5">Bold is what we’ll save when it differs from your cell. Red stops the import until it’s fixed or skipped; amber is imported but worth a look.</div>
+            </div>`;
+        }
+        function csvRedrawTable(){
+            const d=CSV_PLAN||CSV_LAST;
+            const box=document.getElementById('csvTable');
+            if(d&&box){ box.innerHTML=csvTableHtml(d); if(window.lucide) lucide.createIcons(); }
+        }
+        function csvViewSheet(i){ CSV_VIEW.sheet=i; csvRedrawTable(); }
+        function csvViewProblems(on){ CSV_VIEW.problems=!!on; csvRedrawTable(); }
+        let CSV_LAST=null;
         function renderCsvPlan(d, failed){
+            CSV_LAST=d;
             const noun=CSV_KINDS[CSV_KIND].noun;
             const box=document.getElementById('csvPreview');
             const n=(v,one,many)=>`${v} ${v===1?one:many}`;
@@ -6271,6 +6368,7 @@
                 if(d.create) bits.push(`<div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><i data-lucide="plus-circle" class="w-4 h-4"></i> ${escapeHtml(n(d.create,`new ${noun}`,`new ${noun}s`))}</div>`);
                 if(d.update) bits.push(`<div class="flex items-center gap-2 accent-text"><i data-lucide="pencil" class="w-4 h-4"></i> ${escapeHtml(n(d.update,`${noun} updated`,`${noun}s updated`))}</div>`);
                 if(d.unchanged) bits.push(`<div class="flex items-center gap-2 muted"><i data-lucide="equal" class="w-4 h-4"></i> ${escapeHtml(n(d.unchanged,'row unchanged','rows unchanged'))}</div>`);
+                if(d.warningCount) bits.push(`<div class="flex items-center gap-2 text-amber-600 dark:text-amber-400"><i data-lucide="alert-triangle" class="w-4 h-4"></i> ${escapeHtml(n(d.warningCount,'row to double-check','rows to double-check'))} <span class="faint text-xs">— still imported</span></div>`);
                 if(!bits.length) bits.push('<div class="muted">Nothing in this file differs from what you already have.</div>');
             }
 
@@ -6295,6 +6393,7 @@
                 ${failed?'':`<div class="text-[11px] faint mt-2">Nothing is deleted. ${escapeHtml(noun[0].toUpperCase()+noun.slice(1))}s you already have that aren’t in the file are untouched.</div>`}
                 ${errs}
                 ${csvColumnsHtml(d)}
+                <div id="csvTable">${csvTableHtml(d)}</div>
             </div>`;
             box.classList.remove('hidden');
             document.getElementById('csvActions').classList.remove('hidden');
