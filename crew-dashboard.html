@@ -2090,13 +2090,20 @@
             <div class="rounded-xl hair p-3.5 mb-3">
                 <div class="text-sm font-semibold mb-1">Take it out</div>
                 <p class="text-xs muted mb-2.5">Every column, including the ones the editor doesn’t show. Opens in Excel, Numbers or Sheets.</p>
+                <!-- Shown once a file has been imported (or just previewed): the
+                     export can then go out in that file's own columns. -->
+                <div id="csvLayoutPick" class="hidden mb-2.5 space-y-1.5 text-xs">
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="csvLayout" value="yours" class="mt-0.5" checked> <span>Your sheet’s columns <span id="csvLayoutCols" class="faint font-mono break-all"></span></span></label>
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="csvLayout" value="ours" class="mt-0.5"> <span>Crew center columns</span></label>
+                    <label class="flex items-start gap-2 cursor-pointer"><input type="checkbox" id="csvIncludeId" class="mt-0.5" checked> <span>Add an <span class="font-mono">id</span> column at the end <span class="faint">— lets a re-import update rows exactly</span></span></label>
+                </div>
                 <button id="csvExportBtn" onclick="exportCsv()" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="download" class="w-4 h-4"></i> Download CSV</button>
             </div>
 
             <div class="rounded-xl hair p-3.5">
                 <div class="text-sm font-semibold mb-1">Bring it back</div>
-                <p class="text-xs muted mb-2.5">Upload a file with the same columns. Rows that carry an <span class="font-mono">id</span> update that row; the rest are matched on <span id="csvMatchHint" class="font-semibold"></span>, and anything new is added. <b>Nothing is ever deleted</b> — a row missing from your file is left exactly as it is.</p>
-                <input id="csvFile" type="file" accept=".csv,text/csv,text/plain" onchange="csvPicked(this)"
+                <p class="text-xs muted mb-2.5">Any layout: a CSV, several CSVs, or a whole Excel / Google Sheets workbook (.xlsx) with a tab per region. We work out which column is which, and you can correct it before anything changes. Rows that carry an <span class="font-mono">id</span> update that row; the rest are matched on <span id="csvMatchHint" class="font-semibold"></span>, and anything new is added. <b>Nothing is ever deleted</b> — a row missing from your file is left exactly as it is.</p>
+                <input id="csvFile" type="file" multiple accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/csv,text/plain" onchange="csvPicked(this)"
                     class="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[var(--accent)] file:text-white hover:file:opacity-90 file:cursor-pointer">
                 <div id="csvPreview" class="hidden mt-3"></div>
                 <div id="csvActions" class="hidden flex gap-2 mt-3">
@@ -6029,18 +6036,35 @@
         const CSV_KINDS={
             roster:{
                 title:'Roster · CSV',
-                blurb:'Your pilots, as a spreadsheet. The file you download is the file import accepts — send it out, edit it, bring it back.',
+                blurb:'Your pilots, as a spreadsheet — ours, or the one you already keep. Send it out, edit it, bring it back.',
                 match:'callsign, then name',
                 noun:'pilot',
             },
             routes:{
                 title:'Route network · CSV',
-                blurb:'Your route network, as a spreadsheet. The file you download is the file import accepts, so a network can be built in Excel and pasted in whole.',
+                blurb:'Your route network, as a spreadsheet — ours, or the one you already keep, tabs and all. Build it in Excel or Google Sheets and bring it in whole.',
                 match:'flight number, then the airport pair',
                 noun:'route',
             },
         };
-        let CSV_KIND='roster', CSV_TEXT='', CSV_PLAN=null;
+        // What each of our fields is called in the dropdown that lets a VA say
+        // what one of their columns is.
+        const CSV_FIELD_LABELS={
+            id:'Crew center id', name:'Name', callsign:'Callsign', hours:'Hours', role:'Role',
+            aircraft:'Aircraft', status:'Status', ifcName:'IFC username', ifUserId:'IF user id',
+            flightNumber:'Flight number', origin:'Departure airport', destination:'Arrival airport',
+            distanceNm:'Distance (nm)', notes:'Notes', active:'Published', kind:'Own / codeshare',
+            partnerName:'Codeshare partner', partnerLogo:'Partner logo URL', minRank:'Minimum rank',
+            departureGate:'Departure gate', arrivalGate:'Arrival gate',
+        };
+        // CSV_SHEETS is the upload, one entry per file or workbook tab.
+        // CSV_MAP is the VA's own answer to "what is this column", which beats
+        // the backend's guess and is remembered for the next file.
+        let CSV_KIND='roster', CSV_SHEETS=null, CSV_PLAN=null, CSV_MAP={};
+        const CSV_MAX_BYTES=20*1024*1024;
+        const csvStoreKey=(what)=>`crew:csv:${what}:${getSlug()}:${CSV_KIND}`;
+        function csvLoad(what){ try{ return JSON.parse(localStorage.getItem(csvStoreKey(what))||'null'); }catch{ return null; } }
+        function csvSave(what, v){ try{ localStorage.setItem(csvStoreKey(what), JSON.stringify(v)); }catch{} }
         function openCsv(kind){
             CSV_KIND = CSV_KINDS[kind] ? kind : 'roster';
             const k=CSV_KINDS[CSV_KIND];
@@ -6048,6 +6072,7 @@
             document.getElementById('csvBlurb').textContent=k.blurb;
             document.getElementById('csvMatchHint').textContent=k.match;
             csvReset();
+            csvShowLayout();
             const m=document.getElementById('csvModal');
             m.classList.remove('hidden');
             // Opened from inside a drawer that already holds the page. The lock
@@ -6062,7 +6087,7 @@
             if(m.dataset.open==='1'){ delete m.dataset.open; if(window.CrewPanels) CrewPanels.unlockScroll(); }
         }
         function csvReset(){
-            CSV_TEXT=''; CSV_PLAN=null;
+            CSV_SHEETS=null; CSV_PLAN=null; CSV_MAP=csvLoad('map')||{};
             const f=document.getElementById('csvFile'); if(f) f.value='';
             const commit=document.getElementById('csvCommitBtn'); if(commit) commit.disabled=false;
             const exp=document.getElementById('csvExportBtn'); if(exp) exp.disabled=false;
@@ -6076,6 +6101,15 @@
             n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='warn'?'text-amber-600 dark:text-amber-400':'muted');
             n.classList.remove('hidden');
         }
+        // The export can go out in the columns of the last file this VA
+        // brought in, so a network kept in their own sheet goes back to it.
+        function csvShowLayout(){
+            const layout=csvLoad('layout');
+            const box=document.getElementById('csvLayoutPick');
+            const has=Array.isArray(layout)&&layout.length>0;
+            box.classList.toggle('hidden', !has);
+            if(has) document.getElementById('csvLayoutCols').textContent='('+layout.map(c=>c.header).join(', ')+')';
+        }
         // The export is a straight authenticated GET, so it cannot be a plain
         // <a download> — the session token has to travel in a header. Fetch it,
         // then hand the browser a blob under the filename the server chose.
@@ -6085,7 +6119,12 @@
             const btn=document.getElementById('csvExportBtn');
             btn.disabled=true; csvMsg('Preparing your file…','muted');
             try{
-                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}.csv`,{ headers:{Authorization:'Bearer '+token} });
+                const layout=csvLoad('layout');
+                const yours=Array.isArray(layout)&&layout.length
+                    && (document.querySelector('input[name="csvLayout"]:checked')||{}).value==='yours';
+                const qs=yours
+                    ? `?layout=${encodeURIComponent(JSON.stringify(layout))}&id=${document.getElementById('csvIncludeId').checked?'1':'0'}` : '';
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}.csv${qs}`,{ headers:{Authorization:'Bearer '+token} });
                 if(!res.ok){
                     const d=await res.json().catch(()=>({}));
                     csvMsg(d.error||'Could not export.','error'); return;
@@ -6101,80 +6140,191 @@
             }catch{ csvMsg('Server unreachable.','error'); }
             finally{ btn.disabled=false; }
         }
-        function csvPicked(input){
-            const file=input.files && input.files[0];
-            if(!file) return;
-            const reader=new FileReader();
-            reader.onload=()=>{ CSV_TEXT=String(reader.result||''); previewCsv(); };
-            reader.onerror=()=>csvMsg('Could not read that file.','error');
-            // Read as text with an explicit encoding so an exported file's BOM
-            // and any non-ASCII names come back the way they went out.
-            reader.readAsText(file,'utf-8');
+        // SheetJS, fetched only when someone actually picks a workbook — it is
+        // most of a megabyte, and most visits to this page never open one.
+        let XLSX_READY=null;
+        function loadXlsx(){
+            if(window.XLSX) return Promise.resolve(window.XLSX);
+            if(XLSX_READY) return XLSX_READY;
+            const srcs=['https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js','https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'];
+            const tryAt=(i,ok,no)=>{
+                if(i>=srcs.length){ XLSX_READY=null; no(new Error('load')); return; }
+                const s=document.createElement('script'); s.src=srcs[i]; s.async=true;
+                s.onload=()=>window.XLSX?ok(window.XLSX):tryAt(i+1,ok,no);
+                s.onerror=()=>{ s.remove(); tryAt(i+1,ok,no); };
+                document.head.appendChild(s);
+            };
+            XLSX_READY=new Promise((ok,no)=>tryAt(0,ok,no));
+            return XLSX_READY;
         }
+        const readAs=(file, how)=>new Promise((ok,no)=>{
+            const r=new FileReader();
+            r.onload=()=>ok(r.result); r.onerror=()=>no(r.error);
+            // Text with an explicit encoding so an exported file's BOM and any
+            // non-ASCII names come back the way they went out.
+            how==='text' ? r.readAsText(file,'utf-8') : r.readAsArrayBuffer(file);
+        });
+        // Every file picked, and every tab of every workbook, becomes one sheet
+        // of CSV. The backend reads each on its own terms, so the tabs do not
+        // have to agree on their columns.
+        async function csvPicked(input){
+            const files=[...(input.files||[])];
+            if(!files.length) return;
+            const total=files.reduce((n,f)=>n+(f.size||0),0);
+            if(total>CSV_MAX_BYTES){ csvMsg('That’s more than 20 MB of spreadsheet. Split it and import in parts.','error'); return; }
+            csvMsg(files.length>1?`Reading ${files.length} files…`:'Reading the file…','muted');
+            const sheets=[];
+            try{
+                for(const file of files){
+                    if(/\.(xlsx|xlsm|xls|ods)$/i.test(file.name)){
+                        let X;
+                        try{ X=await loadXlsx(); }
+                        catch{ csvMsg('Couldn’t load the spreadsheet reader. Check your connection, or save each tab as CSV and pick those.','error'); return; }
+                        const wb=X.read(new Uint8Array(await readAs(file,'buffer')),{type:'array',cellDates:false});
+                        for(const name of wb.SheetNames){
+                            const ws=wb.Sheets[name];
+                            if(!ws || !ws['!ref']) { sheets.push({ name, csv:'' }); continue; }
+                            // Pad the rows above the used range back in, so a
+                            // row number we report is the one on the tab.
+                            const top=X.utils.decode_range(ws['!ref']).s.r;
+                            sheets.push({ name: wb.SheetNames.length>1||files.length>1 ? name : file.name.replace(/\.[^.]+$/,''),
+                                csv: '\n'.repeat(top)+X.utils.sheet_to_csv(ws,{blankrows:true}) });
+                        }
+                    }else{
+                        sheets.push({ name:file.name.replace(/\.[^.]+$/,''), csv:String(await readAs(file,'text')||'') });
+                    }
+                }
+            }catch{ csvMsg('We couldn’t open that file. If it’s a spreadsheet, try saving it as .xlsx or .csv.','error'); return; }
+            CSV_SHEETS=sheets;
+            previewCsv();
+        }
+        const csvBody=(extra)=>JSON.stringify({ sheets:CSV_SHEETS, mapping:CSV_MAP, ...extra });
         // Ask the backend what this file would do. Writes nothing.
         async function previewCsv(){
+            if(!CSV_SHEETS) return;
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ csvMsg('Sign in as owner or staff to import.','warn'); return; }
             csvMsg('Checking the file…','muted');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}/import`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
-                    body:JSON.stringify({ csv:CSV_TEXT, dryRun:true }) });
+                    body:csvBody({ dryRun:true }) });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ csvMsg(d.error||'We couldn’t read that file.','error'); return; }
+                if(!res.ok){
+                    CSV_PLAN=null;
+                    // Nothing recognisable is still worth showing: the column
+                    // pickers are how the VA tells us what their sheet is.
+                    if(Array.isArray(d.sheets)&&d.sheets.length&&Array.isArray(d.fields)){ renderCsvPlan(d, d.error); csvMsg(d.error,'error'); }
+                    else csvMsg(d.error||(res.status===413?'That file is too big to send. Split it and import in parts.':'We couldn’t read that file.'),'error');
+                    return;
+                }
                 CSV_PLAN=d;
+                // Remember the shape: the next file in it maps itself, and the
+                // export can go back out in it.
+                if(Array.isArray(d.layout)&&d.layout.length){ csvSave('layout', d.layout); csvShowLayout(); }
                 renderCsvPlan(d);
                 document.getElementById('csvNote').classList.add('hidden');
             }catch{ csvMsg('Server unreachable.','error'); }
         }
-        function renderCsvPlan(d){
+        function csvRemap(sel){
+            CSV_MAP[sel.dataset.h]=sel.value;
+            csvSave('map', CSV_MAP);
+            previewCsv();
+        }
+        function csvColumnsHtml(d){
+            const fields=d.fields||[];
+            const hasNotes=fields.some(f=>f.key==='notes');
+            // One picker per header, however many tabs share it.
+            const seen=new Map();
+            for(const sh of d.sheets||[]) for(const c of sh.columns||[]){
+                if(!seen.has(c.header)) seen.set(c.header,{...c, tabs:[sh.name]});
+                else seen.get(c.header).tabs.push(sh.name);
+            }
+            if(!seen.size) return '';
+            const opt=(v,label,cur)=>`<option value="${escapeHtml(v)}"${v===cur?' selected':''}>${escapeHtml(label)}</option>`;
+            const rows=[...seen.values()].map(c=>{
+                const opts=[opt('','Don’t import',c.key)]
+                    .concat(fields.map(f=>opt(f.key,(CSV_FIELD_LABELS[f.key]||f.header)+(f.required?' *':''),c.key)))
+                    .concat(hasNotes?[opt('+notes','Add to notes',c.key)]:[]).join('');
+                const why=c.reason?`<div class="text-[11px] text-amber-600 dark:text-amber-400">${escapeHtml(c.reason)}</div>`
+                    : (c.source==='unknown'?'<div class="text-[11px] faint">not recognised</div>':'');
+                return `<div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-2 items-center py-1.5 border-t hair">
+                    <div class="min-w-0"><div class="text-xs font-mono font-semibold truncate" title="${escapeHtml(c.header)}">${escapeHtml(c.header)}</div>
+                        ${c.example?`<div class="text-[11px] faint truncate" title="${escapeHtml(c.example)}">${escapeHtml(c.example)}</div>`:''}${why}</div>
+                    <select data-h="${escapeHtml(c.header)}" onchange="csvRemap(this)" class="w-full min-w-0 surface hair rounded-md px-2 py-1 text-xs${c.key?'':' faint'}">${opts}</select>
+                </div>`;
+            }).join('');
+            return `<details class="mt-2.5"${(d.error||[...seen.values()].some(c=>!c.key))?' open':''}>
+                <summary class="text-xs font-semibold cursor-pointer select-none">Columns — what each one is</summary>
+                <div class="mt-1.5">${rows}</div>
+                <div class="text-[11px] faint mt-1.5">Change any of these and the preview updates. Your choices are remembered for the next file.</div>
+            </details>`;
+        }
+        function renderCsvPlan(d, failed){
             const noun=CSV_KINDS[CSV_KIND].noun;
             const box=document.getElementById('csvPreview');
             const n=(v,one,many)=>`${v} ${v===1?one:many}`;
+            const multi=(d.sheets||[]).length>1;
+            const where=e=>(multi&&e.sheet?`${e.sheet} · row `:'Row ')+e.line;
             const bits=[];
-            if(d.create) bits.push(`<div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><i data-lucide="plus-circle" class="w-4 h-4"></i> ${escapeHtml(n(d.create,`new ${noun}`,`new ${noun}s`))}</div>`);
-            if(d.update) bits.push(`<div class="flex items-center gap-2 accent-text"><i data-lucide="pencil" class="w-4 h-4"></i> ${escapeHtml(n(d.update,`${noun} updated`,`${noun}s updated`))}</div>`);
-            if(d.unchanged) bits.push(`<div class="flex items-center gap-2 muted"><i data-lucide="equal" class="w-4 h-4"></i> ${escapeHtml(n(d.unchanged,'row unchanged','rows unchanged'))}</div>`);
-            if(!bits.length) bits.push('<div class="muted">Nothing in this file differs from what you already have.</div>');
+            if(!failed){
+                if(d.create) bits.push(`<div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><i data-lucide="plus-circle" class="w-4 h-4"></i> ${escapeHtml(n(d.create,`new ${noun}`,`new ${noun}s`))}</div>`);
+                if(d.update) bits.push(`<div class="flex items-center gap-2 accent-text"><i data-lucide="pencil" class="w-4 h-4"></i> ${escapeHtml(n(d.update,`${noun} updated`,`${noun}s updated`))}</div>`);
+                if(d.unchanged) bits.push(`<div class="flex items-center gap-2 muted"><i data-lucide="equal" class="w-4 h-4"></i> ${escapeHtml(n(d.unchanged,'row unchanged','rows unchanged'))}</div>`);
+                if(!bits.length) bits.push('<div class="muted">Nothing in this file differs from what you already have.</div>');
+            }
+
+            const tabs=multi||(d.sheets||[]).some(s=>s.skipped)
+                ? `<ul class="text-[11px] muted mt-2 space-y-0.5">${d.sheets.map(s=>`<li><span class="font-semibold">${escapeHtml(s.name)}</span> — ${s.skipped?`skipped: ${escapeHtml(s.skipped)}`:`${escapeHtml(n(s.rows,'row','rows'))}${s.headerRow>1?`, headings on row ${escapeHtml(String(s.headerRow))}`:''}`}</li>`).join('')}</ul>` : '';
 
             const errs=(d.errors||[]).length ? `<div class="mt-2.5 rounded-lg p-2.5" style="background:color-mix(in srgb, #ef4444 12%, transparent);">
-                <div class="text-xs font-semibold text-red-500 mb-1">${escapeHtml(n(d.errorCount,'row we couldn’t read','rows we couldn’t read'))} — fix these and re-upload; nothing will be applied until you do</div>
-                <ul class="text-xs muted space-y-0.5">${d.errors.slice(0,8).map(e=>`<li>Line ${escapeHtml(String(e.line))}: ${escapeHtml(e.message)}</li>`).join('')}</ul>
+                <div class="text-xs font-semibold text-red-500 mb-1">${escapeHtml(n(d.errorCount,'row we couldn’t read','rows we couldn’t read'))}</div>
+                <ul class="text-xs muted space-y-0.5">${d.errors.slice(0,8).map(e=>`<li>${escapeHtml(where(e))}: ${escapeHtml(e.message)}</li>`).join('')}</ul>
                 ${d.errorCount>8?`<div class="text-xs faint mt-1">…and ${escapeHtml(String(d.errorCount-8))} more.</div>`:''}
+                ${(d.create||d.update)?`<label class="flex items-start gap-2 text-xs mt-2 cursor-pointer"><input type="checkbox" id="csvSkipErrors" class="mt-0.5" onchange="renderCsvCommit()"> <span>Skip ${d.errorCount===1?'that row':'those rows'} and import the rest</span></label>`:''}
             </div>` : '';
 
-            const missing=(d.missing||[]).length
-                ? `<div class="text-[11px] faint mt-2">Columns not in your file, so they’re left as they are: ${escapeHtml(d.missing.join(', '))}.</div>` : '';
+            const missing=!failed&&(d.missing||[]).length
+                ? `<div class="text-[11px] faint mt-2">Not in your file, so left as they are: ${escapeHtml(d.missing.map(h=>CSV_FIELD_LABELS[h]||h).join(', '))}.</div>` : '';
 
             box.innerHTML=`<div class="rounded-lg surface hair p-3">
-                <div class="text-xs font-semibold uppercase tracking-wider faint mb-2">What this would do</div>
-                <div class="text-sm space-y-1">${bits.join('')}</div>
+                ${failed?'':`<div class="text-xs font-semibold uppercase tracking-wider faint mb-2">What this would do</div>
+                <div class="text-sm space-y-1">${bits.join('')}</div>`}
+                ${tabs}
                 ${missing}
-                <div class="text-[11px] faint mt-2">Nothing is deleted. ${escapeHtml(noun[0].toUpperCase()+noun.slice(1))}s you already have that aren’t in the file are untouched.</div>
+                ${failed?'':`<div class="text-[11px] faint mt-2">Nothing is deleted. ${escapeHtml(noun[0].toUpperCase()+noun.slice(1))}s you already have that aren’t in the file are untouched.</div>`}
                 ${errs}
+                ${csvColumnsHtml(d)}
             </div>`;
             box.classList.remove('hidden');
-            const canApply=!d.errorCount && (d.create||d.update);
-            const actions=document.getElementById('csvActions');
-            actions.classList.remove('hidden');
+            document.getElementById('csvActions').classList.remove('hidden');
+            renderCsvCommit();
+            if(window.lucide) lucide.createIcons();
+        }
+        function renderCsvCommit(){
+            const d=CSV_PLAN||{};
+            const skip=!!(document.getElementById('csvSkipErrors')||{}).checked;
+            const count=(d.create||0)+(d.update||0);
+            const canApply=!!CSV_PLAN && count>0 && (!d.errorCount || skip);
             const commit=document.getElementById('csvCommitBtn');
             commit.disabled=!canApply;
             commit.style.opacity=canApply?'1':'.5';
-            commit.innerHTML=canApply
-                ? `<i data-lucide="upload" class="w-4 h-4"></i> Apply ${escapeHtml(String((d.create||0)+(d.update||0)))} change${(d.create||0)+(d.update||0)===1?'':'s'}`
-                : `<i data-lucide="upload" class="w-4 h-4"></i> Nothing to apply`;
+            commit.innerHTML=`<i data-lucide="upload" class="w-4 h-4"></i> `+(canApply
+                ? escapeHtml(`Apply ${count} change${count===1?'':'s'}`)
+                : (d.errorCount&&count?'Fix or skip the rows above':'Nothing to apply'));
             if(window.lucide) lucide.createIcons();
         }
         async function commitCsv(){
-            if(!CSV_PLAN || !CSV_TEXT) return;
+            if(!CSV_PLAN || !CSV_SHEETS) return;
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token) return;
+            const skip=!!(document.getElementById('csvSkipErrors')||{}).checked;
             const btn=document.getElementById('csvCommitBtn');
             btn.disabled=true; csvMsg('Applying…','muted');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}/import`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
-                    body:JSON.stringify({ csv:CSV_TEXT, dryRun:false }) });
+                    body:csvBody({ dryRun:false, skipErrors:skip, expectErrors:CSV_PLAN.errorCount||0 }) });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ csvMsg(d.error||'Could not import.','error'); btn.disabled=false; return; }
                 const failed=(d.failures||[]).length;
@@ -6182,14 +6332,14 @@
                 // no column for them lands the routes and loses the flag, which
                 // is worth saying out loud rather than reporting "42 added".
                 const drift=checkResponseDrift(d);
-                const summary=`${d.created||0} added, ${d.updated||0} updated.${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}${drift?' '+drift:''}`;
+                const summary=`${d.created||0} added, ${d.updated||0} updated.${d.skipped?` ${d.skipped} unreadable row${d.skipped===1?'':'s'} skipped.`:''}${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}${drift?' '+drift:''}`;
                 csvMsg(summary, (failed||drift)?'warn':'ok');
                 // The dialog this is reported in is about to be closed, so the
                 // result has to outlive it.
                 say(summary, (failed||drift)?'info':'ok');
                 document.getElementById('csvPreview').classList.add('hidden');
                 document.getElementById('csvActions').classList.add('hidden');
-                CSV_PLAN=null; CSV_TEXT='';
+                CSV_PLAN=null; CSV_SHEETS=null;
                 const f=document.getElementById('csvFile'); if(f) f.value='';
                 // Redraw whichever list this changed, and tell the figures: an
                 // import is the single biggest change anyone makes here, and it

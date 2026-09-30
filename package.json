@@ -20,7 +20,8 @@
     "test:favicon": "node tools/test-crew-favicon.js",
     "test:pilot-home": "node tools/test-crew-pilot-home.js",
     "test:zulu": "node tools/test-crew-zulu.js",
-    "test:quizzes": "node tools/test-crew-quizzes.js"
+    "test:quizzes": "node tools/test-crew-quizzes.js",
+    "test:csv-import": "node tools/test-crew-csv-import.js"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",
