@@ -50,7 +50,7 @@
 (function (global) {
     'use strict';
 
-    const SKINS = ['essential', 'aurora'];
+    const SKINS = ['essential', 'aurora', 'airline'];
 
     const META = {
         essential: {
@@ -60,6 +60,13 @@
         aurora: {
             name: 'Aurora',
             desc: 'A lit flight deck — glass, depth and a little motion.',
+        },
+        // The airline's own colours on everything, and the objects an airline
+        // actually hands its people: a boarding pass, a departures board, a
+        // crew ID. See crewSkin.css §17 and crewAirline.js.
+        airline: {
+            name: 'Airline',
+            desc: 'Your livery on every screen — boarding passes, a departures board and a crew ID card.',
         },
     };
 
@@ -74,6 +81,9 @@
         aurora: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
             + '<path d="M12 3.2 13.6 8 18.4 9.6 13.6 11.2 12 16 10.4 11.2 5.6 9.6 10.4 8Z"/>'
             + '<path d="M18.5 15.5 19.2 17.3 21 18l-1.8.7-.7 1.8-.7-1.8L16 18l1.8-.7Z"/></svg>',
+        // Offering airline: a tail fin.
+        airline: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            + '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>',
         // Offering essential: a calm, ruled page.
         essential: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
             + '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/>'
@@ -163,8 +173,10 @@
     }
 
     /** Flip to the other one. What the top-bar button does. */
+    // The top-bar switch steps through the interfaces in turn.
+    const nextSkin = () => SKINS[(SKINS.indexOf(current) + 1) % SKINS.length];
     function toggle() {
-        const next = current === 'aurora' ? 'essential' : 'aurora';
+        const next = nextSkin();
         set(next);
         // Said plainly, because the button is on a pilot's page too and most
         // of the people pressing it have no Settings to be pointed at: this
@@ -273,7 +285,7 @@
      * own. Settings is staff-only; this is how a pilot gets the choice too.
      * ------------------------------------------------------------------- */
     function renderToggles() {
-        const other = current === 'aurora' ? 'essential' : 'aurora';
+        const other = nextSkin();
         const label = 'Switch to the ' + META[other].name + ' interface';
         doc.querySelectorAll('[data-skin-toggle]').forEach((host) => {
             let btn = host.querySelector('.ifc-toggle');
