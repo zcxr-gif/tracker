@@ -2219,7 +2219,7 @@
     </div>
 
     <!-- ============ CODESHARE PARTNERS ============
-         The airlines this VA sells seats on.
+         The airlines this VA flies codeshares with.
 
          A partner used to exist only as a NAME TYPED ON A ROUTE. Forty Iberia
          codeshares meant typing "Iberia" forty times and pasting the same logo
@@ -2242,7 +2242,7 @@
                 </div>
             </div>
             <div class="p-5">
-                <p class="text-sm muted mb-4">The airlines you sell seats on. Add one here with its logo and the aircraft it flies, then pick it on a route instead of typing the name again — and your pilots get a tile they can tap to see everything that partner flies.</p>
+                <p class="text-sm muted mb-4">The airlines your pilots fly codeshares with. Add one here with its logo and the aircraft it flies, then pick it on a route instead of typing the name again — and your pilots get a tile they can tap to see everything that partner flies.</p>
                 <div id="partnerRows" class="space-y-3"></div>
                 <div class="flex gap-2 mt-4">
                     <button onclick="saveStructure('partners', this)" class="accent-bg text-white rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 transition">Save partners</button>
@@ -2551,7 +2551,7 @@
         // next thing that needs a field will not need a seventh global either.
         let CREW_BRANDING=null;
         let FLEET=[], ROSTER=[], NP_AIRCRAFT=new Set();
-        // The airlines this VA sells seats on. Same shape as FLEET rows for the
+        // The airlines this VA flies codeshares with. Same shape as FLEET rows for the
         // aeroplanes, because a partner's aircraft ARE fleet rows — somebody
         // else's. See crewPartners in server.js.
         let PARTNERS=[];
@@ -4766,7 +4766,7 @@
             </div>`;
         }
         /* ---------------------------------------------------------------------
-           PARTNER AIRLINES — the airlines this VA sells seats on.
+           PARTNER AIRLINES — the airlines this VA flies codeshares with.
 
            Shaped like the fleet editor because a partner's aircraft ARE fleet
            rows; they are simply somebody else's. The difference is one level of
@@ -4821,7 +4821,7 @@
                 <div class="mt-2.5">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint mb-1.5">What they fly</div>
                     <div class="space-y-1.5">${acs.map((a,ai)=>partnerAircraftRowHtml(a,pi,ai)).join('')
-                        || '<p class="text-xs faint">No aircraft yet — add the ones you sell seats on.</p>'}</div>
+                        || '<p class="text-xs faint">No aircraft yet — add the ones your pilots fly on their routes.</p>'}</div>
                     <button data-paadd class="mt-2 text-xs font-semibold muted hover:text-[var(--ink)] underline">+ Add aircraft</button>
                 </div>
             </div>`;
@@ -6071,8 +6071,11 @@
             // A codeshare agreed through the crew centre follows its partner's
             // own route. Said on the card, with the way to the airline that
             // flies it, so "why did BR12 change?" answers itself.
-            const linked = cs && r.partnerSlug
-                ? `<a href="/crew/${encodeURIComponent(r.partnerSlug)}" target="_blank" rel="noopener" title="Kept in step with ${escapeHtml(r.partnerName||'the partner')}’s own route" class="inline-flex items-center gap-1 text-[10px] font-semibold muted hover:text-[var(--ink)]"><i data-lucide="link" class="w-3 h-3"></i>synced</a>` : '';
+            // An outside partner (ext:…) has no crew centre here to link to.
+            const linked = !cs || !r.partnerSlug ? ''
+                : String(r.partnerSlug).startsWith('ext:')
+                    ? `<span title="Read from ${escapeHtml(r.partnerName||'the partner')}’s own route list" class="inline-flex items-center gap-1 text-[10px] font-semibold muted"><i data-lucide="link" class="w-3 h-3"></i>synced</span>`
+                    : `<a href="/crew/${encodeURIComponent(r.partnerSlug)}" target="_blank" rel="noopener" title="Kept in step with ${escapeHtml(r.partnerName||'the partner')}’s own route" class="inline-flex items-center gap-1 text-[10px] font-semibold muted hover:text-[var(--ink)]"><i data-lucide="link" class="w-3 h-3"></i>synced</a>`;
             const tick = ROUTE_SELECTING && r.id
                 ? `<input type="checkbox" data-rsel aria-label="Select ${escapeHtml(r.origin)} to ${escapeHtml(r.destination)}" ${ROUTE_SELECTED.has(String(r.id))?'checked':''} class="w-4 h-4 shrink-0" style="accent-color:var(--accent)">` : '';
             return `<div class="surface rounded-xl p-3.5 flex items-center gap-3 ${r.active?'':'opacity-60'} ${r.locked?'opacity-75':''}" data-rid="${r.id||''}">
