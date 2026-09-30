@@ -20,6 +20,12 @@
  */
 
 import { ProAccess } from './proAccess.js';
+import { AccountSetup } from './accountSetup.js';
+import { EmailChange } from './emailChange.js';
+
+// Accounts the setup sheet has already been shown to this session, so a
+// failed "onboarding_complete" save can't bring it straight back.
+const _setupShown = new Set();
 import { StripeCheckoutModal } from './stripeCheckoutModal.js';
 import { CareerModule } from './careerModule.js';
 import { formatGrade } from './ifGrade.js';
@@ -731,6 +737,20 @@ init(supabaseClient) {
     },
 
     open(user) {
+        // A new account gets the setup sheet first (accountSetup.js — picture,
+        // banner, flight window; all optional), then this screen. Same sheet on
+        // phones, so it runs before the mobile redirect.
+        if (user && user.id && !user.user_metadata?.onboarding_complete
+            && this._supabase && !_setupShown.has(user.id)) {
+            _setupShown.add(user.id);
+            const started = AccountSetup.open({
+                supabase: this._supabase,
+                user,
+                onDone: (u) => this.open(u || user),
+            });
+            if (started) return;
+        }
+
         // Mobile redirect
         if (window.innerWidth <= 768) {
             if (MobileDashboardUI && typeof MobileDashboardUI.open === 'function') {
@@ -3705,7 +3725,7 @@ _getTabContentHTML() {
                         <div class="pui-onboarding-header">
                             <div class="pui-onboarding-icon"><i class="fa-solid fa-plane-departure"></i></div>
                             <h2>Welcome aboard.</h2>
-                            <p>Thank you for subscribing to Pro Access. Let's set up your flight deck.</p>
+                            <p>Let's set up your flight deck.</p>
                         </div>
                         <div class="pui-onboarding-body">
 
@@ -4270,11 +4290,8 @@ if (this._activeTab === 'flight-plan') {
 
                                 <div class="pui-input-group">
                                     <label>${this.t('set.email')}</label>
-                                    <div class="pui-input-wrapper">
-                                        <i class="fa-solid fa-envelope pui-input-icon"></i>
-                                        <input type="email" class="pui-input has-icon" value="${email}" disabled>
-                                    </div>
-                                    <p class="pui-help-text">Email address cannot be changed directly.</p>
+                                    <!-- Change-with-confirmation, see emailChange.js. -->
+                                    <div id="pui-email-change"><input type="email" class="pui-input" value="${email}" disabled></div>
                                 </div>
 
                                 <div class="pui-input-group">
@@ -5236,6 +5253,13 @@ const contentRoot = document.getElementById('pui-content');
             // Self-contained: it renders itself, wires its own listeners and
             // tears down when this host leaves the DOM. See discordPresenceUI.js.
             // ─── Picture & banner (pilot profile) ─────────────────────────
+            EmailChange.mount(document.getElementById('pui-email-change'), {
+                supabase: this._supabase,
+                user: this._currentUser,
+                variant: 'desktop',
+                onChanged: (u) => { this._currentUser = Object.assign(u, { isPro: this._currentUser?.isPro }); },
+            });
+
             const pilotCardHost = document.getElementById('pui-pilot-card-editor');
             if (pilotCardHost) {
                 PilotCardEditor.mount(pilotCardHost, {

@@ -30,6 +30,45 @@ const BANNER_PRESETS = {
 };
 
 const cache = new Map(); // lowercased IF username -> { at, profile|null, promise? }
+const styleCache = new Map(); // lowercased IF username -> { at, style|null, promise? }
+let flairCache = null;        // { at, set: Set<lowercased IF username>, promise? }
+
+// "Your window, seen by others" (supabase/sql/pilot-window-style.sql). The
+// free theme names are the banner presets'; the window takes its colour from
+// the darkest stop and paints all three behind itself.
+export const WINDOW_THEMES = ['dawn', 'dusk', 'flight_level', 'night', 'desert', 'ocean'];
+
+function rpc(name, body) {
+    return fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+        method: 'POST',
+        headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body || {}),
+    }).then(r => (r.ok ? r.json() : null));
+}
+
+function shapeStyle(row) {
+    if (!row || !row.handle) return null;
+    const theme = BANNER_PRESETS[row.window_theme] ? row.window_theme : null;
+    const hex = (v) => (/^#[0-9a-f]{6}$/i.test(v || '') ? String(v).toLowerCase() : null);
+    const style = {
+        handle: row.handle,
+        isPro: !!row.is_pro,
+        theme,
+        themeStops: theme ? BANNER_PRESETS[theme].slice() : null,
+        // Pro-only fields arrive null while the owner isn't Pro (server-side).
+        color: hex(row.window_color),
+        bgUrl: publicUrl('pilot-banners', row.window_bg_path),
+        dim: Math.min(90, Math.max(20, Number(row.window_bg_dim) || 60)) / 100,
+        flair: !!row.window_flair,
+        accent: hex(row.accent),
+    };
+    style.hasLook = !!(style.theme || style.color || style.bgUrl);
+    return style;
+}
 
 function publicUrl(bucket, path) {
     if (!path) return null;
@@ -86,6 +125,8 @@ async function callProfileImage(accessToken, body) {
     if (!res.ok) {
         const err = new Error(answer.error || 'That picture could not be saved.');
         err.needsPro = answer.pro === true || res.status === 402;
+        // Refused because a moderation warning paused uploads (403).
+        err.uploadsPaused = answer.uploadsPaused === true;
         throw err;
     }
     return answer;
@@ -96,7 +137,83 @@ export const PilotProfiles = {
 
     /** Drop a cached lookup (after the owner changes their picture or banner). */
     forget(ifUsername) {
-        cache.delete(String(ifUsername || '').trim().toLowerCase());
+        const key = String(ifUsername || '').trim().toLowerCase();
+        cache.delete(key);
+        styleCache.delete(key);
+        flairCache = null;
+    },
+
+    /** Cached window style for an IF username: a style, null (none), or undefined (unknown). */
+    peekWindowStyle(ifUsername) {
+        const key = String(ifUsername || '').trim().toLowerCase();
+        const hit = key && styleCache.get(key);
+        if (!hit || hit.promise || Date.now() - hit.at > TTL_MS) return undefined;
+        return hit.style;
+    },
+
+    /**
+     * How this pilot has styled the flight window others see, or null. Never
+     * rejects: before the migration is applied the function doesn't exist and
+     * every pilot simply has no style.
+     */
+    windowStyle(ifUsername) {
+        const key = String(ifUsername || '').trim().toLowerCase();
+        if (!key) return Promise.resolve(null);
+        const hit = styleCache.get(key);
+        if (hit && hit.promise) return hit.promise;
+        if (hit && Date.now() - hit.at <= TTL_MS) return Promise.resolve(hit.style);
+        const promise = rpc('pilot_window_style', { p_username: key })
+            .then(rows => shapeStyle(Array.isArray(rows) ? rows[0] : rows))
+            .catch(() => null)
+            .then(style => {
+                styleCache.set(key, { at: Date.now(), style });
+                return style;
+            });
+        styleCache.set(key, { at: 0, style: null, promise });
+        return promise;
+    },
+
+    /** Lowercased IF usernames of Pro pilots with flair on (the map glow). */
+    flairUsernames() {
+        if (flairCache && flairCache.promise) return flairCache.promise;
+        if (flairCache && Date.now() - flairCache.at <= TTL_MS) return Promise.resolve(flairCache.set);
+        const promise = rpc('pilot_flair_usernames')
+            .then(rows => new Set((Array.isArray(rows) ? rows : [])
+                .map(r => String(typeof r === 'string' ? r : (r && r.pilot_flair_usernames) || '').toLowerCase())
+                .filter(Boolean)))
+            .catch(() => new Set())
+            .then(set => {
+                flairCache = { at: Date.now(), set };
+                return set;
+            });
+        flairCache = { at: 0, set: new Set(), promise };
+        return promise;
+    },
+
+    /**
+     * Save the signed-in pilot's window look. `fields` may hold theme, color,
+     * dim and flair; the write guard refuses a colour from a free account.
+     */
+    async saveWindowStyle(supabase, fields) {
+        const { data: { session } = {} } = await supabase.auth.getSession();
+        const uid = session?.user?.id;
+        if (!uid) throw new Error('Sign in first.');
+        const patch = {};
+        if ('theme' in fields) patch.window_theme = fields.theme || null;
+        if ('color' in fields) patch.window_color = fields.color || null;
+        if ('dim' in fields) patch.window_bg_dim = Math.round(Math.min(90, Math.max(20, Number(fields.dim) || 60)));
+        if ('flair' in fields) patch.window_flair = !!fields.flair;
+        const { error } = await supabase.from('pilot_profiles').update(patch).eq('user_id', uid);
+        if (error) {
+            const err = new Error(/window_|column/i.test(error.message)
+                ? 'Window styles aren\'t switched on yet. Try again later.'
+                : error.message);
+            err.needsPro = /Inflight Pro/i.test(error.message);
+            throw err;
+        }
+        styleCache.clear();
+        flairCache = null;
+        return true;
     },
 
     /**

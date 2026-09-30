@@ -70,6 +70,19 @@
 
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
+    /* Window background image (host setting, WINDOW_BACKGROUND): cover-fit
+       behind both phases, the window colour laid over it at --wb-dim; cards
+       turn to glass. --card-bg is set inline on :root by the Layout Studio,
+       so the glass value is declared on body, which its descendants inherit. */
+    html.wb-img .expanded-view, html.wb-img .collapsed-bar {
+        background:
+            linear-gradient(rgba(24,24,27, var(--wb-dim, 0.6)), rgba(24,24,27, var(--wb-dim, 0.6))),
+            var(--wb-img) center / cover no-repeat,
+            #18181b !important;
+    }
+    html.wb-img body { --card-bg: rgba(24,24,27,0.62); }
+    html.wb-img .ev-header { background: linear-gradient(180deg, rgba(24,24,27, var(--wb-dim, 0.6)) 0%, rgba(0,0,0,0) 100%); }
+
     body {
         background: transparent;
         height: 100vh;
@@ -1744,6 +1757,18 @@
                     <i class="fa-solid fa-up-right-from-square"></i> Full airport window
                 </button>`;
         }
+
+        // Host setting: an image behind the whole window (blob:/data: URL only).
+        window.addEventListener('message', (event) => {
+            const d = event.data;
+            if (!d || typeof d !== 'object' || d.type !== 'WINDOW_BACKGROUND' || event.source !== window.parent) return;
+            const root = document.documentElement;
+            const url = typeof d.url === 'string' && /^(blob:|data:image\/)/.test(d.url) ? d.url : null;
+            if (!url) { root.classList.remove('wb-img'); return; }
+            root.style.setProperty('--wb-img', 'url("' + url.replace(/"/g, '%22') + '")');
+            root.style.setProperty('--wb-dim', String(Math.min(0.9, Math.max(0.2, Number(d.dim) || 0.6))));
+            root.classList.add('wb-img');
+        });
 
         window.addEventListener('message', (event) => {
             const d = event.data;

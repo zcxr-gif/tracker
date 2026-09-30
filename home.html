@@ -25,6 +25,8 @@
     <meta name="twitter:description" content="Track every Infinite Flight pilot live — real-time positions on a beautiful 3D map, ATC coverage, airport activity, flight replays and more.">
     <meta name="twitter:image" content="https://inflight.info/Images/og-banner.png">
 
+    <!-- Safari on iPhone/iPad offers the App Store app in its own banner. -->
+    <meta name="apple-itunes-app" content="app-id=6756477098">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="InFlight">
@@ -47,11 +49,13 @@
                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
             var ios = platform === 'ios' || (isCapacitorProtocol && looksLikeIOS);
             window.isIOSNative = function () { return ios; };
+            if (/Android/i.test(navigator.userAgent || '')) document.documentElement.classList.add('is-android');
             if (ios) document.documentElement.classList.add('ios-native');
         })();
     </script>
     <style>
         html.ios-native .ios-hide { display: none !important; }
+        html.is-android .store-hide { display: none !important; }
     </style>
     
     <!-- Fonts -->
@@ -446,6 +450,14 @@
                 </a>
             </div>
 
+            <!-- The iOS app. Hidden inside the app itself and on Android. -->
+            <a href="https://apps.apple.com/us/app/inflight-tracker/id6756477098" target="_blank" rel="noopener"
+               class="ios-hide store-hide inline-flex items-center gap-3 pl-2 pr-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm text-neutral-300 hover:bg-white/10 hover:text-white transition-all section-animate">
+                <span class="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold uppercase tracking-widest">New</span>
+                <span>InFlight for iPhone &amp; iPad is on the App Store</span>
+                <i data-lucide="arrow-up-right" class="size-4"></i>
+            </a>
+
             <!-- Stats Bar -->
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-8 pt-20 max-w-3xl mx-auto section-animate">
                 <div class="text-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
@@ -678,6 +690,7 @@
                     <ul class="text-sm text-neutral-500 space-y-2">
                         <li><a href="#" class="hover:text-white transition-colors">Tracker</a></li>
                         <li><a href="#features" class="hover:text-white transition-colors">Capabilities</a></li>
+                        <li class="ios-hide store-hide"><a href="https://apps.apple.com/us/app/inflight-tracker/id6756477098" target="_blank" rel="noopener" class="hover:text-white transition-colors">iOS app</a></li>
                         <li><a href="#pro" class="text-pro hover:brightness-110 transition-colors">InFlight Pro</a></li>
                     </ul>
                 </div>

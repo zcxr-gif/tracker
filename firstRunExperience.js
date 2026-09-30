@@ -34,6 +34,11 @@ const STORAGE_KEY = 'inflight_legal_accepted';
 // accepted the legal docs before this step existed — is asked exactly once.
 const WINDOW_CHOICE_KEY = 'inflight_window_choice';
 
+// The optional "Make it yours" step, offered once, straight after the steps
+// above on a first launch. Never shown to someone who has already been
+// through first-run, so an update doesn't greet regulars with a new popup.
+const PERSONALISE_KEY = 'inflight_personalise_seen';
+
 // Neutral zinc accent — the rest of the app's surfaces use a charcoal/zinc
 // palette (see the simple flight window and the launch splash), so the legal
 // gate and window picker now match instead of standing out as navy/sky-blue.
@@ -65,10 +70,12 @@ function persistAcceptance() {
     } catch (_) { /* storage unavailable; nothing we can do */ }
 }
 
-// Map an onboarding choice ('standard' | 'simple' | 'card') to the canonical
-// flight-window mode used everywhere else ('legacy' | 'simple' | 'embed'). The
-// picker labels the full avionics panel "Standard"; internally that's 'legacy'.
+// Map an onboarding choice ('standard' | 'horizon' | 'simple' | 'card') to the
+// canonical flight-window mode used everywhere else ('legacy' | 'horizon' |
+// 'simple' | 'embed'). The picker labels the full avionics panel "Standard";
+// internally that's 'legacy'.
 function choiceToWindowMode(choice) {
+    if (choice === 'horizon') return 'horizon';
     if (choice === 'simple') return 'simple';
     if (choice === 'card') return 'embed';
     return 'legacy';
@@ -77,8 +84,9 @@ function choiceToWindowMode(choice) {
 /**
  * Record the flight-window choice and apply it to the live app immediately so
  * the very next aircraft the user taps respects it.
- * @param {string} choice  'standard' (avionics panel), 'simple' (card window),
- *                          or 'card' (embed-style FR24 card).
+ * @param {string} choice  'standard' (avionics panel), 'horizon' (the avionics
+ *                          window in the calm photo-led skin), 'simple' (card
+ *                          window), or 'card' (embed-style FR24 card).
  */
 function persistWindowChoice(choice) {
     const mode = choiceToWindowMode(choice);
@@ -163,9 +171,85 @@ export async function runFirstRunExperience(map, opts = {}) {
             if (needLegal) await new Promise((r) => setTimeout(r, 420));
             await runWindowChoiceStep({ restoreChrome: true });
         }
+        // Step 3 — optional: the window's colour and background, and (signed
+        // out) an invitation to an account for a picture and banner.
+        if ((needLegal || needWindow) && !opts.skipPersonalise && !seenPersonalise()
+            && typeof window.buildWindowLookPanel === 'function') {
+            await new Promise((r) => setTimeout(r, 420));
+            await runPersonaliseStep();
+        }
     } finally {
         resolveGate();
     }
+}
+
+function seenPersonalise() {
+    try { return localStorage.getItem(PERSONALISE_KEY) === '1'; } catch (_) { return false; }
+}
+
+function looksSignedIn() {
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i) || '';
+            if (k.includes('supabase.auth.token') || (k.startsWith('sb-') && k.endsWith('-auth-token'))) return true;
+        }
+    } catch (_) { /* private mode */ }
+    return false;
+}
+
+/**
+ * Step 3: "Make it yours" — optional.
+ *
+ * The flight window's colour (Horizon) and background — none, the aircraft's
+ * photo, or the pilot's own image framed in the adjuster — with a live
+ * preview; flight.js's shared panel, so it is the same control as Settings.
+ * Signed out, it also offers a free account for a picture, a banner and a
+ * window style other pilots see. Skip and Done both just close it.
+ */
+function runPersonaliseStep() {
+    return new Promise((resolve) => {
+        try { localStorage.setItem(PERSONALISE_KEY, '1'); } catch (_) { /* private mode */ }
+        const signedIn = looksSignedIn();
+        const overlay = document.createElement('div');
+        overlay.id = 'fre-overlay';
+        overlay.classList.add('fre-overlay-personalise');
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', 'fre-personalise-title');
+        overlay.innerHTML = `
+            <div class="fre-card fre-card-wide" role="document">
+                <h1 id="fre-personalise-title" class="fre-title">Make it yours</h1>
+                <p class="fre-sub">Give your flight windows a colour and background of your own — even your own image, framed however you like. Optional, and always in Settings.</p>
+                <div class="fre-look">${window.buildWindowLookPanel('fre', { compact: true })}</div>
+                ${signedIn ? '' : `
+                <div class="fre-account">
+                    <span class="fre-account-ic"><i class="fa-solid fa-id-badge"></i></span>
+                    <span class="fre-account-text">
+                        <b>Your picture, banner and flight window</b>
+                        <span>A free account gives you a pilot card other pilots see on the map, and lets you style the window they see for your flight.</span>
+                    </span>
+                    <button type="button" class="fre-account-btn" data-act="signup">Create account</button>
+                </div>`}
+                <div class="fre-actions">
+                    <button type="button" class="fre-skip" data-act="skip">Skip</button>
+                    <button type="button" class="fre-agree" data-act="done">Done</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+        try { window.wireWindowLookPanel(overlay); } catch (_) { /* the panel still shows */ }
+        requestAnimationFrame(() => overlay.classList.add('fre-visible'));
+
+        overlay.addEventListener('click', (e) => {
+            const act = e.target.closest('[data-act]')?.dataset.act;
+            if (!act) return;
+            dismissOverlay(overlay, true, resolve);
+            if (act === 'signup') {
+                setTimeout(() => {
+                    try { window.AuthUI && window.AuthUI.open('signup'); } catch (_) { /* nav still offers it */ }
+                }, 450);
+            }
+        });
+    });
 }
 
 /** Reveal an overlay, then resolve once the given trigger fires; handles the
@@ -213,9 +297,9 @@ function runLegalStep(map, { restoreChrome } = {}) {
 /**
  * Step 2: one-time "which flight info window?" picker.
  *
- * Preferred path is a hands-on, live demo — we open three real, randomly chosen
+ * Preferred path is a hands-on, live demo — we open four real, randomly chosen
  * flights' info windows (one per style) and let the user flip between the
- * Standard, Simple and Card styles before committing, so they *see* each one
+ * Standard, Horizon, Simple and Card styles before committing, so they *see* each one
  * rather than reading about it. We wait for the live socket to actually deliver
  * flights first. If too few arrive (offline, or the feed is empty) we fall back
  * to the self-contained mockup picker so the gate never stalls the boot.
@@ -227,9 +311,12 @@ function runLegalStep(map, { restoreChrome } = {}) {
 async function runWindowChoiceStep({ restoreChrome } = {}) {
     // Wait (reasonably) for the socket to populate live flights before deciding.
     // One distinct flight per style keeps every switch a genuine re-open.
-    const flights = await waitForLiveFlights(3, 25000);
+    const flights = await waitForLiveFlights(4, 25000);
     if (flights.length >= 3) {
-        await runWindowDemoStep(flights[0], flights[1], flights[2], { restoreChrome });
+        // A fourth flight for Horizon when the feed has one; otherwise it
+        // borrows Standard's, and openStyle() closes the window first so the
+        // re-open isn't swallowed.
+        await runWindowDemoStep(flights[0], flights[1], flights[2], flights[3] || flights[0], { restoreChrome });
     } else {
         await runWindowMockupStep({ restoreChrome });
     }
@@ -237,10 +324,11 @@ async function runWindowChoiceStep({ restoreChrome } = {}) {
 
 /**
  * Live picker: opens a real flight window and lets the user flip between the
- * three styles — Standard, Simple and Card — each backed by its own flight so
- * every switch is a real re-open (handleAircraftClick bails on a repeat).
+ * four styles — Standard, Horizon, Simple and Card — each backed by its own
+ * flight so every switch is a real re-open (handleAircraftClick bails on a
+ * repeat).
  */
-function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, { restoreChrome } = {}) {
+function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, horizonFlight, { restoreChrome } = {}) {
     return new Promise((resolve) => {
         const { overlay, segs, continueBtn } = buildWindowDemoBanner();
         document.body.appendChild(overlay);
@@ -255,7 +343,8 @@ function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, { restoreCh
         // example; tapping a segment opens the other style's flight live.
         let selected = 'standard';
         let switching = false;
-        const flightForStyle = { standard: standardFlight, simple: simpleFlight, card: cardFlight };
+        const flightForStyle = { standard: standardFlight, horizon: horizonFlight, simple: simpleFlight, card: cardFlight };
+        let shownFlight = null;
 
         // Open the chosen style's flight via the real app path. Awaiting the
         // whole call means the in-app loading guard has cleared before we allow
@@ -273,8 +362,15 @@ function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, { restoreCh
                     window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
                 }
                 const fp = flightForStyle[choice] || standardFlight;
+                // Same flight as the one showing (Horizon sharing Standard's):
+                // close first, or handleAircraftClick ignores the repeat.
+                if (fp === shownFlight && typeof window.closeAircraftWindow === 'function') {
+                    window.closeAircraftWindow();
+                    await new Promise((r) => setTimeout(r, 320));
+                }
                 if (typeof window.handleAircraftClick === 'function') {
                     await window.handleAircraftClick(fp);
+                    shownFlight = fp;
                 }
             } catch (_) { /* best-effort demo */ }
             switching = false;
@@ -612,6 +708,24 @@ function buildWindowChoiceModal() {
                     </span>
                     <span class="fre-choice-desc">The full avionics panel with detailed instruments and tabs.</span>
                 </button>
+                <button type="button" class="fre-choice" data-window="horizon">
+                    <span class="fre-preview fre-preview-horizon" aria-hidden="true">
+                        <span class="pv-h-photo">
+                            <span class="pv-h-id"><span class="pv-h-eyebrow"></span><span class="pv-h-call"></span></span>
+                        </span>
+                        <span class="pv-h-route">
+                            <span class="pv-h-icao"></span>
+                            <span class="pv-h-line"><span></span></span>
+                            <span class="pv-h-icao"></span>
+                        </span>
+                        <span class="pv-h-glance"><span></span><span></span><span></span><span></span></span>
+                    </span>
+                    <span class="fre-choice-head">
+                        <i class="fa-solid fa-sun fre-choice-ic"></i>
+                        <span class="fre-choice-name">Horizon</span>
+                    </span>
+                    <span class="fre-choice-desc">The full avionics window, calmer: a big aircraft photo, live numbers first, your own colour.</span>
+                </button>
                 <button type="button" class="fre-choice" data-window="card">
                     <span class="fre-preview fre-preview-card" aria-hidden="true">
                         <span class="pv-c-head">
@@ -664,6 +778,9 @@ function buildWindowDemoBanner() {
             <div class="fre-seg" role="group" aria-label="Flight window style">
                 <button type="button" class="fre-seg-btn fre-seg-active" data-window="standard">
                     <i class="fa-solid fa-gauge-high" aria-hidden="true"></i><span>Standard</span>
+                </button>
+                <button type="button" class="fre-seg-btn" data-window="horizon">
+                    <i class="fa-solid fa-sun" aria-hidden="true"></i><span>Horizon</span>
                 </button>
                 <button type="button" class="fre-seg-btn" data-window="simple">
                     <i class="fa-solid fa-window-maximize" aria-hidden="true"></i><span>Simple</span>
@@ -904,6 +1021,43 @@ function injectStyles() {
             cursor: not-allowed;
         }
 
+        /* "Make it yours" */
+        #fre-overlay .fre-card.fre-card-wide { max-width: 640px; text-align: left; align-items: stretch; }
+        #fre-overlay .fre-card-wide .fre-title, #fre-overlay .fre-card-wide .fre-sub { text-align: center; }
+        #fre-overlay .fre-look {
+            padding: 16px; border-radius: 18px; background: rgba(0, 0, 0, 0.22);
+            border: 1px solid rgba(255, 255, 255, 0.07); cursor: default;
+        }
+        #fre-overlay .fre-account {
+            display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px; border-radius: 16px;
+            background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); cursor: default;
+        }
+        #fre-overlay .fre-account-ic {
+            flex: 0 0 auto; width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+            background: rgba(56, 189, 248, 0.14); color: #7dd3fc;
+        }
+        #fre-overlay .fre-account-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem; line-height: 1.4; color: rgba(212, 212, 216, 0.72); }
+        #fre-overlay .fre-account-text b { font-size: 0.88rem; color: #f4f4f5; }
+        #fre-overlay .fre-account-btn {
+            flex: 0 0 auto; height: 36px; padding: 0 14px; border-radius: 10px; cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.08); color: #f4f4f5;
+            font: inherit; font-size: 0.84rem; font-weight: 600;
+        }
+        #fre-overlay .fre-account-btn:hover { background: rgba(255, 255, 255, 0.14); }
+        #fre-overlay .fre-actions { display: flex; gap: 10px; margin-top: 18px; }
+        #fre-overlay .fre-actions .fre-agree { flex: 1; }
+        #fre-overlay .fre-skip {
+            flex: 0 0 auto; padding: 0 22px; border-radius: 14px; cursor: pointer; font: inherit; font-size: 0.95rem; font-weight: 600;
+            color: rgba(228, 228, 231, 0.8); background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        @media (max-width: 520px) {
+            #fre-overlay.fre-overlay-personalise { padding: 12px; }
+            #fre-overlay .fre-card.fre-card-wide { padding: 24px 16px 18px; }
+            #fre-overlay .fre-look { padding: 12px; }
+            #fre-overlay .fre-account { flex-wrap: wrap; }
+            #fre-overlay .fre-account-btn { width: 100%; }
+        }
+
         /* Flight info window picker */
         #fre-overlay .fre-choices {
             display: flex;
@@ -993,6 +1147,24 @@ function injectStyles() {
         #fre-overlay .pv-d-tabs { display: flex; gap: 5px; }
         #fre-overlay .pv-d-tabs > span { flex: 1; height: 8px; border-radius: 3px; background: rgba(255,255,255,0.10); }
         #fre-overlay .pv-d-tabs > span:first-child { background: ${ACCENT}; }
+
+        /* Horizon: photo band fading into the window, identity on its edge,
+           a slim route line, then a row of live numbers */
+        #fre-overlay .fre-preview-horizon { gap: 7px; padding: 0 0 10px; }
+        #fre-overlay .pv-h-photo {
+            position: relative; height: 46px; flex: 0 0 auto;
+            background: linear-gradient(180deg, rgba(24,24,27,0) 30%, #1c1c1f 100%),
+                        linear-gradient(160deg, #6f93b8 0%, #9fb9d3 45%, #506f8f 100%);
+        }
+        #fre-overlay .pv-h-id { position: absolute; left: 11px; bottom: 4px; display: flex; flex-direction: column; gap: 4px; }
+        #fre-overlay .pv-h-eyebrow { width: 30px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.55); }
+        #fre-overlay .pv-h-call { width: 64px; height: 8px; border-radius: 3px; background: #fff; }
+        #fre-overlay .pv-h-route { display: flex; align-items: center; gap: 8px; padding: 0 11px; }
+        #fre-overlay .pv-h-icao { width: 26px; height: 9px; border-radius: 3px; background: rgba(255,255,255,0.85); }
+        #fre-overlay .pv-h-line { position: relative; flex: 1; height: 2px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.3) 0 4px, transparent 4px 7px); }
+        #fre-overlay .pv-h-line > span { position: absolute; inset: -1px 55% -1px 0; border-radius: 2px; background: ${ACCENT}; }
+        #fre-overlay .pv-h-glance { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 0 11px; }
+        #fre-overlay .pv-h-glance > span { height: 14px; border-radius: 5px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.06); }
 
         /* Card: embed-style shareable card — logo header, city route, stat row */
         #fre-overlay .fre-preview-card { gap: 8px; }
@@ -1101,6 +1273,10 @@ function injectStyles() {
             transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
         }
         #fre-window-demo .fre-seg-btn i { font-size: 0.85rem; color: ${ACCENT}; }
+        @media (max-width: 440px) {
+            #fre-window-demo .fre-seg { gap: 4px; padding: 4px; }
+            #fre-window-demo .fre-seg-btn { flex-direction: column; gap: 4px; padding: 8px 2px; font-size: 0.78rem; }
+        }
         #fre-window-demo .fre-seg-btn.fre-seg-active {
             color: #18181b;
             background: linear-gradient(180deg, #f4f4f5 0%, ${ACCENT} 100%);

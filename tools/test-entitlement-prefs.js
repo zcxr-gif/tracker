@@ -157,8 +157,13 @@ function entitlement({ subscription = null, isPro = false, legacyPro = false }, 
      * What may leave the device
      * ---------------------------------------------------------------- */
     {
-        const { PreferenceSync, SYNCED_KEYS, NEVER_SYNC } =
+        const { PreferenceSync, SYNCED_KEYS, NEVER_SYNC, FREE_SYNCED_KEYS } =
             await import(pathToFileURL(path.join(ROOT, 'preferenceSync.js')).href);
+
+        // A free account syncs a strict subset: its flight window look only.
+        ok('a free account syncs only its window look',
+            FREE_SYNCED_KEYS.length === 1 && FREE_SYNCED_KEYS[0] === 'inflight_window_look'
+            && NEVER_SYNC.every(k => !FREE_SYNCED_KEYS.includes(k)));
 
         // The one that matters most. A bearer token in a settings blob is a
         // credential leak that looks like a feature in the diff.
@@ -182,7 +187,8 @@ function entitlement({ subscription = null, isPro = false, legacyPro = false }, 
         ok('nothing appears on the allowlist twice',
             new Set(SYNCED_KEYS).size === SYNCED_KEYS.length);
 
-        // ── snapshot / apply ──
+        // ── snapshot / apply ── (as a Pro account: the full allowlist)
+        window.isInflightPro = () => true;
         store.clear();
         localStorage.setItem('pui-theme', 'dark');
         localStorage.setItem('inflightFuelUnit', 'kg');
@@ -229,7 +235,20 @@ function entitlement({ subscription = null, isPro = false, legacyPro = false }, 
 
         // ── eligibility ──
         window.isInflightPro = () => false;
-        ok('a free account is not eligible to sync', PreferenceSync.isEligible() === false);
+        PreferenceSync._signedIn = false;
+        ok('a signed-out free device is not eligible to sync', PreferenceSync.isEligible() === false);
+        PreferenceSync._signedIn = true;
+        ok('a signed-in free account is, for its window look only',
+            PreferenceSync.isEligible() === true && PreferenceSync.keys() === FREE_SYNCED_KEYS);
+        store.clear();
+        localStorage.setItem('pui-theme', 'dark');
+        localStorage.setItem('inflight_window_look', '{"horizonColor":"#223344"}');
+        const freeSnap = PreferenceSync.snapshot();
+        ok('…and its snapshot carries nothing else',
+            Object.keys(freeSnap).join(',') === 'inflight_window_look');
+        ok('…and a pulled blob cannot write Pro settings on a free account',
+            PreferenceSync.apply({ 'pui-theme': 'light' }) === 0 && localStorage.getItem('pui-theme') === 'dark');
+        PreferenceSync._signedIn = false;
         window.isInflightPro = () => true;
         ok('a Pro account is', PreferenceSync.isEligible() === true);
     }

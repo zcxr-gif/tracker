@@ -87,6 +87,8 @@
         html.ios-native .ios-hide { display: none !important; }
     </style>
 
+    <!-- Safari on iPhone/iPad offers the App Store app in its own banner. -->
+    <meta name="apple-itunes-app" content="app-id=6756477098">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="InFlight">
@@ -2365,11 +2367,28 @@
                         !!sessionStorage.getItem('inflight_replay_payload')
                     ));
                 if (fromShare) { removeNow(); return; }
+                // Back from an account email (a confirmed email change, a
+                // password reset, a sign-up link): no splash in the way. These
+                // normally land on email-confirmed.html; this covers a link
+                // that falls back to the site root.
+                var h = window.location.hash || '';
+                if (/(^|[#&])(access_token|error_description|message)=/.test(h) ||
+                    /type=(email_change|recovery|signup|magiclink)/.test(h)) { removeNow(); return; }
             } catch (_) { /* non-fatal */ }
 
             var dismissed     = false;
             var minVisibleMs  = 3000;  // Long enough to actually see the partner banner
             var start         = Date.now();
+
+            // Coming straight back (inbox, another tab, a reload within a few
+            // minutes): the splash still covers the map until it has painted,
+            // but it doesn't hold the pilot for the banner's three seconds
+            // every trip.
+            try {
+                var lastBoot = Number(localStorage.getItem('inflight_last_boot')) || 0;
+                if (Date.now() - lastBoot < 10 * 60 * 1000) minVisibleMs = 0;
+                localStorage.setItem('inflight_last_boot', String(Date.now()));
+            } catch (_) { /* storage unavailable: the usual splash */ }
 
             // The splash is dismissed when the MAP reports it has painted, not
             // on window.load. window.load only means the page's subresources
@@ -2661,6 +2680,7 @@
     <script src="vaAds.js"></script>
     <script src="replayBrowser.js"></script>
     <script src="changelog.js"></script>
+    <script src="appPromo.js"></script>
     <script src="sector-ops-mobile-ui.js" defer></script>
     <script src="flight-graph.js"></script>
     <script src="flight-legs.js"></script>

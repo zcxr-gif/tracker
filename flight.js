@@ -13,6 +13,9 @@ import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
 import { PilotCardPrompt } from './pilotCardPrompt.js';
+import { adjustImage } from './imageAdjuster.js';
+import { AccountSetup } from './accountSetup.js';
+import { PilotStanding } from './pilotStanding.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -101,6 +104,11 @@ supabase.auth.onAuthStateChange(() => { setTimeout(refreshNavAccount, 0); });
 window.addEventListener('inflight:pilot-profile-changed', refreshNavAccount);
 // Signed in with no picture yet: a one-time popup and a dot on the pill.
 PilotCardPrompt.init(supabase);
+// First upgrade to Pro: a short "what just unlocked" sheet. Renewals: nothing.
+AccountSetup.watchUpgrades(supabase);
+// A moderation warning about something the pilot uploaded: shown until they
+// acknowledge it, as the iOS app does; also pauses the upload buttons.
+PilotStanding.init(supabase);
 
 // 2. Initialize Mobile Dashboard
 MobileDashboardUI.init(supabase);
@@ -1516,10 +1524,22 @@ let mapFilters = {
         useFlatMap: false,
         useSimpleFlightWindow: false,
         // Flight-info window presentation: 'legacy' (full avionics window),
+        // 'horizon' (the same avionics window in a softer, calmer skin),
         // 'simple' (flightinfo.html iframe) or 'embed' (embed-flight.html — the
         // FR24-style card ported from the VA embed). useSimpleFlightWindow is
         // kept in sync (true only for 'simple') for backward compatibility.
         flightWindowMode: 'legacy',
+        // Horizon window colour; text and surfaces adapt to it for contrast.
+        horizonColor: '#16181c',
+        // Horizon background: 'color' (the colour above), 'aircraft' (the
+        // aircraft's photo, blurred) or 'custom' (an image the user picked,
+        // kept in IndexedDB — never in mapFilters). Dim is the window colour
+        // laid over the image, in percent, so text stays readable.
+        horizonBg: 'color',
+        horizonBgDim: 60,
+        // Show each pilot's own window look (theme / Pro colour and photo)
+        // on their flight instead of this viewer's colour and background.
+        showPilotStyles: true,
         // Airport-info window presentation: 'standard' (the built-in tabbed
         // window) or 'embed' (embed-airport.html — the embed's airport card).
         airportWindowMode: 'standard',
@@ -1974,6 +1994,8 @@ window.getPilotRelation = function (username) {
             mapFilters.__savedAt = Date.now();
             const filtersJson = JSON.stringify(mapFilters);
             localStorage.setItem('mapFilters', filtersJson);
+            // The window look alone, for free accounts' sync (preferenceSync.js).
+            writeWindowLook();
 
             // 2. Cloud Sync for Pro Users (immediate, or debounced)
             if (cloudSyncTimeout) { clearTimeout(cloudSyncTimeout); cloudSyncTimeout = null; }
@@ -5356,6 +5378,45 @@ function injectCustomStyles() {
             .ac-pilot-go i { font-size: 9px; }
             .ac-info-tab-btn.pilot-tab-btn:hover .ac-pilot-go { opacity: 1; }
 
+            /* Pro pilots: a small PRO mark by the name, and their profile
+               accent on the picture's ring. */
+            .ac-pilot-pro {
+                flex: 0 0 auto;
+                padding: 2px 6px;
+                border-radius: 999px;
+                font-size: 8.5px !important;
+                font-weight: 800;
+                letter-spacing: 0.8px;
+                line-height: 1.2;
+                color: #1a1407;
+                background: linear-gradient(135deg, #ffe7a3, #f5c451 55%, #e9a93a);
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+                text-shadow: none;
+            }
+            .ac-info-tab-btn.pilot-tab-btn.is-pro .ac-pilot-avatar {
+                border-color: var(--pilot-accent, #f5c451);
+                box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25), 0 0 12px color-mix(in srgb, var(--pilot-accent, #f5c451) 55%, transparent);
+            }
+            /* Pro flair: a slow band of light across the banner. */
+            .ac-info-tab-btn.pilot-tab-btn.has-flair::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                z-index: 0;
+                border-radius: inherit;
+                pointer-events: none;
+                background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.16) 45%, rgba(255, 255, 255, 0.28) 50%, rgba(255, 255, 255, 0.16) 55%, transparent 70%);
+                background-size: 250% 100%;
+                animation: ac-pilot-shimmer 5.5s ease-in-out infinite;
+            }
+            @keyframes ac-pilot-shimmer {
+                0%, 35% { background-position: 130% 0; }
+                75%, 100% { background-position: -30% 0; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .ac-info-tab-btn.pilot-tab-btn.has-flair::after { animation: none; opacity: 0; }
+            }
+
             /* The route card pulls itself up over the photo with a -32px top
                margin. Its wrapper (.ac-route-bar-backdrop, solid #3a3a3a) had
                no padding or border, so that margin collapsed through it and
@@ -7627,6 +7688,14 @@ function getGateLabel(gate) {
     return gate.name || gate.ident || gate.gateName || gate.id || 'GATE';
 }
 
+// Route-bar gate tag text. Airport data often names stands "Gate B47" or
+// "Stand F15" already, which read "Gate Gate B47" behind a fixed prefix.
+function gateTagText(gate) {
+    const g = String(gate == null ? '' : gate).trim();
+    if (!g || g === '---') return 'Gate ---';
+    return /^(gate|stand|parking|ramp|remote|apron)\b/i.test(g) ? g : `Gate ${g}`;
+}
+
 // Stable per-gate key (name + coords) so occupants map 1:1 to a gate even when
 // two stands share a name.
 function gateKey(gate) {
@@ -7863,7 +7932,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
             depGateEl.style.cssText = premiumGateCss;
             depNode.appendChild(depGateEl);
         }
-        depGateEl.innerHTML = filedPlan.dep_gate ? `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.dep_gate}` : `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+        depGateEl.innerHTML = filedPlan.dep_gate ? `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> ${gateTagText(filedPlan.dep_gate)}` : `<i class="fa-solid fa-plane-departure" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
     }
 
     // 3. Inject the Arrival Gate HTML
@@ -7879,7 +7948,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
             arrGateEl.style.cssText = premiumGateCss;
             arrNode.appendChild(arrGateEl);
         }
-        arrGateEl.innerHTML = filedPlan.arr_gate ? `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${filedPlan.arr_gate}` : `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
+        arrGateEl.innerHTML = filedPlan.arr_gate ? `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> ${gateTagText(filedPlan.arr_gate)}` : `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ---`;
 
         // If the pilot never filed an arrival gate, fall back to the stand the
         // aircraft actually parked at (nearest gate to the end of the trail).
@@ -7887,7 +7956,7 @@ function injectFiledGateInfoUI(filedPlan, flightProps, plan, flownPath, arrivalI
             determineGatesForFlight(null, flownPath, arrivalIcao, buildArrivalStateSnapshot(flightProps)).then(gates => {
                 if (gates.arrivalGate && gates.arrivalGate !== '---') {
                     const el = document.getElementById('ac-arr-gate');
-                    if (el) el.innerHTML = `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> GATE ${gates.arrivalGate}`;
+                    if (el) el.innerHTML = `<i class="fa-solid fa-plane-arrival" style="color: #64748b; font-size: 0.6rem;"></i> ${gateTagText(gates.arrivalGate)}`;
                 }
             });
         }
@@ -8041,10 +8110,10 @@ function injectGateInfoUI(departureIcao, flownPath, arrivalIcao, flightProps) {
         const arrGateEl = document.getElementById('ac-arr-gate');
 
         iwSettleValue(depGateEl, { html: gates.departureGate !== '---'
-            ? `<i class="fa-solid fa-door-open"></i> Gate ${gates.departureGate}`
+            ? `<i class="fa-solid fa-door-open"></i> ${gateTagText(gates.departureGate)}`
             : `<i class="fa-solid fa-door-open"></i> Gate ---` });
         iwSettleValue(arrGateEl, { html: gates.arrivalGate !== '---'
-            ? `<i class="fa-solid fa-door-closed"></i> Gate ${gates.arrivalGate}`
+            ? `<i class="fa-solid fa-door-closed"></i> ${gateTagText(gates.arrivalGate)}`
             : `<i class="fa-solid fa-door-closed"></i> Gate ---` });
     });
 }
@@ -12118,12 +12187,73 @@ function updateMapFilters() {
     updateToolbarButtonStates();
 }
 
+// --- Pro flair on the map ---
+// A soft gold glow under the aircraft of Pro pilots who have flair on
+// (pilot_flair_usernames). Uses the aircraft layers' own visibility filter,
+// so a plane hidden by the viewer's traffic filters doesn't leave a glow
+// behind, and the viewer's "Show pilots' window styles" switch hides it.
+const PILOT_FLAIR_LAYER_ID = 'sector-ops-pilot-flair-layer';
+let _pilotFlairSet = new Set();
+let _liveFlightsFilter = null;
+let _pilotFlairTimer = null;
+
+function pilotFlairFilter() {
+    const flair = ['==', 'proFlair', showPilotStylesOn() && _pilotFlairSet.size ? true : '__off__'];
+    return _liveFlightsFilter ? ['all', _liveFlightsFilter, flair] : flair;
+}
+
+function ensurePilotFlairLayer() {
+    if (!sectorOpsMap || !sectorOpsMap.getSource('sector-ops-live-flights-source')) return;
+    if (sectorOpsMap.getLayer(PILOT_FLAIR_LAYER_ID)) return;
+    const before = sectorOpsMap.getLayer('sector-ops-live-flights-natural-layer')
+        ? 'sector-ops-live-flights-natural-layer' : 'sector-ops-live-flights-layer';
+    try {
+        sectorOpsMap.addLayer({
+            id: PILOT_FLAIR_LAYER_ID,
+            type: 'circle',
+            source: 'sector-ops-live-flights-source',
+            filter: pilotFlairFilter(),
+            paint: {
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 8, 6, 13, 10, 20, 14, 28],
+                'circle-color': '#f5c451',
+                'circle-opacity': 0.42,
+                'circle-blur': 1,
+                'circle-pitch-alignment': 'map',
+            },
+        }, sectorOpsMap.getLayer(before) ? before : undefined);
+    } catch (_) { /* style mid-swap: the next refresh adds it */ }
+}
+
+function refreshPilotFlairGlow() {
+    if (!sectorOpsMap) return;
+    ensurePilotFlairLayer();
+    if (sectorOpsMap.getLayer(PILOT_FLAIR_LAYER_ID)) sectorOpsMap.setFilter(PILOT_FLAIR_LAYER_ID, pilotFlairFilter());
+}
+
+// Fetch who has flair (cached 10 min in PilotProfiles), re-tag the cached
+// aircraft, and repaint. Re-run every ten minutes.
+function loadPilotFlair() {
+    PilotProfiles.flairUsernames().then((set) => {
+        _pilotFlairSet = set || new Set();
+        Object.values(currentMapFeatures).forEach((f) => {
+            if (!f || !f.properties) return;
+            const u = f.properties.username;
+            f.properties.proFlair = !!(u && _pilotFlairSet.has(String(u).toLowerCase()));
+        });
+        if (typeof pushLiveTrafficNow === 'function') pushLiveTrafficNow();
+        refreshPilotFlairGlow();
+    });
+    if (!_pilotFlairTimer) _pilotFlairTimer = setInterval(loadPilotFlair, 10 * 60 * 1000);
+}
+
 // Apply a visibility filter to BOTH aircraft layers (SDF + natural) at once.
 // The SDF/natural split is handled inside the icon-image expressions, so both
 // layers must share the same visibility filter or one half of the fleet would
 // ignore the user's tactical/quick-search filters.
 function setLiveFlightsFilter(filter) {
     if (!sectorOpsMap) return;
+    _liveFlightsFilter = filter;
+    if (sectorOpsMap.getLayer(PILOT_FLAIR_LAYER_ID)) sectorOpsMap.setFilter(PILOT_FLAIR_LAYER_ID, pilotFlairFilter());
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
     }
@@ -13555,6 +13685,9 @@ function handleSocketFlightUpdate(data) {
                 return 'none';
             })(),
 
+            // Pro pilots with flair on get a soft glow (refreshPilotFlairGlow).
+            proFlair: !!(flight.username && _pilotFlairSet.has(String(flight.username).toLowerCase())),
+
             communityImageUrl: existingProps.communityImageUrl || null,
             contributorName: existingProps.contributorName || null,
             communityImageUrls: existingProps.communityImageUrls || null,
@@ -13669,7 +13802,7 @@ function handleSocketFlightUpdate(data) {
                 // serves both. Legacy stays on the avionics DOM path below.
                 const simpleIframe = document.getElementById('simple-flight-window-frame');
                 const _liveFwMode = getFlightWindowMode();
-                if (_liveFwMode !== 'legacy' && simpleIframe && simpleIframe.contentWindow) {
+                if (!isNativeFlightWindowMode(_liveFwMode) && simpleIframe && simpleIframe.contentWindow) {
                      const freshData = formatDataForSimpleWindow(
                          fullFlightProps,
                          cachedFlightDataForStatsView.plan,
@@ -13686,7 +13819,7 @@ function handleSocketFlightUpdate(data) {
                          cachedFlightDataForStatsView.filedPlanData || null
                      );
                      simpleIframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload: freshData }, '*');
-                } else if (_liveFwMode === 'legacy') {
+                } else if (isNativeFlightWindowMode(_liveFwMode)) {
                     updatePfdDisplay(flight.position);
                     updateNavPanelData(
                         flight.position.lat, 
@@ -17414,6 +17547,9 @@ function initializeAircraftLayer() {
             // than waiting for the next tap.
             markSelectedAircraft(currentFlightInWindow);
 
+            // Pro flair glow under the aircraft (re-added after a style swap).
+            loadPilotFlair();
+
             // Bootstrap pilot-relation colors. Covers the case where flight
             // features were already cached (or where ProfileUI populated
             // before the layer existed) — the auth handler in profileUI.js
@@ -17541,25 +17677,38 @@ function initializeAircraftLayer() {
  */
 /**
  * --- Flight / airport window presentation mode helpers ---
- * `flightWindowMode` is the canonical store ('legacy' | 'simple' | 'embed');
- * the older `useSimpleFlightWindow` boolean is kept mirrored (true only for
- * 'simple') so existing code paths and saved settings still resolve correctly.
+ * `flightWindowMode` is the canonical store ('legacy' | 'horizon' | 'simple' |
+ * 'embed'); the older `useSimpleFlightWindow` boolean is kept mirrored (true
+ * only for 'simple') so existing code paths and saved settings still resolve
+ * correctly. 'horizon' is the Legacy window rendered by the same host-page
+ * code, only re-skinned (see HORIZON_WINDOW_CSS), so every check that means
+ * "the native avionics window" should use isNativeFlightWindowMode().
  */
 function getFlightWindowMode() {
     if (typeof mapFilters === 'undefined') return 'legacy';
-    // 'embed' is the only mode tracked solely by flightWindowMode; the
+    // 'embed' and 'horizon' are tracked solely by flightWindowMode; the
     // simple/legacy split stays keyed off useSimpleFlightWindow so any legacy
     // code path that flips that boolean keeps working.
     if (mapFilters.flightWindowMode === 'embed') return 'embed';
-    return mapFilters.useSimpleFlightWindow ? 'simple' : 'legacy';
+    if (mapFilters.useSimpleFlightWindow) return 'simple';
+    // 'serene' was this style's working name; keep those choices on it.
+    const fw = mapFilters.flightWindowMode;
+    return (fw === 'horizon' || fw === 'serene') ? 'horizon' : 'legacy';
+}
+
+// Legacy and Horizon share the host-page window (populateAircraftInfoWindow /
+// updateAircraftInfoWindow); Simple and Card are iframes.
+function isNativeFlightWindowMode(mode = getFlightWindowMode()) {
+    return mode === 'legacy' || mode === 'horizon';
 }
 
 function setFlightWindowMode(mode) {
     if (typeof mapFilters === 'undefined') return;
-    if (mode !== 'legacy' && mode !== 'simple' && mode !== 'embed') mode = 'legacy';
+    if (mode !== 'legacy' && mode !== 'horizon' && mode !== 'simple' && mode !== 'embed') mode = 'legacy';
     mapFilters.flightWindowMode = mode;
     mapFilters.useSimpleFlightWindow = (mode === 'simple');
     if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
+    notifyWindowLookChanged();
 }
 
 function getAirportWindowMode() {
@@ -17577,6 +17726,7 @@ function setAirportWindowMode(mode) {
 if (typeof window !== 'undefined') {
     window.getFlightWindowMode = getFlightWindowMode;
     window.setFlightWindowMode = setFlightWindowMode;
+    window.isNativeFlightWindowMode = isNativeFlightWindowMode;
     window.getAirportWindowMode = getAirportWindowMode;
     window.setAirportWindowMode = setAirportWindowMode;
 }
@@ -18395,6 +18545,10 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             navIframe.contentWindow.postMessage({
                 heading: position.heading_deg,
                 track: position.heading_deg,
+                // For the ND's WXR / TERR layers.
+                lat: position.lat,
+                lon: position.lon,
+                altFt: position.alt_ft,
                 gs: Math.round(position.gs_kt),
                 tas: calculatedTas, 
                 windDir: cachedWindDir, 
@@ -18408,6 +18562,287 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
             console.log(`ND Iframe Handshake successful. Data pushed for ${flightId}`);
         }
     }
+
+/**
+ * Desktop Traffic Filters page.
+ *
+ * The filter board is shared with the phone (MobileSettingsUI owns its
+ * markup, handlers and the mapFilters.tactical engine), but the phone's
+ * stylesheet is only injected with the phone sheet — on desktop half the
+ * board rendered as bare browser controls and VA logos at full size. Desktop
+ * now regroups the same nodes into cards and styles every part itself:
+ *
+ *   [ n filters active · Reset ]
+ *   [ Saved views                               ]
+ *   [ Traffic          ] [ Flight state         ]
+ *   [ Show / Hide explainer                     ]
+ *   [ Virtual airline — search + logo grid      ]
+ *   [ Aircraft & airline — three fields         ]
+ *   [ Category         ] [ Flight phase         ]
+ *   [ Route            ] [ Proximity            ]
+ *   [ Performance      ] [ Identity             ]
+ *
+ * Nodes are moved, never re-created, so every handler still binds.
+ */
+const DESKTOP_FILTER_CARDS = {
+    'saved views':        { icon: 'fa-bookmark',          wide: true,  sub: 'Save the current set to bring it back in one click.' },
+    'traffic':            { icon: 'fa-users',             sub: 'Which pilots are shown.' },
+    'flight state':       { icon: 'fa-plane-up',          sub: 'In the air, on the ground, with a plan.' },
+    'virtual airline':    { icon: 'fa-handshake-angle',   wide: true },
+    'aircraft & airline': { icon: 'fa-plane',             wide: true,  cols: 3 },
+    'category':           { icon: 'fa-shapes' },
+    'flight phase':       { icon: 'fa-chart-line' },
+    'route':              { icon: 'fa-route' },
+    'proximity':          { icon: 'fa-location-crosshairs' },
+    'performance':        { icon: 'fa-gauge-high' },
+    'identity':           { icon: 'fa-id-badge' },
+};
+
+function layoutDesktopFilterBoard(board) {
+    if (!board || board.dataset.dtbLaid === '1') return;
+    board.dataset.dtbLaid = '1';
+    const kids = [...board.children];
+    let card = null;
+    kids.forEach((el) => {
+        if (el.classList.contains('mobile-section-header')) {
+            const title = el.textContent.trim();
+            const meta = DESKTOP_FILTER_CARDS[title.toLowerCase()] || {};
+            card = document.createElement('section');
+            card.className = 'dtb-card' + (meta.wide ? ' dtb-wide' : '') + (meta.cols ? ` dtb-cols-${meta.cols}` : '');
+            card.dataset.card = title.toLowerCase().replace(/[^a-z]+/g, '-');
+            const head = document.createElement('header');
+            head.className = 'dtb-card-head';
+            head.innerHTML = `<span class="dtb-card-ic"><i class="fa-solid ${meta.icon || 'fa-filter'}"></i></span>`
+                + `<span class="dtb-card-titles"><span class="dtb-card-title"></span>${meta.sub ? '<span class="dtb-card-sub"></span>' : ''}</span>`;
+            head.querySelector('.dtb-card-title').textContent = title;
+            if (meta.sub) head.querySelector('.dtb-card-sub').textContent = meta.sub;
+            card.appendChild(head);
+            el.replaceWith(card);
+            return;
+        }
+        // The summary bar and the Show/Hide explainer stand on their own.
+        if (el.classList.contains('m-filter-bar') || el.classList.contains('m-filter-hint')) {
+            card = null;
+            el.classList.add('dtb-wide');
+            return;
+        }
+        if (card) card.appendChild(el);
+    });
+    // The explainer belongs just above the first Show/Hide rules (VA card),
+    // which only exists once its card is built.
+    const hint = board.querySelector(':scope > .m-filter-hint');
+    const va = board.querySelector('[data-card="virtual-airline"]');
+    if (hint && va) board.insertBefore(hint, va);
+}
+
+function ensureDesktopFilterStyles() {
+    if (document.getElementById('desktop-filter-styles')) return;
+    const B = '#global-settings-modal-overlay #desktop-tactical-board';
+    const st = document.createElement('style');
+    st.id = 'desktop-filter-styles';
+    st.textContent = `
+        ${B} {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px;
+            align-items: start;
+        }
+        ${B} .dtb-wide { grid-column: 1 / -1; }
+
+        /* Summary bar */
+        ${B} .m-filter-bar {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 12px 16px; border-radius: 14px;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+        }
+        ${B} .m-filter-count { font-size: 0.82rem; font-weight: 600; color: #a1a1aa; }
+        ${B} .m-filter-count.has-filters { color: #7dd3fc; }
+        ${B} .m-filter-reset {
+            display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 9px;
+            background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5;
+            font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+        }
+        ${B} .m-filter-reset:hover { background: rgba(239,68,68,0.2); color: #fff; }
+
+        /* Cards */
+        ${B} .dtb-card {
+            display: flex; flex-direction: column; gap: 12px; min-width: 0;
+            padding: 16px; border-radius: 16px;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+        }
+        ${B} .dtb-card-head { display: flex; align-items: center; gap: 11px; }
+        ${B} .dtb-card-ic {
+            width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto;
+            display: grid; place-items: center; font-size: 0.8rem;
+            color: #7dd3fc; background: rgba(56,189,248,0.12);
+        }
+        ${B} .dtb-card-titles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+        ${B} .dtb-card-title { font-size: 0.92rem; font-weight: 700; color: #f4f4f5; }
+        ${B} .dtb-card-sub { font-size: 0.76rem; color: #8b8b94; }
+
+        /* Toggle rows (Traffic / Flight state) */
+        ${B} .m-settings-list { display: flex; flex-direction: column; gap: 0; padding: 0; }
+        ${B} .m-setting-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 9px 0; margin: 0; background: transparent !important; border: 0 !important;
+            border-top: 1px solid rgba(255,255,255,0.06) !important; border-radius: 0 !important;
+        }
+        ${B} .m-setting-row:first-child { border-top: 0 !important; padding-top: 2px; }
+        ${B} .m-row-left { display: flex; align-items: center; gap: 10px; font-size: 0.86rem; font-weight: 500; color: #e4e4e7; }
+        ${B} .m-row-left i { width: 16px; text-align: center; color: #71717a; font-size: 0.82rem; }
+
+        /* Show / Hide explainer */
+        ${B} .m-filter-hint {
+            display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px; border-radius: 12px;
+            background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.16);
+            font-size: 0.8rem; line-height: 1.5; color: #a1a1aa;
+        }
+        ${B} .m-filter-hint i { color: #7dd3fc; margin-top: 3px; }
+        ${B} .m-filter-hint b { color: #e4e4e7; }
+
+        /* Saved views */
+        ${B} .m-views { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0; }
+        ${B} .m-view-row { display: inline-flex; align-items: stretch; border-radius: 11px; overflow: hidden;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); }
+        ${B} .m-view-apply {
+            display: flex; flex-direction: column; align-items: flex-start; gap: 1px; max-width: 260px;
+            padding: 8px 12px; background: transparent; border: 0; cursor: pointer; font: inherit; text-align: left;
+        }
+        ${B} .m-view-apply:hover { background: rgba(56,189,248,0.08); }
+        ${B} .m-view-name { font-size: 0.84rem; font-weight: 700; color: #f4f4f5; }
+        ${B} .m-view-sub { font-size: 0.72rem; color: #8b8b94; max-width: 236px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        ${B} .m-view-del {
+            padding: 0 11px; background: transparent; border: 0; border-left: 1px solid rgba(255,255,255,0.07);
+            color: #71717a; cursor: pointer;
+        }
+        ${B} .m-view-del:hover { color: #f87171; background: rgba(248,113,113,0.1); }
+        ${B} .m-view-empty { flex: 1 1 100%; margin: 0; font-size: 0.8rem; line-height: 1.5; color: #8b8b94; }
+        ${B} .m-view-save {
+            display: inline-flex; align-items: center; gap: 8px; padding: 8px 13px; border-radius: 10px;
+            background: rgba(56,189,248,0.14); border: 1px solid rgba(56,189,248,0.35); color: #7dd3fc;
+            font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+        }
+        ${B} .m-view-save:hover:not([disabled]) { background: rgba(56,189,248,0.22); color: #fff; }
+        ${B} .m-view-save[disabled] { opacity: 0.45; cursor: default; background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); color: #a1a1aa; }
+
+        /* Show / Hide switch */
+        ${B} .m-mode-toggle {
+            display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; flex: 0 0 auto;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+        }
+        ${B} .m-mode-btn {
+            display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 6px;
+            background: transparent; border: 0; color: #8b8b94; cursor: pointer;
+            font: inherit; font-size: 0.72rem; font-weight: 700;
+        }
+        ${B} .m-mode-btn i { font-size: 0.64rem; }
+        ${B} .m-mode-btn:hover { color: #e4e4e7; }
+        ${B} .m-mode-btn[data-mode="include"].active { background: #38bdf8; color: #06121c; }
+        ${B} .m-mode-btn[data-mode="exclude"].active { background: #ef4444; color: #fff; }
+
+        /* Fields: label row (with Show / Hide) over an input */
+        ${B} .m-combo-list { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 0; }
+        ${B} .dtb-cols-3 .m-combo-list { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+        ${B} [data-card="route"] .m-combo-list,
+        ${B} [data-card="proximity"] .m-combo-list { grid-template-columns: 1fr; }
+        ${B} .m-combo, ${B} .m-range-row { position: relative; min-width: 0; }
+        ${B} .m-combo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+        ${B} .m-combo-label {
+            display: flex; align-items: center; gap: 7px; margin: 0; min-width: 0;
+            font-size: 0.74rem; font-weight: 600; letter-spacing: 0; text-transform: none; color: #a1a1aa;
+        }
+        ${B} .m-combo-label span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        ${B} .m-combo-label i { width: 14px; text-align: center; color: #71717a; }
+        ${B} .m-combo-label small { color: #71717a; font-weight: 500; }
+        ${B} .m-apt-radius-combo > .m-combo-label, ${B} .m-apt-radius-row > .m-combo-label { margin-bottom: 7px; }
+        ${B} .m-combo-control { position: relative; display: block; }
+        ${B} .m-combo-input, ${B} .m-range-num {
+            width: 100%; box-sizing: border-box; height: 38px; padding: 0 64px 0 12px;
+            background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+            color: #f4f4f5; font: inherit; font-size: 0.86rem; font-weight: 500;
+        }
+        ${B} .m-range-num { padding: 0 12px; }
+        ${B} .m-combo-input::placeholder, ${B} .m-range-num::placeholder { color: #5b5b63; }
+        ${B} .m-combo-input:focus, ${B} .m-range-num:focus { outline: none; border-color: #38bdf8; background: rgba(56,189,248,0.06); }
+        ${B} .m-combo.has-value .m-combo-input { border-color: rgba(56,189,248,0.5); }
+        ${B} .is-exclude-mode.m-combo.has-value .m-combo-input { border-color: rgba(239,68,68,0.55); }
+        ${B} .is-exclude-mode .m-combo-label i { color: #f87171; }
+        ${B} .m-combo-caret, ${B} .m-combo-clear {
+            position: absolute; top: 50%; transform: translateY(-50%); width: 26px; height: 26px;
+            display: flex; align-items: center; justify-content: center; border-radius: 7px;
+            background: transparent; border: 0; color: #71717a; cursor: pointer; font-size: 0.75rem;
+        }
+        ${B} .m-combo-caret { right: 6px; transition: transform .2s ease; }
+        ${B} .m-combo.open .m-combo-caret { transform: translateY(-50%) rotate(180deg); }
+        ${B} .m-combo-clear { right: 32px; display: none; }
+        ${B} .m-combo.has-value .m-combo-clear { display: flex; }
+        ${B} .m-combo-caret:hover, ${B} .m-combo-clear:hover { color: #f4f4f5; background: rgba(255,255,255,0.06); }
+        ${B} .m-combo-menu {
+            display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+            max-height: 220px; overflow-y: auto; padding: 5px;
+            background: #1b1b1f; border: 1px solid rgba(255,255,255,0.12); border-radius: 11px;
+            box-shadow: 0 14px 34px rgba(0,0,0,0.55);
+        }
+        ${B} .m-combo.open .m-combo-menu { display: block; }
+        ${B} .m-combo-opt {
+            display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; border-radius: 7px;
+            background: transparent; color: #d4d4d8; font: inherit; font-size: 0.82rem; font-weight: 500; cursor: pointer;
+        }
+        ${B} .m-combo-opt:hover { background: rgba(56,189,248,0.12); color: #fff; }
+        ${B} .m-range-inputs { display: flex; align-items: center; gap: 8px; }
+        ${B} .m-range-dash { color: #5b5b63; font-weight: 700; }
+
+        /* Pills (Category / Flight phase) */
+        ${B} .m-tac-pill-block { display: flex; flex-direction: column; gap: 10px; }
+        ${B} .dtb-card > .m-tac-pill-block { margin-top: -42px; }
+        ${B} .m-tac-pill-head { display: flex; justify-content: flex-end; padding: 0; }
+        ${B} .m-tac-pill-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; }
+        ${B} .m-tac-pill {
+            padding: 6px 12px; border-radius: 999px; cursor: pointer;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: #c4c4cc;
+            font: inherit; font-size: 0.8rem; font-weight: 600;
+        }
+        ${B} .m-tac-pill:hover { color: #fff; border-color: rgba(255,255,255,0.2); }
+        ${B} .m-tac-pill.active { background: #38bdf8; border-color: #38bdf8; color: #06121c; }
+        ${B} .is-exclude-mode .m-tac-pill.active { background: #ef4444; border-color: #ef4444; color: #fff; }
+
+        /* Virtual airline: search, then a compact two-column logo grid */
+        ${B} .m-va-filter-block { display: flex; flex-direction: column; gap: 10px; padding: 0; }
+        ${B} .m-va-filter-search {
+            width: 100%; box-sizing: border-box; height: 38px; padding: 0 12px 0 36px;
+            background: rgba(0,0,0,0.25) no-repeat 12px center / 14px
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E");
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+            color: #f4f4f5; font: inherit; font-size: 0.86rem;
+        }
+        ${B} .m-va-filter-search:focus { outline: none; border-color: #38bdf8; }
+        ${B} .m-va-filter-list {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px;
+            max-height: 300px; overflow-y: auto; padding: 2px; margin: 0 -2px;
+        }
+        ${B} .m-va-filter-row {
+            display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px;
+            border-radius: 11px; cursor: pointer; text-align: left; font: inherit;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: inherit;
+        }
+        ${B} .m-va-filter-row:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
+        ${B} .m-va-filter-row.active { background: rgba(56,189,248,0.12); border-color: rgba(56,189,248,0.55); }
+        ${B} .m-va-filter-all { grid-column: 1 / -1; }
+        ${B} .m-va-filter-logo {
+            width: 30px !important; height: 30px !important; max-width: 30px !important; max-height: 30px !important;
+            flex: 0 0 30px; border-radius: 8px; object-fit: contain; background: rgba(255,255,255,0.06);
+            display: grid; place-items: center;
+        }
+        ${B} img.m-va-filter-logo { display: block; padding: 2px; box-sizing: border-box; }
+        ${B} .m-va-filter-logo-fb { font-size: 0.66rem; font-weight: 800; color: #7dd3fc; }
+        ${B} .m-va-filter-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+        ${B} .m-va-filter-name { font-size: 0.84rem; font-weight: 700; color: #f4f4f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        ${B} .m-va-filter-sub { font-size: 0.72rem; color: #8b8b94; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        ${B} .m-va-filter-check { color: #38bdf8; opacity: 0; flex: 0 0 auto; font-size: 0.8rem; }
+        ${B} .m-va-filter-row.active .m-va-filter-check { opacity: 1; }
+        ${B} .m-va-filter-empty { grid-column: 1 / -1; padding: 16px 8px; text-align: center; font-size: 0.82rem; color: #71717a; }
+        ${B} .m-va-filter-hint { margin: 0; font-size: 0.76rem; line-height: 1.5; color: #71717a; }
+    `;
+    document.head.appendChild(st);
+}
 
 const SettingsUI = {
     _isVisible: false,
@@ -19176,7 +19611,10 @@ const SettingsUI = {
                 position: sticky; top: 0; z-index: 5;
                 display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
                 padding: 24px 32px 16px;
-                background: linear-gradient(180deg, var(--gs-bg) 78%, rgba(22, 23, 26, 0));
+                /* Solid, so a scrolled page never shows through the title
+                   or its description; a hairline marks the edge. */
+                background: var(--gs-bg);
+                box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 18px -14px rgba(0, 0, 0, 0.7);
             }
             #global-settings-modal-overlay .gs-page-head h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.4px; color: var(--gs-text); }
             #global-settings-modal-overlay .gs-page-head p { margin: 5px 0 0; font-size: 13px; line-height: 1.45; color: var(--gs-dim); max-width: 60ch; }
@@ -19190,6 +19628,10 @@ const SettingsUI = {
             }
             #global-settings-modal-overlay .gs-page-head .close-modal:hover { background: rgba(255, 255, 255, 0.13) !important; color: #fff !important; }
             #global-settings-modal-overlay .settings-content-wrapper { padding: 4px 32px 36px !important; }
+            #global-settings-modal-overlay .gs-new {
+                margin-left: auto; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700;
+                letter-spacing: .02em; color: #7dd3fc; background: rgba(56, 189, 248, 0.14);
+            }
 
             /* ---- Sections: a label above a rounded group of rows ---- */
             #global-settings-modal-overlay .settings-section {
@@ -19460,6 +19902,7 @@ const SettingsUI = {
                                         <button class="nexus-item ${this._currentCategory === key ? 'active' : ''}" data-cat-id="${key}">
                                             <div class="nexus-icon"><i class="fa-solid ${cat.icon}"></i></div>
                                             <span class="nexus-label">${cat.label}</span>
+                                            ${key === 'windows' && MobileSettingsUI.isNewUnseen() ? '<span class="gs-new">New</span>' : ''}
                                         </button>`;
                                     }).join('')}
                                 </div>
@@ -19524,12 +19967,13 @@ renderCategory(catId) {
                     // and mapFilters.tactical engine as the mobile Filters
                     // sheet. MobileSettingsUI owns the board; this tab just
                     // hosts it (wired after render, see below).
+                    // Desktop gets its own layout and stylesheet (see
+                    // layoutDesktopFilterBoard): the phone board's markup,
+                    // grouped into cards on a two-column grid.
+                    ensureDesktopFilterStyles();
                     html = `
-                        <div class="settings-section">
-                            <label class="config-header">Live Traffic Filters</label>
-                            <div id="desktop-tactical-board" class="m-combo-list" style="gap: 14px;">
-                                ${MobileSettingsUI.renderTacticalBoard()}
-                            </div>
+                        <div id="desktop-tactical-board" class="dtb">
+                            ${MobileSettingsUI.renderTacticalBoard()}
                         </div>
                     `;
                     break;
@@ -19953,17 +20397,35 @@ renderCategory(catId) {
                     html = `
                         <div class="settings-section">
                             <label class="config-header">Flight Window</label>
-                            <div class="iw-seg" data-seg="flight-window-mode">
-                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'legacy' ? ' active' : ''}" data-mode="legacy"><i class="fa-solid fa-layer-group"></i> Legacy</button>
-                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'simple' ? ' active' : ''}" data-mode="simple"><i class="fa-solid fa-window-maximize"></i> Simple</button>
-                                <button type="button" class="iw-seg-btn${getFlightWindowMode() === 'embed' ? ' active' : ''}" data-mode="embed"><i class="fa-solid fa-id-card"></i> Card</button>
+                            <!-- Style, colour, background and saved setups beside a live
+                                 preview. Shared with the phone sheet (buildWindowLookPanel). -->
+                            <div style="padding: 12px 0 14px;">${buildWindowLookPanel('set')}</div>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Pilots' Window Styles</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-wand-magic-sparkles"></i> Show Pilots' Window Styles</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-show-pilot-styles" ${mapFilters.showPilotStyles !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
+                            <p class="iw-tz-hint" style="margin: -2px 0 8px;">Pilots can style the window others see for their flight. Turn this off to always see your own colour and background.</p>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-user-pen"></i> Your Window, as Others See It</div>
+                                <button type="button" class="wl-link" data-wl-own-style>Edit in profile <i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
+                            <p class="iw-tz-hint" style="margin: -2px 0 8px;">What everyone else sees when they open your flight. A painted theme is free; your own colour and a photo of your choosing are part of Inflight Pro. The background above only changes the windows you open.</p>
+                        </div>
+
+                        <div class="settings-section">
+                            <label class="config-header">Behaviour</label>
                             <!-- Which side of the map the flight window opens on.
                                  Used to be a button in the window's own tab bar. -->
-                            <div class="row-label" style="margin: 14px 0 8px 0;"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
-                            <div class="iw-seg" data-seg="flight-window-side">
-                                <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') === 'left' ? ' active' : ''}" data-mode="left"><i class="fa-solid fa-arrow-left"></i> Left</button>
-                                <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') !== 'left' ? ' active' : ''}" data-mode="right"><i class="fa-solid fa-arrow-right"></i> Right</button>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-arrows-left-right-to-line"></i> Window Side</div>
+                                <div class="iw-seg" data-seg="flight-window-side" style="margin: 0 !important;">
+                                    <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') === 'left' ? ' active' : ''}" data-mode="left"><i class="fa-solid fa-arrow-left"></i> Left</button>
+                                    <button type="button" class="iw-seg-btn${localStorage.getItem('acWindowDock') !== 'left' ? ' active' : ''}" data-mode="right"><i class="fa-solid fa-arrow-right"></i> Right</button>
+                                </div>
                             </div>
                             <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
@@ -19977,7 +20439,7 @@ renderCategory(catId) {
                                 <div class="row-label"><i class="fa-solid fa-earth-americas"></i> Time Zone</div>
                                 <select id="set-user-timezone" class="iw-tz-select">${buildTimezoneOptions(mapFilters.userTimezone)}</select>
                             </div>
-                            <div class="iw-tz-hint">Show flight-window times (departure / arrival) in your own time zone and clock format instead of 24-hour Zulu.</div>
+                            <div class="iw-tz-hint" style="margin: -2px 0 8px;">Show flight-window times (departure / arrival) in your own time zone and clock format instead of 24-hour Zulu.</div>
                         </div>
 
                         <div class="settings-section">
@@ -20132,6 +20594,7 @@ renderCategory(catId) {
                     html = `
                         <div class="settings-section">
                             <label class="config-header">What's New</label>
+                            ${window.InflightAppPromo ? window.InflightAppPromo.cardHtml() : ''}
                             ${(window.InflightChangelog && typeof window.InflightChangelog.renderSettingsPanel === 'function')
                                 ? window.InflightChangelog.renderSettingsPanel()
                                 : '<p style="font-size: 0.8rem; color: #71717a;">Release notes unavailable.</p>'}
@@ -20141,6 +20604,11 @@ renderCategory(catId) {
             }
 
             container.innerHTML = html;
+            // Seen the rebuilt Flight window page: the quiet "New" marks go.
+            if (catId === 'windows') {
+                try { localStorage.setItem('inflight_new_seen:windowlook', '1'); } catch (_) { /* private mode */ }
+                document.querySelectorAll('.gs-new, .m-tab-new').forEach(d => d.remove());
+            }
             const meta = this.categories[catId] || {};
             const titleEl = document.getElementById('gs-page-title');
             const descEl = document.getElementById('gs-page-desc');
@@ -20154,6 +20622,7 @@ renderCategory(catId) {
                 // render, so the attach guard never blocks a re-bind).
                 const board = container.querySelector('#desktop-tactical-board');
                 if (board) {
+                    layoutDesktopFilterBoard(board);
                     MobileSettingsUI.attachTacticalHandlers(board);
                     MobileSettingsUI.syncTacticalControls(board);
                 }
@@ -20287,9 +20756,12 @@ renderCategory(catId) {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', (e) => update(ids[id], e.target.checked));
         });
+        const pilotStylesEl = document.getElementById('set-show-pilot-styles');
+        if (pilotStylesEl) pilotStylesEl.addEventListener('change', (e) => setShowPilotStyles(e.target.checked));
 
-        // --- 4b. Flight- / Airport-window presentation segmented controls ---
-        // Legacy | Simple | Card for flights; Standard | Card for airports.
+        // --- 4b. Window presentation ---
+        // The flight window's look is the shared panel (wireWindowLookPanel);
+        // the airport window keeps its Standard | Card segmented control.
         const wireWindowModeSeg = (seg, apply, label) => {
             const wrap = document.querySelector(`.iw-seg[data-seg="${seg}"]`);
             if (!wrap) return;
@@ -20303,7 +20775,7 @@ renderCategory(catId) {
                 });
             });
         };
-        wireWindowModeSeg('flight-window-mode', setFlightWindowMode, 'Flight window');
+        wireWindowLookPanel(document.getElementById('global-settings-modal-overlay') || document);
         wireWindowModeSeg('airport-window-mode', setAirportWindowMode, 'Airport window');
 
         // Window side: same preference the old move-window button kept, and
@@ -23532,6 +24004,17 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         cachedFlightDataForStatsView = { flightProps, plan };
 
         const _fwMode = getFlightWindowMode();
+        // The Horizon skin hangs off the window itself; drop it for the
+        // iframe styles so it never tints their frame.
+        windowEl.classList.toggle('iw-horizon', _fwMode === 'horizon');
+        {
+            // The frame styles paint their own background image (see
+            // postWindowBackground); the window itself stays plain for them.
+            const c = Array.isArray(communityAircraftData) ? communityAircraftData[0] : communityAircraftData;
+            windowEl.dataset.wbPhoto = (c && (c.imageUrl || (Array.isArray(c.imageUrls) && c.imageUrls[0])))
+                || flightProps.communityImageUrl || '';
+            if (_fwMode === 'simple' || _fwMode === 'embed') windowEl.classList.remove('sr-bgimg', 'wb-legacy');
+        }
         if (_fwMode === 'simple' || _fwMode === 'embed') {
             // Cache filed-plan data so the live-update path can compute SCHEDULED/ACTUAL times too.
             cachedFlightDataForStatsView = { flightProps, plan, filedPlanData };
@@ -23556,6 +24039,8 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // .mobile-legacy-sheet has its own !important rules that win anyway.
             // Desktop boots the simple frame straight into its expanded layout;
             // setting it after load animated a collapsed bar into the full card.
+            // The pilot's own window look (posted to the frame with the background).
+            loadOwnerWindowStyle(windowEl, flightProps.username);
             const _fwSrc = _fwMode === 'embed'
                 ? ('embed-flight.html' + (onMobile ? '' : '?desktop=1'))
                 : ('flightinfo.html' + (onMobile ? '' : '?phase=expanded'));
@@ -23594,6 +24079,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 // Closed (or moved on) while the trail was awaited: nothing to show.
                 if (currentFlightInWindow === flightProps.flightId && liveFrame.contentWindow) {
                     liveFrame.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload }, '*');
+                    postWindowBackground(liveFrame, windowEl.dataset.wbPhoto || null);
                     postPhase(liveFrame);
                     // The pilot panel belongs to the previous pilot until asked.
                     handleIframeMessage({ data: { type: 'REQUEST_PILOT_STATS' } });
@@ -23628,6 +24114,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                     const payload = await firstPayload();
                     if (!iframe.contentWindow) return;
                     iframe.contentWindow.postMessage({ type: 'FLIGHT_DATA_UPDATE', payload }, '*');
+                    postWindowBackground(iframe, windowEl.dataset.wbPhoto || null);
                     postPhase(iframe);
                 };
             }
@@ -23707,7 +24194,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             // the live samples captured since the window was opened. Live ticks
             // keep extending it from here.
             try {
-                if (getFlightWindowMode() !== 'legacy') {
+                if (!isNativeFlightWindowMode()) {
                     const simpleIframe = document.getElementById('simple-flight-window-frame');
                     if (simpleIframe && simpleIframe.contentWindow) {
                         const freshData = formatDataForSimpleWindow(flightProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData);
@@ -24281,6 +24768,10 @@ function closeAircraftWindow() {
 // How long each aircraft photo is shown before the carousel softly advances.
 const HERO_PHOTO_CYCLE_MS = 5000;
 
+// The per-photo credit tag on the hero (the carousel's, and Horizon's for a
+// single photo).
+const HERO_CREDIT_CSS = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
+
 function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (!panel) return;
     // A previous open may have left an auto-cycle timer running on a now-detached
@@ -24298,15 +24789,17 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     // the incoming photo fades in without ever covering the UI.
     // (background-image itself isn't CSS-animatable, hence a dedicated layer.)
     const fadeLayer = document.createElement('div');
-    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;opacity:0;transition:opacity .6s ease;pointer-events:none;';
+    fadeLayer.className = 'hero-photo-fade';
+    fadeLayer.style.cssText = 'position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;opacity:0;pointer-events:none;will-change:opacity,transform;';
     panel.insertBefore(fadeLayer, panel.firstChild);
 
     const dots = document.createElement('div');
+    dots.className = 'hero-photo-dots';
     dots.style.cssText = 'position:absolute;bottom:48px;left:0;right:0;z-index:4;display:flex;justify-content:center;gap:6px;';
     const dotEls = photos.map((_, i) => {
         const d = document.createElement('span');
         d.style.cssText = 'width:7px;height:7px;border-radius:50%;cursor:pointer;transition:all .2s ease;box-shadow:0 1px 2px rgba(0,0,0,.6);';
-        d.addEventListener('click', (e) => { e.stopPropagation(); show(i); });
+        d.addEventListener('click', (e) => { e.stopPropagation(); show(i, true); });
         dots.appendChild(d);
         return d;
     });
@@ -24315,31 +24808,79 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     // read as a faint photo watermark — not a solid UI badge that could be
     // mistaken for pilot info — so it's deliberately see-through with no border.
     const credit = document.createElement('div');
-    credit.style.cssText = 'position:absolute;bottom:45px;right:24px;z-index:4;max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;font-weight:500;letter-spacing:0.3px;color:rgba(255,255,255,0.72);background:rgba(0,0,0,0.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:3px 9px;border-radius:20px;text-shadow:0 1px 2px rgba(0,0,0,0.6);pointer-events:none;';
+    credit.className = 'hero-photo-credit';
+    credit.style.cssText = HERO_CREDIT_CSS;
 
+    // Fade timing. The slideshow's own advance is slow and soft (the photo
+    // fades in while settling from a slight zoom); a change the user asked
+    // for — edge button, dot, swipe — is quick, so the tap feels answered.
+    const FADES = {
+        auto: { ms: 850, zoom: 1.04, tf: 1350 },
+        user: { ms: 260, zoom: 1.015, tf: 380 },
+    };
+    // Warm every photo now, so a tap never waits on the network. The Image
+    // objects are kept so the decoded bitmaps stay in memory.
+    const warm = photos.map((p) => {
+        const im = new Image();
+        im.decoding = 'async';
+        im.src = p.src;
+        if (im.decode) im.decode().catch(() => {});
+        return im;
+    });
     let index = 0;
     let fadeCommit = null;
-    const show = (i) => {
+    let swapToken = 0;
+    const show = (i, byUser = false) => {
         const next = (i + photos.length) % photos.length;
         const src = photos[next].src;
-        // Crossfade: paint the incoming photo on the fade layer, fade it in,
-        // then commit it to the panel background and reset the layer instantly
-        // (no transition) so it's invisible and ready for the next swap.
+        // Crossfade: preload the incoming photo (so it never fades in half
+        // decoded), paint it on the fade layer slightly zoomed, fade it in
+        // while it settles to full size, then commit it to the panel
+        // background and reset the layer instantly, ready for the next swap.
         if (next !== index) {
             if (fadeCommit) { clearTimeout(fadeCommit); fadeCommit = null; }
-            fadeLayer.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
-            requestAnimationFrame(() => { fadeLayer.style.opacity = '1'; });
-            fadeCommit = setTimeout(() => {
-                panel.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+            const token = ++swapToken;
+            const f = byUser ? FADES.user : FADES.auto;
+            // A manual change restarts the slideshow's clock, so it doesn't
+            // jump again a moment after the tap.
+            if (byUser && window.__heroAutoTimer) {
+                clearInterval(window.__heroAutoTimer);
+                window.__heroAutoTimer = null;
+                startAuto();
+            }
+            const start = () => {
+                if (token !== swapToken) return;   // a newer swap won
                 fadeLayer.style.transition = 'none';
                 fadeLayer.style.opacity = '0';
-                requestAnimationFrame(() => { fadeLayer.style.transition = 'opacity .6s ease'; });
-                fadeCommit = null;
-            }, 600);
+                fadeLayer.style.transform = `scale(${f.zoom})`;
+                fadeLayer.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+                void fadeLayer.offsetWidth;
+                fadeLayer.style.transition = `opacity ${f.ms}ms cubic-bezier(0.4, 0, 0.2, 1), transform ${f.tf}ms cubic-bezier(0.2, 0.7, 0.2, 1)`;
+                fadeLayer.style.opacity = '1';
+                fadeLayer.style.transform = 'scale(1)';
+                fadeCommit = setTimeout(() => {
+                    panel.style.backgroundImage = `url('${src}'), url('${fallbackPath}')`;
+                    requestAnimationFrame(() => {
+                        fadeLayer.style.transition = 'none';
+                        fadeLayer.style.opacity = '0';
+                    });
+                    fadeCommit = null;
+                }, f.ms);
+            };
+            // Already warmed: go now. Otherwise start the moment it lands.
+            const pre = warm[next];
+            if (pre && pre.complete && pre.naturalWidth) start();
+            else if (pre) {
+                pre.addEventListener('load', start, { once: true });
+                pre.addEventListener('error', start, { once: true });
+            } else start();
         }
         index = next;
         panel.dataset.currentPath = src;
-        dotEls.forEach((d, k) => { d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`; });
+        dotEls.forEach((d, k) => {
+            d.style.background = `rgba(255,255,255,${k === index ? '0.95' : '0.45'})`;
+            d.classList.toggle('on', k === index);
+        });
         const n = photos[index].photographer;
         credit.textContent = (n && n !== 'IF Community') ? `© ${n}` : '';
         credit.style.display = credit.textContent ? '' : 'none';
@@ -24364,6 +24905,14 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     if (autoOn) {
         panel.addEventListener('mouseenter', () => { paused = true; });
         panel.addEventListener('mouseleave', () => { paused = false; });
+        // Touch has no hover: hold still while a finger is on the photo, and
+        // for a few seconds after, so a swipe isn't followed by a jump.
+        let touchResume = null;
+        panel.addEventListener('touchstart', () => { paused = true; clearTimeout(touchResume); }, { passive: true });
+        panel.addEventListener('touchend', () => {
+            clearTimeout(touchResume);
+            touchResume = setTimeout(() => { paused = false; }, 4000);
+        }, { passive: true });
         startAuto();
     }
 
@@ -24381,9 +24930,12 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
     panel.addEventListener('pointerup', (e) => {
         if (downX == null) return;
         const dx = e.clientX - downX;
-        if (moved && Math.abs(dx) > 40) show(index + (dx < 0 ? 1 : -1));
+        if (moved && Math.abs(dx) > 40) show(index + (dx < 0 ? 1 : -1), true);
         downX = downY = null; moved = false;
     });
+
+    // Paging for other controls (Horizon's edge buttons).
+    panel._heroStep = (d) => show(index + d, true);
 
     show(0);
 }
@@ -24397,6 +24949,20 @@ function decoratePilotTab(btn) {
     const apply = (profile) => {
         if (!profile || !btn.isConnected) return;
         btn.classList.add('has-profile');
+        // Pro pilots: a PRO mark by the name, their accent on the picture's
+        // ring, and (flair on) a shimmer across the banner.
+        btn.classList.toggle('is-pro', !!profile.isPro);
+        if (profile.accent) btn.style.setProperty('--pilot-accent', profile.accent);
+        if (profile.isPro && !btn.querySelector('.ac-pilot-pro')) {
+            const go = btn.querySelector('.ac-pilot-go');
+            const mark = document.createElement('span');
+            mark.className = 'ac-pilot-pro';
+            mark.textContent = 'PRO';
+            btn.insertBefore(mark, go || null);
+        }
+        const st = PilotProfiles.peekWindowStyle(uname);
+        if (st !== undefined) markPilotFlair(btn, st);
+        else PilotProfiles.windowStyle(uname).then((s) => { if (btn.isConnected) markPilotFlair(btn, s); });
         const banner = btn.querySelector('.ac-pilot-banner');
         if (banner) {
             banner.style.backgroundImage = profile.bannerUrl
@@ -24442,10 +25008,2954 @@ function openPilotProfile(username, userId) {
         .catch(err => console.error('Failed to load UserProfileUI:', err));
 }
 
+/**
+ * --- Horizon flight window skin ---
+ * The "Horizon" window style is the Legacy window — same markup, same live
+ * updates — dressed in a softer skin: one deep ink surface instead of grey
+ * bands, frosted glass over the photo, sentence-case labels, lighter number
+ * weights and muted avionics colours. Everything is scoped under
+ * #aircraft-info-window.iw-horizon, so Legacy itself is untouched. Most of the
+ * window's markup carries inline styles, hence the !important overrides; the
+ * html/body prefix outranks the mobile sheet's id-scoped !important rules.
+ */
+const HORIZON_WINDOW_CSS = (() => {
+    const S = 'html body #aircraft-info-window.iw-horizon';
+    return `
+        ${S} {
+            /* Palette. applyHorizonColor() overrides these inline from the
+               user's chosen colour: --sr-ink-rgb is white on a dark colour
+               and black on a light one, and every overlay, hairline and
+               text tone below is drawn from it, so contrast follows. */
+            --sr-bg: #16181c;
+            --sr-bg-rgb: 22,24,28;
+            --sr-ink-rgb: 255,255,255;
+            --sr-text: #eef0f4;
+            --sr-muted: rgba(var(--sr-ink-rgb),0.6);
+            --sr-faint: rgba(var(--sr-ink-rgb),0.42);
+            --sr-accent: #8cc8ee;
+            --sr-accent-soft: rgba(140,200,238,0.32);
+            --sr-surface: rgba(var(--sr-ink-rgb),0.035);
+            --sr-surface-hi: rgba(var(--sr-ink-rgb),0.06);
+            --sr-line: rgba(var(--sr-ink-rgb),0.07);
+            --text-primary: var(--sr-text);
+            /* Ambient tint: the window colour lightly mixed with the photo's
+               own colour (sampleHorizonGlow). Plain window colour without it. */
+            --sr-tint: var(--sr-bg);
+            --sr-radius: 18px;
+            /* The Fuel and Cabin cards (fuelEstimator.js, cabinMap.js) paint
+               with these host variables, so they follow the skin too. */
+            --card-bg: var(--sr-surface);
+            --border-glass: var(--sr-line);
+            --color-brand: var(--sr-accent);
+            --text-secondary: var(--sr-muted);
+            --text-dim: var(--sr-faint);
+            /* The tint sits behind the header and fades into the window
+               colour over the first screen; it scrolls with the content. */
+            background:
+                linear-gradient(180deg, var(--sr-tint) 0, var(--sr-tint) 420px, var(--sr-bg) 900px) 0 0 / 100% 900px no-repeat local,
+                var(--sr-bg) !important;
+            color: var(--sr-text);
+            border: 1px solid rgba(var(--sr-ink-rgb),0.06) !important;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.42), 0 2px 10px rgba(0,0,0,0.22) !important;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(var(--sr-ink-rgb),0.12) transparent;
+        }
+        ${S}:not(.mobile-legacy-sheet) { border-radius: 22px !important; }
+        ${S}.mobile-legacy-sheet {
+            background:
+                linear-gradient(180deg, var(--sr-tint) 0, var(--sr-tint) 420px, var(--sr-bg) 900px) 0 0 / 100% 900px no-repeat local,
+                var(--sr-bg) !important;
+            color: var(--sr-text) !important;
+        }
+        ${S}.sr-ambient { --sr-tint: color-mix(in srgb, var(--sr-bg) 82%, rgb(var(--sr-glow-rgb))); }
+        ${S}.sr-ambient.sr-light { --sr-tint: color-mix(in srgb, var(--sr-bg) 88%, rgb(var(--sr-glow-rgb))); }
+        ${S}::-webkit-scrollbar { width: 6px; }
+        ${S}::-webkit-scrollbar-thumb { background: rgba(var(--sr-ink-rgb),0.12); border-radius: 3px; }
+        ${S}::-webkit-scrollbar-track { background: transparent; }
+
+        /* ---- Hero photo: a soft top scrim for the callsign, a long fade
+           into the window colour at the bottom ---- */
+        /* Always cover (the phone sheet used contain, which left the photo
+           ending in a hard edge above the fade). The fade is eased — many
+           stops following a smooth curve — so it melts into the window
+           colour with no visible band or line. */
+        /* ---- Cinematic header ----
+           The photo spans the full width at its own height (fitHorizonHero
+           sets --sr-photo-h), never zoomed, so nose and tail stay in. The
+           header runs 48px past the photo; the identity sits on the photo's
+           lower edge and flows onto that band, and the fade reaches the
+           window colour exactly where the photo ends. */
+        ${S} .ac-header-modern {
+            min-height: calc(var(--sr-photo-h, 220px) + 48px) !important;
+            background-color: var(--sr-tint) !important;
+            background-size: 100% auto !important; background-position: center top !important;
+            background-repeat: no-repeat !important;
+        }
+        ${S} .hero-photo-fade { background-size: 100% auto !important; background-position: center top !important; }
+        ${S} .ac-header-overlay {
+            background: linear-gradient(180deg,
+                rgba(12,14,18,0.34) 0px, rgba(12,14,18,0) 72px,
+                color-mix(in srgb, var(--sr-tint) 0%, transparent) calc(var(--sr-photo-h, 220px) * 0.36),
+                color-mix(in srgb, var(--sr-tint) 6%, transparent) calc(var(--sr-photo-h, 220px) * 0.46),
+                color-mix(in srgb, var(--sr-tint) 16%, transparent) calc(var(--sr-photo-h, 220px) * 0.56),
+                color-mix(in srgb, var(--sr-tint) 32%, transparent) calc(var(--sr-photo-h, 220px) * 0.66),
+                color-mix(in srgb, var(--sr-tint) 52%, transparent) calc(var(--sr-photo-h, 220px) * 0.76),
+                color-mix(in srgb, var(--sr-tint) 72%, transparent) calc(var(--sr-photo-h, 220px) * 0.85),
+                color-mix(in srgb, var(--sr-tint) 89%, transparent) calc(var(--sr-photo-h, 220px) * 0.93),
+                var(--sr-tint) var(--sr-photo-h, 220px)) !important;
+        }
+        ${S} .ac-partner-hero { order: 2; margin: auto 20px 8px !important; max-width: calc(100% - 40px) !important; }
+        ${S} .ac-header-top { order: 3; padding: 0 20px 12px !important; }
+        ${S} .ac-identity-group { max-width: 100% !important; min-width: 0; width: 100%; }
+
+        /* Identity (built by arrangeHorizonWindow): one eyebrow line —
+           airline logo chip, airline, aircraft type, all in the same small
+           capitals — then the callsign. */
+        ${S} .sr-eyebrow {
+            display: flex; align-items: center; gap: 7px; min-width: 0;
+            font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+            color: rgba(var(--sr-ink-rgb),0.72); text-shadow: 0 1px 8px rgba(0,0,0,0.4);
+        }
+        ${S} .sr-eyebrow > span:not(.sr-logo) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        ${S} .sr-eb-airline { flex: 0 1 auto; }
+        ${S} .sr-eb-sep { flex: 0 0 auto; opacity: 0.6; }
+        ${S} .sr-eb-aircraft { flex: 0 1 auto; }
+        ${S} .sr-logo {
+            display: none; flex: 0 0 auto; width: 22px; height: 22px; padding: 2px; margin-right: 1px;
+            border-radius: 6px; background: #fff; box-sizing: border-box;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            place-items: center; overflow: hidden;
+        }
+        ${S} .sr-logo.is-wide { width: 52px; padding: 2px 4px; }
+        ${S} .sr-logo.has-logo { display: grid; }
+        ${S} .sr-logo img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+        ${S} .ac-header-top h1.sr-callsign {
+            display: block !important; margin: 5px 0 0 !important;
+            max-width: calc(100% - var(--sr-meta-w, 0px) - 12px);
+            font-size: 21px !important; font-weight: 600 !important; line-height: 1.2 !important;
+            letter-spacing: -0.01em !important; color: var(--sr-text) !important;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            text-shadow: 0 1px 10px rgba(0,0,0,0.35) !important;
+        }
+
+        /* Photo meta: the swipe dots at the bottom-right, level with the
+           callsign. The active dot stretches into a short pill. */
+        ${S} .sr-photo-meta {
+            position: absolute; right: 20px; bottom: 20px; z-index: 4;
+            display: flex; align-items: center; gap: 9px; max-width: 46%;
+            pointer-events: none;
+        }
+        ${S} .sr-photo-meta .hero-photo-dots {
+            position: static !important; display: flex !important; gap: 4px !important; flex: 0 0 auto;
+            pointer-events: auto;
+        }
+        ${S} .sr-photo-meta .hero-photo-dots span {
+            width: 6px !important; height: 6px !important; border-radius: 3px !important; box-shadow: none !important;
+            transition: width .35s cubic-bezier(0.2, 0.7, 0.2, 1), background-color .35s ease !important;
+        }
+        ${S} .sr-photo-meta .hero-photo-dots span.on { width: 16px !important; }
+        /* Contributor: a quiet glass tag at the photo's top-left. */
+        ${S} .hero-photo-credit {
+            top: 16px !important; left: 16px !important; right: auto !important; bottom: auto !important;
+            max-width: 52% !important; z-index: 4 !important;
+            font-size: 10.5px !important; font-weight: 500 !important; letter-spacing: 0.01em !important;
+            padding: 3px 9px !important; color: rgba(255,255,255,0.86) !important;
+            background: rgba(12,14,18,0.34) !important; text-shadow: none !important;
+            -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
+        }
+
+
+        ${S} .hero-btn {
+            width: 34px; height: 34px;
+            background: rgba(18,20,24,0.34);
+            border: 1px solid rgba(255,255,255,0.14);
+            color: rgba(255,255,255,0.92);
+            -webkit-backdrop-filter: blur(14px) saturate(140%);
+            backdrop-filter: blur(14px) saturate(140%);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.16);
+        }
+        ${S} .hero-btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.22); }
+        ${S} .hero-btn.pinged { color: var(--sr-accent); border-color: rgba(140,200,238,0.55); }
+
+        /* ---- Route strip: part of the header, not a separate card ----
+           Two airports side by side, one full-width progress line under
+           them, then distance · phase · status · time left in a single row.
+           Grid/flex re-flows the existing nodes; nothing is re-rendered. */
+        ${S} .ac-route-bar-backdrop {
+            background: transparent !important; box-shadow: none !important; display: flow-root;
+            border-bottom: 1px solid var(--sr-line);
+        }
+        ${S} .ac-route-info-bar {
+            display: grid !important; grid-template-columns: 1fr 1fr; column-gap: 16px !important; row-gap: 0 !important;
+            margin: 0 !important; padding: 6px 20px 18px !important;
+            background: transparent !important; border: 0 !important; border-radius: 0 !important;
+            -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+            box-shadow: none !important;
+        }
+        ${S} .ac-route-info-bar > .route-node { grid-row: 1; min-width: 0; }
+        ${S} .ac-route-info-bar > .route-node:not(.end) { grid-column: 1; }
+        ${S} .ac-route-info-bar > .route-node.end { grid-column: 2; }
+        ${S} .ac-route-info-bar > .route-visual { grid-row: 2; grid-column: 1 / -1; max-width: none !important; }
+
+        /* Airport: ICAO + flag, city, "21:37 Z · estimated", gate tag */
+        ${S} .route-node {
+            display: flex !important; flex-direction: row !important; flex-wrap: wrap !important;
+            align-items: baseline !important; align-content: flex-start; column-gap: 6px;
+        }
+        ${S} .route-node.end { justify-content: flex-end; text-align: right; }
+        ${S} .route-node .icao-large {
+            order: 1; flex-basis: 100%;
+            font-family: var(--font-ui) !important; font-size: 22px !important; font-weight: 600 !important;
+            letter-spacing: 0.03em; line-height: 1.15 !important;
+        }
+        ${S} .route-node.end .icao-large { justify-content: flex-start; }
+        ${S} .route-node .icao-large img { height: 12px !important; border-radius: 2px; opacity: 0.9 !important; }
+        ${S} .route-node .city-name {
+            order: 2; flex-basis: 100%; max-width: none !important; margin: 2px 0 6px;
+            color: var(--sr-muted) !important; font-size: 11.5px !important; font-weight: 500 !important;
+            text-transform: none !important; letter-spacing: 0 !important;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        ${S} .route-node .time-small {
+            order: 3; font-family: var(--font-ui) !important; font-size: 13px !important; font-weight: 500 !important;
+            font-variant-numeric: tabular-nums;
+        }
+        ${S} .route-node .time-source-label {
+            order: 4; margin: 0 !important; font-size: 11px !important; font-weight: 500 !important;
+            letter-spacing: 0 !important; text-transform: lowercase !important; opacity: 0.7 !important;
+        }
+        ${S} .route-node .time-source-label::before { content: '·'; margin-right: 6px; }
+        /* A zero-height full-width item forces the gate tag onto its own line. */
+        ${S} .route-node::after { content: ''; order: 5; flex-basis: 100%; height: 0; }
+        ${S} #ac-dep-gate, ${S} #ac-arr-gate {
+            order: 6;
+            margin-top: 8px !important; padding: 3px 9px !important; border-radius: 999px !important;
+            background: rgba(var(--sr-ink-rgb),0.06) !important; color: var(--sr-muted) !important;
+            font-size: 10.5px !important; font-weight: 500 !important; letter-spacing: 0 !important;
+        }
+        ${S} #ac-dep-gate i, ${S} #ac-arr-gate i { color: var(--sr-faint) !important; margin-right: 3px; }
+
+        /* Progress: one full-width line, origin dot filled, destination
+           dot hollow, the plane riding the end of the fill. */
+        ${S} .route-visual {
+            display: flex !important; flex-direction: row !important; flex-wrap: wrap !important;
+            align-items: center !important; justify-content: space-between !important;
+            gap: 8px; margin-top: 16px;
+        }
+        ${S} .route-visual > .flight-progress-track {
+            order: 0; flex: 0 0 100%;
+            height: 4px !important; border-radius: 2px !important;
+            /* The distance still to fly, drawn dashed under the solid fill. */
+            background: repeating-linear-gradient(90deg, rgba(var(--sr-ink-rgb),0.26) 0 6px, transparent 6px 11px) center / 100% 2px no-repeat !important;
+            margin: 0 4px 8px;
+            flex-basis: calc(100% - 8px);
+        }
+        ${S} .flight-progress-track::before, ${S} .flight-progress-track::after {
+            content: ''; position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%;
+            transform: translate(-50%, -50%); box-sizing: border-box;
+        }
+        ${S} .flight-progress-track::before { left: 0; background: var(--sr-accent); z-index: 2; }
+        ${S} .flight-progress-track::after { left: 100%; background: var(--sr-tint); border: 1.5px solid rgba(var(--sr-ink-rgb),0.35); }
+        ${S} .flight-progress-fill { border-radius: 2px !important; background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)) !important; z-index: 1; }
+        ${S} .flight-progress-plane { filter: none !important; font-size: 13px !important; color: var(--sr-text) !important; right: -7px !important; }
+        /* The aircraft's own map silhouette (setHorizonProgressPlane), turned
+           to face along the line, in place of the generic plane glyph. */
+        ${S}.sr-has-plane .flight-progress-plane {
+            font-size: 0 !important; width: 24px; height: 24px; right: -12px !important;
+            background: var(--sr-text) !important;
+            -webkit-mask: var(--sr-plane) center / contain no-repeat;
+            mask: var(--sr-plane) center / contain no-repeat;
+            transform: translateY(-50%) rotate(90deg) !important;
+        }
+        ${S}.sr-has-plane .flight-progress-plane::before { content: none !important; }
+        /* distance | phase · status | time left */
+        ${S} .route-visual > div:nth-child(3) { display: contents !important; }
+        ${S} .route-visual > div:nth-child(3) > span {
+            font-size: 11.5px; font-weight: 500; color: var(--sr-muted); font-variant-numeric: tabular-nums; white-space: nowrap;
+        }
+        ${S} .route-visual > div:nth-child(3) > span:first-child { order: 1; }
+        ${S} .route-visual > div:nth-child(3) > span:last-child { order: 4; }
+        ${S} .phase-badge-route {
+            order: 2; margin: 0 0 0 auto !important; width: auto !important; padding: 4px 10px;
+            border-radius: 999px; background: rgba(var(--sr-ink-rgb),0.06);
+        }
+        ${S} #ac-phase-dot { box-shadow: none !important; width: 6px !important; height: 6px !important; }
+        ${S} #ac-phase-text {
+            display: inline-block; font-size: 11px !important; font-weight: 600 !important;
+            letter-spacing: 0.01em !important; color: rgba(var(--sr-ink-rgb),0.88) !important; text-transform: lowercase !important;
+        }
+        ${S} #ac-phase-text::first-letter { text-transform: uppercase; }
+        ${S} #ac-flight-status-badge {
+            order: 3; margin: 0 auto 0 0 !important; padding: 4px 10px !important;
+            border: 0 !important; border-radius: 999px !important; box-shadow: none !important;
+            background: rgba(var(--sr-ink-rgb),0.06) !important;
+            -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+            font-size: 11px !important; font-weight: 600 !important; letter-spacing: 0.01em !important;
+        }
+        ${S} #ac-flight-status-badge span { display: inline-block; text-transform: lowercase; }
+        ${S} #ac-flight-status-badge span::first-letter { text-transform: uppercase; }
+        /* Only the phase pill: it centres itself between the two numbers. */
+        ${S} .route-visual:not(:has(#ac-flight-status-badge)) .phase-badge-route { margin: 0 auto !important; }
+        ${S} #ac-route-map-strip {
+            margin: 12px 14px 0 !important; border-radius: var(--sr-radius) !important;
+            border-color: var(--sr-line) !important; box-shadow: 0 10px 28px rgba(0,0,0,0.22) !important;
+        }
+        ${S} .ac-icao-link:hover { color: var(--sr-accent); text-shadow: none; }
+
+        /* ---- Pilot card ---- */
+        ${S} .ac-info-window-tabs {
+            background: transparent !important; border: 0 !important;
+            padding: 14px 14px 4px !important;
+        }
+        ${S} #main-data-switcher {
+            border-radius: var(--sr-radius) !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2) !important;
+        }
+        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn {
+            border-radius: var(--sr-radius) !important;
+            background: var(--sr-surface-hi) !important;
+            text-transform: none !important; letter-spacing: 0.01em !important;
+            font-size: 13.5px !important; font-weight: 600 !important;
+        }
+        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { box-shadow: inset 0 0 0 1px var(--sr-line); }
+        ${S} .ac-pilot-avatar { background: #3a404b; border-width: 1px; border-color: rgba(255,255,255,0.7); }
+        ${S} .ac-pilot-go { font-size: 11px; font-weight: 500; opacity: 0.75; }
+
+        /* ---- Content column ---- */
+        ${S} .unified-display-main-content {
+            background: transparent !important; border-top: 0 !important;
+            padding: 10px 14px 20px !important;
+        }
+        ${S} #ac-tab-flight-data { gap: 12px !important; }
+        ${S} .va-ad-banner-slot { border-radius: 16px; overflow: hidden; }
+
+        /* ---- Instruments: no bezel, no scanlines, muted colours ---- */
+        ${S} .display-bezel {
+            padding: 0 !important; background: var(--sr-surface) !important;
+            border: 1px solid var(--sr-line) !important; border-radius: var(--sr-radius) !important;
+            box-shadow: none !important;
+        }
+        ${S} .pfd-main-panel .display-bezel { background: #0e1013 !important; }
+        ${S} .crt-container { border: 0 !important; border-radius: calc(var(--sr-radius) - 1px) !important; box-shadow: none !important; background: #0e1013 !important; }
+        ${S} .scanlines::before { display: none !important; }
+        ${S} #pfd-container svg { background-color: #0e1013 !important; filter: saturate(0.82) contrast(0.97) !important; }
+        ${S} #pfd-container #Sky { fill: #4f8fc4; }
+        ${S} #pfd-container #Ground { fill: #7b563b; }
+        ${S} #pfd-container [fill="#030309"] { fill: #0e1013; }
+        ${S} #pfd-container [fill="#76767A"] { fill: #3b4049; }
+        ${S} #pfd-container [fill="#00FF00"] { fill: #86e0ad; }
+        ${S} #pfd-container [fill="#0CC704"] { fill: #6fcf97; }
+        ${S} #pfd-container [stroke="#029705"] { stroke: #6fcf97; }
+        ${S} #pfd-container [fill="#FDFD03"], ${S} #pfd-container [fill="#E7F013"] { fill: #f0d37a; }
+        ${S} #pfd-container [stroke="#FDFD03"], ${S} #pfd-container [stroke="#FEFE03"],
+        ${S} #pfd-container [stroke="#ECED06"], ${S} #pfd-container [stroke="#DDDF07"] { stroke: #f0d37a; }
+        ${S} #pfd-container [fill="#C477C6"] { fill: #c7a3d9; }
+        ${S} #nav-display-frame { filter: saturate(0.7) brightness(0.97); }
+
+        /* Pilot status + timers: moved out from beside the PFD into one
+           card under the glance row (arrangeHorizonWindow adds .sr-status).
+           Status on top, the three timers in a row beneath a hairline. */
+        ${S} .pfd-and-location-grid { grid-template-columns: 1fr !important; }
+        ${S} .sr-status {
+            height: auto !important; overflow: visible !important; gap: 0 !important;
+            justify-content: flex-start !important;
+            background: var(--sr-surface); border: 1px solid var(--sr-line);
+            border-radius: 20px; padding: 16px 18px;
+        }
+        ${S} .modern-status-card {
+            background: transparent !important; border: 0 !important; border-radius: 0 !important;
+            padding: 0 !important; box-shadow: none !important; overflow: visible !important;
+            -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+        }
+        ${S} .modern-status-card .status-glow { display: none !important; }
+        /* icon | text | live dot, on one line */
+        ${S} .modern-status-card > div { flex-direction: row !important; align-items: center !important; gap: 12px !important; }
+        ${S} .modern-status-card > div > div:first-child { display: contents !important; }
+        ${S} .modern-status-card > div > div:last-child { order: 1; flex: 1; min-width: 0; }
+        ${S} .modern-status-card .tech-ping { order: 2; }
+        ${S} .modern-status-card > div > div:first-child > div:first-child {
+            width: 38px !important; height: 38px !important; flex: 0 0 auto;
+            background: rgba(var(--sr-ink-rgb),0.05) !important; border-color: transparent !important; border-radius: 12px !important;
+        }
+        ${S} .modern-status-card i { filter: none !important; }
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(1) {
+            font-size: 11px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
+            text-transform: none !important; letter-spacing: 0 !important; margin-bottom: 1px !important;
+        }
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(2) {
+            font-size: 16px !important; font-weight: 600 !important; letter-spacing: 0 !important;
+            text-transform: lowercase;
+        }
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(2)::first-letter { text-transform: uppercase; }
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(3) { color: var(--sr-faint) !important; font-size: 11px !important; }
+        ${S} .modern-timer-stack {
+            display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 0 !important;
+            margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--sr-line);
+        }
+        ${S} .timer-node, ${S} .timer-node:last-child {
+            display: flex !important; flex-direction: column !important; align-items: flex-start !important;
+            justify-content: flex-start !important; gap: 3px;
+            background: transparent !important; border: 0 !important; border-radius: 0 !important;
+            padding: 0 12px !important; min-width: 0;
+        }
+        ${S} .timer-node:first-child { padding-left: 0 !important; }
+        ${S} .timer-node + .timer-node { border-left: 1px solid var(--sr-line) !important; }
+        ${S} .timer-node > div { margin: 0 !important; }
+        ${S} .timer-node > div > span, ${S} .timer-node:last-child > span:first-child {
+            font-size: 11px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
+            text-transform: none !important; letter-spacing: 0 !important;
+        }
+        ${S} .timer-node i { color: var(--sr-faint) !important; font-size: 9px !important; }
+        ${S} .timer-node:nth-child(2) i, ${S} .timer-node:nth-child(2) > div > span { color: var(--sr-accent) !important; }
+        ${S} #ac-sensor-elapsed, ${S} #ac-sensor-ete, ${S} #ac-sensor-total {
+            font-family: var(--font-ui) !important; font-size: 17px !important; font-weight: 500 !important;
+            color: var(--sr-text) !important; font-variant-numeric: tabular-nums;
+        }
+        ${S} #ac-sensor-ete { color: var(--sr-accent) !important; }
+        ${S} .sr-hidden { display: none !important; }
+
+        /* Navigation / Flight plan switch */
+        ${S} .nd-full-width-section .modern-view-switcher {
+            background: var(--sr-surface) !important; border: 1px solid var(--sr-line) !important;
+            border-radius: 14px !important; margin-bottom: 10px !important;
+        }
+        ${S} .display-toggle-btn {
+            text-transform: none !important; letter-spacing: 0 !important;
+            font-size: 12.5px !important; font-weight: 600 !important;
+        }
+        ${S} .nd-full-width-section .switcher-highlight {
+            background: rgba(var(--sr-ink-rgb),0.075) !important; border-color: rgba(var(--sr-ink-rgb),0.07) !important;
+            border-radius: 10px !important; box-shadow: 0 2px 10px rgba(0,0,0,0.18) !important;
+        }
+        ${S} #fmc-view-container { background: #0e1013 !important; }
+        ${S} .fms-header { background: transparent !important; border-bottom-color: var(--sr-line) !important; }
+        ${S} .fms-header .tech-module-title { letter-spacing: 0.02em !important; font-weight: 600 !important; color: var(--sr-text); }
+        ${S} .fms-header .tech-module-title i { color: var(--sr-accent) !important; }
+        ${S} .fms-columns { background: transparent !important; border-bottom: 1px solid var(--sr-line) !important; }
+        ${S} .fms-columns span { text-transform: none !important; font-size: 10.5px !important; color: var(--sr-faint) !important; }
+        ${S} .fms-row { border-bottom-color: rgba(255,255,255,0.04) !important; }
+        ${S} .fms-row.active-leg { background: rgba(140,200,238,0.07); }
+        ${S} .fms-footer { background: var(--sr-surface) !important; border-top-color: var(--sr-line) !important; }
+        ${S} .fms-footer .stat-label { text-transform: none !important; font-size: 10.5px !important; color: var(--sr-muted) !important; }
+        ${S} .fms-footer .stat-value { font-weight: 500 !important; }
+        ${S} #fms-total-ete { color: var(--sr-accent) !important; }
+        ${S} .proc-tag { opacity: 0.8; }
+
+        /* ---- Stat cards (Speed & altitude, This flight, Navigation, Aircraft) ---- */
+        ${S} .acx-sec {
+            font-size: 13px; font-weight: 600; color: var(--sr-muted);
+            letter-spacing: 0.01em; margin: 14px 4px -2px;
+        }
+        ${S} .acx-card {
+            background: var(--sr-surface); border-color: var(--sr-line);
+            border-radius: 20px; padding: 18px;
+        }
+        ${S} .acx-l, ${S} .acx-row .l { color: var(--sr-muted); }
+        ${S} .acx-v, ${S} .acx-row .v {
+            font-family: var(--font-ui); font-weight: 500; font-variant-numeric: tabular-nums;
+        }
+        ${S} .acx-hero-num { font-family: var(--font-ui); font-size: 30px; font-weight: 300; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+        ${S} .acx-bar { height: 4px; border-radius: 2px; background: rgba(var(--sr-ink-rgb),0.07); margin: 16px 0 6px; }
+        ${S} .acx-bar-fill { border-radius: 2px; background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)); }
+        ${S} .acx-row, ${S} .acx-rows .acx-row:first-child, ${S} .acx-group-label, ${S} .acx-foot { border-color: var(--sr-line); }
+        ${S} .acx-group-label { color: var(--sr-faint); font-weight: 500; }
+        ${S} .fuel-card, ${S} .cabin-card { border-radius: 20px !important; padding: 18px !important; }
+
+        /* ---- Destination dropdown ---- */
+        ${S} .dest-card { background: var(--sr-surface); border-color: var(--sr-line); border-radius: 20px; }
+        ${S} .dest-toggle { padding: 16px 18px; }
+        ${S} .dest-toggle-ic { color: #eec07e; }
+        ${S} .dest-toggle-code { font-family: var(--font-ui); font-weight: 600; letter-spacing: 0.03em; }
+        ${S} .dest-toggle-sub { font-size: 10.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--sr-muted); }
+        ${S} .dest-hero { border-radius: 14px; }
+        ${S} .dest-cell, ${S} .dest-metar, ${S} .dest-open-btn {
+            background: rgba(var(--sr-ink-rgb),0.03); border-color: var(--sr-line); border-radius: 12px;
+        }
+        ${S} .dest-cell .l, ${S} .dest-mgrid .l, ${S} .dest-metar-h {
+            text-transform: none; letter-spacing: 0; font-size: 10px; font-weight: 500; color: var(--sr-muted);
+        }
+        ${S} .dest-cell .v, ${S} .dest-mgrid .v { font-family: var(--font-ui); font-weight: 500; }
+
+        /* ---- At a glance: the four live numbers, one quiet row ---- */
+        ${S} .sr-glance {
+            display: grid; grid-template-columns: 1fr 1fr 1.3fr 1fr;
+            background: var(--sr-surface); border: 1px solid var(--sr-line);
+            border-radius: 20px; padding: 14px 4px;
+        }
+        ${S} .sr-g { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; padding: 0 6px; }
+        ${S} .sr-g + .sr-g { border-left: 1px solid var(--sr-line); }
+        ${S} .sr-g-l { font-size: 10.5px; font-weight: 500; color: var(--sr-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        ${S} .sr-g-v {
+            font-size: 16px; font-weight: 500; color: var(--sr-text); font-variant-numeric: tabular-nums;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+        }
+        ${S} .sr-g-v span[style*="font-size"] { font-size: 10px !important; color: var(--sr-faint) !important; font-weight: 500 !important; margin-left: 1px; }
+        @media (max-width: 400px) {
+            ${S} .sr-glance { grid-template-columns: repeat(2, 1fr); row-gap: 14px; }
+            ${S} .sr-g:nth-child(3) { border-left: 0; }
+        }
+
+        /* ---- Background image (applyHorizonBackground) ----
+           On the window itself: cover-fitted, so it fills the window top
+           to bottom whatever the image's shape, and it stays put while the
+           content scrolls. The window colour at --sr-dim sits on top. */
+        ${S}.sr-bgimg, ${S}.sr-bgimg.mobile-legacy-sheet {
+            background:
+                linear-gradient(rgba(var(--sr-bg-rgb), var(--sr-dim, 0.6)), rgba(var(--sr-bg-rgb), var(--sr-dim, 0.6))),
+                var(--sr-bgimg) center / cover no-repeat,
+                var(--sr-bg) !important;
+        }
+        /* The header photo fades out into the image instead of a band. */
+        ${S} .sr-hero-photo { display: none; }
+        ${S}.sr-bgimg .sr-hero-photo {
+            display: block; position: absolute; left: 0; right: 0; top: 0; z-index: -1; pointer-events: none;
+            height: calc(var(--sr-photo-h, 220px) + 48px);
+            background-size: 100% auto; background-repeat: no-repeat; background-position: center top;
+            -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(var(--sr-photo-h, 220px) * 0.5), transparent var(--sr-photo-h, 220px));
+            mask-image: linear-gradient(180deg, #000 0, #000 calc(var(--sr-photo-h, 220px) * 0.5), transparent var(--sr-photo-h, 220px));
+        }
+        ${S}.sr-bgimg .hero-photo-fade {
+            -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(var(--sr-photo-h, 220px) * 0.5), transparent var(--sr-photo-h, 220px));
+            mask-image: linear-gradient(180deg, #000 0, #000 calc(var(--sr-photo-h, 220px) * 0.5), transparent var(--sr-photo-h, 220px));
+        }
+        ${S}.sr-bgimg .ac-header-modern { background-image: none !important; background-color: transparent !important; }
+        ${S}.sr-bgimg .ac-header-overlay {
+            background: linear-gradient(180deg, rgba(12,14,18,0.34) 0px, rgba(12,14,18,0) 72px,
+                rgba(var(--sr-bg-rgb),0) calc(var(--sr-photo-h, 220px) * 0.45),
+                rgba(var(--sr-bg-rgb), calc(var(--sr-dim, 0.6) * 0.5)) var(--sr-photo-h, 220px),
+                rgba(var(--sr-bg-rgb),0) calc(var(--sr-photo-h, 220px) + 48px)) !important;
+        }
+        ${S}.sr-bgimg .ac-route-bar-backdrop { border-bottom-color: rgba(var(--sr-ink-rgb),0.1); }
+        /* Surfaces become frosted glass so they read over any image. */
+        ${S}.sr-bgimg .acx-card, ${S}.sr-bgimg .sr-glance, ${S}.sr-bgimg .sr-status, ${S}.sr-bgimg .dest-card,
+        ${S}.sr-bgimg .fuel-card, ${S}.sr-bgimg .cabin-card,
+        ${S}.sr-bgimg #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile),
+        ${S}.sr-bgimg .nd-full-width-section .modern-view-switcher {
+            background: rgba(var(--sr-bg-rgb), 0.55) !important;
+            -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%);
+        }
+        ${S}.sr-bgimg .sr-eyebrow, ${S}.sr-bgimg h1.sr-callsign, ${S}.sr-bgimg .route-node .icao-large {
+            text-shadow: 0 1px 12px rgba(var(--sr-bg-rgb), 0.9) !important;
+        }
+
+        /* ---- Design pass: headings, card material, icons ---- */
+        /* Section headings: an accent icon tile, the title, and a hairline
+           that runs out to the edge. */
+        ${S} h2.acx-sec {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 13.5px; font-weight: 600; color: var(--sr-text); letter-spacing: 0.005em;
+            margin: 18px 2px 0;
+        }
+        ${S} h2.acx-sec::after {
+            content: ''; flex: 1; height: 1px; min-width: 20px;
+            background: linear-gradient(90deg, var(--sr-line), transparent);
+        }
+        ${S} .sr-sec-ic {
+            width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+            display: grid; place-items: center;
+            color: var(--sr-accent); background: color-mix(in srgb, var(--sr-accent) 14%, transparent);
+        }
+        ${S} .sr-sec-ic svg, ${S} .sr-g-ic svg { width: 15px; height: 15px; display: block; }
+
+        /* Card material: a faint top-lit gradient, an inner highlight on the
+           top edge and a soft drop, so cards sit on the window rather than
+           being cut into it. A small lift on hover (mouse only). */
+        ${S} .acx-card, ${S} .sr-glance, ${S} .sr-status, ${S} .dest-card,
+        ${S} .fuel-card, ${S} .cabin-card {
+            background: linear-gradient(180deg, rgba(var(--sr-ink-rgb),0.055), rgba(var(--sr-ink-rgb),0.025)) !important;
+            box-shadow: inset 0 1px 0 rgba(var(--sr-ink-rgb),0.06), 0 10px 26px rgba(0,0,0,0.14) !important;
+            transition: transform .25s ease, box-shadow .25s ease;
+        }
+        ${S}.sr-light .acx-card, ${S}.sr-light .sr-glance, ${S}.sr-light .sr-status, ${S}.sr-light .dest-card,
+        ${S}.sr-light .fuel-card, ${S}.sr-light .cabin-card {
+            background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,255,255,0.45)) !important;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.8), 0 8px 22px rgba(0,0,0,0.06) !important;
+        }
+        @media (hover: hover) and (pointer: fine) {
+            ${S} .acx-card:hover, ${S} .sr-glance:hover, ${S} .sr-status:hover, ${S} .dest-card:hover {
+                transform: translateY(-1px);
+                box-shadow: inset 0 1px 0 rgba(var(--sr-ink-rgb),0.07), 0 14px 32px rgba(0,0,0,0.2) !important;
+            }
+        }
+
+        /* Glance: a small icon beside each label; the heading needle turns
+           with the aircraft (wireHorizonGlance sets --sr-hdg). */
+        ${S} .sr-g-top { display: flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; }
+        ${S} .sr-g-ic { color: var(--sr-accent); flex: 0 0 auto; opacity: 0.9; }
+        ${S} .sr-g-ic svg { width: 12px; height: 12px; }
+        ${S} .sr-g-hdg svg { transform: rotate(var(--sr-hdg, 0deg)); transition: transform .8s ease; }
+        ${S} .sr-g-v { font-size: 17px; }
+
+        /* Pilot status tile takes its state colour (active green, away
+           amber, cloud blue…) as a soft wash behind the icon. */
+        ${S} .modern-status-card > div > div:first-child > div:first-child {
+            background: color-mix(in srgb, currentColor 16%, transparent) !important;
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
+        }
+        ${S} .modern-status-card .tech-ping span.animate { animation: sr-ping 2.4s ease-out infinite; }
+        @keyframes sr-ping { 0% { transform: scale(1); opacity: 0.6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
+
+        /* Photo credit and swipe dots: quieter glass. */
+
+        /* ---- Text that other stylesheets paint white ---- */
+        ${S} .acx-v, ${S} .acx-row .v, ${S} .acx-hero-num, ${S} #ac-location,
+        ${S} .dest-toggle, ${S} .dest-cell .v, ${S} .dest-mgrid .v, ${S} .dest-open-btn,
+        ${S} .modern-status-card > div > div:last-child > span:nth-child(2),
+        ${S} .route-node .icao-large { color: var(--sr-text) !important; }
+        ${S} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { color: var(--sr-text) !important; }
+        ${S} .dest-loc, ${S} .dest-status { color: var(--sr-muted) !important; }
+
+        /* ---- Light colours: dark text everywhere it sits on the window ----
+           The tokens already flip (applyHorizonColor); these catch the
+           legacy markup's inline white and slate text. The instrument
+           screens and the photo keep their own dark palette. */
+        ${S}.sr-light :not(.crt-container *):not(.ac-header-modern *):is([style*="color: #fff"], [style*="color:#fff"], [style*="color: #ffffff"], [style*="color: #e5e7eb"], [style*="color: #f4f4f5"], [style*="color: rgb(255, 255, 255)"]) {
+            color: var(--sr-text) !important;
+        }
+        ${S}.sr-light :not(.crt-container *):not(.ac-header-modern *):is([style*="color: #94a3b8"], [style*="color: #cbd5e1"], [style*="color: #64748b"], [style*="color: #475569"], [style*="color: #9a9aa2"]) {
+            color: var(--sr-muted) !important;
+        }
+        /* Status colours (times, on-time badge, V/S arrow) are pale tints
+           made for a dark window; deepen them on a light one. */
+        ${S}.sr-light .route-node .time-small, ${S}.sr-light .route-node .time-source-label,
+        ${S}.sr-light #ac-flight-status-badge, ${S}.sr-light .sr-g-v span:not([style*="font-size"]),
+        ${S}.sr-light .timer-node:nth-child(2) { filter: brightness(0.62) saturate(1.3); }
+        ${S}.sr-light .sr-eyebrow, ${S}.sr-light h1.sr-callsign { text-shadow: none !important; }
+        ${S}.sr-light .hero-photo-dots span { filter: invert(1); }
+        ${S}.sr-light .ac-pilot-avatar { background: #d9dce2; color: #1b1e24; border-color: rgba(0,0,0,0.12); }
+        ${S}.sr-light #main-data-switcher { box-shadow: 0 6px 18px rgba(0,0,0,0.08) !important; }
+        ${S}.sr-light:not(.mobile-legacy-sheet) { box-shadow: 0 24px 60px rgba(0,0,0,0.22), 0 2px 10px rgba(0,0,0,0.1) !important; }
+
+        /* ---- A gentle entrance for the content below the photo ---- */
+        @keyframes sr-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        ${S} .ac-route-info-bar,
+        ${S} .ac-info-window-tabs,
+        ${S} #ac-tab-flight-data > * { animation: sr-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+        ${S} .ac-info-window-tabs { animation-delay: 60ms; }
+        ${S} #ac-tab-flight-data > * { animation-delay: 240ms; }
+        ${S} #ac-tab-flight-data > :nth-child(-n+4) { animation-delay: 120ms; }
+        ${S} #ac-tab-flight-data > :nth-child(n+5):nth-child(-n+8) { animation-delay: 180ms; }
+        @media (prefers-reduced-motion: reduce) {
+            ${S} .ac-route-info-bar, ${S} .ac-info-window-tabs, ${S} #ac-tab-flight-data > * { animation: none; }
+        }
+    `;
+})();
+
+/**
+ * Horizon window colour. The user picks any colour (Settings › Windows); the
+ * rest of the palette is derived from it so text always reads: on a dark
+ * colour the ink is white, on a light one it is black — whichever of the two
+ * contrasts more with the chosen colour (WCAG relative luminance) — and every
+ * text tone, surface and hairline is that ink at an opacity.
+ */
+const HORIZON_DEFAULT_COLOR = '#16181c';
+const HORIZON_PRESETS = [
+    { hex: '#16181c', name: 'Ink' },
+    { hex: '#101a2c', name: 'Midnight' },
+    { hex: '#0f2226', name: 'Deep sea' },
+    { hex: '#142019', name: 'Forest' },
+    { hex: '#1f1726', name: 'Plum' },
+    { hex: '#2a1a16', name: 'Ember' },
+    { hex: '#e9ecf1', name: 'Mist' },
+    { hex: '#f6f4ef', name: 'Paper' },
+];
+
+function horizonTokens(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+    const h = m ? m[1].toLowerCase() : HORIZON_DEFAULT_COLOR.slice(1);
+    const rgb = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const L = 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+    // Contrast against black vs against white; the larger one wins.
+    const light = (L + 0.05) / 0.05 > 1.05 / (L + 0.05);
+    return {
+        light,
+        bg: '#' + h,
+        bgRgb: rgb.join(','),
+        inkRgb: light ? '0,0,0' : '255,255,255',
+        text: light ? '#15171b' : '#eef0f4',
+        muted: light ? 'rgba(0,0,0,0.62)' : 'rgba(255,255,255,0.6)',
+        faint: light ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.42)',
+        accent: light ? '#1f6fae' : '#8cc8ee',
+        accentSoft: light ? 'rgba(31,111,174,0.3)' : 'rgba(140,200,238,0.32)',
+        surface: light ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.035)',
+        surfaceHi: light ? 'rgba(0,0,0,0.055)' : 'rgba(255,255,255,0.06)',
+        line: light ? 'rgba(0,0,0,0.09)' : 'rgba(255,255,255,0.07)',
+    };
+}
+
+function getHorizonColor() {
+    if (typeof mapFilters === 'undefined') return HORIZON_DEFAULT_COLOR;
+    // sereneColor: the setting's key under the style's working name.
+    return mapFilters.horizonColor || mapFilters.sereneColor || HORIZON_DEFAULT_COLOR;
+}
+
+function applyHorizonColor(windowEl) {
+    if (!windowEl) return;
+    const t = horizonTokens(ownerColor(windowEl) || getHorizonColor());
+    const vars = {
+        '--sr-bg': t.bg, '--sr-bg-rgb': t.bgRgb, '--sr-ink-rgb': t.inkRgb,
+        '--sr-text': t.text, '--sr-muted': t.muted, '--sr-faint': t.faint,
+        '--sr-accent': t.accent, '--sr-accent-soft': t.accentSoft,
+        '--sr-surface': t.surface, '--sr-surface-hi': t.surfaceHi, '--sr-line': t.line,
+    };
+    Object.entries(vars).forEach(([k, v]) => windowEl.style.setProperty(k, v));
+    windowEl.classList.toggle('sr-light', t.light);
+}
+
+function setHorizonColor(hex) {
+    if (typeof mapFilters === 'undefined') return;
+    mapFilters.horizonColor = horizonTokens(hex).bg;
+    if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
+    const w = document.getElementById('aircraft-info-window');
+    if (w && w.classList.contains('iw-horizon')) applyHorizonColor(w);
+    notifyWindowLookChanged();
+}
+
+// Swatches + a free colour picker, shared by desktop and mobile Settings.
+function buildHorizonColorPicker(idPrefix) {
+    if (!document.getElementById('sr-color-picker-style')) {
+        const st = document.createElement('style');
+        st.id = 'sr-color-picker-style';
+        st.textContent = `
+            .sr-color-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+            .sr-swatch {
+                position: relative; width: 30px; height: 30px; border-radius: 50%; padding: 0; cursor: pointer;
+                border: 1px solid rgba(255,255,255,0.18); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.25);
+                transition: transform .15s ease, box-shadow .15s ease;
+            }
+            .sr-swatch:hover { transform: scale(1.08); }
+            .sr-swatch.active { box-shadow: 0 0 0 2px #121214, 0 0 0 4px #8cc8ee; }
+            .sr-swatch-custom {
+                display: grid; place-items: center; overflow: hidden; color: #fff; font-size: 12px;
+                background: conic-gradient(#f87171, #fbbf24, #4ade80, #38bdf8, #a78bfa, #f472b6, #f87171);
+            }
+            .sr-swatch-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; border: 0; padding: 0; }
+        `;
+        document.head.appendChild(st);
+    }
+    const cur = getHorizonColor().toLowerCase();
+    const isPreset = HORIZON_PRESETS.some((p) => p.hex === cur);
+    return `<div class="sr-color-row" data-sr-color-row>
+        ${HORIZON_PRESETS.map((p) => `<button type="button" class="sr-swatch${p.hex === cur ? ' active' : ''}" data-color="${p.hex}" title="${p.name}" aria-label="${p.name}" style="background:${p.hex}"></button>`).join('')}
+        <label class="sr-swatch sr-swatch-custom${isPreset ? '' : ' active'}" title="Custom colour" aria-label="Custom colour">
+            <input type="color" id="${idPrefix}-horizon-color" value="${cur}">
+        </label>
+    </div>`;
+}
+
+function wireHorizonColorPicker(root) {
+    const row = root && root.querySelector('[data-sr-color-row]');
+    if (!row || row.dataset.wired === '1') return;
+    row.dataset.wired = '1';
+    const mark = (el) => row.querySelectorAll('.sr-swatch').forEach((b) => b.classList.toggle('active', b === el));
+    row.querySelectorAll('button.sr-swatch').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            setHorizonColor(btn.dataset.color);
+            mark(btn);
+            const input = row.querySelector('input[type="color"]');
+            if (input) input.value = btn.dataset.color;
+        });
+    });
+    const input = row.querySelector('input[type="color"]');
+    if (input) {
+        input.addEventListener('input', () => {
+            setHorizonColor(input.value);
+            mark(input.closest('.sr-swatch'));
+        });
+    }
+}
+
+/**
+ * Horizon background image.
+ *
+ * 'aircraft' uses the aircraft's first photo, blurred; 'custom' an image the
+ * user picked, downscaled and kept in IndexedDB (it would blow the
+ * localStorage budget and has no business in the synced mapFilters). The
+ * image sits on the window itself, cover-fitted, so it always fills the
+ * window from top to bottom and stays put while the content scrolls; the
+ * window colour is laid over it at the Dim strength, so the contrast rules
+ * of the colour still hold. The header's aircraft photo then fades out into
+ * it rather than into a solid band (see .sr-hero-photo).
+ */
+const HorizonBgStore = {
+    _db: null,
+    _open() {
+        if (this._db) return this._db;
+        this._db = new Promise((resolve, reject) => {
+            if (typeof indexedDB === 'undefined') return reject(new Error('no IndexedDB'));
+            let req;
+            try { req = indexedDB.open('inflight-horizon', 1); } catch (e) { return reject(e); }
+            req.onupgradeneeded = () => req.result.createObjectStore('kv');
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+            req.onblocked = () => reject(new Error('IndexedDB blocked'));
+        });
+        // A failed open must not be cached, or every later call fails too.
+        this._db.catch(() => { this._db = null; });
+        return this._db;
+    },
+    async _tx(mode, fn) {
+        const db = await this._open();
+        return new Promise((resolve, reject) => {
+            const t = db.transaction('kv', mode);
+            const r = fn(t.objectStore('kv'));
+            t.oncomplete = () => resolve(r && r.result);
+            t.onerror = () => reject(t.error);
+        });
+    },
+    get(key) { return this._tx('readonly', (st) => st.get(key)).catch(() => null); },
+    set(key, value) { return this._tx('readwrite', (st) => st.put(value, key)); },
+    del(key) { return this._tx('readwrite', (st) => st.delete(key)).catch(() => {}); },
+};
+
+// Where the chosen image lives, most capable first. Phone browsers differ:
+// iOS web views often refuse a Blob in IndexedDB (and private modes may
+// refuse IndexedDB outright), so the image is stored as raw bytes, then —
+// failing that — as a smaller data URL in localStorage, and as a last
+// resort kept in memory for this session only.
+const HORIZON_BG_LS_KEY = 'horizonBgImage';
+let _horizonCustomBgUrl = null;       // object/data URL of the stored image, once read
+let _horizonBgMemory = null;          // session-only fallback (Blob)
+
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(blob);
+    });
+}
+function blobToArrayBuffer(blob) {
+    if (blob.arrayBuffer) return blob.arrayBuffer();
+    return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsArrayBuffer(blob);
+    });
+}
+
+// Returns where it was kept: 'device', 'device-small' or 'session'.
+async function saveHorizonCustomBg(blob) {
+    _horizonBgMemory = null;
+    try {
+        const buf = await blobToArrayBuffer(blob);
+        await HorizonBgStore.set('bg', { buf, type: blob.type || 'image/jpeg' });
+        try { localStorage.removeItem(HORIZON_BG_LS_KEY); } catch (_) {}
+        return 'device';
+    } catch (_) { /* try the next store */ }
+    try {
+        const src = URL.createObjectURL(blob);
+        const small = await processImageToBlob(src, { maxSide: 1080, quality: 0.72 });
+        URL.revokeObjectURL(src);
+        localStorage.setItem(HORIZON_BG_LS_KEY, await blobToDataUrl(small || blob));
+        return 'device-small';
+    } catch (_) { /* quota or no storage */ }
+    _horizonBgMemory = blob;
+    return 'session';
+}
+
+/* The picture as picked, and how it was framed, so "Adjust" can reframe it
+ * from the original rather than re-cropping the crop. IndexedDB only, and
+ * best-effort: where it can't be kept, Adjust starts from the saved image. */
+const HORIZON_BG_SRC_MAX = 16 * 1024 * 1024;
+async function saveHorizonBgSource(file, crop) {
+    try {
+        if (!file || file.size > HORIZON_BG_SRC_MAX) { await HorizonBgStore.del('bg-src'); return; }
+        const buf = await blobToArrayBuffer(file);
+        const { sx, sy, sw, sh } = crop || {};
+        await HorizonBgStore.set('bg-src', { buf, type: file.type || 'image/jpeg', crop: crop ? { sx, sy, sw, sh } : null });
+    } catch (_) { /* Adjust falls back to the saved image */ }
+}
+async function getHorizonBgSource() {
+    const rec = await HorizonBgStore.get('bg-src');
+    return rec && rec.buf ? { blob: new Blob([rec.buf], { type: rec.type || 'image/jpeg' }), crop: rec.crop || null } : null;
+}
+
+async function decodeForAdjust(blob) {
+    if (typeof createImageBitmap === 'function') {
+        try {
+            const bm = await createImageBitmap(blob);
+            return { width: bm.width, height: bm.height, source: bm, close: () => bm.close && bm.close() };
+        } catch (_) { /* fall through to <img> */ }
+    }
+    const url = URL.createObjectURL(blob);
+    try {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        return { width: img.naturalWidth, height: img.naturalHeight, source: img, close() {} };
+    } catch (_) {
+        return null;
+    } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+}
+
+/* Frame a picture for the flight window: the tall adjuster, with a sketch of
+ * the window over it and the Dim slider laid in the window's own colour.
+ * Resolves to { blob, crop, dim }, null when cancelled, or { error }. */
+const WINDOW_IMAGE_ASPECT = 0.56;
+async function frameWindowImage(blob, { start = null, dim = null } = {}) {
+    const decoded = await decodeForAdjust(blob);
+    if (!decoded) return { error: 'That file couldn’t be read as an image. Try a JPEG or PNG.' };
+    try {
+        const mode = getFlightWindowMode();
+        const base = mode === 'horizon' ? getHorizonColor() : (WINDOW_STYLE_BASE[mode] || '#222225');
+        const f = (typeof mapFilters !== 'undefined') ? mapFilters : {};
+        const crop = await adjustImage(decoded, {
+            aspect: WINDOW_IMAGE_ASPECT,
+            title: 'Frame your image',
+            saveLabel: 'Use this',
+            guide: 'window',
+            dim: { value: dim != null ? dim : (Number(f.horizonBgDim) || 60), rgb: horizonTokens(base).bgRgb },
+            start,
+        });
+        if (!crop) return null;
+        const k = Math.min(1, 1440 / Math.max(crop.sw, crop.sh));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(crop.sw * k));
+        c.height = Math.max(1, Math.round(crop.sh * k));
+        const g = c.getContext('2d');
+        g.imageSmoothingQuality = 'high';
+        g.drawImage(decoded.source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, c.width, c.height);
+        const out = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.86));
+        return out ? { blob: out, crop, dim: crop.dim } : { error: 'That image couldn’t be saved. Try another.' };
+    } finally {
+        decoded.close();
+    }
+}
+
+async function removeHorizonCustomBg() {
+    _horizonBgMemory = null;
+    await HorizonBgStore.del('bg');
+    await HorizonBgStore.del('bg-src');
+    try { localStorage.removeItem(HORIZON_BG_LS_KEY); } catch (_) {}
+    if (_horizonCustomBgUrl && _horizonCustomBgUrl.startsWith('blob:')) URL.revokeObjectURL(_horizonCustomBgUrl);
+    _horizonCustomBgUrl = null;
+}
+
+async function getHorizonCustomBgUrl() {
+    if (_horizonCustomBgUrl) return _horizonCustomBgUrl;
+    if (_horizonBgMemory) return (_horizonCustomBgUrl = URL.createObjectURL(_horizonBgMemory));
+    const rec = await HorizonBgStore.get('bg');
+    if (rec instanceof Blob) return (_horizonCustomBgUrl = URL.createObjectURL(rec));
+    if (rec && rec.buf) return (_horizonCustomBgUrl = URL.createObjectURL(new Blob([rec.buf], { type: rec.type || 'image/jpeg' })));
+    try {
+        const d = localStorage.getItem(HORIZON_BG_LS_KEY);
+        if (d && d.startsWith('data:image/')) return (_horizonCustomBgUrl = d);
+    } catch (_) {}
+    return null;
+}
+
+// Draw an image through a canvas: downscaled to `maxSide`, optionally
+// blurred. Returns a Blob (JPEG), or null if the image can't be read
+// (a cross-origin photo without CORS taints the canvas).
+function processImageToBlob(src, { maxSide = 1440, blur = 0, quality = 0.85 } = {}) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            try {
+                const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+                const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+                const c = document.createElement('canvas');
+                c.width = w; c.height = h;
+                const g = c.getContext('2d');
+                if (blur) {
+                    // Overdraw so the blur doesn't pull in transparent edges.
+                    g.filter = `blur(${blur}px)`;
+                    g.drawImage(img, -blur * 2, -blur * 2, w + blur * 4, h + blur * 4);
+                } else {
+                    g.drawImage(img, 0, 0, w, h);
+                }
+                c.toBlob((b) => resolve(b), 'image/jpeg', quality);
+            } catch (_) { resolve(null); }
+        };
+        img.onerror = () => resolve(null);
+        img.src = src;
+    });
+}
+
+const _horizonAircraftBgCache = new Map();   // photo src -> object URL (blurred)
+async function horizonAircraftBgUrl(src) {
+    if (!src) return null;
+    if (_horizonAircraftBgCache.has(src)) return _horizonAircraftBgCache.get(src);
+    const blob = await processImageToBlob(src, { maxSide: 640, blur: 18, quality: 0.8 });
+    const url = blob ? URL.createObjectURL(blob) : null;
+    _horizonAircraftBgCache.set(src, url);
+    return url;
+}
+
+// The chosen background for any flight window: { url, dim } (url null when
+// the setting is Colour or nothing usable is available).
+async function resolveWindowBackground(photoSrc, windowEl) {
+    // The pilot's own look for their flight comes first (see ownerLook).
+    const owned = await resolveOwnerBackground(windowEl || document.getElementById('aircraft-info-window'));
+    if (owned) return owned;
+    const f = (typeof mapFilters !== 'undefined') ? mapFilters : {};
+    const mode = f.horizonBg || 'color';
+    const dim = Math.min(90, Math.max(20, Number(f.horizonBgDim) || 60)) / 100;
+    if (mode === 'color') return { url: null, dim, mode };
+    if (mode === 'custom') return { url: await getHorizonCustomBgUrl(), dim, mode };
+    // An unreadable photo (no CORS) can't be blurred: skip rather than put a
+    // sharp, busy photo behind the text.
+    const ok = photoSrc && !/\/CommunityPlanes\/default\.png$/.test(photoSrc);
+    return { url: ok ? await horizonAircraftBgUrl(photoSrc) : null, dim, mode };
+}
+
+// Native windows: Horizon (.sr-bgimg, its own skin) and Legacy (.wb-legacy).
+async function applyHorizonBackground(windowEl, photoSrc) {
+    if (!windowEl) return;
+    const token = {};
+    windowEl._srBgToken = token;
+    const src = photoSrc || windowEl.querySelector('#ac-overview-panel')?.dataset.currentPath;
+    const bg = await resolveWindowBackground(src, windowEl);
+    if (windowEl._srBgToken !== token) return;       // superseded
+    // Legacy's glass takes the owner's colour when it's a dark one (its
+    // text is white); otherwise its own grey.
+    const oc = ownerColor(windowEl);
+    const ot = oc ? horizonTokens(oc) : null;
+    if (ot && !ot.light) windowEl.style.setProperty('--wb-rgb', ot.bgRgb);
+    else windowEl.style.removeProperty('--wb-rgb');
+    const framed = !!windowEl.querySelector('#simple-flight-window-frame');
+    const horizon = windowEl.classList.contains('iw-horizon');
+    windowEl.style.setProperty('--sr-dim', String(bg.dim));
+    if (bg.url) windowEl.style.setProperty('--sr-bgimg', `url("${bg.url}")`);
+    windowEl.classList.toggle('sr-bgimg', !!bg.url && horizon && !framed);
+    windowEl.classList.toggle('sr-bgimg-photo', !!bg.url && bg.mode === 'aircraft');
+    windowEl.classList.toggle('wb-legacy', !!bg.url && !horizon && !framed);
+    if (!document.getElementById('wb-legacy-style')) injectLegacyWindowBackgroundStyle();
+}
+
+// Simple and Card run in a same-origin frame: hand them the image (a blob:
+// or data: URL, both readable there) and they paint it themselves.
+async function postWindowBackground(frame, photoSrc) {
+    if (!frame || !frame.contentWindow) return;
+    const bg = await resolveWindowBackground(photoSrc, frame.closest('#aircraft-info-window'));
+    try { frame.contentWindow.postMessage({ type: 'WINDOW_BACKGROUND', url: bg.url, dim: bg.dim }, '*'); } catch (_) {}
+}
+
+function refreshOpenHorizonBackground() {
+    const w = document.getElementById('aircraft-info-window');
+    if (!w || !w.classList.contains('visible')) return;
+    const frame = w.querySelector('#simple-flight-window-frame');
+    if (frame) postWindowBackground(frame, w.dataset.wbPhoto || null);
+    else applyHorizonBackground(w);
+}
+
+/**
+ * "Your window, seen by others."
+ *
+ * A pilot can style the flight window everyone else sees for their flight
+ * (supabase/sql/pilot-window-style.sql, edited in pilotCardEditor.js): a
+ * painted theme for free, or — Pro — their own colour and photo. That look
+ * replaces the viewer's own colour and background for that one flight, in
+ * every window style, unless the viewer has switched "Show pilots' window
+ * styles" off. Pro-only values are blanked by the server when Pro lapses, so
+ * nothing here checks Pro.
+ *
+ * The style is kept on the window element (windowEl._ownerStyle), so every
+ * re-apply of the colour or background — a settings change, a photo swap —
+ * sees it without another lookup.
+ */
+function showPilotStylesOn() {
+    return !(typeof mapFilters !== 'undefined' && mapFilters.showPilotStyles === false);
+}
+
+function ownerLook(windowEl) {
+    const s = windowEl && windowEl._ownerStyle;
+    return (s && s.hasLook && showPilotStylesOn()) ? s : null;
+}
+
+function mixHex(a, b, t) {
+    const pa = horizonTokens(a).bgRgb.split(',').map(Number);
+    const pb = horizonTokens(b).bgRgb.split(',').map(Number);
+    return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+
+// The window colour the owner's look implies: their Pro colour, else their
+// theme's top stop taken down towards night so the window stays calm.
+function ownerColor(windowEl) {
+    const s = ownerLook(windowEl);
+    if (!s) return null;
+    if (s.color) return s.color;
+    return s.themeStops ? mixHex(s.themeStops[0], '#0e1014', 0.55) : null;
+}
+
+// Painted backgrounds (themes, and a Pro colour with no photo) are drawn to
+// a canvas once, so the same blob: URL works in the native windows and in
+// the Simple/Card frames (which only accept blob:/data: images).
+const _paintedBgCache = new Map();
+function paintedBackgroundUrl(stops) {
+    const key = stops.join(',');
+    if (_paintedBgCache.has(key)) return _paintedBgCache.get(key);
+    const p = new Promise((resolve) => {
+        try {
+            const c = document.createElement('canvas');
+            c.width = 360; c.height = 900;
+            const g = c.getContext('2d');
+            const grad = g.createLinearGradient(0, 0, 0, c.height);
+            stops.forEach((hex, i) => grad.addColorStop(i / Math.max(1, stops.length - 1), hex));
+            g.fillStyle = grad;
+            g.fillRect(0, 0, c.width, c.height);
+            // A soft glow near the top, where the photo fades in.
+            const glow = g.createRadialGradient(c.width * 0.5, c.height * 0.12, 0, c.width * 0.5, c.height * 0.12, c.width * 0.9);
+            glow.addColorStop(0, 'rgba(255,255,255,0.14)');
+            glow.addColorStop(1, 'rgba(255,255,255,0)');
+            g.fillStyle = glow;
+            g.fillRect(0, 0, c.width, c.height);
+            c.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null), 'image/jpeg', 0.9);
+        } catch (_) { resolve(null); }
+    });
+    _paintedBgCache.set(key, p);
+    return p;
+}
+
+// The owner's photo, fetched into a blob: URL (public bucket, CORS open).
+const _ownerPhotoCache = new Map();
+function ownerPhotoUrl(url) {
+    if (_ownerPhotoCache.has(url)) return _ownerPhotoCache.get(url);
+    const p = fetch(url, { mode: 'cors' })
+        .then((r) => (r.ok ? r.blob() : null))
+        .then((b) => (b && /^image\//.test(b.type) ? URL.createObjectURL(b) : null))
+        .catch(() => null);
+    _ownerPhotoCache.set(url, p);
+    return p;
+}
+
+// { url, dim, mode } for the owner's look, or null to use the viewer's own.
+async function resolveOwnerBackground(windowEl) {
+    const s = ownerLook(windowEl);
+    if (!s) return null;
+    if (s.bgUrl) {
+        const url = await ownerPhotoUrl(s.bgUrl);
+        if (url) return { url, dim: s.dim, mode: 'owner' };
+    }
+    const horizon = windowEl && windowEl.classList.contains('iw-horizon')
+        && !windowEl.querySelector('#simple-flight-window-frame');
+    if (s.themeStops && !s.color) {
+        return { url: await paintedBackgroundUrl(s.themeStops), dim: horizon ? 0.55 : 0.4, mode: 'theme' };
+    }
+    if (s.color) {
+        // Horizon paints the colour itself; the other styles get it as a
+        // gentle three-stop wash.
+        if (horizon) return { url: null, dim: s.dim, mode: 'owner' };
+        const stops = [mixHex(s.color, '#ffffff', 0.18), s.color, mixHex(s.color, '#000000', 0.55)];
+        return { url: await paintedBackgroundUrl(stops), dim: 0.35, mode: 'owner' };
+    }
+    return null;
+}
+
+// Look up (cache first) the style of the pilot flying this flight, and
+// re-dress the open window when it arrives. Synchronous on a cache hit so a
+// re-rendered window never flashes the viewer's own look first.
+function loadOwnerWindowStyle(windowEl, username) {
+    if (!windowEl) return;
+    const key = username && username !== 'N/A' ? String(username) : null;
+    windowEl._ownerStyleFor = key;
+    if (!key) { windowEl._ownerStyle = null; return; }
+    const cached = PilotProfiles.peekWindowStyle(key);
+    if (cached !== undefined) { windowEl._ownerStyle = cached; return; }
+    windowEl._ownerStyle = null;
+    PilotProfiles.windowStyle(key).then((style) => {
+        if (windowEl._ownerStyleFor !== key) return;
+        windowEl._ownerStyle = style;
+        const tab = windowEl.querySelector('.ac-info-tab-btn.pilot-tab-btn');
+        if (tab) markPilotFlair(tab, style);
+        if (style && style.hasLook) restyleOpenWindow(windowEl);
+    });
+}
+
+function restyleOpenWindow(windowEl) {
+    if (!windowEl) return;
+    if (windowEl.classList.contains('iw-horizon')) applyHorizonColor(windowEl);
+    refreshOpenHorizonBackground();
+    mountOwnerStyleNote(windowEl);
+}
+
+// A quiet line under the pilot card whenever the window is wearing the
+// pilot's look rather than the viewer's: who styled it, a way to stop seeing
+// pilots' styles, and a report (profile_reports, the moderation queue the
+// iOS app's reports already feed).
+function mountOwnerStyleNote(windowEl) {
+    if (!windowEl) return;
+    windowEl.querySelectorAll('.iw-owner-note').forEach((n) => n.remove());
+    const s = ownerLook(windowEl);
+    const tabs = windowEl.querySelector('.ac-info-window-tabs');
+    if (!s || !tabs) return;
+    if (!document.getElementById('iw-owner-note-style')) {
+        const st = document.createElement('style');
+        st.id = 'iw-owner-note-style';
+        st.textContent = `
+            #aircraft-info-window .iw-owner-note {
+                display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+                margin: -2px 16px 10px; padding: 0 2px;
+                font-size: 11px; line-height: 1.4; color: rgba(255,255,255,0.7);
+                text-shadow: 0 1px 3px rgba(0,0,0,0.55);
+            }
+            #aircraft-info-window.sr-light:not(.sr-bgimg) .iw-owner-note { text-shadow: none; }
+            #aircraft-info-window.iw-horizon .iw-owner-note { color: var(--sr-muted); }
+            #aircraft-info-window .iw-owner-note i { font-size: 10px; opacity: 0.8; }
+            #aircraft-info-window .iw-owner-note b { font-weight: 600; color: inherit; filter: brightness(1.25); }
+            #aircraft-info-window .iw-owner-note .iw-owner-sp { flex: 1; }
+            #aircraft-info-window .iw-owner-note button {
+                appearance: none; border: 0; background: none; padding: 2px 4px; cursor: pointer;
+                font: inherit; font-size: 11px; color: inherit; opacity: 0.85; text-decoration: underline;
+                text-underline-offset: 2px; text-decoration-color: rgba(127,127,127,0.5);
+            }
+            #aircraft-info-window .iw-owner-note button:hover { opacity: 1; }
+            #aircraft-info-window .iw-owner-note button:disabled { text-decoration: none; cursor: default; }
+        `;
+        document.head.appendChild(st);
+    }
+    const note = document.createElement('div');
+    note.className = 'iw-owner-note';
+    note.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>'
+        + '<span>Window styled by <b></b></span><span class="iw-owner-sp"></span>'
+        + '<button type="button" data-act="hide" title="Always see your own window colour and background (Settings › Flight Window)">Hide styles</button>'
+        + '<button type="button" data-act="report">Report</button>';
+    note.querySelector('b').textContent = '@' + s.handle;
+    note.querySelector('[data-act="hide"]').addEventListener('click', () => setShowPilotStyles(false));
+    const report = note.querySelector('[data-act="report"]');
+    report.addEventListener('click', async () => {
+        if (!window.confirm(`Report @${s.handle}'s window style as not safe for work or abusive?`)) return;
+        report.disabled = true;
+        try {
+            const { error } = await supabase.rpc('pilot_report', {
+                p_handle: s.handle, p_reason: 'other', p_detail: 'Flight window style (colour / photo)',
+            });
+            if (error) throw error;
+            report.textContent = 'Reported — thanks';
+        } catch (e) {
+            report.disabled = false;
+            report.textContent = /sign in/i.test(e?.message || '') ? 'Sign in to report' : 'Couldn’t report — try again';
+        }
+    });
+    tabs.after(note);
+}
+
+// Pro flair on the pilot card: a slow shimmer across the banner.
+function markPilotFlair(btn, style) {
+    if (!btn) return;
+    btn.classList.toggle('has-flair', !!(style && style.flair && style.isPro && showPilotStylesOn()));
+}
+
+function setShowPilotStyles(on) {
+    if (typeof mapFilters === 'undefined') return;
+    mapFilters.showPilotStyles = !!on;
+    if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage();
+    const w = document.getElementById('aircraft-info-window');
+    if (w) {
+        const tab = w.querySelector('.ac-info-tab-btn.pilot-tab-btn');
+        if (tab) markPilotFlair(tab, w._ownerStyle);
+        restyleOpenWindow(w);
+    }
+    if (typeof refreshPilotFlairGlow === 'function') refreshPilotFlairGlow();
+    notifyWindowLookChanged();
+}
+if (typeof window !== 'undefined') window.setShowPilotStyles = setShowPilotStyles;
+
+// Legacy's own bands are solid greys; with an image they turn to glass so
+// the image shows through, and the header photo fades out into it.
+function injectLegacyWindowBackgroundStyle() {
+    const W = '#aircraft-info-window.wb-legacy:not(.iw-horizon)';
+    const st = document.createElement('style');
+    st.id = 'wb-legacy-style';
+    st.textContent = `
+        ${W}, ${W}.mobile-legacy-sheet {
+            background:
+                linear-gradient(rgba(var(--wb-rgb, 34,34,37), var(--sr-dim, 0.6)), rgba(var(--wb-rgb, 34,34,37), var(--sr-dim, 0.6))),
+                var(--sr-bgimg) center / cover no-repeat,
+                #222225 !important;
+        }
+        ${W} .ac-header-modern {
+            -webkit-mask-image: linear-gradient(180deg, #000 0, #000 55%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 0, #000 55%, transparent 100%);
+            background-color: transparent !important;
+        }
+        ${W} .ac-header-overlay { background: linear-gradient(to bottom, rgba(0,0,0,0.15), rgba(0,0,0,0) 40%) !important; }
+        ${W} .ac-route-bar-backdrop { background: transparent !important; box-shadow: none !important; }
+        ${W} .ac-route-info-bar {
+            background: rgba(34,34,37,0.62) !important;
+            -webkit-backdrop-filter: blur(16px) saturate(140%) !important; backdrop-filter: blur(16px) saturate(140%) !important;
+        }
+        ${W} .ac-info-window-tabs, ${W} .unified-display-main-content { background: transparent !important; }
+        ${W} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { background: rgba(34,34,37,0.6) !important; }
+        ${W} .acx-card, ${W} .dest-card, ${W} .modern-status-card, ${W} .timer-node, ${W} .fuel-card, ${W} .cabin-card {
+            background: rgba(34,34,37,0.6) !important;
+            -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+        }
+    `;
+    document.head.appendChild(st);
+}
+
+function buildHorizonBackgroundPicker(idPrefix) {
+    if (!document.getElementById('sr-bg-picker-style')) {
+        const st = document.createElement('style');
+        st.id = 'sr-bg-picker-style';
+        st.textContent = `
+            .sr-bg-picker { display: flex; flex-direction: column; gap: 10px; }
+            .sr-bg-seg { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); }
+            .sr-bg-seg button {
+                flex: 1; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+                padding: 8px 6px; border: 0; border-radius: 9px; background: transparent; color: #a1a1aa;
+                font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+            }
+            .sr-bg-seg button:hover { color: #e4e4e7; background: rgba(255,255,255,0.04); }
+            .sr-bg-seg button.active { color: #fff; background: rgba(56,189,248,0.16); box-shadow: inset 0 0 0 1px rgba(56,189,248,0.45); }
+            .sr-bg-custom { display: none; align-items: center; flex-wrap: wrap; gap: 10px; }
+            .sr-bg-picker[data-mode="custom"] .sr-bg-custom { display: flex; }
+            .sr-bg-thumb { width: 44px; height: 60px; border-radius: 8px; flex: 0 0 auto; background: #1f1f23 center / cover no-repeat; border: 1px solid rgba(255,255,255,0.12); }
+            .sr-bg-btn {
+                display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: 9px; cursor: pointer;
+                background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #e4e4e7;
+                font: inherit; font-size: 0.8rem; font-weight: 600;
+            }
+            .sr-bg-btn:hover { background: rgba(255,255,255,0.1); }
+            .sr-bg-btn.sr-bg-remove { color: #fca5a5; }
+            .sr-bg-btn[hidden] { display: none; }
+            .sr-bg-note { font-size: 0.74rem; color: #8b8b94; line-height: 1.45; }
+            .sr-bg-share {
+                display: none; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px;
+                background: rgba(245,210,122,0.06); border: 1px solid rgba(245,210,122,0.18);
+                font-size: 0.76rem; line-height: 1.45; color: #d4d4d8;
+            }
+            .sr-bg-picker[data-mode="custom"] .sr-bg-share { display: flex; }
+            .sr-bg-share > i { color: #f5d27a; margin-top: 2px; }
+            .sr-bg-share b { color: #fff; font-weight: 600; }
+            .sr-bg-share button {
+                appearance: none; border: 0; background: none; padding: 0; margin-top: 4px; cursor: pointer; display: inline-flex;
+                align-items: center; gap: 6px; font: inherit; font-weight: 600; color: #f5d27a;
+            }
+            .sr-bg-share button i { font-size: 0.65rem; }
+            .sr-bg-dim { display: none; align-items: center; gap: 10px; font-size: 0.78rem; color: #a1a1aa; }
+            .sr-bg-picker:not([data-mode="color"]) .sr-bg-dim { display: flex; }
+            .sr-bg-dim input { flex: 1; accent-color: #38bdf8; }
+            .sr-bg-dim output { width: 38px; text-align: right; font-variant-numeric: tabular-nums; color: #e4e4e7; }
+        `;
+        document.head.appendChild(st);
+    }
+    const f = (typeof mapFilters !== 'undefined') ? mapFilters : {};
+    const mode = f.horizonBg || 'color';
+    const dim = Math.min(90, Math.max(20, Number(f.horizonBgDim) || 60));
+    const btn = (m, icon, label) => `<button type="button" data-bg-mode="${m}" class="${mode === m ? 'active' : ''}"><i class="fa-solid ${icon}"></i><span>${label}</span></button>`;
+    return `<div class="sr-bg-picker" data-sr-bg-picker data-mode="${mode}">
+        <div class="sr-bg-seg">
+            ${btn('color', 'fa-palette', 'None')}
+            ${btn('aircraft', 'fa-plane', 'Aircraft photo')}
+            ${btn('custom', 'fa-image', 'Your image')}
+        </div>
+        <div class="sr-bg-custom">
+            <span class="sr-bg-thumb"></span>
+            <label class="sr-bg-btn"><i class="fa-solid fa-upload"></i><span>Choose image</span>
+                <input type="file" accept="image/*" id="${idPrefix}-horizon-bg-file" hidden></label>
+            <button type="button" class="sr-bg-btn sr-bg-adjust" hidden><i class="fa-solid fa-crop-simple"></i> Adjust</button>
+            <button type="button" class="sr-bg-btn sr-bg-remove" hidden><i class="fa-solid fa-trash-can"></i> Remove</button>
+        </div>
+        <div class="sr-bg-note"></div>
+        <div class="sr-bg-share" data-sr-bg-share></div>
+        <label class="sr-bg-dim"><span>Dim</span><input type="range" min="20" max="90" step="5" value="${dim}"><output>${dim}%</output></label>
+    </div>`;
+}
+
+function wireHorizonBackgroundPicker(root) {
+    const box = root && root.querySelector('[data-sr-bg-picker]');
+    if (!box || box.dataset.wired === '1') return;
+    box.dataset.wired = '1';
+    const note = box.querySelector('.sr-bg-note');
+    const thumb = box.querySelector('.sr-bg-thumb');
+    const remove = box.querySelector('.sr-bg-remove');
+    const save = () => { if (typeof saveFiltersToLocalStorage === 'function') saveFiltersToLocalStorage(); };
+    const notes = {
+        color: '',
+        aircraft: 'Each flight’s own aircraft photo, softly blurred, fills the flight window — in every window style.',
+        custom: 'Pick any image — it fills the flight window top to bottom, in every window style. Tall (portrait) images fit best.',
+    };
+    // "Your image" is this viewer's own, on this device. Showing a photo to
+    // everyone who opens your flight is the Pro window photo in the profile.
+    const share = box.querySelector('[data-sr-bg-share]');
+    const paintShare = () => {
+        if (!share) return;
+        const pro = isProViewer();
+        share.innerHTML = '<i class="fa-solid fa-eye" aria-hidden="true"></i><div>'
+            + '<b>Only you see this image</b> — it stays on this device and shows in the windows you open. '
+            + (pro
+                ? 'To show a photo to everyone who opens <b>your</b> flight, set it as your window photo.'
+                  + '<br><button type="button" data-sr-bg-own>Show a photo on my flight <i class="fa-solid fa-chevron-right"></i></button>'
+                : 'With <b>Inflight Pro</b>, your own flight’s window can carry a photo that everyone who opens it sees.')
+            + '</div>';
+        share.querySelector('[data-sr-bg-own]')?.addEventListener('click', openOwnWindowStyleEditor);
+    };
+    box._paintShare = paintShare;
+    paintShare();
+    const adjust = box.querySelector('.sr-bg-adjust');
+    const paintCustom = async () => {
+        const url = await getHorizonCustomBgUrl();
+        thumb.style.backgroundImage = url ? `url("${url}")` : '';
+        remove.hidden = !url;
+        if (adjust) adjust.hidden = !url;
+    };
+    const setMode = (m) => {
+        box.dataset.mode = m;
+        box.querySelectorAll('[data-bg-mode]').forEach((b) => b.classList.toggle('active', b.dataset.bgMode === m));
+        note.textContent = notes[m] || '';
+        if (m === 'custom') paintCustom();
+    };
+    box._setMode = setMode;       // for syncHorizonBackgroundPicker
+    setMode(box.dataset.mode || 'color');
+    box.querySelectorAll('[data-bg-mode]').forEach((b) => b.addEventListener('click', () => {
+        if (typeof mapFilters === 'undefined') return;
+        mapFilters.horizonBg = b.dataset.bgMode;
+        save();
+        setMode(b.dataset.bgMode);
+        refreshOpenHorizonBackground();
+        notifyWindowLookChanged();
+    }));
+    // Frame the picture, then keep it (and, where possible, the original).
+    const commit = async (framed, original) => {
+        if (!framed) return;
+        if (framed.error) { note.textContent = framed.error; return; }
+        if (_horizonCustomBgUrl && _horizonCustomBgUrl.startsWith('blob:')) URL.revokeObjectURL(_horizonCustomBgUrl);
+        _horizonCustomBgUrl = null;
+        const where = await saveHorizonCustomBg(framed.blob);
+        if (original) await saveHorizonBgSource(original, framed.crop);
+        mapFilters.horizonBg = 'custom';
+        if (Number.isFinite(framed.dim)) mapFilters.horizonBgDim = framed.dim;
+        save();
+        // Any other mounted picker (the other screen's) shows the new image too.
+        document.querySelectorAll('[data-sr-bg-picker]').forEach((b) => { if (b !== box && b._setMode) b._setMode(b.dataset.mode); });
+        setMode('custom');
+        syncHorizonBackgroundPicker(box.parentElement || document);
+        if (where === 'session') note.textContent = 'This browser won’t store images, so it’s shown until you close the app.';
+        refreshOpenHorizonBackground();
+        notifyWindowLookChanged();
+    };
+    box.querySelector('input[type="file"]').addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        await commit(await frameWindowImage(file), file);
+    });
+    adjust?.addEventListener('click', async () => {
+        const src = await getHorizonBgSource();
+        if (src) { await commit(await frameWindowImage(src.blob, { start: src.crop }), src.blob); return; }
+        // No original kept: reframe the saved image itself.
+        const url = await getHorizonCustomBgUrl();
+        if (!url) return;
+        try {
+            const blob = await (await fetch(url)).blob();
+            await commit(await frameWindowImage(blob), null);
+        } catch (_) { note.textContent = 'That image couldn’t be opened. Choose it again to reframe it.'; }
+    });
+    remove.addEventListener('click', async () => {
+        await removeHorizonCustomBg();
+        mapFilters.horizonBg = 'color';
+        save();
+        setMode('color');
+        refreshOpenHorizonBackground();
+        notifyWindowLookChanged();
+    });
+    const range = box.querySelector('.sr-bg-dim input');
+    const out = box.querySelector('.sr-bg-dim output');
+    range.addEventListener('input', () => {
+        out.textContent = range.value + '%';
+        if (typeof mapFilters !== 'undefined') mapFilters.horizonBgDim = Number(range.value);
+        // Live on the native window — unless it is wearing the pilot's own
+        // look, whose dim is theirs.
+        const w = document.getElementById('aircraft-info-window');
+        if (w && !ownerLook(w)) w.style.setProperty('--sr-dim', String(Number(range.value) / 100));
+        notifyWindowLookChanged();
+    });
+    // On release: save, and hand the new dim to Simple / Card, which paint
+    // the background inside their own frame.
+    range.addEventListener('change', () => { save(); refreshOpenHorizonBackground(); });
+}
+
+// Lets a later change of settings (a saved setup) repaint the picker.
+function syncHorizonBackgroundPicker(root) {
+    if (!root || typeof mapFilters === 'undefined') return;
+    const m = mapFilters.horizonBg || 'color';
+    const dim = Math.min(90, Math.max(20, Number(mapFilters.horizonBgDim) || 60));
+    root.querySelectorAll('[data-sr-bg-picker]').forEach((box) => {
+        if (box.dataset.mode !== m) {
+            if (box._setMode) box._setMode(m);
+            else {
+                box.dataset.mode = m;
+                box.querySelectorAll('[data-bg-mode]').forEach((b) => b.classList.toggle('active', b.dataset.bgMode === m));
+            }
+        }
+        const range = box.querySelector('.sr-bg-dim input');
+        const out = box.querySelector('.sr-bg-dim output');
+        if (range && range.value !== String(dim)) range.value = String(dim);
+        if (out) out.textContent = dim + '%';
+    });
+}
+
+/**
+ * Saved window setups (Pro).
+ *
+ * A setup is a named snapshot of how this viewer's flight window looks —
+ * style, Horizon colour, background and dim, and whether pilots' own styles
+ * show — so switching between, say, "Night flying" and "Spotting" is one tap.
+ * Kept in mapFilters.windowSetups, so it travels with Pro's cloud settings.
+ * A "Your image" background is on this device only; on another device that
+ * setup falls back to no image.
+ */
+const WINDOW_SETUP_KEYS = ['flightWindowMode', 'horizonColor', 'horizonBg', 'horizonBgDim', 'showPilotStyles'];
+const WINDOW_SETUP_MAX = 6;
+
+function isProViewer() {
+    try { return typeof window.isInflightPro === 'function' && window.isInflightPro(); } catch (_) { return false; }
+}
+
+function getWindowSetups() {
+    const list = (typeof mapFilters !== 'undefined' && Array.isArray(mapFilters.windowSetups)) ? mapFilters.windowSetups : [];
+    return list.filter((x) => x && typeof x.name === 'string').slice(0, WINDOW_SETUP_MAX);
+}
+
+function applyWindowSetup(setup) {
+    if (!setup || typeof mapFilters === 'undefined') return;
+    WINDOW_SETUP_KEYS.forEach((k) => { if (k in setup && k !== 'flightWindowMode') mapFilters[k] = setup[k]; });
+    setFlightWindowMode(setup.flightWindowMode || getFlightWindowMode());   // also saves
+    const w = document.getElementById('aircraft-info-window');
+    if (w && w.classList.contains('iw-horizon')) applyHorizonColor(w);
+    refreshOpenHorizonBackground();
+    setShowPilotStyles(setup.showPilotStyles !== false);
+    // Every open Settings screen repaints on this (syncWindowLookControls).
+    notifyWindowLookChanged();
+    if (typeof showNotification === 'function') showNotification(`“${setup.name}” applied — reopen the flight window if its style changed.`, 'info');
+}
+
+function buildWindowSetups() {
+    if (!document.getElementById('iw-setups-style')) {
+        const st = document.createElement('style');
+        st.id = 'iw-setups-style';
+        st.textContent = `
+            .iw-setups { display: flex; flex-direction: column; gap: 8px; }
+            .iw-setups-row { display: flex; flex-wrap: wrap; gap: 8px; }
+            .iw-setup-chip {
+                display: inline-flex; align-items: stretch; border-radius: 999px; overflow: hidden;
+                border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06);
+            }
+            .iw-setup-chip button {
+                appearance: none; border: 0; background: none; color: #e4e4e7; cursor: pointer;
+                font: inherit; font-size: 0.8rem; font-weight: 600; padding: 7px 10px 7px 12px;
+                display: inline-flex; align-items: center; gap: 7px;
+            }
+            .iw-setup-chip button:hover { background: rgba(255,255,255,0.08); }
+            .iw-setup-chip .iw-setup-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35); }
+            .iw-setup-chip .iw-setup-del { padding: 7px 10px 7px 6px; color: #8b8b94; font-weight: 400; }
+            .iw-setup-chip .iw-setup-del:hover { color: #fca5a5; }
+            .iw-setup-add {
+                appearance: none; cursor: pointer; border-radius: 999px; padding: 7px 12px;
+                border: 1px dashed rgba(255,255,255,0.24); background: none; color: #cbd5e1;
+                font: inherit; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 7px;
+            }
+            .iw-setup-add:hover { border-color: rgba(255,255,255,0.4); color: #fff; }
+            .iw-setups-note { font-size: 0.74rem; color: #8b8b94; line-height: 1.45; }
+            .iw-setups.is-locked .iw-setup-add { opacity: 0.55; cursor: not-allowed; }
+            .iw-setups-pro {
+                display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 5px; font-size: 0.6rem;
+                font-weight: 800; letter-spacing: 0.06em; color: #1c1c1e; background: linear-gradient(135deg, #f5d27a, #e0a93b);
+            }
+        `;
+        document.head.appendChild(st);
+    }
+    return '<div class="iw-setups" data-iw-setups></div>';
+}
+
+function paintWindowSetups(box) {
+    const pro = isProViewer();
+    box.classList.toggle('is-locked', !pro);
+    const list = getWindowSetups();
+    const modeIcon = { legacy: 'fa-layer-group', horizon: 'fa-sun', simple: 'fa-window-maximize', embed: 'fa-id-card' };
+    const chips = list.map((x, i) => {
+        const dot = horizonTokens(x.horizonColor || HORIZON_DEFAULT_COLOR).bg;
+        const name = String(x.name).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        return `<span class="iw-setup-chip">
+            <button type="button" data-apply="${i}" title="Apply"><span class="iw-setup-dot" style="background:${dot}"></span><i class="fa-solid ${modeIcon[x.flightWindowMode] || 'fa-layer-group'}" style="font-size:0.72rem;opacity:.7"></i>${name}</button>
+            <button type="button" class="iw-setup-del" data-del="${i}" title="Delete" aria-label="Delete ${name}">×</button>
+        </span>`;
+    }).join('');
+    const canAdd = pro && list.length < WINDOW_SETUP_MAX;
+    box.innerHTML = `
+        <div class="iw-setups-row">
+            ${pro ? chips : ''}
+            ${(canAdd || !pro) ? `<button type="button" class="iw-setup-add" data-add ${pro ? '' : 'disabled aria-disabled="true"'}><i class="fa-solid ${pro ? 'fa-plus' : 'fa-lock'}"></i> Save current look${pro ? '' : '<span class="iw-setups-pro">PRO</span>'}</button>` : ''}
+        </div>
+        <div class="iw-setups-note">${pro
+            ? (list.length ? 'Tap a setup to switch your window style, colour and background in one go.' : 'Save your current window style, colour and background as a setup, then switch between setups in one tap.')
+            : 'Save several window looks and switch between them in one tap — an Inflight Pro feature.'}</div>`;
+}
+
+function wireWindowSetups(root) {
+    const box = root && root.querySelector('[data-iw-setups]');
+    if (!box || box.dataset.wired === '1') return;
+    box.dataset.wired = '1';
+    paintWindowSetups(box);
+    box.addEventListener('click', (e) => {
+        const t = e.target.closest('button');
+        if (!t || typeof mapFilters === 'undefined') return;
+        const list = getWindowSetups();
+        if (t.hasAttribute('data-add')) {
+            if (!isProViewer()) return;
+            const suggestion = { legacy: 'Legacy', horizon: 'Horizon', simple: 'Simple', embed: 'Card' }[getFlightWindowMode()] + ' look';
+            const name = (window.prompt('Name this setup', suggestion) || '').trim().slice(0, 24);
+            if (!name) return;
+            const snap = { name };
+            WINDOW_SETUP_KEYS.forEach((k) => { snap[k] = k === 'flightWindowMode' ? getFlightWindowMode() : mapFilters[k]; });
+            mapFilters.windowSetups = list.concat([snap]).slice(0, WINDOW_SETUP_MAX);
+            saveFiltersToLocalStorage();
+            paintWindowSetups(box);
+        } else if (t.dataset.del != null) {
+            list.splice(Number(t.dataset.del), 1);
+            mapFilters.windowSetups = list;
+            saveFiltersToLocalStorage();
+            paintWindowSetups(box);
+        } else if (t.dataset.apply != null) {
+            if (!isProViewer()) return;
+            applyWindowSetup(list[Number(t.dataset.apply)]);
+        }
+    });
+}
+
+/**
+ * Free accounts: the window look travels with the account. Pro already
+ * syncs all of mapFilters (profiles.map_filters); for a signed-in free
+ * account, preferenceSync.js carries this one localStorage key instead, and
+ * hands it back with 'preferencesRestored'.
+ */
+const WINDOW_LOOK_LS_KEY = 'inflight_window_look';
+const WINDOW_LOOK_KEYS = ['flightWindowMode', 'horizonColor', 'horizonBg', 'horizonBgDim', 'showPilotStyles'];
+
+function writeWindowLook() {
+    if (typeof mapFilters === 'undefined') return;
+    try {
+        const look = {};
+        WINDOW_LOOK_KEYS.forEach((k) => { if (mapFilters[k] !== undefined) look[k] = mapFilters[k]; });
+        const json = JSON.stringify(look);
+        if (localStorage.getItem(WINDOW_LOOK_LS_KEY) !== json) localStorage.setItem(WINDOW_LOOK_LS_KEY, json);
+    } catch (_) { /* private mode */ }
+}
+
+function readSyncedWindowLook() {
+    if (typeof mapFilters === 'undefined' || isProViewer()) return;
+    let look = null;
+    try { look = JSON.parse(localStorage.getItem(WINDOW_LOOK_LS_KEY) || 'null'); } catch (_) { return; }
+    if (!look || typeof look !== 'object') return;
+    let changed = false;
+    WINDOW_LOOK_KEYS.forEach((k) => {
+        if (!(k in look) || k === 'flightWindowMode') return;
+        const v = look[k];
+        const ok = k === 'horizonColor' ? /^#[0-9a-f]{6}$/i.test(v)
+            : k === 'horizonBg' ? ['color', 'aircraft', 'custom'].includes(v)
+            : k === 'horizonBgDim' ? Number.isFinite(Number(v))
+            : typeof v === 'boolean';
+        if (ok && mapFilters[k] !== v) { mapFilters[k] = v; changed = true; }
+    });
+    if (['legacy', 'horizon', 'simple', 'embed'].includes(look.flightWindowMode) && look.flightWindowMode !== getFlightWindowMode()) {
+        setFlightWindowMode(look.flightWindowMode);
+        changed = true;
+    }
+    if (changed) {
+        saveFiltersToLocalStorage();
+        const w = document.getElementById('aircraft-info-window');
+        if (w && w.classList.contains('iw-horizon')) applyHorizonColor(w);
+        refreshOpenHorizonBackground();
+        notifyWindowLookChanged();
+    }
+}
+if (typeof window !== 'undefined') window.addEventListener('preferencesRestored', readSyncedWindowLook);
+
+/**
+ * Settings › Flight window: one panel for desktop and the phone sheet.
+ *
+ * Style, colour, background and saved setups sit in one card beside a live
+ * preview of the window they make. Each control still goes through its own
+ * setter (setFlightWindowMode, setHorizonColor, the background picker, a
+ * saved setup, …); each of those announces the change with
+ * 'inflight:window-look', and every mounted panel repaints from mapFilters —
+ * so a setup applied, a cloud restore or the other screen's panel never
+ * leaves one showing stale values.
+ */
+const WINDOW_STYLE_INFO = [
+    { mode: 'legacy', icon: 'fa-layer-group', name: 'Legacy', desc: 'The full window, instruments and all.' },
+    { mode: 'horizon', icon: 'fa-sun', name: 'Horizon', desc: 'Legacy in a calmer skin, in your colour.' },
+    { mode: 'simple', icon: 'fa-window-maximize', name: 'Simple', desc: 'Clean cards: route, times and live numbers.' },
+    { mode: 'embed', icon: 'fa-id-card', name: 'Card', desc: 'Photo first, like the cards you share.' },
+];
+// Each style's own window colour (Horizon's is the user's).
+const WINDOW_STYLE_BASE = { legacy: '#222225', simple: '#18181b', embed: '#1a1a1e' };
+const WINDOW_PREVIEW_PHOTO = '/CommunityPlanes/a350.webp';
+
+function notifyWindowLookChanged() {
+    if (typeof window === 'undefined') return;
+    try { window.dispatchEvent(new CustomEvent('inflight:window-look')); } catch (_) {}
+}
+
+function injectWindowLookStyles() {
+    if (document.getElementById('wl-panel-style')) return;
+    const st = document.createElement('style');
+    st.id = 'wl-panel-style';
+    st.textContent = `
+        .wl {
+            --wl-ui-text: var(--gs-text, #e4e4e7); --wl-ui-dim: var(--gs-dim, #8b8b94);
+            --wl-ui-line: var(--gs-line, rgba(255,255,255,0.08)); --wl-ui-accent: #38bdf8;
+            display: flex; flex-direction: column; color: var(--wl-ui-text);
+        }
+        .wl-top { display: grid; grid-template-columns: 164px minmax(0, 1fr); gap: 18px; align-items: stretch; }
+        .wl-pv-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+        .wl-pv-cap { text-align: center; font-size: 11px; color: var(--wl-ui-dim); letter-spacing: 0.02em; }
+
+        /* ---- Live preview: a real flight window, in miniature ----
+           The window is drawn at its own width (360px, see windowMockHtml)
+           and scaled to fit, so type, spacing and proportions are the real
+           ones. */
+        .wl-pv {
+            position: relative; flex: 1; min-height: 250px; overflow: hidden; isolation: isolate;
+            border-radius: 14px; background: #18181b;
+            box-shadow: 0 12px 28px rgba(0,0,0,0.38), inset 0 0 0 1px rgba(255,255,255,0.08);
+        }
+        .wl-pv::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); pointer-events: none; z-index: 5; }
+        .wl-pv .wm-fit { position: absolute; left: 0; top: 0; width: 360px; transform-origin: 0 0; transform: scale(var(--wm-k, 0.45)); pointer-events: none; }
+        /* ---- Style choice ---- */
+        .wl-styles { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        .wl-style {
+            appearance: none; display: flex; align-items: center; gap: 12px; width: 100%; margin: 0;
+            padding: 10px 12px; border-radius: 12px; cursor: pointer; text-align: left;
+            border: 1px solid var(--wl-ui-line); background: rgba(255,255,255,0.025); color: var(--wl-ui-text);
+            font: inherit; transition: border-color .15s ease, background-color .15s ease;
+        }
+        .wl-style:hover { background: rgba(255,255,255,0.05); }
+        .wl-style:focus-visible { outline: 2px solid var(--wl-ui-accent); outline-offset: 2px; }
+        .wl-style > i:first-child {
+            flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center;
+            border-radius: 8px; background: rgba(255,255,255,0.06); color: #b3b8c0; font-size: 13px;
+        }
+        .wl-style-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .wl-style-text b { font-size: 13.5px; font-weight: 600; }
+        .wl-style-text small { font-size: 11.5px; line-height: 1.35; color: var(--wl-ui-dim); }
+        .wl-style-check {
+            flex: 0 0 auto; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%;
+            border: 1.5px solid rgba(255,255,255,0.22); color: transparent; font-size: 10px;
+        }
+        .wl-style.active { border-color: rgba(56,189,248,0.55); background: rgba(56,189,248,0.08); }
+        .wl-style.active > i:first-child { background: rgba(56,189,248,0.16); color: #7dd3fc; }
+        .wl-style.active .wl-style-check { background: var(--wl-ui-accent); border-color: var(--wl-ui-accent); color: #0b1220; }
+
+        /* ---- Groups under the preview ---- */
+        .wl-group { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--wl-ui-line); }
+        .wl-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-bottom: 10px; }
+        .wl-label > span { font-size: 13.5px; font-weight: 600; color: var(--wl-ui-text); }
+        .wl-label > small { font-size: 11.5px; color: var(--wl-ui-dim); }
+        .wl:not([data-mode="horizon"]) [data-wl-group="color"] { display: none; }
+        .wl .sr-swatch { width: 32px; height: 32px; }
+
+        /* "Edit in profile" beside a row label. */
+        .wl-link {
+            appearance: none; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+            padding: 7px 12px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.06); color: #e4e4e7; font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+        }
+        .wl-link:hover { background: rgba(255,255,255,0.1); }
+        .wl-link i { font-size: 10px; opacity: 0.7; }
+
+        .wl-mode-note { display: none; margin: 10px 0 0; font-size: 12px; line-height: 1.45; color: var(--wl-ui-dim); }
+        /* Compact: preview beside colour and background. */
+        .wl-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+        .wl-side .wl-group { margin: 0; padding: 0; border: 0; }
+        @media (max-width: 480px) {
+            /* Phones: the rows keep just the names; the chosen style's line sits under the preview. */
+            .wl-top { grid-template-columns: 112px minmax(0, 1fr); gap: 12px; }
+            .wl-pv { min-height: 210px; }
+            .wl-style-text small { display: none; }
+            .wl-mode-note { display: block; }
+            .wl .sr-color-row { gap: 6px; }
+            .wl .sr-swatch { width: 28px; height: 28px; }
+            .wl .sr-bg-seg button { padding: 8px 4px; font-size: 0.78rem; }
+            .wl .sr-bg-seg button i { display: none; }
+            .wl-styles { gap: 5px; }
+            .wl-style { flex: 1; padding: 8px 10px; gap: 10px; border-radius: 11px; }
+            .wl-style > i:first-child { width: 26px; height: 26px; font-size: 12px; }
+            .wl-style-text b { font-size: 13.5px; }
+            .wl-style-check { width: 18px; height: 18px; }
+            .wl-compact .wl-top { grid-template-columns: 1fr; }
+            .wl-compact .wl-pv-col { width: 132px; margin: 0 auto; }
+            .wl-compact .wl-pv { min-height: 0; height: 228px; flex: none; }
+        }
+        @media (prefers-reduced-motion: reduce) { .wl-style { transition: none; } }
+    `;
+    document.head.appendChild(st);
+}
+
+// compact: no style list or saved setups — the preview beside colour and
+// background, for the first-run "Make it yours" step (the style was just
+// picked on the step before).
+function buildWindowLookPanel(idPrefix, { compact = false } = {}) {
+    injectWindowLookStyles();
+    const mode = getFlightWindowMode();
+    const colorGroup = `<div class="wl-group" data-wl-group="color">
+            <div class="wl-label"><span>Horizon colour</span><small>Text and panels adjust to stay readable.</small></div>
+            ${buildHorizonColorPicker(idPrefix)}
+        </div>`;
+    const bgGroup = `<div class="wl-group">
+            <div class="wl-label"><span>Background</span><small>Behind every window style — in the windows you open.</small></div>
+            ${buildHorizonBackgroundPicker(idPrefix)}
+        </div>`;
+    if (compact) {
+        return `<div class="wl wl-compact" data-wl data-mode="${mode}">
+            <div class="wl-top">
+                <div class="wl-pv-col">${windowLookPreviewHtml(mode)}<div class="wl-pv-cap">Preview</div></div>
+                <div class="wl-side">${colorGroup}${bgGroup}</div>
+            </div>
+        </div>`;
+    }
+    return `<div class="wl" data-wl data-mode="${mode}">
+        <div class="wl-top">
+            <div class="wl-pv-col">
+                ${windowLookPreviewHtml(mode)}
+                <div class="wl-pv-cap">Preview</div>
+            </div>
+            <div class="wl-styles" role="radiogroup" aria-label="Flight window style">
+                ${WINDOW_STYLE_INFO.map((s) => `
+                    <button type="button" role="radio" class="wl-style${s.mode === mode ? ' active' : ''}" data-wl-style="${s.mode}" aria-checked="${s.mode === mode}">
+                        <i class="fa-solid ${s.icon}" aria-hidden="true"></i>
+                        <span class="wl-style-text"><b>${s.name}</b><small>${s.desc}</small></span>
+                        <span class="wl-style-check" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
+                    </button>`).join('')}
+            </div>
+        </div>
+        <p class="wl-mode-note" data-wl-note>${(WINDOW_STYLE_INFO.find((s) => s.mode === mode) || {}).desc || ''}</p>
+        ${colorGroup}
+        ${bgGroup}
+        <div class="wl-group">
+            <div class="wl-label"><span>Saved setups</span></div>
+            ${buildWindowSetups()}
+        </div>
+    </div>`;
+}
+
+function windowLookPreviewHtml(mode) {
+    return `<div class="wl-pv" data-wl-preview data-style="${mode}" aria-hidden="true"><div class="wm-fit">${windowMockHtml(mode)}</div></div>`;
+}
+
+/* ---- The flight windows, in miniature ----
+ *
+ * One small, static copy of each real window — Legacy and Horizon (the
+ * native window, flight.js), Simple (flightinfo.html) and Card
+ * (embed-flight.html) — with the same layout, type and colours, laid out at
+ * 360px and scaled down by whoever shows it. The look is applied with CSS
+ * variables: --wm-base / --wm-tint (the window colour), --wm-img and
+ * --wm-dim (the background image), and Horizon's text tokens.
+ */
+const WINDOW_MOCK_WIDTH = 360;
+// Each style's own colours: solid when there is no image, and the tint laid
+// over an image (the values the real windows use for their glass).
+const WINDOW_MOCK_BASE = {
+    legacy: { solid: '#3a3a3a', tint: '34,34,37' },
+    simple: { solid: '#18181b', tint: '24,24,27' },
+    embed: { solid: '#1a1a1e', tint: '26,26,30' },
+};
+
+function injectWindowMockStyles() {
+    if (document.getElementById('wm-style')) return;
+    const st = document.createElement('style');
+    st.id = 'wm-style';
+    const P = WINDOW_PREVIEW_PHOTO;
+    st.textContent = `
+        .wm {
+            --wm-card: rgba(255,255,255,0.05); --wm-line: rgba(255,255,255,0.1);
+            position: relative; width: ${WINDOW_MOCK_WIDTH}px; min-height: 900px; overflow: hidden; box-sizing: border-box;
+            background: var(--wm-base, #18181b); color: #fff; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            -webkit-font-smoothing: antialiased; text-align: left; line-height: 1.25;
+        }
+        .wm * { box-sizing: border-box; }
+        .wm .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .wm-bg, .wm-tint { position: absolute; inset: 0; pointer-events: none; }
+        .wm-bg { background: var(--wm-img) center / cover no-repeat; display: none; }
+        .wm.has-img .wm-bg { display: block; }
+        .wm.img-blur .wm-bg { filter: blur(22px) saturate(1.15); transform: scale(1.15); }
+        .wm-tint { display: none; background: rgba(var(--wm-tint), var(--wm-dim, 0.6)); }
+        .wm.has-img .wm-tint { display: block; }
+        .wm.has-img { background: #111; --wm-card: rgba(var(--wm-tint), 0.62); }
+        .wm > :not(.wm-bg):not(.wm-tint) { position: relative; }
+        .wm-photo { background: url("${P}") center / cover no-repeat; }
+        .wm-btn { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 13px;
+            background: rgba(18,20,24,0.4); border: 1px solid rgba(255,255,255,0.16); color: rgba(255,255,255,0.92); }
+
+        /* Legacy */
+        .wmL-hero { height: 230px; display: flex; flex-direction: column; }
+        .wmL-hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(var(--wm-fade),0.18) 62%, rgba(var(--wm-fade),0.72) 88%, rgb(var(--wm-fade)) 100%); }
+        .wm.has-img .wmL-hero { -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent); mask-image: linear-gradient(180deg, #000 55%, transparent); }
+        .wm.has-img .wmL-hero::after { display: none; }
+        .wmL-top { position: relative; z-index: 1; padding: 20px 20px 0 24px; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+        .wmL-top h1 { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
+        .wmL-sub { margin-top: 6px; font-size: 11px; font-weight: 500; color: #cbd5e1; display: flex; gap: 8px; align-items: center; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+        .wmL-sub i { width: 3px; height: 3px; border-radius: 50%; background: #94a3b8; }
+        .wmL-btns { display: flex; gap: 6px; }
+        .wmL-route { margin: -32px 16px 0; padding: 14px 18px; border-radius: 12px; background: var(--wm-legacy-card, #3a3a3a); border: 1px solid rgba(255,255,255,0.1);
+            display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .wm.has-img .wmL-route { background: rgba(34,34,37,0.62); }
+        .wmL-node { display: flex; flex-direction: column; gap: 1px; }
+        .wmL-node.end { align-items: flex-end; text-align: right; }
+        .wmL-node small { font-size: 8.5px; font-weight: 600; color: #94a3b8; text-transform: uppercase; }
+        .wmL-node b { font-size: 20px; font-weight: 800; line-height: 1.1; }
+        .wmL-node span { font-size: 10.5px; font-weight: 600; color: #4ade80; }
+        .wmL-mid { flex: 1; max-width: 150px; display: flex; flex-direction: column; }
+        .wmL-phase { display: flex; align-items: center; justify-content: center; gap: 5px; margin-bottom: 8px; font-size: 9px; font-weight: 800; letter-spacing: 0.6px; }
+        .wmL-phase i { width: 6px; height: 6px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
+        .wmL-track { height: 4px; border-radius: 4px; background: rgba(255,255,255,0.1); }
+        .wmL-track span { display: block; position: relative; width: 58%; height: 100%; border-radius: 4px; background: #38bdf8; }
+        .wmL-track span i { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); font-size: 10px; color: #fff; filter: drop-shadow(0 0 4px #38bdf8); }
+        .wmL-dist { display: flex; justify-content: space-between; margin-top: 6px; font-size: 9px; font-weight: 700; color: #cbd5e1; }
+        .wmL-tabs { padding: 16px 16px 8px; display: flex; gap: 12px; align-items: center; }
+        .wmL-switch { flex: 1; display: flex; padding: 4px; border-radius: 12px; background: rgba(36,39,47,0.95); border: 1px solid rgba(255,255,255,0.06); }
+        .wm.has-img .wmL-switch { background: rgba(34,34,37,0.6); }
+        .wmL-switch > span { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 34px; border-radius: 9px; font-size: 10px; font-weight: 700; color: #cbd5e1; }
+        .wmL-switch > span.on { background: #3a3f4a; color: #fff; border: 1px solid rgba(255,255,255,0.08); }
+        .wmL-av { width: 20px; height: 20px; border-radius: 50%; background: #4a505c; display: grid; place-items: center; font-size: 8px; font-weight: 800; color: #fff; }
+        .wmL-pfd { margin: 6px 16px 0; height: 300px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); background: #0b0f17; }
+        .wmL-att { position: absolute; left: 54px; right: 54px; top: 20px; bottom: 56px; border-radius: 8px; overflow: hidden;
+            background: linear-gradient(180deg, #2f7fd0 0%, #3b8fdc 49.6%, #fff 49.6%, #fff 50.4%, #8a5a2b 50.4%, #6f4520 100%); }
+        .wmL-att::before { content: ''; position: absolute; left: 50%; top: 50%; width: 80px; height: 4px; margin: -2px 0 0 -40px; background: #facc15; box-shadow: 0 0 0 1px #000; }
+        .wmL-att::after { content: ''; position: absolute; left: 50%; top: 30%; width: 40px; height: 2px; margin-left: -20px; background: rgba(255,255,255,0.8); box-shadow: 0 16px 0 rgba(255,255,255,0.8), 0 60px 0 rgba(255,255,255,0.8), 0 76px 0 rgba(255,255,255,0.8); }
+        .wmL-tape { position: absolute; top: 20px; bottom: 56px; width: 42px; border-radius: 6px; background: rgba(40,44,52,0.9); display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; }
+        .wmL-tape.l { left: 8px; } .wmL-tape.r { right: 8px; }
+        .wmL-tape b { padding: 3px 4px; border: 1px solid #fff; border-radius: 3px; background: #000; font-size: 10px; }
+        .wmL-hdg { position: absolute; left: 70px; right: 70px; bottom: 12px; height: 30px; border-radius: 15px 15px 0 0; background: rgba(40,44,52,0.9); display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+
+        /* Horizon */
+        .wm-horizon { color: var(--wm-text); }
+        .wmH-hero { height: 206px; }
+        .wmH-hero .wm-photo { position: absolute; inset: 0; -webkit-mask-image: linear-gradient(180deg, #000 45%, transparent); mask-image: linear-gradient(180deg, #000 45%, transparent); }
+        .wmH-credit { position: absolute; top: 16px; left: 16px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; color: rgba(255,255,255,0.86); background: rgba(12,14,18,0.34); }
+        .wmH-btns { position: absolute; top: 14px; right: 14px; display: flex; gap: 6px; }
+        .wmH-id { padding: 0 20px 12px; margin-top: -30px; }
+        .wmH-eyebrow { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--wm-muted); }
+        .wmH-logo { width: 22px; height: 22px; border-radius: 6px; background: #fff; display: grid; place-items: center; color: #c8102e; font-size: 11px; font-weight: 900; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+        .wmH-id h1 { margin: 5px 0 0; font-size: 21px; font-weight: 600; letter-spacing: -0.01em; color: var(--wm-text); }
+        .wmH-route { margin: 0 20px; display: flex; flex-direction: column; gap: 8px; }
+        .wmH-ends { display: flex; justify-content: space-between; }
+        .wmH-ends div { display: flex; flex-direction: column; gap: 1px; }
+        .wmH-ends div:last-child { align-items: flex-end; }
+        .wmH-ends b { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; }
+        .wmH-ends small { font-size: 10px; color: var(--wm-muted); }
+        .wmH-line { height: 3px; border-radius: 3px; background: var(--wm-line); }
+        .wmH-line span { display: block; position: relative; width: 58%; height: 100%; border-radius: 3px; background: var(--wm-accent); }
+        .wmH-line span i { position: absolute; right: -7px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--wm-accent); }
+        .wmH-times { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--wm-muted); }
+        .wmH-tabs { margin: 16px 16px 8px; display: flex; padding: 4px; border-radius: 999px; background: var(--wm-surface-hi); }
+        .wmH-tabs span { flex: 1; height: 32px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 10.5px; font-weight: 600; color: var(--wm-muted); }
+        .wmH-tabs span.on { background: var(--wm-surface-hi); color: var(--wm-text); box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+        .wmH-glance { margin: 8px 16px 0; padding: 14px 12px; border-radius: 16px; background: var(--wm-surface); display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .wm.has-img .wmH-glance, .wm.has-img .wmH-status { background: rgba(var(--wm-tint), 0.45); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+        .wmH-glance div { display: flex; flex-direction: column; gap: 4px; }
+        .wmH-glance small { font-size: 9px; font-weight: 600; letter-spacing: 0.08em; color: var(--wm-faint); }
+        .wmH-glance b { font-size: 14px; font-weight: 600; }
+        .wmH-status { margin: 10px 16px 0; padding: 14px; border-radius: 16px; background: var(--wm-surface); display: flex; align-items: center; justify-content: space-between; }
+        .wmH-status b { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
+        .wmH-status b i { width: 7px; height: 7px; border-radius: 50%; background: var(--wm-accent); }
+        .wmH-status span { font-size: 11px; color: var(--wm-muted); }
+        .wmH-cards { margin: 10px 16px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .wmH-cards div { height: 86px; border-radius: 16px; background: var(--wm-surface); }
+
+        /* Simple (flightinfo.html) */
+        .wmS-top { padding: 18px 18px 14px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .wmS-top h1 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+        .wmS-pilot { margin-top: 4px; display: flex; align-items: center; gap: 7px; font-size: 11px; color: #d4d4d8; }
+        .wmS-pilot i { width: 18px; height: 18px; border-radius: 50%; background: #3f3f46; }
+        .wmS-pilot em { font-style: normal; font-size: 9px; font-weight: 800; letter-spacing: 0.06em; color: #4ade80; border: 1px solid rgba(74,222,128,0.4); background: rgba(74,222,128,0.12); padding: 1px 5px; border-radius: 4px; }
+        .wmS-acts { display: flex; gap: 10px; align-items: center; }
+        .wmS-round { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); font-size: 13px; }
+        .wmS-pill { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: #38bdf8; background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.35); }
+        .wmS-pill i { width: 6px; height: 6px; border-radius: 50%; background: #38bdf8; }
+        .wmS-card { margin: 0 8px 12px; border-radius: 16px; background: var(--wm-card); border: 1px solid var(--wm-line); }
+        .wmS-photo { margin: 0 8px 12px; height: 156px; border-radius: 16px; overflow: hidden; border: 1px solid var(--wm-line); }
+        .wmS-photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 45%, rgba(0,0,0,0.6)); }
+        .wmS-chip { position: absolute; z-index: 1; padding: 3px 8px; border-radius: 7px; font-size: 9.5px; font-weight: 600; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.18); }
+        .wmS-type { position: absolute; z-index: 1; left: 16px; bottom: 14px; }
+        .wmS-type b { display: block; font-size: 17px; font-weight: 700; }
+        .wmS-type small { font-size: 11px; color: #d4d4d8; }
+        .wmS-reg { position: absolute; z-index: 1; right: 14px; bottom: 14px; padding: 6px 10px; border-radius: 7px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.2); }
+        .wmS-route { padding: 18px 18px 14px; display: flex; align-items: center; justify-content: space-between; }
+        .wmS-route div { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .wmS-route b { font-size: 38px; font-weight: 800; line-height: 1; }
+        .wmS-route small { font-size: 10px; font-weight: 700; color: #a1a1aa; letter-spacing: 0.04em; }
+        .wmS-plane { width: 34px; height: 34px; border-radius: 50%; background: #38bdf8; display: grid; place-items: center; color: #fff; font-size: 14px; }
+        .wmS-times { display: grid; grid-template-columns: 1fr 1fr; }
+        .wmS-times div { padding: 16px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--wm-line); }
+        .wmS-times div:nth-child(odd) { border-right: 1px solid var(--wm-line); }
+        .wmS-times div:nth-last-child(-n+2) { border-bottom: 0; }
+        .wmS-times small { font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em; color: #71717a; }
+        .wmS-times b { font-size: 15px; font-weight: 700; }
+        .wmS-prog { padding: 16px 16px 14px; }
+        .wmS-bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,0.12); }
+        .wmS-bar span { display: block; position: relative; width: 58%; height: 100%; border-radius: 4px; background: #38bdf8; }
+        .wmS-bar span i { position: absolute; right: -8px; top: 50%; transform: translateY(-50%); color: #38bdf8; font-size: 15px; }
+        .wmS-dist { display: flex; justify-content: space-between; margin-top: 10px; font-size: 11px; color: #a1a1aa; }
+        .wmS-plan { padding: 13px; text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #d4d4d8; }
+        .wmS-sec { margin: 16px 12px 8px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; color: #52525b; }
+        .wmS-tele { margin: 0 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .wmS-tele div { padding: 16px; border-radius: 12px; background: var(--wm-card); border: 1px solid var(--wm-line); }
+        .wmS-tele small { display: block; font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; color: #a1a1aa; margin-bottom: 14px; }
+        .wmS-tele b { font-size: 22px; font-weight: 700; }
+        .wmS-tele em { font-style: normal; font-size: 11px; color: #52525b; }
+
+        /* Card (embed-flight.html) */
+        .wmC-photo { height: 200px; }
+        .wmC-photo .wm-photo { position: absolute; inset: 0; }
+        .wmC-photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgba(var(--wm-fade),1)); }
+        .wm.has-img .wmC-photo::after { display: none; }
+        .wm.has-img .wmC-photo .wm-photo { -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent); mask-image: linear-gradient(180deg, #000 55%, transparent); }
+        .wmC-share { position: absolute; top: 12px; left: 12px; z-index: 1; }
+        .wmC-credit { position: absolute; z-index: 1; right: 12px; bottom: 10px; padding: 3px 8px; border-radius: 6px; font-size: 9px; font-weight: 600; background: rgba(0,0,0,0.55); }
+        .wmC-id { padding: 20px 16px 0; text-align: center; }
+        .wmC-id h1 { margin: 0; font-size: 23px; font-weight: 800; }
+        .wmC-id div { margin-top: 3px; font-size: 13px; color: #d4d4d8; }
+        .wmC-id small { font-size: 11px; color: #71717a; }
+        .wmC-acts { margin: 16px 12px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .wmC-acts span { height: 56px; border-radius: 12px; background: rgba(255,255,255,0.08); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; font-size: 12px; font-weight: 700; }
+        .wmC-acts span.primary { background: #fff; color: #111; }
+        .wmC-pilot { margin: 24px 12px 0; padding: 12px; border-radius: 12px; background: var(--wm-card); display: flex; align-items: center; gap: 12px; }
+        .wmC-pilot i { width: 38px; height: 38px; border-radius: 50%; background: #3f3f46; display: grid; place-items: center; font-style: normal; font-size: 11px; font-weight: 800; border: 1.5px solid rgba(255,255,255,0.5); }
+        .wmC-pilot b { flex: 1; font-size: 12px; letter-spacing: 0.06em; }
+        .wmC-pilot small { font-size: 8.5px; font-weight: 700; letter-spacing: 0.08em; color: #d4d4d8; }
+        .wmC-stats { margin: 22px 12px 0; display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; }
+        .wmC-stats small { display: block; font-size: 12px; color: #a1a1aa; margin-bottom: 3px; }
+        .wmC-stats b { font-size: 15px; font-weight: 700; }
+        .wmC-stats b.ok { color: #22c55e; }
+        .wmC-h { margin: 22px 14px 10px; font-size: 17px; font-weight: 700; }
+        .wmC-route { margin: 0 12px; padding: 18px 16px; border-radius: 14px; background: var(--wm-card); border: 1px solid var(--wm-line); display: flex; align-items: center; justify-content: space-between; }
+        .wmC-route div { display: flex; flex-direction: column; align-items: center; }
+        .wmC-route b { font-size: 30px; font-weight: 800; }
+        .wmC-route small { font-size: 9px; font-weight: 700; color: #a1a1aa; }
+        .wmC-route i { width: 32px; height: 32px; border-radius: 50%; background: #fff; color: #111; display: grid; place-items: center; font-size: 13px; }
+    `;
+    document.head.appendChild(st);
+}
+
+function windowMockHtml(mode) {
+    injectWindowMockStyles();
+    const plane = '<i class="fa-solid fa-plane"></i>';
+    const layers = '<div class="wm-bg"></div><div class="wm-tint"></div>';
+    if (mode === 'horizon') {
+        return `<div class="wm wm-horizon">${layers}
+            <div class="wmH-hero"><div class="wm-photo"></div><span class="wmH-credit">© Contributor</span>
+                <div class="wmH-btns"><span class="wm-btn"><i class="fa-solid fa-thumbtack"></i></span><span class="wm-btn"><i class="fa-solid fa-circle-play"></i></span><span class="wm-btn"><i class="fa-solid fa-camera"></i></span></div></div>
+            <div class="wmH-id"><div class="wmH-eyebrow"><span class="wmH-logo">▲</span><span>Delta</span><span>·</span><span>A350-900</span></div><h1>DAL41</h1></div>
+            <div class="wmH-route">
+                <div class="wmH-ends"><div><b>KLAX</b><small>Los Angeles</small></div><div><b>KJFK</b><small>New York</small></div></div>
+                <div class="wmH-line"><span>${plane}</span></div>
+                <div class="wmH-times"><span>14:05 Z</span><span>21:40 Z</span></div>
+            </div>
+            <div class="wmH-tabs"><span class="on"><i class="fa-solid fa-gauge-high"></i> Flight Display</span><span>JANE_DOE</span></div>
+            <div class="wmH-glance">
+                <div><small>ALT</small><b>36,000</b></div><div><small>SPEED</small><b>482 kt</b></div><div><small>V/S</small><b>0</b></div><div><small>HDG</small><b>072°</b></div>
+            </div>
+            <div class="wmH-status"><b><i></i>CRUISE</b><span>2h 55m flown · 2h 10m to go</span></div>
+            <div class="wmH-cards"><div></div><div></div></div>
+        </div>`;
+    }
+    if (mode === 'simple') {
+        return `<div class="wm wm-simple">${layers}
+            <div class="wmS-top"><div><h1>DAL41</h1><div class="wmS-pilot"><i></i>JANE_DOE <em>ACTIVE</em></div></div>
+                <div class="wmS-acts"><span class="wmS-round"><i class="fa-solid fa-sliders"></i></span><span class="wmS-pill"><i></i>CRUISE</span></div></div>
+            <div class="wmS-photo wm-photo"><span class="wmS-chip" style="left:10px;top:10px">© CONTRIBUTOR</span><span class="wmS-chip" style="right:10px;top:10px">Less info</span>
+                <div class="wmS-type"><b>A350-900</b><small>Delta</small></div><span class="wmS-reg mono">N501DN</span></div>
+            <div class="wmS-card wmS-route"><div><b class="mono">KLAX</b><small>LOS ANGELES INTL</small></div><span class="wmS-plane">${plane}</span><div><b class="mono">KJFK</b><small>JOHN F KENNEDY…</small></div></div>
+            <div class="wmS-card wmS-times">
+                <div><small>SCHEDULED</small><b class="mono">14:00 Z</b></div><div><small>SCHEDULED</small><b class="mono">21:50 Z</b></div>
+                <div><small>ACTUAL</small><b class="mono">14:05 Z</b></div><div><small>ESTIMATED</small><b class="mono">21:40 Z</b></div>
+            </div>
+            <div class="wmS-card wmS-prog"><div class="wmS-bar"><span>${plane}</span></div><div class="wmS-dist"><span>1450 nm · 2h 55m ago</span><span>1020 nm · in 02:10</span></div></div>
+            <div class="wmS-card wmS-plan">FLIGHT PLAN</div>
+            <div class="wmS-sec">LIVE TELEMETRY</div>
+            <div class="wmS-tele"><div><small>ALTITUDE</small><b class="mono">36,000</b> <em>ft</em></div><div><small>GND SPEED</small><b class="mono">482</b> <em>kts</em></div></div>
+        </div>`;
+    }
+    if (mode === 'embed') {
+        return `<div class="wm wm-embed">${layers}
+            <div class="wmC-photo"><div class="wm-photo"></div><span class="wm-btn wmC-share"><i class="fa-solid fa-arrow-up-from-bracket"></i></span><span class="wmC-credit">© CONTRIBUTOR</span></div>
+            <div class="wmC-id"><h1>DAL41</h1><div>A350-900 · jane_doe</div><small>Delta · N501DN</small></div>
+            <div class="wmC-acts"><span class="primary">${plane}02:10</span><span><i class="fa-solid fa-clock-rotate-left"></i>Replay</span><span><i class="fa-solid fa-arrow-up-from-bracket"></i>Share</span></div>
+            <div class="wmC-pilot"><i>JA</i><b>JANE_DOE</b><small>VIEW PROFILE ›</small></div>
+            <div class="wmC-stats"><div><small>Status</small><b class="ok">CRUISE</b></div><div><small>Altitude</small><b>36,000 ft</b></div><div><small>Speed</small><b>482 kts</b></div></div>
+            <div class="wmC-h">Route</div>
+            <div class="wmC-route"><div><b>KLAX</b><small>LOS ANGELES INTL</small></div><i>${plane}</i><div><b>KJFK</b><small>JOHN F KENNEDY INTL</small></div></div>
+        </div>`;
+    }
+    return `<div class="wm wm-legacy">${layers}
+        <div class="wmL-hero wm-photo"><div class="wmL-top"><div><h1>DAL41</h1><div class="wmL-sub"><span>A350-900</span><i></i><span>Delta</span></div></div>
+            <div class="wmL-btns"><span class="wm-btn"><i class="fa-solid fa-thumbtack"></i></span><span class="wm-btn"><i class="fa-solid fa-circle-play"></i></span><span class="wm-btn"><i class="fa-solid fa-camera"></i></span></div></div></div>
+        <div class="wmL-route">
+            <div class="wmL-node"><small>Los Angeles</small><b class="mono">KLAX</b><span>14:05 Z</span></div>
+            <div class="wmL-mid"><div class="wmL-phase"><i></i>CRUISE</div><div class="wmL-track"><span>${plane}</span></div><div class="wmL-dist"><span>2470 NM</span><span>ETE: 02:10</span></div></div>
+            <div class="wmL-node end"><small>New York</small><b class="mono">KJFK</b><span>21:40 Z</span></div>
+        </div>
+        <div class="wmL-tabs"><div class="wmL-switch"><span class="on"><i class="fa-solid fa-gauge-high"></i> Flight Display</span><span><span class="wmL-av">JA</span> JANE_DOE</span></div><span class="wm-btn"><i class="fa-solid fa-arrows-left-right-to-line"></i></span></div>
+        <div class="wmL-pfd"><div class="wmL-att"></div><div class="wmL-tape l"><b>482</b></div><div class="wmL-tape r"><b>36000</b></div><div class="wmL-hdg">072</div></div>
+    </div>`;
+}
+
+/* Dress a mock in a look: the style's own colour (Horizon: `color`), and
+ * optionally a background image at a dim. Returns the .wm element. */
+function styleWindowMock(wm, mode, { color = null, img = null, imgCss = null, blur = false, dim = 0.6 } = {}) {
+    if (!wm) return wm;
+    const base = WINDOW_MOCK_BASE[mode];
+    const t = horizonTokens(mode === 'horizon' ? (color || getHorizonColor()) : (base ? base.solid : '#18181b'));
+    const vars = {
+        '--wm-base': t.bg,
+        '--wm-fade': mode === 'horizon' ? t.bgRgb : (mode === 'legacy' ? '58,58,58' : (base ? base.tint : '24,24,27')),
+        '--wm-tint': mode === 'horizon' ? t.bgRgb : (base ? base.tint : t.bgRgb),
+        '--wm-dim': String(dim),
+        '--wm-text': t.text, '--wm-muted': t.muted, '--wm-faint': t.faint, '--wm-accent': t.accent,
+        '--wm-surface': t.surface, '--wm-surface-hi': t.surfaceHi, '--wm-line': t.light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
+    };
+    Object.entries(vars).forEach(([k, v]) => wm.style.setProperty(k, v));
+    // imgCss: a painted background (a pilot's theme gradient) instead of a photo.
+    if (img) wm.style.setProperty('--wm-img', `url("${String(img).replace(/"/g, '%22')}")`);
+    else if (imgCss) wm.style.setProperty('--wm-img', imgCss);
+    wm.classList.toggle('has-img', !!(img || imgCss));
+    wm.classList.toggle('img-blur', !!img && blur);
+    wm.classList.toggle('is-light', mode === 'horizon' && t.light);
+    return wm;
+}
+
+// Scale a .wm-fit to its box's width; kept current as the box resizes.
+function fitWindowMock(box) {
+    if (!box) return;
+    const fit = () => { const w = box.clientWidth; if (w) box.style.setProperty('--wm-k', String(w / WINDOW_MOCK_WIDTH)); };
+    fit();
+    if (!box._wmObserved && typeof ResizeObserver !== 'undefined') {
+        box._wmObserved = true;
+        new ResizeObserver(fit).observe(box);
+    }
+}
+
+// Repaints one panel's style choice and preview from mapFilters.
+async function paintWindowLookPanel(box) {
+    if (!box || typeof mapFilters === 'undefined') return;
+    const mode = getFlightWindowMode();
+    box.dataset.mode = mode;
+    box.querySelectorAll('[data-wl-style]').forEach((b) => {
+        const on = b.dataset.wlStyle === mode;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', String(on));
+    });
+    const note = box.querySelector('[data-wl-note]');
+    if (note) note.textContent = (WINDOW_STYLE_INFO.find((s) => s.mode === mode) || {}).desc || '';
+    const pv = box.querySelector('[data-wl-preview]');
+    if (!pv) return;
+    if (pv.dataset.style !== mode || !pv.querySelector('.wm')) {
+        pv.dataset.style = mode;
+        pv.innerHTML = `<div class="wm-fit">${windowMockHtml(mode)}</div>`;
+    }
+    fitWindowMock(pv);
+    const bgMode = mapFilters.horizonBg || 'color';
+    const dim = Math.min(90, Math.max(20, Number(mapFilters.horizonBgDim) || 60)) / 100;
+    const token = {};
+    pv._wlToken = token;
+    const url = bgMode === 'aircraft' ? WINDOW_PREVIEW_PHOTO
+        : bgMode === 'custom' ? await getHorizonCustomBgUrl()
+        : null;
+    if (pv._wlToken !== token) return;      // superseded by a later change
+    styleWindowMock(pv.querySelector('.wm'), mode, { img: url, blur: bgMode === 'aircraft', dim });
+}
+
+if (typeof window !== 'undefined') {
+    window.windowMockHtml = windowMockHtml;
+    window.styleWindowMock = styleWindowMock;
+    window.fitWindowMock = fitWindowMock;
+}
+
+// Brings every window-look control under `root` back in line with mapFilters.
+function syncWindowLookControls(root) {
+    if (!root || typeof mapFilters === 'undefined') return;
+    root.querySelectorAll('[data-wl]').forEach((box) => { paintWindowLookPanel(box); });
+    const cur = getHorizonColor().toLowerCase();
+    const isPreset = HORIZON_PRESETS.some((p) => p.hex === cur);
+    root.querySelectorAll('[data-sr-color-row]').forEach((row) => {
+        row.querySelectorAll('.sr-swatch').forEach((b) => b.classList.toggle('active', b.dataset.color ? b.dataset.color === cur : !isPreset));
+        const ci = row.querySelector('input[type="color"]');
+        if (ci && ci.value.toLowerCase() !== cur) ci.value = cur;
+    });
+    syncHorizonBackgroundPicker(root);
+    root.querySelectorAll('[data-iw-setups]').forEach((b) => { if (b.dataset.wired === '1') paintWindowSetups(b); });
+    const on = mapFilters.showPilotStyles !== false;
+    root.querySelectorAll('#set-show-pilot-styles, input[data-setting="showPilotStyles"]').forEach((c) => { c.checked = on; });
+}
+
+function wireWindowLookPanel(root) {
+    if (!root) return;
+    wireHorizonColorPicker(root);
+    wireHorizonBackgroundPicker(root);
+    wireWindowSetups(root);
+    const box = root.querySelector('[data-wl]');
+    if (box && box.dataset.wired !== '1') {
+        box.dataset.wired = '1';
+        box.querySelectorAll('[data-wl-style]').forEach((b) => b.addEventListener('click', () => {
+            const mode = b.dataset.wlStyle;
+            if (mode === getFlightWindowMode()) return;
+            window.InflightHaptics?.select?.();
+            setFlightWindowMode(mode);
+            // Horizon is the Legacy window re-skinned: on phones it rides the legacy sheet.
+            if (mode === 'legacy' || mode === 'horizon') {
+                try { localStorage.setItem('mobileDisplayMode', 'legacy'); } catch (_) {}
+            }
+            // The preview shows the change; a window that's open needs reopening.
+            const w = document.getElementById('aircraft-info-window');
+            if (w && w.classList.contains('visible') && typeof showNotification === 'function') {
+                showNotification('Window style changed — reopen the flight to see it.', 'info');
+            }
+        }));
+        paintWindowLookPanel(box);
+    }
+    root.querySelectorAll('[data-wl-own-style]').forEach((b) => {
+        if (b.dataset.wired === '1') return;
+        b.dataset.wired = '1';
+        b.addEventListener('click', openOwnWindowStyleEditor);
+    });
+}
+
+// "Your window, as others see it" lives with the pilot card in the profile
+// (pilotCardEditor.js). Close Settings, open the profile on its Settings tab
+// and bring that section into view once the editor has drawn it.
+function openOwnWindowStyleEditor() {
+    openAccountSettingsAt('#pce-window-style');
+}
+
+// The account screen's Settings tab, scrolled to `selector` once it has drawn
+// (signed out: sign-in instead). Closes whichever Settings screen is open.
+function openAccountSettingsAt(selector) {
+    const user = (typeof ProfileUI !== 'undefined') ? ProfileUI._currentUser : null;
+    if (typeof SettingsUI !== 'undefined' && SettingsUI._isVisible) SettingsUI.toggle(false);
+    if (document.querySelector('#mobile-settings-nexus .mobile-bottom-sheet.open')) document.getElementById('mobile-settings-close')?.click();
+    if (!user) {
+        if (window.AuthUI && typeof window.AuthUI.open === 'function') window.AuthUI.open('signin');
+        return;
+    }
+    ProfileUI.open(user);
+    const dash = (window.innerWidth <= 768 && typeof MobileDashboardUI !== 'undefined') ? MobileDashboardUI : ProfileUI;
+    try { dash.switchTab('settings'); } catch (_) {}
+    let tries = 0;
+    const seek = () => {
+        const el = document.querySelector(selector);
+        if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+        if (++tries < 40) setTimeout(seek, 150);
+    };
+    setTimeout(seek, 150);
+}
+
+// Settings › Flight window, on whichever screen this is.
+function openFlightWindowSettings() {
+    if (window.innerWidth <= 768) {
+        window.dispatchEvent(new CustomEvent('openMobileSettings'));
+        try { MobileSettingsUI.switchTab('general'); } catch (_) {}
+        setTimeout(() => document.getElementById('m-window-look')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 260);
+    } else {
+        window.dispatchEvent(new CustomEvent('openSettings', { detail: { category: 'windows' } }));
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('inflight:window-look', () => syncWindowLookControls(document));
+    // One listener for every Saved setups box, rather than one per render.
+    window.addEventListener('proStatusChanged', () => {
+        document.querySelectorAll('[data-iw-setups][data-wired="1"]').forEach((b) => paintWindowSetups(b));
+        document.querySelectorAll('[data-sr-bg-picker]').forEach((b) => { if (b._paintShare) b._paintShare(); });
+    });
+}
+
+if (typeof window !== 'undefined') {
+    window.buildWindowLookPanel = buildWindowLookPanel;
+    window.wireWindowLookPanel = wireWindowLookPanel;
+    window.syncWindowLookControls = syncWindowLookControls;
+    window.openOwnWindowStyleEditor = openOwnWindowStyleEditor;
+    window.openFlightWindowSettings = openFlightWindowSettings;
+    window.openAccountEmail = () => openAccountSettingsAt('#pui-email-change, #mdui-email-change');
+    window.buildWindowSetups = buildWindowSetups;
+    window.wireWindowSetups = wireWindowSetups;
+    window.buildHorizonColorPicker = buildHorizonColorPicker;
+    window.wireHorizonColorPicker = wireHorizonColorPicker;
+    window.setHorizonColor = setHorizonColor;
+    window.buildHorizonBackgroundPicker = buildHorizonBackgroundPicker;
+    window.wireHorizonBackgroundPicker = wireHorizonBackgroundPicker;
+}
+
+// Swap the progress bar's generic plane glyph for the silhouette the map
+// draws for this aircraft (aircraftShapes.js). Stays the glyph if the type
+// has no shape or the file can't load.
+function setHorizonProgressPlane(windowEl, aircraftName) {
+    windowEl.classList.remove('sr-has-plane');
+    const cat = aircraftName ? _resolveAircraftCategory(aircraftName) : null;
+    const token = {};
+    windowEl._srPlaneToken = token;
+    if (!cat) return;
+    import('./aircraftShapes.js')
+        .then((m) => m.aircraftSilhouetteUrl(cat))
+        .then((url) => {
+            if (!url || windowEl._srPlaneToken !== token) return;
+            windowEl.style.setProperty('--sr-plane', `url("${url}")`);
+            windowEl.classList.add('sr-has-plane');
+        })
+        .catch(() => { /* keep the glyph */ });
+}
+
+function ensureHorizonWindowStyle() {
+    if (document.getElementById('ac-horizon-style')) return;
+    const s = document.createElement('style');
+    s.id = 'ac-horizon-style';
+    s.textContent = HORIZON_WINDOW_CSS;
+    document.head.appendChild(s);
+}
+
+// Live readouts shown in Horizon's "at a glance" strip. Each cell mirrors the
+// Navigation card's element of the same id, which the live-update path keeps
+// current, so the strip needs no update code of its own.
+// Small line icons for Horizon's section headings and glance labels (24px
+// grid, stroked in currentColor so they take the accent).
+const SR_ICON = (() => {
+    const svg = (inner, fill) => `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+    return {
+        gauge: svg('<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 14.5l4-4.5"/><circle cx="12" cy="15" r="1.2"/>'),
+        chart: svg('<path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/>'),
+        compass: svg('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>'),
+        drop: svg('<path d="M12 3.5c3.4 4 5.8 7.1 5.8 10.1a5.8 5.8 0 0 1-11.6 0c0-3 2.4-6.1 5.8-10.1z"/>'),
+        cabin: svg('<circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9" r="2.3"/><path d="M16 14.3a4.6 4.6 0 0 1 4.6 5.7"/>'),
+        plane: svg('<path d="M12 2c.8 0 1.3 1 1.3 2.2V9l7.7 4.6v2l-7.7-2.3V18l2.2 1.7V21L12 20l-3.5 1v-1.3L10.7 18v-4.7L3 15.6v-2L10.7 9V4.2C10.7 3 11.2 2 12 2z"/>', true),
+        up: svg('<path d="M12 19V5"/><path d="M6.5 10.5L12 5l5.5 5.5"/>'),
+        speed: svg('<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 15l3.5-4"/>'),
+        vs: svg('<path d="M8 20V4"/><path d="M5 7l3-3 3 3"/><path d="M16 4v16"/><path d="M13 17l3 3 3-3"/>'),
+        needle: svg('<path d="M12 3l4.2 16L12 16l-4.2 3z"/>', true),
+    };
+})();
+
+const HORIZON_SECTION_ICONS = {
+    'Instruments': 'gauge',
+    'Speed & altitude': 'chart',
+    'Navigation': 'compass',
+    'Fuel': 'drop',
+    'Cabin': 'cabin',
+    'Aircraft': 'plane',
+};
+
+const HORIZON_GLANCE = [
+    ['ac-alt', 'Altitude', 'up'],
+    ['ac-gs', 'Ground speed', 'speed'],
+    ['ac-vs', 'Vertical speed', 'vs'],
+    ['ac-heading', 'Heading', 'needle'],
+];
+
+/**
+ * Horizon reads top-down as a story rather than a cockpit: the live numbers
+ * and the pilot's status first, then where the flight is going, then the
+ * instruments, then the detail. Same nodes (ids, listeners, live updates are
+ * unaffected), only moved; anything not named keeps its place at the top of
+ * the column (the hidden legacy spans).
+ */
+function arrangeHorizonWindow(html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    const pane = tpl.content.querySelector('#ac-tab-flight-data');
+    if (!pane) return html;
+
+    const q = (sel) => pane.querySelector(':scope > ' + sel);
+    // A card together with the section heading that sits just above it.
+    const withHeading = (el) => {
+        if (!el) return [];
+        const h = el.previousElementSibling;
+        return (h && h.matches('h2.acx-sec')) ? [h, el] : [el];
+    };
+    const make = (tag, cls, inner) => {
+        const el = document.createElement(tag);
+        el.className = cls;
+        el.innerHTML = inner;
+        return el;
+    };
+
+    // Cinematic identity: one eyebrow line — airline logo, airline, aircraft
+    // type — then the callsign. The registration lives in the Aircraft card.
+    // Built from the legacy header's own text; the logo chip is filled in
+    // after render by setHorizonAirlineLogo().
+    const idGroup = tpl.content.querySelector('.ac-identity-group');
+    const h1 = idGroup && idGroup.querySelector('h1');
+    if (h1) {
+        const callsign = h1.textContent.trim();
+        const sub = [...idGroup.querySelectorAll('.ac-sub-identity > span')].map((el) => el.textContent.trim());
+        const aircraft = sub[0] || '';
+        const airline = sub[2] || '';
+
+        const text = (tag, cls, value) => {
+            const el = document.createElement(tag);
+            el.className = cls;
+            el.textContent = value;
+            return el;
+        };
+        const eyebrow = make('div', 'sr-eyebrow', '<span class="sr-logo" aria-hidden="true"></span>');
+        if (airline) eyebrow.appendChild(text('span', 'sr-eb-airline', airline));
+        if (airline && aircraft) eyebrow.appendChild(text('span', 'sr-eb-sep', '·'));
+        if (aircraft) eyebrow.appendChild(text('span', 'sr-eb-aircraft', aircraft));
+
+        idGroup.replaceChildren(eyebrow, text('h1', 'sr-callsign', callsign));
+    }
+
+    // The route strip shows city names; the 'Departure'/'Arrival'
+    // placeholders (airport without a city on file) just add noise.
+    tpl.content.querySelectorAll('.ac-route-info-bar .city-name').forEach((el) => {
+        const t = el.textContent.trim();
+        if (t === 'Departure' || t === 'Arrival') el.classList.add('sr-hidden');
+    });
+
+    const glance = make('div', 'sr-glance', HORIZON_GLANCE.map(([id, label, icon]) =>
+        `<div class="sr-g${id === 'ac-heading' ? ' sr-g-hdg' : ''}"><span class="sr-g-top"><span class="sr-g-ic">${SR_ICON[icon]}</span><span class="sr-g-l">${label}</span></span><span class="sr-g-v" data-sr-mirror="${id}">---</span></div>`
+    ).join(''));
+
+    // "This flight" is left out of Horizon. It stays in the DOM, hidden,
+    // because the live-update path writes to its ids.
+    withHeading(q('.stats-card')).forEach((el) => el.classList.add('sr-hidden'));
+    // Pilot status + timers leave the PFD's side column for their own card.
+    const status = pane.querySelector('.pfd-and-location-grid .info-right-col');
+    if (status) status.classList.add('sr-status');
+
+    const order = [
+        glance,
+        status,
+        q('#legacy-dest-card'),
+        make('h2', 'acx-sec', 'Instruments'),
+        q('.pfd-and-location-grid'),
+        q('.nd-full-width-section'),
+        q('#ac-va-banner'),
+        ...withHeading(q('.graph-card')),
+        q('#ac-legs-host'),
+        ...withHeading(q('.nav-card')),
+        q('#ac-fuel-sec'), q('#ac-fuel-host'),
+        q('#ac-cabin-sec'), q('#ac-cabin-host'),
+        ...withHeading(q('.aircraft-card')),
+    ].filter(Boolean);
+    order.forEach((el) => pane.appendChild(el));
+
+    // Every section heading gets its icon tile.
+    pane.querySelectorAll(':scope > h2.acx-sec').forEach((h) => {
+        const icon = SR_ICON[HORIZON_SECTION_ICONS[h.textContent.trim()]];
+        if (icon) h.insertAdjacentHTML('afterbegin', `<span class="sr-sec-ic">${icon}</span>`);
+    });
+    return tpl.innerHTML;
+}
+
+/**
+ * Horizon hero photo sizing. Photos always span the window's width and are
+ * never zoomed past it (that cut off nose and tail). The photo band's height
+ * is the SHORTEST of the aircraft's photos at that width (clamped): the
+ * widest shot shows whole, and any taller one fills the same band, cropped
+ * top and bottom rather than leaving an empty strip under it. One height
+ * for all photos also means the window never jumps as the carousel turns.
+ * The carousel swaps photos by rewriting background-image on the header and
+ * its crossfade layer; each swap is positioned from the cached aspect.
+ */
+const SR_HERO_MIN_H = 120;
+const SR_HERO_MAX_H = 300;
+
+function fitHorizonHero(panel, photos) {
+    if (!panel) return;
+    if (panel._srHeroObserver) panel._srHeroObserver.disconnect();
+    const urlOf = (el) => {
+        const m = /url\(["']?([^"')]+)["']?\)/.exec(el.style.backgroundImage || '');
+        return m ? m[1] : null;
+    };
+    const aspect = new Map();          // src -> height / width
+    const pending = new Set();         // srcs being measured
+    let band = null;                   // px, once known
+    const fadeLayer = panel.querySelector(':scope > .hero-photo-fade');
+    const targets = [panel, fadeLayer].filter(Boolean);
+
+    // Crop only a photo taller than the band; a photo that fits sits on top.
+    const place = (el) => {
+        const r = aspect.get(urlOf(el));
+        if (!r || band == null || !panel.clientWidth) return;
+        const pos = panel.clientWidth * r > band + 1 ? 'center 40%' : 'center top';
+        if (el.style.getPropertyValue('background-position') !== pos) {
+            el.style.setProperty('background-position', pos, 'important');
+        }
+    };
+    const setBand = () => {
+        if (!panel.isConnected || !panel.clientWidth || !aspect.size) return;
+        const shortest = Math.min(...aspect.values()) * panel.clientWidth;
+        const h = Math.round(Math.min(SR_HERO_MAX_H, Math.max(SR_HERO_MIN_H, shortest)));
+        if (h !== band) {
+            band = h;
+            panel.style.setProperty('--sr-photo-h', h + 'px');
+        }
+        targets.forEach(place);
+    };
+    const measure = (src) => {
+        if (!src || aspect.has(src) || pending.has(src)) return;
+        pending.add(src);
+        const img = new Image();
+        img.onload = () => {
+            pending.delete(src);
+            if (img.naturalWidth) aspect.set(src, img.naturalHeight / img.naturalWidth);
+            setBand();
+        };
+        img.onerror = () => pending.delete(src);
+        img.src = src;
+    };
+
+    const srcs = (photos || []).map((p) => p && p.src).filter(Boolean);
+    if (!srcs.length) { const cur = urlOf(panel); if (cur) srcs.push(cur); }
+    srcs.forEach(measure);
+
+    const mo = new MutationObserver((records) => {
+        records.forEach((r) => {
+            const src = urlOf(r.target);
+            if (src && !aspect.has(src)) measure(src);
+            else place(r.target);
+        });
+    });
+    targets.forEach((el) => mo.observe(el, { attributes: true, attributeFilter: ['style'] }));
+    panel._srHeroObserver = mo;
+}
+
+/**
+ * Ambient tint for Horizon: the photo's own colour, averaged with weight on
+ * saturated pixels and settled to a mid, gentle tone, is mixed a little into
+ * the window colour behind the header (--sr-tint). Grey photos and photos
+ * the browser won't let us read (no CORS) simply get no tint.
+ */
+function sampleHorizonGlow(windowEl, panel) {
+    windowEl.classList.remove('sr-ambient');
+    const m = /url\(["']?([^"')]+)["']?\)/.exec(panel.style.backgroundImage || '');
+    if (!m) return;
+    const token = {};
+    windowEl._srGlowToken = token;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+        if (windowEl._srGlowToken !== token) return;
+        try {
+            const N = 24;
+            const c = document.createElement('canvas');
+            c.width = c.height = N;
+            const g = c.getContext('2d', { willReadFrequently: true });
+            g.drawImage(img, 0, 0, N, N);
+            const d = g.getImageData(0, 0, N, N).data;
+            let r = 0, gr = 0, b = 0, w = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]);
+                const sat = mx ? (mx - mn) / mx : 0;
+                const wt = 0.1 + sat * sat;
+                r += d[i] * wt; gr += d[i + 1] * wt; b += d[i + 2] * wt; w += wt;
+            }
+            r /= w; gr /= w; b /= w;
+            // To HSL, keep the hue, settle saturation and lightness.
+            const R = r / 255, G = gr / 255, B = b / 255;
+            const mx = Math.max(R, G, B), mn = Math.min(R, G, B), l = (mx + mn) / 2;
+            const sat = mx === mn ? 0 : (l > 0.5 ? (mx - mn) / (2 - mx - mn) : (mx - mn) / (mx + mn));
+            if (sat < 0.08) return;
+            let h;
+            if (mx === R) h = ((G - B) / (mx - mn) + (G < B ? 6 : 0));
+            else if (mx === G) h = (B - R) / (mx - mn) + 2;
+            else h = (R - G) / (mx - mn) + 4;
+            h /= 6;
+            const S2 = Math.min(0.7, Math.max(0.4, sat)), L2 = 0.55;
+            const q = L2 < 0.5 ? L2 * (1 + S2) : L2 + S2 - L2 * S2, p = 2 * L2 - q;
+            const hue = (t) => {
+                t = (t + 1) % 1;
+                if (t < 1 / 6) return p + (q - p) * 6 * t;
+                if (t < 1 / 2) return q;
+                if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                return p;
+            };
+            const rgb = [hue(h + 1 / 3), hue(h), hue(h - 1 / 3)].map((v) => Math.round(v * 255));
+            windowEl.style.setProperty('--sr-glow-rgb', rgb.join(','));
+            windowEl.classList.add('sr-ambient');
+        } catch (_) { /* unreadable (cross-origin) photo: no tint */ }
+    };
+    img.src = m[1];
+}
+
+/**
+ * Horizon photo extras, after the carousel (if any) is built:
+ *  - a credit tag for a single photo (the carousel only credits 2+),
+ *    shown top-left on the photo;
+ *  - the swipe dots grouped bottom-right, and the chips told how much
+ *    room they take (--sr-meta-w);
+ *  - an invisible button over the photo band that lights up when pressed
+ *    and opens the full-screen photo viewer (a swipe is not a tap);
+ *  - invisible previous / next zones on the photo's edges that show a
+ *    chevron only while used.
+ */
+// Photo controls shared by Horizon and Legacy: the invisible view-photos
+// button and the previous/next edge zones, plus Legacy's photo sizing (the
+// same fit Horizon uses: full width, never zoomed past it, the band sized to
+// the shortest photo) and its fade, dots and credit.
+function ensureHeroPhotoControlStyles() {
+    if (document.getElementById('hero-photo-controls-style')) return;
+    const G = '#aircraft-info-window';
+    const L = '#aircraft-info-window:not(.iw-horizon)';
+    const st = document.createElement('style');
+    st.id = 'hero-photo-controls-style';
+    st.textContent = `
+        /* Invisible "view photos" button over the photo band. Nothing shows
+           until it is pressed; then the photo lifts with a soft light and an
+           expand mark, and a tap opens the full-screen viewer. */
+        ${G} .sr-photo-hit {
+            position: absolute; left: 0; right: 0; top: 0; height: var(--sr-photo-h, 220px); z-index: 1;
+            margin: 0; padding: 0; border: 0; background: transparent; cursor: zoom-in;
+            -webkit-tap-highlight-color: transparent; outline: none;
+            transition: background-color .25s ease, box-shadow .25s ease;
+        }
+        ${G} .sr-photo-hit::after {
+            content: ''; position: absolute; left: 50%; top: 42%; width: 44px; height: 44px;
+            margin: -22px 0 0 -22px; border-radius: 50%; opacity: 0; transform: scale(0.8);
+            background: rgba(12,14,18,0.42) no-repeat center / 20px
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M9 21H3v-6'/%3E%3Cpath d='M21 3l-7 7'/%3E%3Cpath d='M3 21l7-7'/%3E%3C/svg%3E");
+            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+            transition: opacity .2s ease, transform .25s cubic-bezier(0.2, 0.7, 0.2, 1);
+        }
+        ${G} .sr-photo-hit.is-pressed, ${G} .sr-photo-hit:focus-visible {
+            background-color: rgba(255,255,255,0.08);
+            box-shadow: inset 0 0 0 2px rgba(255,255,255,0.28), inset 0 0 60px rgba(255,255,255,0.08);
+        }
+        ${G} .sr-photo-hit.is-pressed::after, ${G} .sr-photo-hit:focus-visible::after { opacity: 1; transform: scale(1); }
+        @media (hover: hover) and (pointer: fine) {
+            ${G} .sr-photo-hit:hover::after { opacity: 0.85; transform: scale(1); }
+        }
+        /* Previous / next edge zones (wireHorizonPhotos). Invisible at rest;
+           while used, a shade from that edge and a glass chevron. */
+        ${G} .sr-photo-edge {
+            position: absolute; top: 0; height: var(--sr-photo-h, 220px); width: 22%; z-index: 1;
+            margin: 0; padding: 0 14px; border: 0; background: transparent; cursor: pointer;
+            display: flex; align-items: center; color: #fff; outline: none;
+            -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+            transition: background .3s ease;
+        }
+        ${G} .sr-photo-prev { left: 0; justify-content: flex-start; }
+        ${G} .sr-photo-next { right: 0; justify-content: flex-end; }
+        ${G} .sr-photo-chev {
+            width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+            background: rgba(12,14,18,0.45); border: 1px solid rgba(255,255,255,0.18);
+            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+            opacity: 0; transform: scale(0.85);
+            transition: opacity .25s ease, transform .3s cubic-bezier(0.2, 0.7, 0.2, 1);
+        }
+        ${G} .sr-photo-chev svg { width: 16px; height: 16px; }
+        ${G} .sr-photo-edge.is-used .sr-photo-chev, ${G} .sr-photo-edge:focus-visible .sr-photo-chev { opacity: 1; transform: scale(1); }
+        ${G} .sr-photo-edge:active .sr-photo-chev { transform: scale(0.92); }
+        ${G} .sr-photo-prev.is-used { background: linear-gradient(90deg, rgba(12,14,18,0.28), transparent); }
+        ${G} .sr-photo-next.is-used { background: linear-gradient(270deg, rgba(12,14,18,0.28), transparent); }
+
+        /* Legacy photo: width-filled, band = shortest photo (fitHorizonHero
+           sets --sr-photo-h and each photo's position). Phones used to
+           shrink it to fit, which left a hard edge above the fade. */
+        ${L} .ac-header-modern.lg-fit,
+        ${L}.mobile-legacy-sheet .ac-header-modern.lg-fit {
+            min-height: var(--sr-photo-h, 220px) !important;
+            background-size: 100% auto !important; background-repeat: no-repeat !important;
+        }
+        ${L}:not(.wb-legacy) .ac-header-modern.lg-fit,
+        ${L}.mobile-legacy-sheet:not(.wb-legacy) .ac-header-modern.lg-fit { background-color: #3a3a3a !important; }
+        ${L} .lg-fit .hero-photo-fade { background-size: 100% auto !important; background-repeat: no-repeat !important; }
+        /* An eased fade that lands exactly on the bar colour at the bottom. */
+        ${L}:not(.wb-legacy) .lg-fit .ac-header-overlay,
+        ${L}.mobile-legacy-sheet:not(.wb-legacy) .lg-fit .ac-header-overlay {
+            background: linear-gradient(180deg,
+                rgba(0,0,0,0.10) 0%, rgba(0,0,0,0) 26%,
+                rgba(58,58,58,0) 42%, rgba(58,58,58,0.06) 50%, rgba(58,58,58,0.16) 58%,
+                rgba(58,58,58,0.32) 66%, rgba(58,58,58,0.52) 74%, rgba(58,58,58,0.72) 82%,
+                rgba(58,58,58,0.89) 91%, #3a3a3a 100%) !important;
+        }
+        /* Legacy's name block and VA-badge row span the photo's width;
+           let taps through them to the view / previous / next controls,
+           keeping anything clickable inside them clickable. */
+        ${L} .lg-fit .ac-header-top, ${L} .lg-fit .ac-partner-hero { pointer-events: none; }
+        ${L} .lg-fit .ac-header-top :is(a, button, [role="button"]),
+        ${L} .lg-fit .ac-partner-hero > * { pointer-events: auto; }
+        /* Dots: the active one stretches into a pill. Credit: quiet glass. */
+        ${L} .hero-photo-dots span {
+            width: 6px !important; height: 6px !important; border-radius: 3px !important; box-shadow: none !important;
+            transition: width .35s cubic-bezier(0.2, 0.7, 0.2, 1), background-color .35s ease !important;
+        }
+        ${L} .hero-photo-dots span.on { width: 16px !important; }
+        ${L} .hero-photo-credit {
+            font-size: 10px !important; padding: 3px 9px !important; color: rgba(255,255,255,0.86) !important;
+            background: rgba(12,14,18,0.34) !important; text-shadow: none !important;
+            -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
+        }
+    `;
+    document.head.appendChild(st);
+}
+
+function wireHorizonPhotos(panel, photos, fallbackPath, { groupMeta = true } = {}) {
+    ensureHeroPhotoControlStyles();
+    const list = (photos || []).filter((p) => p && p.src);
+    const creditOf = (p) => (p && p.photographer && p.photographer !== 'IF Community') ? p.photographer : '';
+
+    let credit = panel.querySelector('.hero-photo-credit');
+    if (!credit && list.length === 1 && creditOf(list[0])) {
+        credit = document.createElement('div');
+        credit.className = 'hero-photo-credit';
+        credit.style.cssText = HERO_CREDIT_CSS;
+        credit.textContent = `© ${creditOf(list[0])}`;
+    }
+    // Horizon: the credit sits top-left on the photo (CSS), the dots
+    // bottom-right. Legacy keeps the carousel's own places for both.
+    if (credit && !credit.isConnected) panel.appendChild(credit);
+    const dots = groupMeta && panel.querySelector('.hero-photo-dots');
+    if (dots) {
+        const meta = document.createElement('div');
+        meta.className = 'sr-photo-meta';
+        meta.appendChild(dots);
+        panel.appendChild(meta);
+        const setW = () => panel.style.setProperty('--sr-meta-w', meta.offsetWidth + 'px');
+        if (typeof ResizeObserver === 'function') new ResizeObserver(setW).observe(meta);
+        requestAnimationFrame(setW);
+    }
+
+    if (!list.length) return;   // placeholder art only: nothing to view
+    const hit = document.createElement('button');
+    hit.type = 'button';
+    hit.className = 'sr-photo-hit';
+    hit.setAttribute('aria-label', list.length > 1 ? `View ${list.length} photos` : 'View photo');
+    // Under the header text and buttons (same z-index, earlier in the DOM).
+    const overlay = panel.querySelector('.ac-header-overlay');
+    if (overlay && overlay.nextSibling) panel.insertBefore(hit, overlay.nextSibling);
+    else panel.appendChild(hit);
+
+    let downX = 0, downY = 0, releaseTimer = null;
+    const press = (on) => {
+        clearTimeout(releaseTimer);
+        if (on) hit.classList.add('is-pressed');
+        else releaseTimer = setTimeout(() => hit.classList.remove('is-pressed'), 160);
+    };
+    hit.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; press(true); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => hit.addEventListener(t, () => press(false)));
+    hit.addEventListener('click', (e) => {
+        if (Math.hypot(e.clientX - downX, e.clientY - downY) > 10) return;   // that was a swipe
+        const cur = panel.dataset.currentPath;
+        const at = Math.max(0, list.findIndex((p) => p.src === cur));
+        openHorizonPhotoViewer(list, at, fallbackPath);
+    });
+
+    // Previous / next: invisible edge zones over the photo. Nothing shows
+    // until one is used; then a soft shade and a chevron rise on that side
+    // and fade away shortly after. Above the view button, under the header
+    // buttons and the credit.
+    if (list.length < 2 || typeof panel._heroStep !== 'function') return;
+    const chevron = (d) => `<span class="sr-photo-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg></span>`;
+    [[-1, 'prev', 'Previous photo', 'M15 18l-6-6 6-6'], [1, 'next', 'Next photo', 'M9 18l6-6-6-6']].forEach(([step, side, label, path]) => {
+        const edge = document.createElement('button');
+        edge.type = 'button';
+        edge.className = `sr-photo-edge sr-photo-${side}`;
+        edge.setAttribute('aria-label', label);
+        edge.innerHTML = chevron(path);
+        hit.after(edge);
+        let x0 = 0, y0 = 0, fade = null;
+        const flash = () => {
+            clearTimeout(fade);
+            edge.classList.add('is-used');
+            fade = setTimeout(() => edge.classList.remove('is-used'), 900);
+        };
+        edge.addEventListener('pointerdown', (e) => { x0 = e.clientX; y0 = e.clientY; flash(); });
+        edge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (Math.hypot(e.clientX - x0, e.clientY - y0) > 10) return;   // the carousel took it as a swipe
+            flash();
+            panel._heroStep(step);
+        });
+    });
+}
+
+// Full-screen photo viewer: the photo contained on a dark, blurred backdrop,
+// arrows and swipe to page, the contributor and a counter underneath.
+// Escape / backdrop tap / × closes; arrow keys page.
+function openHorizonPhotoViewer(photos, startAt, fallbackPath) {
+    if (!photos.length || document.getElementById('sr-photo-viewer')) return;
+    if (!document.getElementById('sr-photo-viewer-style')) {
+        const st = document.createElement('style');
+        st.id = 'sr-photo-viewer-style';
+        st.textContent = `
+            #sr-photo-viewer {
+                position: fixed; inset: 0; z-index: 100000; display: flex; flex-direction: column;
+                align-items: center; justify-content: center;
+                background: rgba(8,10,14,0.86); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+                opacity: 0; transition: opacity .25s ease; color: #fff;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                padding: max(16px, env(safe-area-inset-top)) 0 max(16px, env(safe-area-inset-bottom));
+                touch-action: pan-y;
+            }
+            #sr-photo-viewer.open { opacity: 1; }
+            #sr-photo-viewer .spv-stage { position: relative; width: 100%; display: grid; place-items: center; }
+            #sr-photo-viewer .spv-img {
+                max-width: min(94vw, 1400px); max-height: calc(100vh - 150px); object-fit: contain; border-radius: 14px;
+                box-shadow: 0 30px 80px rgba(0,0,0,0.5); user-select: none; -webkit-user-drag: none;
+                transform: scale(0.96); opacity: 0; transition: transform .45s cubic-bezier(0.2,0.7,0.2,1), opacity .3s ease;
+            }
+            #sr-photo-viewer.open .spv-img.ready { transform: none; opacity: 1; }
+            #sr-photo-viewer .spv-foot { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; min-height: 28px; font-size: 13px; }
+            #sr-photo-viewer .spv-credit { color: rgba(255,255,255,0.85); font-weight: 500; }
+            #sr-photo-viewer .spv-count { color: rgba(255,255,255,0.55); font-variant-numeric: tabular-nums; }
+            #sr-photo-viewer .spv-btn {
+                position: absolute; width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.16);
+                background: rgba(255,255,255,0.08); color: #fff; display: grid; place-items: center; cursor: pointer;
+                -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: background .2s ease, transform .15s ease;
+            }
+            #sr-photo-viewer .spv-btn:hover { background: rgba(255,255,255,0.16); }
+            #sr-photo-viewer .spv-btn:active { transform: scale(0.94); }
+            #sr-photo-viewer .spv-btn svg { width: 20px; height: 20px; }
+            #sr-photo-viewer .spv-close { top: max(14px, env(safe-area-inset-top)); right: 14px; }
+            #sr-photo-viewer .spv-prev { left: 14px; top: 50%; margin-top: -22px; }
+            #sr-photo-viewer .spv-next { right: 14px; top: 50%; margin-top: -22px; }
+            @media (max-width: 600px) { #sr-photo-viewer .spv-prev, #sr-photo-viewer .spv-next { display: none; } }
+        `;
+        document.head.appendChild(st);
+    }
+    const icon = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const v = document.createElement('div');
+    v.id = 'sr-photo-viewer';
+    v.setAttribute('role', 'dialog');
+    v.setAttribute('aria-modal', 'true');
+    v.setAttribute('aria-label', 'Aircraft photos');
+    v.innerHTML = `
+        <div class="spv-stage"><img class="spv-img" alt=""></div>
+        <div class="spv-foot"><span class="spv-credit"></span><span class="spv-count"></span></div>
+        <button type="button" class="spv-btn spv-close" aria-label="Close">${icon('<path d="M18 6L6 18"/><path d="M6 6l12 12"/>')}</button>
+        ${photos.length > 1 ? `
+        <button type="button" class="spv-btn spv-prev" aria-label="Previous photo">${icon('<path d="M15 18l-6-6 6-6"/>')}</button>
+        <button type="button" class="spv-btn spv-next" aria-label="Next photo">${icon('<path d="M9 18l6-6-6-6"/>')}</button>` : ''}
+    `;
+    document.body.appendChild(v);
+    const img = v.querySelector('.spv-img');
+    const creditEl = v.querySelector('.spv-credit');
+    const countEl = v.querySelector('.spv-count');
+    let i = startAt;
+    const render = () => {
+        const p = photos[i];
+        img.classList.remove('ready');
+        img.onload = () => img.classList.add('ready');
+        img.onerror = () => { if (fallbackPath && !img.src.endsWith(fallbackPath)) img.src = fallbackPath; };
+        img.src = p.src;
+        const by = (p.photographer && p.photographer !== 'IF Community') ? p.photographer : '';
+        creditEl.textContent = by ? `© ${by}` : '';
+        countEl.textContent = photos.length > 1 ? `${i + 1} / ${photos.length}` : '';
+    };
+    const go = (d) => { if (photos.length > 1) { i = (i + d + photos.length) % photos.length; render(); } };
+    const close = () => {
+        v.classList.remove('open');
+        document.removeEventListener('keydown', onKey);
+        setTimeout(() => v.remove(), 260);
+    };
+    const onKey = (e) => {
+        if (e.key === 'Escape') close();
+        else if (e.key === 'ArrowLeft') go(-1);
+        else if (e.key === 'ArrowRight') go(1);
+    };
+    document.addEventListener('keydown', onKey);
+    v.querySelector('.spv-close').addEventListener('click', close);
+    v.querySelector('.spv-prev')?.addEventListener('click', () => go(-1));
+    v.querySelector('.spv-next')?.addEventListener('click', () => go(1));
+    let sx = null, sy = 0, swiped = false;
+    v.addEventListener('click', (e) => {
+        if (swiped) { swiped = false; return; }                             // end of a swipe, not a tap
+        if (e.target === v || e.target.classList.contains('spv-stage')) close();
+    });
+    v.addEventListener('pointerdown', (e) => { sx = e.clientX; sy = e.clientY; swiped = false; });
+    v.addEventListener('pointerup', (e) => {
+        if (sx == null) return;
+        const dx = e.clientX - sx, dy = e.clientY - sy;
+        sx = null;
+        swiped = Math.hypot(dx, dy) > 10;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+        else if (dy > 90 && Math.abs(dy) > Math.abs(dx)) close();          // swipe down closes
+    });
+    render();
+    requestAnimationFrame(() => v.classList.add('open'));
+    v.querySelector('.spv-close').focus({ preventScroll: true });
+}
+
+// Horizon's eyebrow logo: the same airline match, sources and takedown
+// blocklist as the map's logo labels (getAirlineIcaoFromLivery,
+// AIRLINE_LOGO_SOURCES), but the emblem-only FlightAware set is tried first
+// since the airline's name is printed right beside it. Shown on a small
+// white chip, as on the map, because the marks are drawn for light
+// surfaces. No match or no image: the chip stays hidden.
+function setHorizonAirlineLogo(windowEl, liveryName) {
+    const slot = windowEl.querySelector('.sr-eyebrow .sr-logo');
+    if (!slot) return;
+    const icao = getAirlineIcaoFromLivery(liveryName);
+    if (!icao) return;
+    const [banner, square, emblem] = AIRLINE_LOGO_SOURCES;
+    const urls = [emblem, square, banner].filter(Boolean).map((f) => f(icao));
+    const img = new Image();
+    img.alt = '';
+    img.decoding = 'async';
+    let i = 0;
+    img.onload = () => {
+        if (!slot.isConnected) return;
+        slot.classList.toggle('is-wide', img.naturalWidth > img.naturalHeight * 1.4);
+        slot.replaceChildren(img);
+        slot.classList.add('has-logo');
+    };
+    img.onerror = () => { if (++i < urls.length) img.src = urls[i]; };
+    img.src = urls[0];
+}
+
+// With a background image the header photo can't end on a solid band, so
+// in that mode the header's own background is hidden (CSS) and this layer
+// shows the same photo with a mask that fades it out into the image below.
+// It mirrors the header's background-image/position, which the carousel and
+// fitHorizonHero keep rewriting.
+function mountHorizonHeroPhotoLayer(panel) {
+    if (!panel || panel.querySelector(':scope > .sr-hero-photo')) return;
+    const layer = document.createElement('div');
+    layer.className = 'sr-hero-photo';
+    layer.setAttribute('aria-hidden', 'true');
+    panel.insertBefore(layer, panel.firstChild);
+    const sync = () => {
+        layer.style.backgroundImage = panel.style.backgroundImage;
+        layer.style.backgroundPosition = panel.style.getPropertyValue('background-position') || '';
+    };
+    sync();
+    new MutationObserver(sync).observe(panel, { attributes: true, attributeFilter: ['style'] });
+}
+
+function wireHorizonGlance(windowEl) {
+    (windowEl._srMirrors || []).forEach((o) => o.disconnect());
+    windowEl._srMirrors = [];
+    windowEl.querySelectorAll('[data-sr-mirror]').forEach((cell) => {
+        const src = windowEl.querySelector('#' + cell.dataset.srMirror);
+        if (!src) return;
+        const copy = () => {
+            if (cell.innerHTML !== src.innerHTML) cell.innerHTML = src.innerHTML;
+            if (cell.dataset.srMirror === 'ac-heading') {
+                const deg = parseFloat(src.textContent);
+                if (!isNaN(deg)) cell.closest('.sr-g').style.setProperty('--sr-hdg', deg + 'deg');
+            }
+        };
+        copy();
+        const mo = new MutationObserver(copy);
+        mo.observe(src, { childList: true, subtree: true, characterData: true });
+        windowEl._srMirrors.push(mo);
+    });
+}
+
 function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communityAircraftData, filedPlanData = null) {
     // --- Safety Check: Ensure the container exists ---
     const windowEl = document.getElementById('aircraft-info-window');
     if (!windowEl) return;
+
+    // The pilot's own window look, if they've set one (before any colour or
+    // background is applied, so a cached look paints on the first frame).
+    loadOwnerWindowStyle(windowEl, baseProps.username);
+
+    // Horizon is this same window in a softer skin (see HORIZON_WINDOW_CSS).
+    const horizonSkin = getFlightWindowMode() === 'horizon';
+    if (horizonSkin) {
+        ensureHorizonWindowStyle();
+        applyHorizonColor(windowEl);
+    }
+    windowEl.classList.toggle('iw-horizon', horizonSkin);
 
     // Clickable origin/destination ICAOs — inject the hover affordance once.
     if (!document.getElementById('ac-icao-link-style')) {
@@ -24878,7 +28388,7 @@ let totalDistanceNM = 0;
     // --- HTML Construction ---
     // Morphs the window from the loading box to the finished panel instead of
     // snapping to it — see setInfoWindowContent.
-    setInfoWindowContent(windowEl, `
+    const windowHtml = `
     <div class="ac-header-modern" id="ac-overview-panel" style=" background-image: url('${techCardImagePath}'), url('/CommunityPlanes/default.png'); position: relative; display: flex; flex-direction: column; flex-shrink: 0; height: auto; min-height: 220px; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out;">
             <div class="ac-header-overlay" style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.08) 38%, rgba(58,58,58,0.18) 62%, rgba(58,58,58,0.72) 88%, #3a3a3a 100%); z-index: 0; pointer-events: none;"></div>
             <div class="ac-header-top" style=" position: relative; z-index: 1; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;">
@@ -25318,7 +28828,15 @@ let totalDistanceNM = 0;
             </div>
         </div>
     </div>
-    `);
+    `;
+    // Horizon rearranges the content column before it is written, so the
+    // morph measures the final layout (see arrangeHorizonWindow).
+    setInfoWindowContent(windowEl, horizonSkin ? arrangeHorizonWindow(windowHtml) : windowHtml);
+    if (horizonSkin) {
+        wireHorizonGlance(windowEl);
+        setHorizonAirlineLogo(windowEl, baseProps.aircraft?.liveryName || '');
+        setHorizonProgressPlane(windowEl, baseProps.aircraft?.aircraftName || '');
+    }
 
     // --- POST-RENDER LOGIC ---
     // Destination dropdown: expand/collapse, fetching the airport summary
@@ -25395,6 +28913,22 @@ let totalDistanceNM = 0;
         overviewPanel.style.backgroundImage = newImageUrl;
         overviewPanel.dataset.currentPath = imagePath;
         buildHeroPhotoCarousel(overviewPanel, techCardPhotos, fallbackPath);
+        if (horizonSkin) {
+            fitHorizonHero(overviewPanel, techCardPhotos);
+            sampleHorizonGlow(windowEl, overviewPanel);
+            wireHorizonPhotos(overviewPanel, techCardPhotos, fallbackPath);
+            mountHorizonHeroPhotoLayer(overviewPanel);
+        } else {
+            // Legacy gets the same photo handling: width-filled with no
+            // side crop, one band height for all photos, tap to view,
+            // invisible previous/next edges, single-photo credit.
+            overviewPanel.classList.add('lg-fit');
+            fitHorizonHero(overviewPanel, techCardPhotos);
+            wireHorizonPhotos(overviewPanel, techCardPhotos, fallbackPath, { groupMeta: false });
+        }
+        // Background image (setting) — Horizon and Legacy alike.
+        windowEl.dataset.wbPhoto = (techCardPhotos[0] && techCardPhotos[0].src) || '';
+        applyHorizonBackground(windowEl, windowEl.dataset.wbPhoto || null);
 
         // Hero partner badge: make it open the VA on click/Enter, then auto-collapse
         // it to a logo-only chip a few seconds after the window opens (hovering or
@@ -25480,6 +29014,7 @@ let totalDistanceNM = 0;
     // pane. Phones keep the pane.
     const pilotTabBtn = windowEl.querySelector('.ac-info-tab-btn.pilot-tab-btn');
     decoratePilotTab(pilotTabBtn);
+    mountOwnerStyleNote(windowEl);
 
     mainTabBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {

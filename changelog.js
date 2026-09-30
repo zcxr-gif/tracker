@@ -13,6 +13,11 @@
  * The popup re-arms automatically because the stored "seen" id no longer
  * matches the newest release id.
  *
+ * A release marked `quiet: true` is not announced with the popup: a small
+ * card sits in the corner instead ("Take a look" / "What's new" / dismiss),
+ * and fades away on its own. An entry's `action` adds a button that takes
+ * the pilot straight to the feature (ACTIONS below).
+ *
  * Exposed as window.InflightChangelog. Loaded as a plain (non-module)
  * script alongside vaAds.js.
  */
@@ -23,6 +28,52 @@
 
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
+        {
+            id: '2026.09.29',
+            date: 'September 2026',
+            title: 'Your Window, Your Look',
+            tagline: 'Give the flight window your own colour and background — and style the one other pilots see for your flight.',
+            quiet: true,
+            nudge: { text: 'Give your flight window your own colour and background.', action: 'window-settings' },
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-mobile-screen-button', action: 'ios-app', iosPromo: true,
+                    text: 'InFlight is on the App Store. The live map, your pilot profile and your flights on iPhone and iPad — sign in with this same account and it is all already there.'
+                },
+                {
+                    tag: 'new', icon: 'fa-sun', action: 'window-settings',
+                    text: 'Horizon: the full flight window in a calmer skin, in any colour you pick. Text and panels adjust by themselves so it always reads.'
+                },
+                {
+                    tag: 'new', icon: 'fa-image', action: 'window-settings',
+                    text: 'A background behind every window style — none, the aircraft’s own photo softly blurred, or your own image. Your image is framed in a new adjuster that shows where the window’s text will sit, and you can reframe it any time. Only you see it.'
+                },
+                {
+                    tag: 'new', icon: 'fa-eye', action: 'own-style',
+                    text: 'Your flight, seen by others. Pick a painted theme for the window other pilots see when they open your flight — or, with Inflight Pro, your own colour, a photo and a soft glow around your plane on the map. Rather not see other pilots’ styles? One switch in Settings turns them off.'
+                },
+                {
+                    tag: 'new', icon: 'fa-bookmark',
+                    text: 'Saved window setups (Pro): keep a few looks — say, one for night flying and one for spotting — and switch between them in one tap.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-sliders', action: 'window-settings',
+                    text: 'Settings › Flight window, rebuilt on desktop and on phones: a live preview of the window beside every choice, the same on both.'
+                },
+                {
+                    tag: 'new', icon: 'fa-envelope', action: 'account-email',
+                    text: 'Change the email on your account, from your account’s Settings. The new address has to be confirmed from its own inbox before anything changes.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-user-plus',
+                    text: 'New here? Setting up your picture, banner and flight window is now part of getting started — every step optional.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-wrench',
+                    text: 'The background’s dim now reaches the Simple and Card windows too, and window settings no longer fall out of step between screens.'
+                }
+            ]
+        },
         {
             id: '2026.09.23',
             date: 'September 2026',
@@ -732,6 +783,28 @@
 
     const LATEST = RELEASES[0];
 
+    // Where an entry's button (or the quiet card's "Take a look") goes. The
+    // targets are published by flight.js; a missing one just closes the notes.
+    const ACTIONS = {
+        'window-settings': { label: 'Open Flight window settings', run: () => window.openFlightWindowSettings && window.openFlightWindowSettings() },
+        'own-style': { label: 'Style your flight', run: () => window.openOwnWindowStyleEditor && window.openOwnWindowStyleEditor() },
+        'account-email': { label: 'Change email', run: () => window.openAccountEmail && window.openAccountEmail() },
+        // Opened inside the click itself, or the browser treats it as a popup.
+        'ios-app': { label: 'Get it on the App Store', now: true, run: () => window.InflightAppPromo && window.InflightAppPromo.open() },
+    };
+    function runAction(id) {
+        const a = ACTIONS[id];
+        if (!a) return;
+        if (a.now) { try { a.run(); } catch (_) { /* nothing to open */ } }
+        closeModal();
+        closeNudge();
+        if (!a.now) setTimeout(() => { try { a.run(); } catch (_) { /* the notes already closed */ } }, 60);
+    }
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest && e.target.closest('[data-cl-action]');
+        if (btn) runAction(btn.dataset.clAction);
+    });
+
     const TAG_META = {
         new:      { label: 'NEW',      cls: 'cl-tag-new' },
         improved: { label: 'IMPROVED', cls: 'cl-tag-improved' },
@@ -860,6 +933,40 @@
 
             /* Optional "See it" visual dropdown under an entry */
             .cl-visual { margin-top: 8px; }
+            .cl-try {
+                display: inline-flex; align-items: center; gap: 7px; margin-top: 8px; padding: 6px 11px; border-radius: 999px;
+                border: 1px solid rgba(56,189,248,0.3); background: rgba(56,189,248,0.1); color: #7dd3fc;
+                font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+            }
+            .cl-try:hover { background: rgba(56,189,248,0.18); }
+            .cl-try i { font-size: 10px; }
+
+            /* The quiet card: a corner, not the screen. */
+            .cl-nudge {
+                position: fixed; left: 20px; bottom: 20px; z-index: 9000; width: min(360px, calc(100vw - 24px));
+                display: flex; gap: 12px; align-items: flex-start; padding: 14px 14px 14px 16px; border-radius: 16px;
+                background: rgba(24,24,27,0.94); color: #f4f4f5; border: 1px solid rgba(255,255,255,0.1);
+                box-shadow: 0 16px 40px rgba(0,0,0,0.45); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+                opacity: 0; transform: translateY(10px); transition: opacity .35s ease, transform .45s cubic-bezier(.2,.8,.2,1);
+            }
+            .cl-nudge.visible { opacity: 1; transform: none; }
+            .cl-nudge-ic { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: rgba(56,189,248,0.14); color: #7dd3fc; }
+            .cl-nudge-main { flex: 1; min-width: 0; }
+            .cl-nudge-main b { display: block; font-size: 13.5px; margin: 1px 0 3px; }
+            .cl-nudge-main span { display: block; font-size: 12.5px; line-height: 1.45; color: #a1a1aa; }
+            .cl-nudge-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+            .cl-nudge-actions button {
+                height: 30px; padding: 0 12px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600;
+                border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.06); color: #e4e4e7;
+            }
+            .cl-nudge-actions button[data-cl-action] { background: #f4f4f5; border-color: #f4f4f5; color: #18181b; }
+            .cl-nudge-x { flex: 0 0 auto; width: 26px; height: 26px; margin: -4px -4px 0 0; border: 0; border-radius: 50%; background: none; color: #71717a; cursor: pointer; font-size: 14px; }
+            .cl-nudge-x:hover { background: rgba(255,255,255,0.08); color: #fff; }
+            @media (max-width: 768px) {
+                .cl-nudge { left: 12px; right: 12px; width: auto; bottom: calc(86px + env(safe-area-inset-bottom)); }
+            }
+            @media (prefers-reduced-motion: reduce) { .cl-nudge { transition: none; } }
             .cl-visual summary {
                 display: inline-flex; align-items: center; gap: 6px;
                 list-style: none; cursor: pointer; user-select: none;
@@ -940,6 +1047,9 @@
     // ---------------------------------------------------------------------
 
     function entryHTML(e) {
+        // App Store news is for the website only (see appPromo.js): not inside
+        // the iOS app, and not on Android.
+        if (e.iosPromo && !(window.InflightAppPromo && window.InflightAppPromo.available)) return '';
         const meta = TAG_META[e.tag] || TAG_META.new;
         // e.visual is trusted markup authored in this file (never user data):
         // a small inline mockup shown behind an optional <details> dropdown.
@@ -954,6 +1064,7 @@
                 <div class="cl-item-main">
                     <span class="cl-tag ${meta.cls}">${meta.label}</span>
                     <div class="cl-item-text">${esc(e.text)}</div>
+                    ${e.action && ACTIONS[e.action] ? `<button type="button" class="cl-try" data-cl-action="${esc(e.action)}">${esc(ACTIONS[e.action].label)} <i class="fa-solid fa-arrow-right"></i></button>` : ''}
                     ${visual}
                 </div>
             </div>`;
@@ -1035,6 +1146,52 @@
     }
 
     // ---------------------------------------------------------------------
+    // The quiet card, for releases marked quiet
+    // ---------------------------------------------------------------------
+
+    let nudgeEl = null;
+    function closeNudge() {
+        if (!nudgeEl) return;
+        const el = nudgeEl;
+        nudgeEl = null;
+        clearTimeout(el._timer);
+        el.classList.remove('visible');
+        setTimeout(() => { try { el.remove(); } catch (_) {} }, 400);
+    }
+
+    function showNudge() {
+        injectStyles();
+        if (nudgeEl) return;
+        const n = LATEST.nudge || {};
+        const act = n.action && ACTIONS[n.action] ? n.action : null;
+        nudgeEl = document.createElement('div');
+        nudgeEl.className = 'cl-nudge';
+        nudgeEl.setAttribute('role', 'status');
+        nudgeEl.innerHTML = `
+            <span class="cl-nudge-ic"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
+            <div class="cl-nudge-main">
+                <b>New: ${esc(LATEST.title)}</b>
+                <span>${esc(n.text || LATEST.tagline || '')}</span>
+                <div class="cl-nudge-actions">
+                    ${act ? `<button type="button" data-cl-action="${esc(act)}">Take a look</button>` : ''}
+                    <button type="button" data-n="notes">What’s new</button>
+                </div>
+            </div>
+            <button type="button" class="cl-nudge-x" aria-label="Dismiss"><i class="fa-solid fa-xmark"></i></button>`;
+        nudgeEl.addEventListener('click', (e) => {
+            if (e.target.closest('.cl-nudge-x')) closeNudge();
+            else if (e.target.closest('[data-n="notes"]')) { closeNudge(); showModal({ popup: true }); }
+        });
+        // Leaves by itself, unless the pointer is resting on it.
+        const arm = (ms) => { clearTimeout(nudgeEl._timer); nudgeEl._timer = setTimeout(closeNudge, ms); };
+        nudgeEl.addEventListener('mouseenter', () => clearTimeout(nudgeEl && nudgeEl._timer));
+        nudgeEl.addEventListener('mouseleave', () => nudgeEl && arm(6000));
+        document.body.appendChild(nudgeEl);
+        requestAnimationFrame(() => requestAnimationFrame(() => nudgeEl && nudgeEl.classList.add('visible')));
+        arm(18000);
+    }
+
+    // ---------------------------------------------------------------------
     // One-time popup after the loading screen
     // ---------------------------------------------------------------------
 
@@ -1070,7 +1227,8 @@
                         // Mark seen the moment it shows so it truly appears once,
                         // even if the tab dies before the user taps the button.
                         markSeen();
-                        showModal({ popup: true });
+                        if (LATEST.quiet) showNudge();
+                        else showModal({ popup: true });
                     }, 900);
                 });
             } else if (Date.now() - started > 30000) {
@@ -1113,6 +1271,7 @@
         latestVersion: LATEST.id,
         releases: RELEASES,
         open() { showModal({ popup: false }); },
+        showNudge,
         showPopup() { showModal({ popup: true }); },
         renderSettingsPanel
     };
