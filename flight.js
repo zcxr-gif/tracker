@@ -1690,7 +1690,10 @@ function publishServerCounts(data) {
     const counts = {};
     SERVER_COUNT_KEYS.forEach(key => {
         const s = data.sessions.find(x => String(x.name || '').toLowerCase().includes(key.toLowerCase()));
-        if (s && Number.isFinite(Number(s.userCount))) counts[key] = Number(s.userCount);
+        // The backend reshapes each session to { id, name, raw } and leaves
+        // Infinite Flight's own fields (userCount among them) under raw.
+        const n = s ? Number(s.userCount ?? (s.raw && s.raw.userCount)) : NaN;
+        if (Number.isFinite(n)) counts[key] = n;
     });
     window.ifServerCounts = counts;
     paintServerCounts();
