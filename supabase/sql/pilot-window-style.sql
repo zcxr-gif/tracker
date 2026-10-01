@@ -20,6 +20,10 @@
 --    window_flair    Pro. The shimmer on the pilot card. On by default; the
 --                    pilot can turn it off. (The web map no longer draws a
 --                    glow for it.)
+--    window_flair_style Pro. Which flair animation plays on the banner:
+--                    shine, glow, aurora, sparkle or drift, optionally followed
+--                    by a shine ('glow+shine', …). Null plays shine. See
+--                    pilotFlair.js.
 --    window_pro_badge Pro. A PRO mark by the pilot's name on their flight
 --                    window. OFF by default — only the pilot can turn it on.
 --
@@ -36,7 +40,8 @@ alter table public.pilot_profiles
   add column if not exists window_bg_path text,
   add column if not exists window_bg_dim  smallint not null default 60,
   add column if not exists window_flair   boolean  not null default true,
-  add column if not exists window_pro_badge boolean not null default false;
+  add column if not exists window_pro_badge boolean not null default false,
+  add column if not exists window_flair_style text;
 
 do $$
 begin
@@ -47,6 +52,12 @@ begin
   if not exists (select 1 from pg_constraint where conname = 'pilot_profiles_window_color_shape') then
     alter table public.pilot_profiles add constraint pilot_profiles_window_color_shape
       check (window_color is null or window_color ~ '^#[0-9a-f]{6}$');
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'pilot_profiles_window_flair_style_check') then
+    alter table public.pilot_profiles add constraint pilot_profiles_window_flair_style_check
+      check (window_flair_style is null or window_flair_style in (
+        'shine', 'glow', 'aurora', 'sparkle', 'drift',
+        'glow+shine', 'aurora+shine', 'sparkle+shine', 'drift+shine'));
   end if;
   if not exists (select 1 from pg_constraint where conname = 'pilot_profiles_window_bg_dim_range') then
     alter table public.pilot_profiles add constraint pilot_profiles_window_bg_dim_range
@@ -94,12 +105,12 @@ create trigger pilot_profiles_window_guard
 -- The flight window knows the Infinite Flight username on the aircraft, so it
 -- looks up by that, with the same visibility rule as every other profile read.
 -- Dropped first: Postgres can't add a column to a function's result in place
--- (window_pro_badge was added after this was first created).
+-- (window_pro_badge and window_flair_style were added after it was first created).
 drop function if exists public.pilot_window_style(text);
 create or replace function public.pilot_window_style(p_username text)
 returns table(handle text, is_pro boolean, window_theme text, window_color text,
               window_bg_path text, window_bg_dim smallint, window_flair boolean, accent text,
-              window_pro_badge boolean)
+              window_pro_badge boolean, window_flair_style text)
 language plpgsql
 stable security definer
 set search_path to 'public'
@@ -131,7 +142,8 @@ begin
     v_p.window_bg_dim,
     v_pro and v_p.window_flair,
     case when v_pro then v_p.accent else null end,
-    v_pro and v_p.window_pro_badge;
+    v_pro and v_p.window_pro_badge,
+    case when v_pro then v_p.window_flair_style else null end;
 end $function$;
 
 grant execute on function public.pilot_window_style(text) to anon, authenticated;

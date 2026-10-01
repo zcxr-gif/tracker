@@ -22,6 +22,7 @@
 import { PilotProfiles, BANNER_PRESET_LABELS, presetGradient, WINDOW_THEMES } from './pilotProfiles.js';
 import { adjustImage } from './imageAdjuster.js';
 import { PilotStanding } from './pilotStanding.js';
+import { FLAIR_EFFECTS, parseFlairStyle, formatFlairStyle, flairClasses, ensureFlairStyles } from './pilotFlair.js';
 
 const HANDLE_SHAPE = /^[a-z0-9](?:[a-z0-9_]{1,18})[a-z0-9]$/;
 const IF_USERNAME_SHAPE = /^[A-Za-z0-9_.-]{1,40}$/;
@@ -266,6 +267,8 @@ export const PilotCardEditor = {
         // column exists (supabase/sql/pilot-window-style.sql).
         const proBadge = row.window_pro_badge === true;
         const hasProBadge = 'window_pro_badge' in row;
+        const hasFlairStyle = 'window_flair_style' in row;
+        const { effect, thenShine } = parseFlairStyle(row.window_flair_style);
         const keptPro = !isPro && (row.window_color || row.window_bg_path);
         return head + `
             <div class="pce-win-wrap">
@@ -304,7 +307,8 @@ export const PilotCardEditor = {
                         </div>
                         ${photo ? `<label class="pce-dim"><span>Dim</span><input type="range" min="20" max="90" step="5" value="${dim}" data-win-dim><output>${dim}%</output></label>` : ''}
                         <label class="pce-check"><input type="checkbox" data-win-flair ${flair ? 'checked' : ''}>
-                            <span><b>Pro flair</b> — a shimmer on your pilot card.</span></label>
+                            <span><b>Pro flair</b> — an animation on your pilot banner.</span></label>
+                        ${flair && hasFlairStyle ? this._flairPicker(effect, thenShine) : ''}
                         ${hasProBadge ? `<label class="pce-check"><input type="checkbox" data-win-pro-badge ${proBadge ? 'checked' : ''}>
                             <span><b>PRO badge</b> — show a PRO mark by your name on your flight window. Off unless you turn it on.</span></label>` : ''}
                     ` : `
@@ -346,6 +350,33 @@ export const PilotCardEditor = {
             <div class="pce-win-card"></div>
             <div class="pce-win-card is-short"></div>
         </div>`;
+    },
+
+    // Pick the flair animation, optionally followed by a shine, with a live
+    // banner that plays exactly what other pilots will see (pilotFlair.js).
+    _flairPicker(effect, thenShine) {
+        ensureFlairStyles();
+        const p = this._profile || {};
+        const bannerBg = p.bannerUrl
+            ? `url("${p.bannerUrl}"), ${presetGradient(p.bannerPreset)}`
+            : presetGradient(p.bannerPreset);
+        const accent = /^#[0-9a-f]{6}$/i.test(p.row?.accent || '') ? p.row.accent : '#f5c451';
+        const hint = (FLAIR_EFFECTS.find(e => e.id === effect) || FLAIR_EFFECTS[0]).hint;
+        return `
+            <div class="pce-flair">
+                <div class="pce-flair-preview ${flairClasses(formatFlairStyle(effect, thenShine))}" style="--pilot-accent:${esc(accent)}" aria-hidden="true">
+                    <span class="pce-flair-bg pflair-bg" style='background-image: ${bannerBg.replace(/'/g, '%27')}'></span>
+                    <span class="pce-flair-name">${esc(p.displayName || p.handle || 'Your name')}</span>
+                </div>
+                <div class="pce-sublabel">Animation</div>
+                <div class="pce-flair-opts" role="radiogroup" aria-label="Flair animation">
+                    ${FLAIR_EFFECTS.map(e => `<button type="button" role="radio" aria-checked="${e.id === effect}"
+                        class="pce-flair-opt${e.id === effect ? ' is-active' : ''}" data-flair-effect="${e.id}">${e.label}</button>`).join('')}
+                </div>
+                <p class="pce-help pce-flair-hint">${esc(hint)}</p>
+                <label class="pce-check"><input type="checkbox" data-flair-then-shine ${thenShine ? 'checked' : ''} ${effect === 'shine' ? 'disabled' : ''}>
+                    <span><b>Then a shine</b> — ${effect === 'shine' ? 'pick another animation to mix it with a shine.' : 'play your animation, then sweep a band of light across.'}</span></label>
+            </div>`;
     },
 
     async _saveWindow(fields, okText) {
@@ -510,6 +541,19 @@ export const PilotCardEditor = {
         }
         host.querySelector('[data-win-flair]')?.addEventListener('change', (e) => {
             this._saveWindow({ flair: e.target.checked }, e.target.checked ? 'Pro flair on.' : 'Pro flair off.');
+        });
+        host.querySelectorAll('[data-flair-effect]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const cur = parseFlairStyle(this._profile?.row?.window_flair_style);
+                if (btn.dataset.flairEffect === cur.effect) return;
+                const label = FLAIR_EFFECTS.find(e => e.id === btn.dataset.flairEffect)?.label || 'Shine';
+                this._saveWindow({ flairStyle: formatFlairStyle(btn.dataset.flairEffect, cur.thenShine) }, `Flair: ${label}.`);
+            });
+        });
+        host.querySelector('[data-flair-then-shine]')?.addEventListener('change', (e) => {
+            const cur = parseFlairStyle(this._profile?.row?.window_flair_style);
+            this._saveWindow({ flairStyle: formatFlairStyle(cur.effect, e.target.checked) },
+                e.target.checked ? 'A shine now follows your animation.' : 'Shine removed from the mix.');
         });
         host.querySelector('[data-win-pro-badge]')?.addEventListener('change', (e) => {
             this._saveWindow({ proBadge: e.target.checked }, e.target.checked ? 'PRO badge on.' : 'PRO badge off.');
@@ -716,6 +760,32 @@ export const PilotCardEditor = {
                          color: var(--pui-text-muted, #a1a1aa); cursor: pointer; }
             .pce-check input { margin-top: 3px; accent-color: #f5c451; }
             .pce-check b { color: var(--pui-text, #e5e7eb); font-weight: 600; }
+            .pce-check input:disabled + span { opacity: .6; }
+            /* Flair picker: a live banner, then the animation choices. */
+            .pce-flair { margin-top: 12px; }
+            .pce-flair-preview {
+                position: relative; overflow: hidden; isolation: isolate;
+                height: 52px; border-radius: 12px; display: flex; align-items: center; padding: 0 16px;
+                color: #fff; font-size: .78rem; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+                text-shadow: 0 1px 3px rgba(0,0,0,.6); box-shadow: 0 6px 18px rgba(0,0,0,.28);
+            }
+            .pce-flair-bg {
+                position: absolute; inset: 0; z-index: -1; border-radius: inherit;
+                background-size: cover; background-position: center;
+            }
+            .pce-flair-bg::after {
+                content: ''; position: absolute; inset: 0; border-radius: inherit;
+                background: linear-gradient(90deg, rgba(0,0,0,.62) 0%, rgba(0,0,0,.28) 100%);
+            }
+            .pce-flair-name { position: relative; z-index: 1; }
+            .pce-flair-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+            .pce-flair-opt {
+                padding: 7px 12px; border-radius: 999px; cursor: pointer; font: inherit; font-size: .76rem; font-weight: 600;
+                color: var(--pui-text, #e5e7eb); background: var(--pui-surface-2, rgba(255,255,255,.06));
+                border: 1px solid var(--pui-border, rgba(255,255,255,.12));
+            }
+            .pce-flair-opt.is-active { border-color: #f5c451; background: rgba(245,196,81,.18); box-shadow: 0 0 0 1px #f5c451 inset; }
+            .pce-flair-hint { margin-top: 6px; }
             @media (max-width: 560px) {
                 .pce-win-wrap { flex-direction: column; align-items: stretch; }
                 .pce-win-preview { flex: none; width: 100%; height: 170px; }

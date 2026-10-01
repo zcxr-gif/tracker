@@ -16,6 +16,7 @@ import { PilotCardPrompt } from './pilotCardPrompt.js';
 import { adjustImage } from './imageAdjuster.js';
 import { AccountSetup } from './accountSetup.js';
 import { PilotStanding } from './pilotStanding.js';
+import { applyFlair, ensureFlairStyles } from './pilotFlair.js';
 // Supabase client, pinned to the v2 major so jsDelivr serves a stable,
 // cacheable build rather than an unpinned "latest" that can 404 on a rebuild.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -5452,25 +5453,8 @@ function injectCustomStyles() {
                 border-color: var(--pilot-accent, #f5c451);
                 box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25), 0 0 12px color-mix(in srgb, var(--pilot-accent, #f5c451) 55%, transparent);
             }
-            /* Pro flair: a slow band of light across the banner. */
-            .ac-info-tab-btn.pilot-tab-btn.has-flair::after {
-                content: '';
-                position: absolute;
-                inset: 0;
-                z-index: 0;
-                border-radius: inherit;
-                pointer-events: none;
-                background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.16) 45%, rgba(255, 255, 255, 0.28) 50%, rgba(255, 255, 255, 0.16) 55%, transparent 70%);
-                background-size: 250% 100%;
-                animation: ac-pilot-shimmer 5.5s ease-in-out infinite;
-            }
-            @keyframes ac-pilot-shimmer {
-                0%, 35% { background-position: 130% 0; }
-                75%, 100% { background-position: -30% 0; }
-            }
-            @media (prefers-reduced-motion: reduce) {
-                .ac-info-tab-btn.pilot-tab-btn.has-flair::after { animation: none; opacity: 0; }
-            }
+            /* Pro flair (the pilot's chosen banner animation) lives in
+               pilotFlair.js, shared with the editor's preview. */
 
             /* The route card pulls itself up over the photo with a -32px top
                margin. Its wrapper (.ac-route-bar-backdrop, solid #3a3a3a) had
@@ -5513,7 +5497,8 @@ function injectCustomStyles() {
                 background: linear-gradient(180deg, #3a3a3a 0px, var(--bg-glass) 64px) !important;
             }
             /* The card's banner and picture fade in rather than pop. */
-            .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner { animation: ac-pilot-fade 0.45s ease; }
+            /* (Not under Drift flair, which animates the banner itself.) */
+            .ac-info-tab-btn.pilot-tab-btn.has-profile:not(.pflair-drift) .ac-pilot-banner { animation: ac-pilot-fade 0.45s ease; }
             .ac-pilot-avatar img { animation: ac-pilot-fade 0.35s ease; }
             @keyframes ac-pilot-fade { from { opacity: 0; } to { opacity: 1; } }
             .ac-info-tab-btn.pilot-tab-btn.has-profile .ac-pilot-banner {
@@ -26274,9 +26259,12 @@ function mountOwnerStyleNote(windowEl) {
 }
 
 // Pro flair on the pilot card: a slow shimmer across the banner.
+// The Pro pilot's chosen banner animation (pilotFlair.js), when they have
+// flair on and this viewer hasn't switched pilots' styles off.
 function markPilotFlair(btn, style) {
     if (!btn) return;
-    btn.classList.toggle('has-flair', !!(style && style.flair && style.isPro && showPilotStylesOn()));
+    ensureFlairStyles();
+    applyFlair(btn, style && style.flairStyle, !!(style && style.flair && style.isPro && showPilotStylesOn()));
 }
 
 // The PRO mark by a pilot's name on their flight window banner. Off unless
@@ -28533,7 +28521,7 @@ let totalDistanceNM = 0;
                  <button class="ac-info-tab-btn pilot-tab-btn ${pilotReportActiveClass}" data-tab="ac-tab-pilot-report" data-user-id="${baseProps.userId}" data-username="${pilotUsername}" title="${pilotReportTabText}" style="flex: 1; min-width: 0; overflow: hidden; border: none; background: transparent; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 10px; cursor: pointer; z-index: 1; transition: color 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <!-- Desktop: the pilot's InFlight profile banner and picture
                          (decoratePilotTab). Hidden at <=768px by CSS. -->
-                    <span class="ac-pilot-banner" aria-hidden="true"></span>
+                    <span class="ac-pilot-banner pflair-bg" aria-hidden="true"></span>
                     <span class="ac-pilot-avatar" aria-hidden="true">${pilotUsername !== 'N/A' ? pilotUsername.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() : ''}</span>
                     <i class="fa-solid fa-chart-simple" style="flex-shrink: 0;"></i>
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pilotReportTabText}</span>

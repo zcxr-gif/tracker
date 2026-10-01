@@ -63,6 +63,8 @@ function shapeStyle(row) {
         bgUrl: publicUrl('pilot-banners', row.window_bg_path),
         dim: Math.min(90, Math.max(20, Number(row.window_bg_dim) || 60)) / 100,
         flair: !!row.window_flair,
+        // Which animation (pilotFlair.js); null plays the classic Shine.
+        flairStyle: row.window_flair_style || null,
         // Off by default; only the Pro pilot can turn it on for themselves.
         proBadge: row.window_pro_badge === true,
         accent: hex(row.accent),
@@ -188,6 +190,7 @@ export const PilotProfiles = {
         if ('color' in fields) patch.window_color = fields.color || null;
         if ('dim' in fields) patch.window_bg_dim = Math.round(Math.min(90, Math.max(20, Number(fields.dim) || 60)));
         if ('flair' in fields) patch.window_flair = !!fields.flair;
+        if ('flairStyle' in fields) patch.window_flair_style = fields.flairStyle || null;
         if ('proBadge' in fields) patch.window_pro_badge = !!fields.proBadge;
         const { error } = await supabase.from('pilot_profiles').update(patch).eq('user_id', uid);
         if (error) {
