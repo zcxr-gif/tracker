@@ -262,6 +262,10 @@ export const PilotCardEditor = {
         const photo = isPro && row.window_bg_path ? PilotProfiles.publicUrl('pilot-banners', row.window_bg_path) : null;
         const dim = Math.min(90, Math.max(20, Number(row.window_bg_dim) || 60));
         const flair = row.window_flair !== false;
+        // Off unless the pilot turns it on. The checkbox only appears once the
+        // column exists (supabase/sql/pilot-window-style.sql).
+        const proBadge = row.window_pro_badge === true;
+        const hasProBadge = 'window_pro_badge' in row;
         const keptPro = !isPro && (row.window_color || row.window_bg_path);
         return head + `
             <div class="pce-win-wrap">
@@ -300,12 +304,14 @@ export const PilotCardEditor = {
                         </div>
                         ${photo ? `<label class="pce-dim"><span>Dim</span><input type="range" min="20" max="90" step="5" value="${dim}" data-win-dim><output>${dim}%</output></label>` : ''}
                         <label class="pce-check"><input type="checkbox" data-win-flair ${flair ? 'checked' : ''}>
-                            <span><b>Pro flair</b> — a soft glow around your plane on the map and a shimmer on your pilot card.</span></label>
+                            <span><b>Pro flair</b> — a shimmer on your pilot card.</span></label>
+                        ${hasProBadge ? `<label class="pce-check"><input type="checkbox" data-win-pro-badge ${proBadge ? 'checked' : ''}>
+                            <span><b>PRO badge</b> — show a PRO mark by your name on your flight window. Off unless you turn it on.</span></label>` : ''}
                     ` : `
                         <div class="pce-row"><button type="button" class="pce-btn pce-locked" disabled aria-disabled="true"><i class="fa-solid fa-lock"></i> Upload a photo</button></div>
                         <p class="pce-help">${keptPro
                             ? 'Your window colour and photo are saved and come back when you are on Inflight Pro again. Until then everyone sees your theme.'
-                            : 'A custom colour, a window photo and the map glow are part of Inflight Pro. Everyone can use the themes above.'}</p>
+                            : 'A custom colour, a window photo and the PRO badge are part of Inflight Pro. Everyone can use the themes above.'}</p>
                         ${keptPro && row.window_bg_path ? '<div class="pce-row"><button type="button" class="pce-btn pce-quiet" data-remove="window">Remove saved photo</button></div>' : ''}
                     `}
                 </div>
@@ -504,6 +510,9 @@ export const PilotCardEditor = {
         }
         host.querySelector('[data-win-flair]')?.addEventListener('change', (e) => {
             this._saveWindow({ flair: e.target.checked }, e.target.checked ? 'Pro flair on.' : 'Pro flair off.');
+        });
+        host.querySelector('[data-win-pro-badge]')?.addEventListener('change', (e) => {
+            this._saveWindow({ proBadge: e.target.checked }, e.target.checked ? 'PRO badge on.' : 'PRO badge off.');
         });
     },
 

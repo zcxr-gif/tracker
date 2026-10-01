@@ -12248,73 +12248,12 @@ function updateMapFilters() {
     updateToolbarButtonStates();
 }
 
-// --- Pro flair on the map ---
-// A soft gold glow under the aircraft of Pro pilots who have flair on
-// (pilot_flair_usernames). Uses the aircraft layers' own visibility filter,
-// so a plane hidden by the viewer's traffic filters doesn't leave a glow
-// behind, and the viewer's "Show pilots' window styles" switch hides it.
-const PILOT_FLAIR_LAYER_ID = 'sector-ops-pilot-flair-layer';
-let _pilotFlairSet = new Set();
-let _liveFlightsFilter = null;
-let _pilotFlairTimer = null;
-
-function pilotFlairFilter() {
-    const flair = ['==', 'proFlair', showPilotStylesOn() && _pilotFlairSet.size ? true : '__off__'];
-    return _liveFlightsFilter ? ['all', _liveFlightsFilter, flair] : flair;
-}
-
-function ensurePilotFlairLayer() {
-    if (!sectorOpsMap || !sectorOpsMap.getSource('sector-ops-live-flights-source')) return;
-    if (sectorOpsMap.getLayer(PILOT_FLAIR_LAYER_ID)) return;
-    const before = sectorOpsMap.getLayer('sector-ops-live-flights-natural-layer')
-        ? 'sector-ops-live-flights-natural-layer' : 'sector-ops-live-flights-layer';
-    try {
-        sectorOpsMap.addLayer({
-            id: PILOT_FLAIR_LAYER_ID,
-            type: 'circle',
-            source: 'sector-ops-live-flights-source',
-            filter: pilotFlairFilter(),
-            paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 8, 6, 13, 10, 20, 14, 28],
-                'circle-color': '#f5c451',
-                'circle-opacity': 0.42,
-                'circle-blur': 1,
-                'circle-pitch-alignment': 'map',
-            },
-        }, sectorOpsMap.getLayer(before) ? before : undefined);
-    } catch (_) { /* style mid-swap: the next refresh adds it */ }
-}
-
-function refreshPilotFlairGlow() {
-    if (!sectorOpsMap) return;
-    ensurePilotFlairLayer();
-    if (sectorOpsMap.getLayer(PILOT_FLAIR_LAYER_ID)) sectorOpsMap.setFilter(PILOT_FLAIR_LAYER_ID, pilotFlairFilter());
-}
-
-// Fetch who has flair (cached 10 min in PilotProfiles), re-tag the cached
-// aircraft, and repaint. Re-run every ten minutes.
-function loadPilotFlair() {
-    PilotProfiles.flairUsernames().then((set) => {
-        _pilotFlairSet = set || new Set();
-        Object.values(currentMapFeatures).forEach((f) => {
-            if (!f || !f.properties) return;
-            const u = f.properties.username;
-            f.properties.proFlair = !!(u && _pilotFlairSet.has(String(u).toLowerCase()));
-        });
-        if (typeof pushLiveTrafficNow === 'function') pushLiveTrafficNow();
-        refreshPilotFlairGlow();
-    });
-    if (!_pilotFlairTimer) _pilotFlairTimer = setInterval(loadPilotFlair, 10 * 60 * 1000);
-}
-
 // Apply a visibility filter to BOTH aircraft layers (SDF + natural) at once.
 // The SDF/natural split is handled inside the icon-image expressions, so both
 // layers must share the same visibility filter or one half of the fleet would
 // ignore the user's tactical/quick-search filters.
 function setLiveFlightsFilter(filter) {
     if (!sectorOpsMap) return;
-    _liveFlightsFilter = filter;
-    if (sectorOpsMap.getLayer(PILOT_FLAIR_LAYER_ID)) sectorOpsMap.setFilter(PILOT_FLAIR_LAYER_ID, pilotFlairFilter());
     if (sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
         sectorOpsMap.setFilter('sector-ops-live-flights-layer', filter);
     }
@@ -13769,8 +13708,6 @@ function handleSocketFlightUpdate(data) {
                 return 'none';
             })(),
 
-            // Pro pilots with flair on get a soft glow (refreshPilotFlairGlow).
-            proFlair: !!(flight.username && _pilotFlairSet.has(String(flight.username).toLowerCase())),
 
             communityImageUrl: existingProps.communityImageUrl || null,
             contributorName: existingProps.contributorName || null,
@@ -17630,9 +17567,6 @@ function initializeAircraftLayer() {
             // switch, a return from playback — is marked straight away rather
             // than waiting for the next tap.
             markSelectedAircraft(currentFlightInWindow);
-
-            // Pro flair glow under the aircraft (re-added after a style swap).
-            loadPilotFlair();
 
             // Bootstrap pilot-relation colors. Covers the case where flight
             // features were already cached (or where ProfileUI populated
@@ -25057,20 +24991,15 @@ function decoratePilotTab(btn) {
     const apply = (profile) => {
         if (!profile || !btn.isConnected) return;
         btn.classList.add('has-profile');
-        // Pro pilots: a PRO mark by the name, their accent on the picture's
-        // ring, and (flair on) a shimmer across the banner.
+        // Pro pilots: their accent on the picture's ring, (flair on) a
+        // shimmer across the banner, and — only if they switched it on — a
+        // PRO mark by the name.
         btn.classList.toggle('is-pro', !!profile.isPro);
         if (profile.accent) btn.style.setProperty('--pilot-accent', profile.accent);
-        if (profile.isPro && !btn.querySelector('.ac-pilot-pro')) {
-            const go = btn.querySelector('.ac-pilot-go');
-            const mark = document.createElement('span');
-            mark.className = 'ac-pilot-pro';
-            mark.textContent = 'PRO';
-            btn.insertBefore(mark, go || null);
-        }
+        const mark = (s) => { markPilotFlair(btn, s); markPilotProBadge(btn, s); };
         const st = PilotProfiles.peekWindowStyle(uname);
-        if (st !== undefined) markPilotFlair(btn, st);
-        else PilotProfiles.windowStyle(uname).then((s) => { if (btn.isConnected) markPilotFlair(btn, s); });
+        if (st !== undefined) mark(st);
+        else PilotProfiles.windowStyle(uname).then((s) => { if (btn.isConnected) mark(s); });
         const banner = btn.querySelector('.ac-pilot-banner');
         if (banner) {
             banner.style.backgroundImage = profile.bannerUrl
@@ -26271,7 +26200,7 @@ function loadOwnerWindowStyle(windowEl, username) {
         if (windowEl._ownerStyleFor !== key) return;
         windowEl._ownerStyle = style;
         const tab = windowEl.querySelector('.ac-info-tab-btn.pilot-tab-btn');
-        if (tab) markPilotFlair(tab, style);
+        if (tab) { markPilotFlair(tab, style); markPilotProBadge(tab, style); }
         if (style && style.hasLook) restyleOpenWindow(windowEl);
     });
 }
@@ -26350,6 +26279,23 @@ function markPilotFlair(btn, style) {
     btn.classList.toggle('has-flair', !!(style && style.flair && style.isPro && showPilotStylesOn()));
 }
 
+// The PRO mark by a pilot's name on their flight window banner. Off unless
+// the Pro pilot has turned it on for themselves (window_pro_badge), so being
+// Pro is never announced on anyone's behalf.
+function markPilotProBadge(btn, style) {
+    if (!btn) return;
+    const on = !!(style && style.isPro && style.proBadge);
+    let mark = btn.querySelector('.ac-pilot-pro');
+    if (on && !mark) {
+        mark = document.createElement('span');
+        mark.className = 'ac-pilot-pro';
+        mark.textContent = 'PRO';
+        btn.insertBefore(mark, btn.querySelector('.ac-pilot-go'));
+    } else if (!on && mark) {
+        mark.remove();
+    }
+}
+
 function setShowPilotStyles(on) {
     if (typeof mapFilters === 'undefined') return;
     mapFilters.showPilotStyles = !!on;
@@ -26360,7 +26306,6 @@ function setShowPilotStyles(on) {
         if (tab) markPilotFlair(tab, w._ownerStyle);
         restyleOpenWindow(w);
     }
-    if (typeof refreshPilotFlairGlow === 'function') refreshPilotFlairGlow();
     notifyWindowLookChanged();
 }
 if (typeof window !== 'undefined') window.setShowPilotStyles = setShowPilotStyles;
