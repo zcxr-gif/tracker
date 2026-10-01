@@ -1686,18 +1686,21 @@
 
         // Called on every route tick; shows/hides the block and resets the
         // panel when the destination actually changes (new flight, diversion).
-        function setDestinationIcao(icao) {
+        function setDestinationIcao(icao, shownCode) {
             const block = document.getElementById('sec-destination');
             const card = document.getElementById('dest-card');
             if (!block || !card) return;
             const code = (icao || '').trim().toUpperCase();
             const valid = /^[A-Z0-9]{3,4}$/.test(code);
             block.style.display = valid ? '' : 'none';
-            if (!valid || code === destIcao) return;
+            if (!valid) return;
+            // The label follows the ICAO/IATA setting even when the airport
+            // itself hasn't changed.
+            const codeEl = document.getElementById('dest-code');
+            if (codeEl) codeEl.textContent = shownCode || code;
+            if (code === destIcao) return;
             destIcao = code;
             destLoaded = false;
-            const codeEl = document.getElementById('dest-code');
-            if (codeEl) codeEl.textContent = code;
             const panel = card.querySelector('.dest-panel');
             if (panel) panel.innerHTML = '';
             if (card.classList.contains('open')) destRequest();
@@ -1718,7 +1721,7 @@
             const heroUrl = a.heroUrl || '';
             const fb = a.heroFallbackUrl || '';
             const hero = heroUrl
-                ? `<div class="dest-hero"><img src="${destEsc(heroUrl)}"${fb ? ` data-fallback="${destEsc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${destEsc(a.icao || '')}</b>${a.name ? `<span>${destEsc(a.name)}</span>` : ''}</div></div>`
+                ? `<div class="dest-hero"><img src="${destEsc(heroUrl)}"${fb ? ` data-fallback="${destEsc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${destEsc(a.code || a.icao || '')}</b>${a.name ? `<span>${destEsc(a.name)}</span>` : ''}</div></div>`
                 : '';
             const cc = String(a.cc || '').toLowerCase();
             const flag = /^[a-z]{2}$/.test(cc)
@@ -2395,15 +2398,19 @@
             // Route
             if (data.route) {
                 const r = data.route;
-                updateText('dep-icao', r.originIcao || '---');
-                updateText('arr-icao', r.destIcao || '---');
-                updateText('c-dep-icao', r.originIcao || '---');
-                updateText('c-arr-icao', r.destIcao || '---');
+                // originCode/destCode carry the user's ICAO/IATA choice; the
+                // *Icao fields stay ICAO for the links below.
+                const depCode = r.originCode || r.originIcao || '---';
+                const arrCode = r.destCode || r.destIcao || '---';
+                updateText('dep-icao', depCode);
+                updateText('arr-icao', arrCode);
+                updateText('c-dep-icao', depCode);
+                updateText('c-arr-icao', arrCode);
                 setIcaoClickable('dep-icao', r.originIcao);
                 setIcaoClickable('arr-icao', r.destIcao);
                 setIcaoClickable('c-dep-icao', r.originIcao);
                 setIcaoClickable('c-arr-icao', r.destIcao);
-                setDestinationIcao(r.destIcao);
+                setDestinationIcao(r.destIcao, r.destCode);
 
                 setCity('dep-city', r.originCity);
                 setCity('arr-city', r.destCity);

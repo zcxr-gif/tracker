@@ -1458,6 +1458,9 @@ let mapFilters = {
         // the times between 24-hour (default) and 12-hour AM/PM.
         userTimezone: '',
         use12hClock: false,
+        // Airport codes in flight windows: 'icao' (default) or 'iata'. See
+        // displayAirportCode().
+        airportCodeFormat: 'icao',
         // Per-rule Include/Exclude for the tactical filters. A rule id present
         // (and true) here means its match is NEGATED — it hides matching
         // aircraft instead of keeping only them. Set from the shared tactical
@@ -1566,6 +1569,7 @@ let mapFilters = {
     let vaFilterResolving = false;
 
     window.saveFiltersToLocalStorage = saveFiltersToLocalStorage;
+    window.refreshDisplayedAirportCodes = refreshDisplayedAirportCodes;
     window.updateMapFilters = updateMapFilters;
     window.initializeSectorOpsMap = initializeSectorOpsMap;
     window.mapFilters = mapFilters;
@@ -1656,6 +1660,7 @@ async function fetchSessionsData({ force = false } = {}) {
             const data = await res.json();
             sessionsCache = data;
             sessionsCachedAt = Date.now();
+            publishServerCounts(data);
             return data;
         } catch (error) {
             console.warn('Failed to fetch sessions:', error.message);
@@ -1669,6 +1674,56 @@ async function fetchSessionsData({ force = false } = {}) {
 
     return sessionsInFlight;
 }
+
+/**
+ * Pilots online per server, for the server switchers (landingUI dropdown, the
+ * desktop Server card, the mobile server sheet). Published on every sessions
+ * fetch as window.ifServerCounts ({ Expert, Training, Casual }) plus a
+ * 'serverCountsUpdated' event, and painted straight into any element carrying
+ * data-server-count="Expert|Training|Casual" so each switcher only has to
+ * render the slot.
+ */
+const SERVER_COUNT_KEYS = ['Expert', 'Training', 'Casual'];
+
+function publishServerCounts(data) {
+    if (!data || !Array.isArray(data.sessions)) return;
+    const counts = {};
+    SERVER_COUNT_KEYS.forEach(key => {
+        const s = data.sessions.find(x => String(x.name || '').toLowerCase().includes(key.toLowerCase()));
+        // The backend reshapes each session to { id, name, raw } and leaves
+        // Infinite Flight's own fields (userCount among them) under raw.
+        const n = s ? Number(s.userCount ?? (s.raw && s.raw.userCount)) : NaN;
+        if (Number.isFinite(n)) counts[key] = n;
+    });
+    window.ifServerCounts = counts;
+    paintServerCounts();
+    window.dispatchEvent(new CustomEvent('serverCountsUpdated', { detail: counts }));
+}
+
+// 'compact' is for tight slots like the mobile server pill: 1234 → "1.2k".
+function formatServerCount(n, format) {
+    if (!Number.isFinite(n)) return '';
+    if (format === 'compact') {
+        return n < 1000 ? String(n) : `${(n / 1000).toFixed(n < 10000 ? 1 : 0).replace(/\.0$/, '')}k`;
+    }
+    return `${n.toLocaleString()} online`;
+}
+
+function paintServerCounts(root = document) {
+    const counts = window.ifServerCounts || {};
+    root.querySelectorAll('[data-server-count]').forEach(el => {
+        const n = counts[el.dataset.serverCount];
+        el.textContent = formatServerCount(n, el.dataset.serverCountFormat);
+        el.hidden = !Number.isFinite(n);
+    });
+}
+window.paintServerCounts = paintServerCounts;
+
+// The switchers show the counts before anything else asks for sessions, and
+// they stay current while the map sits open. Rides the shared sessions cache,
+// so this is at most one request a minute.
+fetchSessionsData();
+setInterval(() => { if (!document.hidden) fetchSessionsData(); }, SESSIONS_TTL_MS);
 
 let cachedSessionId = null;
     let lastSessionFetchTime = 0;
@@ -10691,8 +10746,14 @@ function updateTripCardRealtime() {
     // Route: ICAOs + airport names.
     const dep = props.departureIcao || '???';
     const arr = props.arrivalIcao || '???';
-    ui.querySelector('.tc-icao.origin').textContent = dep;
-    ui.querySelector('.tc-icao.destination').textContent = arr;
+    const setTcCode = (el, icao) => {
+        if (!el) return;
+        if (icao === '???') { delete el.dataset.apCode; el.textContent = icao; return; }
+        el.dataset.apCode = icao;
+        el.textContent = displayAirportCode(icao);
+    };
+    setTcCode(ui.querySelector('.tc-icao.origin'), dep);
+    setTcCode(ui.querySelector('.tc-icao.destination'), arr);
     const depData = (dep !== '???' && typeof airportsData !== 'undefined') ? airportsData[dep] : null;
     const arrData = (arr !== '???' && typeof airportsData !== 'undefined') ? airportsData[arr] : null;
     const depNameEl = ui.querySelector('[data-tc-dep-name]');
@@ -12775,6 +12836,29 @@ function indexAirportRecords(raw) {
         if (ikey) acc[ikey.toUpperCase()] = airport;
         return acc;
     }, {});
+}
+
+/**
+ * The code a flight window shows for an airport: its ICAO by default, or its
+ * IATA when the user picked that in Settings (mapFilters.airportCodeFormat).
+ * Airports without an IATA (most small fields) keep their ICAO, so a code is
+ * never lost. Links, lookups and requests keep using the ICAO — this is only
+ * ever the visible text.
+ */
+function displayAirportCode(icao) {
+    const code = (icao == null) ? '' : String(icao).trim().toUpperCase();
+    if (!code || mapFilters.airportCodeFormat !== 'iata') return code;
+    const iata = airportsData[code] && airportsData[code].iata;
+    return iata ? String(iata).toUpperCase() : code;
+}
+
+// Re-labels every airport code already on screen in the native flight window
+// and the trip card after the ICAO/IATA preference changes. The frame windows
+// (Simple / Card) follow on their next data push.
+function refreshDisplayedAirportCodes() {
+    document.querySelectorAll('[data-ap-code]').forEach(el => {
+        el.textContent = displayAirportCode(el.dataset.apCode);
+    });
 }
 
 // Drop every cached view derived from airportsData. Called whenever the object
@@ -18388,9 +18472,13 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         })(),
         route: {
             originIcao,
+            // What the window shows (ICAO or IATA per the user's setting); the
+            // *Icao fields stay the ICAO for links and airport lookups.
+            originCode: displayAirportCode(originIcao) || originIcao,
             originCountry,
             originCity,
             destIcao,
+            destCode: displayAirportCode(destIcao) || destIcao,
             destCountry,
             destCity,
             originTime: originTime,
@@ -20428,6 +20516,14 @@ renderCategory(catId) {
                                 </div>
                             </div>
                             <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-tag"></i> Airport Codes</div>
+                                <div class="iw-seg" data-seg="airport-code-format" style="margin: 0 !important;">
+                                    <button type="button" class="iw-seg-btn${mapFilters.airportCodeFormat !== 'iata' ? ' active' : ''}" data-mode="icao">ICAO</button>
+                                    <button type="button" class="iw-seg-btn${mapFilters.airportCodeFormat === 'iata' ? ' active' : ''}" data-mode="iata">IATA</button>
+                                </div>
+                            </div>
+                            <div class="iw-tz-hint" style="margin: -2px 0 8px;">Show origin and destination in flight windows as ICAO (KJFK) or IATA (JFK). Airports without an IATA code keep their ICAO.</div>
+                            <div class="settings-row">
                                 <div class="row-label"><i class="fa-solid fa-images"></i> Auto-Cycle Photos</div>
                                 <label class="toggle-switch"><input type="checkbox" id="set-auto-cycle-photos" ${mapFilters.autoCyclePhotos !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
@@ -20785,6 +20881,16 @@ renderCategory(catId) {
                 const left = btn.dataset.mode === 'left';
                 localStorage.setItem('acWindowDock', left ? 'left' : 'right');
                 document.getElementById('aircraft-info-window')?.classList.toggle('dock-left', left);
+                btn.parentElement.querySelectorAll('.iw-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+            });
+        });
+
+        // Airport code format (ICAO / IATA) — re-labels an open window at once.
+        document.querySelectorAll('.iw-seg[data-seg="airport-code-format"] .iw-seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                mapFilters.airportCodeFormat = btn.dataset.mode === 'iata' ? 'iata' : 'icao';
+                saveFiltersToLocalStorage();
+                refreshDisplayedAirportCodes();
                 btn.parentElement.querySelectorAll('.iw-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
             });
         });
@@ -23021,6 +23127,8 @@ async function formatAirportSummary(icao) {
 
     return {
         icao, name, city, cc, elevation,
+        // The shown code (ICAO or IATA per the user's setting).
+        code: displayAirportCode(icao),
         metar, runwayCount, longestFt, sun,
         heroUrl: backendImageUrl || aerialUrl,
         heroFallbackUrl: backendImageUrl ? aerialUrl : null
@@ -23038,7 +23146,7 @@ function buildDestSummaryPanelHTML(a) {
     const heroUrl = a.heroUrl || '';
     const fb = a.heroFallbackUrl || '';
     const hero = heroUrl
-        ? `<div class="dest-hero"><img src="${esc(heroUrl)}"${fb ? ` data-fallback="${esc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${esc(a.icao || '')}</b>${a.name ? `<span>${esc(a.name)}</span>` : ''}</div></div>`
+        ? `<div class="dest-hero"><img src="${esc(heroUrl)}"${fb ? ` data-fallback="${esc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${esc(displayAirportCode(a.icao) || '')}</b>${a.name ? `<span>${esc(a.name)}</span>` : ''}</div></div>`
         : '';
     const cc = String(a.cc || '').toLowerCase();
     const flag = /^[a-z]{2}$/.test(cc)
@@ -28177,7 +28285,7 @@ let totalDistanceNM = 0;
         const code = (icao == null) ? '' : String(icao).trim();
         const isAirport = code && typeof airportsData !== 'undefined' && airportsData[code];
         if (!isAirport) return code || 'N/A';
-        return `<span class="ac-icao-link" data-icao="${code}" role="button" tabindex="0" title="View ${code} airport">${code}</span>`;
+        return `<span class="ac-icao-link" data-icao="${code}" data-ap-code="${code}" role="button" tabindex="0" title="View ${code} airport">${displayAirportCode(code)}</span>`;
     };
     const departureIcaoHtml = renderClickableIcao(departureIcao);
     const arrivalIcaoHtml = renderClickableIcao(arrivalIcao);
@@ -28366,7 +28474,7 @@ let totalDistanceNM = 0;
                         <span class="dest-toggle-l">
                             <i class="fa-solid fa-plane-arrival dest-toggle-ic"></i>
                             <span class="dest-toggle-txt">
-                                <span class="dest-toggle-code">${destValidIcao}</span>
+                                <span class="dest-toggle-code" data-ap-code="${destValidIcao}">${displayAirportCode(destValidIcao)}</span>
                                 <span class="dest-toggle-sub">Arriving at · tap for info</span>
                             </span>
                         </span>

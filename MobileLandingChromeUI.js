@@ -70,6 +70,7 @@ export const MobileLandingChromeUI = {
             <div class="ios-topbar-inner">
                 <button type="button" class="ios-server-pill" id="ios-server-pill" aria-label="Server: ${initialServer}">
                     <span class="ios-server-initial" id="ios-server-initial">${initialServer.charAt(0).toUpperCase()}</span>
+                    <span class="ios-server-count" id="ios-server-count" data-server-count="${initialServer}" data-server-count-format="compact" hidden></span>
                 </button>
 
                 <div class="ios-search-shell" id="ios-search-shell">
@@ -166,6 +167,7 @@ export const MobileLandingChromeUI = {
                                 <span class="ios-sheet-row-label">${name}</span>
                                 <span class="ios-sheet-row-sub">${meta.desc}</span>
                             </span>
+                            <span class="ios-sheet-row-count" data-server-count="${name}" hidden></span>
                             <i class="fa-solid fa-check ios-sheet-row-check"></i>
                         </button>
                     `).join('')}
@@ -646,6 +648,8 @@ export const MobileLandingChromeUI = {
         const sheet = document.getElementById('ios-server-sheet');
         if (!sheet) return;
         this._serverSheetOpen = true;
+        // Pilots-online counts (painted by flight.js on every sessions fetch).
+        window.paintServerCounts?.(sheet);
         sheet.classList.add('is-open');
         document.body.style.overflow = 'hidden';
     },
@@ -670,6 +674,11 @@ export const MobileLandingChromeUI = {
         const pill = document.getElementById('ios-server-pill');
         const initial = document.getElementById('ios-server-initial');
         if (initial) initial.textContent = name.charAt(0).toUpperCase();
+        const count = document.getElementById('ios-server-count');
+        if (count) {
+            count.dataset.serverCount = name;
+            window.paintServerCounts?.(pill);
+        }
         if (pill) {
             pill.setAttribute('aria-label', `Server: ${name}`);
             pill.style.setProperty('--server-tint', meta.color);
@@ -1290,6 +1299,30 @@ export const MobileLandingChromeUI = {
                     color 0.25s ease;
                 -webkit-tap-highlight-color: transparent;
             }
+            .ios-server-pill { position: relative; }
+            /* Pilots online on the current server, hung off the pill's lower
+               edge. Filled by flight.js (paintServerCounts). */
+            .ios-server-count {
+                position: absolute;
+                left: 50%;
+                bottom: -7px;
+                transform: translateX(-50%);
+                min-width: 22px;
+                padding: 1px 5px;
+                border-radius: 999px;
+                background: var(--ios-bg-elev);
+                -webkit-backdrop-filter: var(--ios-blur);
+                backdrop-filter: var(--ios-blur);
+                border: 0.5px solid var(--ios-stroke);
+                color: var(--ios-text);
+                font-size: 9.5px;
+                font-weight: 700;
+                line-height: 1.3;
+                font-variant-numeric: tabular-nums;
+                white-space: nowrap;
+                pointer-events: none;
+            }
+            .ios-server-count[hidden] { display: none; }
             .ios-server-pill:active {
                 transform: scale(0.9);
                 background: var(--ios-fill-strong);
@@ -1938,6 +1971,15 @@ export const MobileLandingChromeUI = {
                 color: var(--ios-text-3);
                 letter-spacing: -0.1px;
             }
+            .ios-sheet-row-count {
+                flex: 0 0 auto;
+                font-size: 13px;
+                font-weight: 500;
+                color: var(--ios-text-3);
+                font-variant-numeric: tabular-nums;
+                white-space: nowrap;
+            }
+            .ios-sheet-row-count[hidden] { display: none; }
             .ios-sheet-row-check {
                 flex: 0 0 auto;
                 color: var(--ios-accent);

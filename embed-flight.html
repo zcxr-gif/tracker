@@ -617,6 +617,10 @@
         const username = p.username || 'Unknown';
         const dep = route.originIcao && route.originIcao !== '---' ? route.originIcao : '';
         const arr = route.destIcao && route.destIcao !== '---' ? route.destIcao : '';
+        // Shown codes follow the user's ICAO/IATA setting; dep/arr stay ICAO
+        // for the airport links.
+        const depCode = dep ? (route.originCode || dep) : '';
+        const arrCode = arr ? (route.destCode || arr) : '';
         const actype = String(ac.aircraftName || '');
         const livery = String(ac.liveryName || '');
         const reg = (ac.registration && ac.registration !== '---') ? ac.registration : '';
@@ -699,12 +703,12 @@
                 <div class="mission-card">
                     <div class="route-hero">
                         <div class="rh-port">
-                            <div class="rh-icao" data-icao="${esc(dep)}">${esc(dep || '---')}</div>
+                            <div class="rh-icao" data-icao="${esc(dep)}">${esc(depCode || '---')}</div>
                             <div class="rh-city">${depFlag ? `<img class="rh-flag" src="${depFlag}" alt="" onerror="this.style.display='none'">` : ''}<span class="txt" data-f="depCity">&nbsp;</span></div>
                         </div>
                         <div class="rh-mid"><div class="rh-plane-badge"><i class="fa-solid fa-plane"></i></div></div>
                         <div class="rh-port">
-                            <div class="rh-icao" data-icao="${esc(arr)}">${esc(arr || '---')}</div>
+                            <div class="rh-icao" data-icao="${esc(arr)}">${esc(arrCode || '---')}</div>
                             <div class="rh-city"><span class="txt" data-f="arrCity">&nbsp;</span>${arrFlag ? `<img class="rh-flag" src="${arrFlag}" alt="" onerror="this.style.display='none'">` : ''}</div>
                         </div>
                     </div>
@@ -749,9 +753,9 @@
                 <h2 class="aw-sec">Airports</h2>
                 <div class="apt-bento">
                     ${dep ? `<button class="apt-btn dep" data-icao="${esc(dep)}" title="View ${esc(dep)} airport">
-                        <span class="r"><i class="fa-solid fa-plane-departure"></i> Takeoff</span><span class="code">${esc(dep)}</span></button>` : ''}
+                        <span class="r"><i class="fa-solid fa-plane-departure"></i> Takeoff</span><span class="code">${esc(depCode)}</span></button>` : ''}
                     ${arr ? `<button class="apt-btn arr" data-icao="${esc(arr)}" title="View ${esc(arr)} airport">
-                        <span class="r"><i class="fa-solid fa-plane-arrival"></i> Landing</span><span class="code">${esc(arr)}</span></button>` : ''}
+                        <span class="r"><i class="fa-solid fa-plane-arrival"></i> Landing</span><span class="code">${esc(arrCode)}</span></button>` : ''}
                 </div>` : ''}
 
                 ${arr ? `
@@ -760,7 +764,7 @@
                         <span class="dest-toggle-l">
                             <i class="fa-solid fa-plane-arrival dest-toggle-ic"></i>
                             <span class="dest-toggle-txt">
-                                <span class="dest-toggle-code">${esc(arr)}</span>
+                                <span class="dest-toggle-code">${esc(arrCode)}</span>
                                 <span class="dest-toggle-sub">Arriving at · tap for info</span>
                             </span>
                         </span>
@@ -901,8 +905,8 @@
             if (ph0 && ph0.credit) { pkCredit.style.display = ''; pkCredit.textContent = '© ' + ph0.credit; }
             else pkCredit.style.display = 'none';
         }
-        setTxt2('pk-dep', route.originIcao && route.originIcao !== '---' ? route.originIcao : '---');
-        setTxt2('pk-arr', route.destIcao && route.destIcao !== '---' ? route.destIcao : '---');
+        setTxt2('pk-dep', route.originIcao && route.originIcao !== '---' ? (route.originCode || route.originIcao) : '---');
+        setTxt2('pk-arr', route.destIcao && route.destIcao !== '---' ? (route.destCode || route.destIcao) : '---');
         setTxt2('pk-dep-city', route.originCity || ' ');
         setTxt2('pk-arr-city', route.destCity || ' ');
         const pkProg = document.getElementById('pk-prog');
@@ -1000,7 +1004,10 @@
         const imgs = p.images || {};
         const list = Array.isArray(imgs.list) && imgs.list.length
             ? imgs.list : (imgs.url ? [{ url: imgs.url, credit: imgs.credit }] : []);
-        const key = `${p.callsign}|${p.username}|${photoKey(list)}`;
+        // The shown airport codes are in the key so a switch between ICAO and
+        // IATA in Settings reaches the route block on the next push.
+        const rk = p.route || {};
+        const key = `${p.callsign}|${p.username}|${photoKey(list)}|${rk.originCode || ''}|${rk.destCode || ''}`;
         if (key !== _renderKey) {
             _renderKey = key;
             _photoList = list;
@@ -1109,7 +1116,7 @@
         const heroUrl = a.heroUrl || '';
         const fb = a.heroFallbackUrl || '';
         const hero = heroUrl
-            ? `<div class="dest-hero"><img src="${esc(heroUrl)}"${fb ? ` data-fallback="${esc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${esc(a.icao || '')}</b>${a.name ? `<span>${esc(a.name)}</span>` : ''}</div></div>`
+            ? `<div class="dest-hero"><img src="${esc(heroUrl)}"${fb ? ` data-fallback="${esc(fb)}"` : ''} alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback');}else{this.closest('.dest-hero').remove();}"><div class="dest-hero-fade"></div><div class="dest-hero-cap"><b>${esc(a.code || a.icao || '')}</b>${a.name ? `<span>${esc(a.name)}</span>` : ''}</div></div>`
             : '';
         const cc = String(a.cc || '').toLowerCase();
         const flag = /^[a-z]{2}$/.test(cc)
