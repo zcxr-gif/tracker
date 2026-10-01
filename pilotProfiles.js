@@ -31,7 +31,6 @@ const BANNER_PRESETS = {
 
 const cache = new Map(); // lowercased IF username -> { at, profile|null, promise? }
 const styleCache = new Map(); // lowercased IF username -> { at, style|null, promise? }
-let flairCache = null;        // { at, set: Set<lowercased IF username>, promise? }
 
 // "Your window, seen by others" (supabase/sql/pilot-window-style.sql). The
 // free theme names are the banner presets'; the window takes its colour from
@@ -64,6 +63,10 @@ function shapeStyle(row) {
         bgUrl: publicUrl('pilot-banners', row.window_bg_path),
         dim: Math.min(90, Math.max(20, Number(row.window_bg_dim) || 60)) / 100,
         flair: !!row.window_flair,
+        // Which animation (pilotFlair.js); null plays the classic Shine.
+        flairStyle: row.window_flair_style || null,
+        // Off by default; only the Pro pilot can turn it on for themselves.
+        proBadge: row.window_pro_badge === true,
         accent: hex(row.accent),
     };
     style.hasLook = !!(style.theme || style.color || style.bgUrl);
@@ -140,7 +143,6 @@ export const PilotProfiles = {
         const key = String(ifUsername || '').trim().toLowerCase();
         cache.delete(key);
         styleCache.delete(key);
-        flairCache = null;
     },
 
     /** Cached window style for an IF username: a style, null (none), or undefined (unknown). */
@@ -173,26 +175,11 @@ export const PilotProfiles = {
         return promise;
     },
 
-    /** Lowercased IF usernames of Pro pilots with flair on (the map glow). */
-    flairUsernames() {
-        if (flairCache && flairCache.promise) return flairCache.promise;
-        if (flairCache && Date.now() - flairCache.at <= TTL_MS) return Promise.resolve(flairCache.set);
-        const promise = rpc('pilot_flair_usernames')
-            .then(rows => new Set((Array.isArray(rows) ? rows : [])
-                .map(r => String(typeof r === 'string' ? r : (r && r.pilot_flair_usernames) || '').toLowerCase())
-                .filter(Boolean)))
-            .catch(() => new Set())
-            .then(set => {
-                flairCache = { at: Date.now(), set };
-                return set;
-            });
-        flairCache = { at: 0, set: new Set(), promise };
-        return promise;
-    },
 
     /**
      * Save the signed-in pilot's window look. `fields` may hold theme, color,
-     * dim and flair; the write guard refuses a colour from a free account.
+     * dim, flair and proBadge; the write guard refuses a colour from a free
+     * account.
      */
     async saveWindowStyle(supabase, fields) {
         const { data: { session } = {} } = await supabase.auth.getSession();
@@ -203,6 +190,8 @@ export const PilotProfiles = {
         if ('color' in fields) patch.window_color = fields.color || null;
         if ('dim' in fields) patch.window_bg_dim = Math.round(Math.min(90, Math.max(20, Number(fields.dim) || 60)));
         if ('flair' in fields) patch.window_flair = !!fields.flair;
+        if ('flairStyle' in fields) patch.window_flair_style = fields.flairStyle || null;
+        if ('proBadge' in fields) patch.window_pro_badge = !!fields.proBadge;
         const { error } = await supabase.from('pilot_profiles').update(patch).eq('user_id', uid);
         if (error) {
             const err = new Error(/window_|column/i.test(error.message)
@@ -212,7 +201,6 @@ export const PilotProfiles = {
             throw err;
         }
         styleCache.clear();
-        flairCache = null;
         return true;
     },
 

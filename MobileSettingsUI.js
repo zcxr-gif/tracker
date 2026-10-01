@@ -1822,7 +1822,7 @@ export const MobileSettingsUI = {
                 }
                 if (window.updateMapFilters) window.updateMapFilters();
                 if (window.saveFiltersToLocalStorage) window.saveFiltersToLocalStorage();
-                // Re-dress an open flight window and the map glow straight away.
+                // Re-dress an open flight window straight away.
                 if (setting === 'showPilotStyles' && window.setShowPilotStyles) window.setShowPilotStyles(e.target.checked);
                 this.updateFilterBadge();
             });

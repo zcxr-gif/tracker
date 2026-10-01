@@ -23,7 +23,7 @@
  *
  * UPGRADING. The first time an account becomes Pro, a shorter sheet
  * (mode 'pro') walks through what just unlocked: the window others see for
- * your flight (colour, photo, map glow), the photo banner, and saved window
+ * your flight (colour, photo, flair), the photo banner, and saved window
  * setups. user_metadata.pro_seen marks an account that has had Pro, so a
  * renewal after a lapse gets no sheet at all — the Pro look was kept and
  * simply comes back (see pilot-window-style.sql). Accounts that were already
@@ -99,7 +99,7 @@ function stepsFor(mode, pro) {
 
 const PRO_PERKS = [
     { icon: 'fa-eye', title: 'Your flight, your look', text: 'A colour or photo behind the window others see for your flight.' },
-    { icon: 'fa-wand-magic-sparkles', title: 'Pro flair', text: 'A soft glow around your plane on the map and a shimmer on your card.' },
+    { icon: 'fa-wand-magic-sparkles', title: 'Pro flair', text: 'A shimmer on your card, and a PRO badge on your flight window if you want one.' },
     { icon: 'fa-image', title: 'Photo banner', text: 'Your own photo across the top of your pilot card.' },
     { icon: 'fa-bookmark', title: 'Saved window setups', text: 'Keep several window looks and switch in one tap.' },
 ];
