@@ -689,14 +689,19 @@
     </header>
 
     <main class="max-w-6xl mx-auto px-5 py-6">
-        <!-- Owner onboarding nudge — shown until the VA connects Supabase. -->
-        <div id="onboard" class="hidden mb-4 flex items-center gap-3 rounded-xl border hair p-4" style="background:color-mix(in srgb, var(--accent) 7%, var(--surface));">
-            <span class="w-9 h-9 rounded-lg accent-bg text-white grid place-items-center shrink-0"><i data-lucide="database" class="w-5 h-5"></i></span>
-            <div class="flex-1 min-w-0">
-                <div class="text-sm font-semibold">Finish setting up your crew center</div>
-                <div class="text-xs muted">Your crew, flights and pilot logins need a home in your VA’s own database. Paste one Supabase token and we’ll set it up — about a minute.</div>
+        <!-- The way into the setup guide — shown to staff until every essential
+             step is done. Starts as the old "connect your database" nudge and
+             turns into a progress line once the guide has loaded. -->
+        <div id="onboard" class="hidden mb-4 rounded-xl border hair p-4" style="background:color-mix(in srgb, var(--accent) 7%, var(--surface));">
+            <div class="flex items-center gap-3">
+                <span class="w-9 h-9 rounded-lg accent-bg text-white grid place-items-center shrink-0"><i data-lucide="list-checks" class="w-5 h-5"></i></span>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-semibold">Set up your crew center</div>
+                    <div id="onboardText" class="text-xs muted">Your crew, flights and pilot logins need a home in your VA’s own database. Paste one Supabase token and we’ll set it up — about a minute.</div>
+                </div>
+                <button onclick="openGuide()" id="onboardBtn" class="accent-bg text-white text-sm font-semibold px-4 py-2 rounded-md hover:opacity-90 transition shrink-0">Start</button>
             </div>
-            <button onclick="openSettings('data')" class="accent-bg text-white text-sm font-semibold px-4 py-2 rounded-md hover:opacity-90 transition shrink-0">Set it up</button>
+            <div id="onboardBar" class="hidden mt-3 h-1.5 rounded-full overflow-hidden" style="background:color-mix(in srgb, var(--ink) 10%, transparent);"><div class="h-full accent-bg rounded-full transition-all" style="width:0%"></div></div>
         </div>
 
         <div id="grid" class="crew-grid fade-in">
@@ -864,6 +869,7 @@
         <div class="panel absolute right-0 top-0 h-full w-full max-w-md surface border-l hair overflow-y-auto translate-x-full">
             <div class="sticky top-0 flex items-center justify-between px-5 h-16 border-b hair" style="background:var(--surface);">
                 <div class="flex items-center gap-2"><i data-lucide="settings" class="w-5 h-5"></i><span class="font-semibold tracking-tight">Settings</span></div>
+                <button onclick="closeSettings(); openGuide()" class="ml-auto mr-1 surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="list-checks" class="w-3.5 h-3.5"></i> Setup guide</button>
                 <button onclick="closeSettings()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <!-- Category tabs -->
@@ -1922,6 +1928,34 @@
         </div>
     </div>
 
+    <!-- ============ SETUP GUIDE ============
+         Every step a crew center needs, in order, graded from real data by
+         /setup-guide (crewSetupGuide.js). Each step does the simple version
+         here — a template, a choice, a field — and hands off to the full
+         editor for anything more; "Back to setup" brings the owner back. -->
+    <div id="guide" data-topic="guide" class="hidden fixed inset-0 z-50">
+        <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closeGuide()"></div>
+        <div class="panel absolute right-0 top-0 h-full w-full max-w-lg surface border-l hair overflow-y-auto translate-x-full">
+            <div class="sticky top-0 z-10 border-b hair px-5 py-3" style="background:var(--surface);">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0"><i data-lucide="list-checks" class="w-5 h-5 shrink-0"></i><span class="font-semibold tracking-tight truncate">Set up your crew center</span></div>
+                    <button onclick="closeGuide()" class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)]" aria-label="Close"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+                <div class="mt-2 flex items-center gap-3">
+                    <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:color-mix(in srgb, var(--ink) 10%, transparent);"><div id="guideBar" class="h-full accent-bg rounded-full transition-all" style="width:0%"></div></div>
+                    <span id="guideCount" class="text-xs muted shrink-0"></span>
+                </div>
+            </div>
+            <div id="guideBody" class="p-5 space-y-5"><p class="text-sm faint text-center py-10">Loading…</p></div>
+        </div>
+    </div>
+    <!-- Shown after the guide hands off to another screen, so the way back is
+         one tap rather than a memory of where the guide was. -->
+    <div id="guideBack" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-1 rounded-full shadow-lg accent-bg text-white text-sm font-semibold pl-4 pr-1 py-1">
+        <button onclick="openGuide()" class="inline-flex items-center gap-1.5 py-1"><i data-lucide="list-checks" class="w-4 h-4"></i> Back to setup</button>
+        <button onclick="hideGuideBack()" class="w-7 h-7 grid place-items-center rounded-full hover:bg-white/20" aria-label="Hide"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+    </div>
+
     <!-- ============ ROSTER SLIDE-OVER ============ -->
     <div id="roster" data-topic="roster" class="hidden fixed inset-0 z-50">
         <div class="ctw-scrim absolute inset-0 bg-black/40" onclick="closeRoster()"></div>
@@ -2209,8 +2243,18 @@
                 <input id="csvFile" type="file" multiple accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/csv,text/plain" onchange="csvPicked(this)"
                     class="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[var(--accent)] file:text-white hover:file:opacity-90 file:cursor-pointer">
                 <div id="csvPreview" class="hidden mt-3"></div>
+                <!-- Several files from several systems is the normal case for
+                     a roster arriving from elsewhere — a bot export and the
+                     spreadsheet somebody kept by hand. They are read together
+                     and a pilot in both is one pilot. -->
+                <input id="csvFileMore" type="file" multiple hidden accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/csv,text/plain" onchange="csvPicked(this,true)">
+                <label id="csvInviteRow" class="hidden mt-3 flex items-start gap-2 text-xs cursor-pointer rounded-lg hair p-2.5">
+                    <input type="checkbox" id="csvCreateInvites" class="mt-0.5" checked>
+                    <span><b>Create invitations for the new pilots</b> <span class="muted">— each gets a login and a one-time link to choose their password, waiting in Roster → Logins for you to send.</span></span>
+                </label>
                 <div id="csvActions" class="hidden flex gap-2 mt-3">
                     <button onclick="csvReset()" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Cancel</button>
+                    <button onclick="document.getElementById('csvFileMore').click()" title="Read another file or workbook alongside this one" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="file-plus" class="w-4 h-4"></i> Add file</button>
                     <button id="csvCommitBtn" onclick="commitCsv()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="upload" class="w-4 h-4"></i> Apply</button>
                 </div>
                 <p id="csvNote" class="hidden text-sm mt-2"></p>
@@ -4220,8 +4264,8 @@
             const form=openInlineForm();
             if(form){ form.close(); return; }
             // Topmost first, so a drawer opened from a drawer closes in order.
-            const open=['pireps','routes','roster','settings'].filter(id=>document.getElementById(id)?.dataset.open==='1');
-            if(open.length) closeDrawer(open[0]);
+            const open=['pireps','routes','roster','settings','guide'].filter(id=>document.getElementById(id)?.dataset.open==='1');
+            if(open.length){ if(open[0]==='guide') closeGuide(); else closeDrawer(open[0]); }
         });
 
         // `cat` lands the panel on a specific tab — the onboarding nudge sends
@@ -6356,6 +6400,7 @@
             distanceNm:'Distance (nm)', notes:'Notes', active:'Published', kind:'Own / codeshare',
             partnerName:'Codeshare partner', partnerLogo:'Partner logo URL', minRank:'Minimum rank',
             departureGate:'Departure gate', arrivalGate:'Arrival gate',
+            rank:'Rank', joined:'Joined', login:'Login',
         };
         // CSV_SHEETS is the upload, one entry per file or workbook tab.
         // CSV_MAP is the VA's own answer to "what is this column", which beats
@@ -6398,6 +6443,7 @@
             const exp=document.getElementById('csvExportBtn'); if(exp) exp.disabled=false;
             document.getElementById('csvPreview').classList.add('hidden');
             document.getElementById('csvActions').classList.add('hidden');
+            document.getElementById('csvInviteRow').classList.add('hidden');
             document.getElementById('csvNote').classList.add('hidden');
         }
         function csvMsg(msg, kind){
@@ -6521,7 +6567,7 @@
         // Every file picked, and every tab of every workbook, becomes one sheet
         // of CSV. The backend reads each on its own terms, so the tabs do not
         // have to agree on their columns.
-        async function csvPicked(input){
+        async function csvPicked(input, append){
             const files=[...(input.files||[])];
             if(!files.length) return;
             const total=files.reduce((n,f)=>n+(f.size||0),0);
@@ -6554,7 +6600,19 @@
                     }
                 }
             }catch{ csvMsg('We couldn’t open that file. If it’s a spreadsheet, try saving it as .xlsx or .csv.','error'); return; }
-            CSV_SHEETS=sheets;
+            if(append && Array.isArray(CSV_SHEETS) && CSV_SHEETS.length){
+                // Names are how the preview says where a row came from, so two
+                // files that are both "roster" must not read as one.
+                const taken=new Set(CSV_SHEETS.map(x=>x.name));
+                for(const sh of sheets){
+                    let name=sh.name||'Sheet', n=2;
+                    while(taken.has(name)) name=`${sh.name} (${n++})`;
+                    taken.add(name); CSV_SHEETS.push({ ...sh, name });
+                }
+            } else CSV_SHEETS=sheets;
+            // The add-file picker is cleared so the same file can be picked
+            // again; the main one keeps showing what was chosen.
+            if(append) input.value='';
             previewCsv();
         }
         const csvBody=(extra)=>JSON.stringify({ sheets:CSV_SHEETS, mapping:CSV_MAP, ...extra });
@@ -6734,12 +6792,24 @@
 
             const missing=!failed&&(d.missing||[]).length
                 ? `<div class="text-[11px] faint mt-2">Not in your file, so left as they are: ${escapeHtml(d.missing.map(h=>CSV_FIELD_LABELS[h]||h).join(', '))}.</div>` : '';
+            // What a roster from another system means here, said once for the
+            // whole file rather than on every row it applies to.
+            const rosterNotes=[];
+            if(!failed && CSV_KIND==='roster'){
+                const cols=d.columns||[];
+                if(d.staffRoleCount) rosterNotes.push(`${n(d.staffRoleCount,'pilot is','pilots are')} marked owner or admin in your file. That stays as their roster role, but it doesn’t open this dashboard — dashboard access is a staff account, added in the VA portal under Team.`);
+                if(cols.includes('rank') && d.hasLadder===false) rosterNotes.push('You haven’t set up a rank ladder yet, so the rank column is skipped. Add your ranks under Settings → Ranks and every pilot’s rank follows from their hours.');
+                else if(cols.includes('rank')) rosterNotes.push(`Ranks here follow hours on your ladder, so the rank column is only checked against it${(d.unknownRanks||[]).length?` — not on your ladder: ${d.unknownRanks.join(', ')}`:''}. A rank that needs a check-ride is signed off for pilots the file lists at it.`);
+                if(cols.includes('joined')) rosterNotes.push('Join dates are kept, so new-pilot and inactivity reminders count from when each pilot really joined.');
+            }
+            const notesHtml=rosterNotes.length?`<ul class="text-[11px] muted mt-2 space-y-1 list-disc pl-4">${rosterNotes.map(t=>`<li>${escapeHtml(t)}</li>`).join('')}</ul>`:'';
 
             box.innerHTML=`<div class="rounded-lg surface hair p-3">
                 ${failed?'':`<div class="text-xs font-semibold uppercase tracking-wider faint mb-2">What this would do</div>
                 <div class="text-sm space-y-1">${bits.join('')}</div>`}
                 ${tabs}
                 ${missing}
+                ${notesHtml}
                 ${failed?'':`<div class="text-[11px] faint mt-2">Nothing is deleted. ${escapeHtml(noun[0].toUpperCase()+noun.slice(1))}s you already have that aren’t in the file are untouched.</div>`}
                 ${errs}
                 ${csvColumnsHtml(d)}
@@ -6747,6 +6817,7 @@
             </div>`;
             box.classList.remove('hidden');
             document.getElementById('csvActions').classList.remove('hidden');
+            document.getElementById('csvInviteRow').classList.toggle('hidden', !(CSV_KIND==='roster' && !failed && d.create));
             renderCsvCommit();
             if(window.lucide) lucide.createIcons();
         }
@@ -6773,7 +6844,8 @@
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}/import`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
-                    body:csvBody({ dryRun:false, skipErrors:skip, expectErrors:CSV_PLAN.errorCount||0 }) });
+                    body:csvBody({ dryRun:false, skipErrors:skip, expectErrors:CSV_PLAN.errorCount||0,
+                        createInvites: CSV_KIND==='roster' && !!(document.getElementById('csvCreateInvites')||{}).checked }) });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ csvMsg(d.error||'Could not import.','error'); btn.disabled=false; return; }
                 const failed=(d.failures||[]).length;
@@ -6781,7 +6853,9 @@
                 // no column for them lands the routes and loses the flag, which
                 // is worth saying out loud rather than reporting "42 added".
                 const drift=checkResponseDrift(d);
-                const summary=`${d.created||0} added, ${d.updated||0} updated.${d.skipped?` ${d.skipped} unreadable row${d.skipped===1?'':'s'} skipped.`:''}${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}${drift?' '+drift:''}`;
+                const inv=d.invites;
+                const invSaid=inv&&inv.created?` ${inv.created} invitation${inv.created===1?'':'s'} ready to send.`:(d.followUpError?` Invitations weren’t created: ${d.followUpError}`:'');
+                const summary=`${d.created||0} added, ${d.updated||0} updated.${d.skipped?` ${d.skipped} unreadable row${d.skipped===1?'':'s'} skipped.`:''}${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}${invSaid}${drift?' '+drift:''}`;
                 csvMsg(summary, (failed||drift)?'warn':'ok');
                 // The dialog this is reported in is about to be closed, so the
                 // result has to outlive it.
@@ -6797,8 +6871,18 @@
                 if(CSV_KIND==='roster') fetchRoster().then(()=>{ renderRoster(); changed('roster'); });
                 else fetchRoutes().then(()=>{ renderRoutes(); changed('routes'); });
                 // An import worth doing is worth seeing: close the dialog and
-                // leave the reader looking at what it changed.
+                // leave the reader looking at what it changed — except that
+                // pilots who just arrived cannot sign in yet, so a roster that
+                // gained anybody goes straight to setting their logins up.
+                const kind=CSV_KIND;
                 closeCsv();
+                if(kind==='roster' && d.created){
+                    // Kept invitations are in the list the Logins tab draws; an
+                    // older database only has them in this reply, so they are
+                    // handed straight to the show-once view.
+                    if(inv && !inv.kept && Array.isArray(inv.results) && inv.results.some(x=>x.message)) openLoginSetup(inv);
+                    else openLoginSetup();
+                }
             }catch{ csvMsg('Server unreachable.','error'); }
             // Always give the button back. It used to be re-enabled only on the
             // two failure paths, so importing a second spreadsheet in the same
@@ -8549,7 +8633,7 @@
             document.getElementById('addPilotBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             if(v==='apps'){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
-            if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets()]).then(renderInvites); }
+            if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets(),fetchLoginSetup()]).then(renderInvites); }
             showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
         function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
@@ -8610,7 +8694,8 @@
            the more urgent of the two, which is why they are drawn first. */
         const waitingCount=()=>
             INVITES.filter(x=>x.invite&&x.invite.state==='live').length
-            + RESETS.filter(r=>!r.password).length;
+            + RESETS.filter(r=>!r.password).length
+            + (typeof unsentInviteCount==='function'?unsentInviteCount():0);
         async function fetchInvites(){
             const slug=getSlug(), token=sessionToken();
             if(!slug||!token){ INVITES=[]; return; }
@@ -8688,11 +8773,642 @@
             const resets=[...RESETS].sort((x,y)=>(x.password?1:0)-(y.password?1:0));
             keepPlace(list,()=>{
                 const html = resets.map(resetCardHtml).join('') + sorted.map(inviteCardHtml).join('');
-                list.innerHTML = html
-                    || '<p class="text-sm faint text-center py-10">Nothing waiting. Accepting an application with a login puts it here, and so does a pilot who asks for a new password from the sign-in page.</p>';
+                list.innerHTML = loginSetupHtml() + (html
+                    || '<p class="text-sm faint text-center py-10">Nothing waiting. Accepting an application with a login puts it here, and so does a pilot who asks for a new password from the sign-in page.</p>');
                 if(window.lucide) lucide.createIcons();
             });
         }
+        /* =====================================================================
+           THE SETUP GUIDE
+
+           One list of everything a crew center needs, in the order it needs
+           it, graded by the backend from the VA's real data (crewSetupGuide.js)
+           — so a ladder that arrived in a spreadsheet counts the same as one
+           typed in, and nothing is "done" because a button was pressed.
+
+           Each step does its SIMPLE version right here: a ready-made rank
+           ladder, a join-mode choice, a Discord invite, the database wizard
+           itself. Anything more hands off to the full editor that already
+           exists, and a "Back to setup" pill brings the owner straight back.
+           There is deliberately no second way of saving anything: every write
+           below goes to the same endpoint the full editor uses.
+           =================================================================== */
+        let GUIDE=null, GUIDE_OPEN=null, GUIDE_LOADING=false;
+        const GUIDE_ICON={
+            done:     '<span class="w-7 h-7 rounded-full grid place-items-center shrink-0 bg-emerald-600 text-white"><i data-lucide="check" class="w-4 h-4"></i></span>',
+            attention:'<span class="w-7 h-7 rounded-full grid place-items-center shrink-0 bg-amber-500 text-white"><i data-lucide="alert-triangle" class="w-4 h-4"></i></span>',
+            blocked:  '<span class="w-7 h-7 rounded-full grid place-items-center shrink-0 hair faint"><i data-lucide="lock" class="w-3.5 h-3.5"></i></span>',
+            todo:     '<span class="w-7 h-7 rounded-full grid place-items-center shrink-0 hair muted"><i data-lucide="circle" class="w-3.5 h-3.5"></i></span>',
+        };
+        // Ready-made ladders. Hours are the commonest VA thresholds; the one
+        // check-ride sits where most airlines put it, at Captain.
+        const RANK_TEMPLATES=[
+            { id:'quick', name:'Fast progression', blurb:'For a new or small VA — first promotion within a couple of weeks.', ranks:[
+                {name:'Trainee',minHours:0,color:'#64748b',icon:'star'},
+                {name:'Second Officer',minHours:15,color:'#0ea5e9',icon:'chevrons-up'},
+                {name:'First Officer',minHours:40,color:'#4f46e5',icon:'award'},
+                {name:'Captain',minHours:100,color:'#d97706',icon:'medal'},
+                {name:'Senior Captain',minHours:250,color:'#dc2626',icon:'crown'} ]},
+            { id:'airline', name:'Classic airline', blurb:'The traditional ladder, with a check-ride before Captain.', ranks:[
+                {name:'Cadet',minHours:0,color:'#64748b',icon:'star'},
+                {name:'Second Officer',minHours:25,color:'#0ea5e9',icon:'chevrons-up'},
+                {name:'First Officer',minHours:100,color:'#4f46e5',icon:'award'},
+                {name:'Captain',minHours:300,color:'#d97706',icon:'medal',requiresCheck:true,checkNote:'Fly a check-ride with a training captain.'},
+                {name:'Senior Captain',minHours:750,color:'#dc2626',icon:'crown'} ]},
+            { id:'cargo', name:'Cargo', blurb:'Freight-style titles, long-haul pace.', ranks:[
+                {name:'Cadet',minHours:0,color:'#64748b',icon:'star'},
+                {name:'Junior First Officer',minHours:20,color:'#0ea5e9',icon:'chevrons-up'},
+                {name:'First Officer',minHours:75,color:'#4f46e5',icon:'award'},
+                {name:'Captain',minHours:200,color:'#d97706',icon:'medal',requiresCheck:true,checkNote:'Fly a check-ride with a training captain.'},
+                {name:'Training Captain',minHours:500,color:'#dc2626',icon:'crown'} ]},
+            { id:'regional', name:'Regional', blurb:'Short hops, a short ladder.', ranks:[
+                {name:'Trainee',minHours:0,color:'#64748b',icon:'star'},
+                {name:'First Officer',minHours:30,color:'#4f46e5',icon:'award'},
+                {name:'Captain',minHours:150,color:'#d97706',icon:'medal'},
+                {name:'Line Training Captain',minHours:400,color:'#dc2626',icon:'crown'} ]},
+        ];
+        let GUIDE_RANK_PICK='quick';
+
+        async function fetchGuide(){
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token) return null;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/setup-guide`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok) return null;
+                GUIDE=d; return d;
+            }catch{ return null; }
+        }
+        // The banner on the dashboard. Shown to anyone who can set things up
+        // until every essential step is done; preview mode keeps the old nudge.
+        function updateGuideBanner(){
+            const el=document.getElementById('onboard'); if(!el) return;
+            const staff=sessionToken() && (IS_OWNER || CAPS.size>0);
+            if(!GUIDE){ el.classList.toggle('hidden', !((IS_OWNER||!sessionToken()) && !SUPA.connected)); return; }
+            const p=GUIDE.progress||{}, left=(p.required||0)-(p.requiredDone||0);
+            el.classList.toggle('hidden', !staff || left<=0);
+            const next=(GUIDE.steps||[]).find(x=>x.id===GUIDE.next);
+            document.getElementById('onboardText').textContent = `${p.requiredDone||0} of ${p.required||0} essentials done${next?` — next: ${next.title.toLowerCase()}`:''}.`;
+            document.getElementById('onboardBtn').textContent = (p.requiredDone||0) ? 'Continue' : 'Start';
+            const bar=document.getElementById('onboardBar');
+            bar.classList.remove('hidden');
+            bar.firstElementChild.style.width=`${Math.round(100*(p.requiredDone||0)/Math.max(1,p.required||1))}%`;
+        }
+        async function refreshGuide(){
+            if(GUIDE_LOADING) return;
+            GUIDE_LOADING=true;
+            try{ await fetchGuide(); } finally{ GUIDE_LOADING=false; }
+            updateGuideBanner();
+            if(document.getElementById('guide').dataset.open==='1') renderGuide();
+        }
+        async function openGuide(stepId){
+            hideGuideBack();
+            // The first-visit tour spotlights the page underneath; opening the
+            // guide is the reader choosing where to go instead, so it ends.
+            if(window.CrewTour && CrewTour.stop) CrewTour.stop();
+            // Whatever the guide handed off to is finished with.
+            ['settings','roster','fleet','routes','recruit'].forEach(id=>{ try{ closeDrawer(id); }catch{} });
+            openDrawer('guide');
+            if(!GUIDE) renderGuide();
+            await fetchGuide();
+            updateGuideBanner();
+            GUIDE_OPEN = stepId || GUIDE_OPEN || (GUIDE&&GUIDE.next) || null;
+            renderGuide();
+        }
+        function closeGuide(){ parkWizard(); closeDrawer('guide'); }
+        function hideGuideBack(){ document.getElementById('guideBack').classList.add('hidden'); }
+        // Leave the guide for a full editor, with a way back.
+        function guideGo(fn){
+            closeGuide();
+            setTimeout(()=>{
+                try{ fn(); }catch(e){ console.warn(e); }
+                document.getElementById('guideBack').classList.remove('hidden');
+                if(window.lucide) lucide.createIcons();
+            }, 320);
+        }
+
+        /* The Supabase wizard lives in Settings → Data and has all the logic.
+           Rather than copy it, the guide borrows the element while its step is
+           open and puts it back afterwards — so the two can never disagree. */
+        let WIZ_HOME=null;
+        function mountWizard(slot){
+            const w=document.getElementById('wizard'); if(!w||!slot) return;
+            if(!WIZ_HOME){ WIZ_HOME=document.createComment('wizard-home'); w.parentNode.insertBefore(WIZ_HOME, w); }
+            slot.appendChild(w);
+        }
+        function parkWizard(){
+            const w=document.getElementById('wizard');
+            if(w && WIZ_HOME && WIZ_HOME.parentNode && w.previousSibling!==WIZ_HOME) WIZ_HOME.parentNode.insertBefore(w, WIZ_HOME.nextSibling);
+        }
+
+        const gBtn=(act,label,icon,primary)=>`<button data-guide-act="${act}" class="${primary?'accent-bg text-white':'surface hair hover:border-[var(--ink)]'} rounded-lg px-3 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-1.5">${icon?`<i data-lucide="${icon}" class="w-4 h-4"></i>`:''}${escapeHtml(label)}</button>`;
+        const gRow=(...b)=>`<div class="flex flex-wrap gap-2 mt-3">${b.filter(Boolean).join('')}</div>`;
+        const gNo=(why)=>`<p class="text-xs faint mt-3">${escapeHtml(why)}</p>`;
+        const gLink=(label,url)=>`<div class="mt-2"><div class="text-[11px] uppercase tracking-wide faint">${escapeHtml(label)}</div>
+            <div class="flex items-center gap-2 mt-1"><input readonly value="${escapeHtml(url)}" class="flex-1 min-w-0 surface hair rounded-lg px-2.5 py-1.5 text-xs font-mono">
+            <button data-guide-copy="${escapeHtml(url)}" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold shrink-0">Copy</button></div></div>`;
+
+        function guideStepBody(st){
+            const L=(GUIDE&&GUIDE.links)||{};
+            switch(st.id){
+            case 'database':
+                if(!IS_OWNER) return gNo('Only the VA owner can connect the database. Ask them to open this guide.');
+                if(st.state==='attention' && /older version/.test(st.summary))
+                    return gRow(gBtn('db-upgrade','Update my database','database-zap',true));
+                return `<p class="text-xs muted mt-3">You’ll need a free account at <a href="https://supabase.com" target="_blank" rel="noopener" class="accent-text font-semibold">supabase.com</a>. Then: Account → Access Tokens → Generate new token, and paste it below. We create the tables and connect everything — nothing to copy by hand.</p>
+                    <div id="guideWizardSlot" class="mt-3"></div>`;
+            case 'identity':
+                return `${st.callsignSample?`<div class="mt-3 text-sm">Your pilots’ callsigns look like <span class="font-mono font-semibold">${escapeHtml(st.callsignSample)}</span>.</div>`:''}
+                    <p class="text-xs muted mt-2">Your airline’s name, logo and registered callsign (like <span class="font-mono">HAWAIIAN ###AG</span> — the # are the pilot’s number) are set on your VA profile in the portal.</p>
+                    ${gRow(L.vaPortal?`<a href="${escapeHtml(L.vaPortal)}" target="_blank" rel="noopener" class="accent-bg text-white rounded-lg px-3 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Open the VA portal</a>`:'', gBtn('refresh','I’ve done it — check again','refresh-cw'))}`;
+            case 'ranks': {
+                if(!can('settings.branding')) return gNo('You don’t have permission to change the rank ladder.');
+                const t=RANK_TEMPLATES.find(x=>x.id===GUIDE_RANK_PICK)||RANK_TEMPLATES[0];
+                return `<div class="grid grid-cols-2 gap-2 mt-3">${RANK_TEMPLATES.map(x=>`<button data-guide-rank="${x.id}" class="text-left rounded-lg p-2.5 hair ${x.id===t.id?'accent-text':''}" style="${x.id===t.id?'border-color:var(--accent);background:color-mix(in srgb, var(--accent) 8%, transparent)':''}">
+                        <div class="text-sm font-semibold">${escapeHtml(x.name)}</div><div class="text-[11px] muted mt-0.5">${escapeHtml(x.blurb)}</div></button>`).join('')}</div>
+                    <div class="mt-3 rounded-lg hair divide-y divide-[color:var(--hair)]">${t.ranks.map(r=>`<div class="flex items-center gap-2 px-3 py-1.5 text-sm">
+                        <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${escapeHtml(r.color)}"></span><span class="flex-1">${escapeHtml(r.name)}${r.requiresCheck?' <span class="text-[10px] faint">· check-ride</span>':''}</span><span class="muted text-xs">${r.minHours} h</span></div>`).join('')}</div>
+                    <p class="text-xs muted mt-2">Pilots are promoted automatically as their hours cross each line. Hours and names can be changed afterwards.</p>
+                    ${gRow(gBtn('ranks-apply',RANKS.length?'Replace my ladder with this':'Use this ladder','check',true), gBtn('ranks-edit','Build my own','pencil'))}`;
+            }
+            case 'roles':
+                if(!can('settings.branding')) return gNo('You don’t have permission to change positions.');
+                return `<p class="text-xs muted mt-3">Starter set: Chief Executive Officer, Chief Operating Officer, Head of Operations, Recruitment, Events and Media. Rename or remove any of them later.</p>
+                    ${gRow(gBtn('roles-apply','Use the starter set','check',true), gBtn('roles-edit','Write my own','pencil'))}`;
+            case 'fleet':
+                if(!can('settings.branding')) return gNo('You don’t have permission to change the fleet.');
+                return gRow(gBtn('fleet','Add aircraft','plane',true));
+            case 'routes':
+                if(!can('routes.manage')) return gNo('You don’t have permission to change routes.');
+                return gRow(gBtn('routes-lib','Copy a real airline’s network','library',true), gBtn('routes-csv','Import a spreadsheet','table'), gBtn('routes-add','Add one route','plus'));
+            case 'roster':
+                if(!can('roster.manage')) return gNo('You don’t have permission to change the roster.');
+                return `<p class="text-xs muted mt-3">A roster exported from a Discord bot or a Google Sheet imports as it is — columns like <span class="font-mono">pilot, IF username, callsign, rank, hours, role, joined</span> are recognised, and you see exactly what will change before anything does.</p>
+                    ${gRow(gBtn('roster-csv','Import a spreadsheet','table',true), gBtn('roster-add','Add a pilot','user-plus'))}`;
+            case 'logins':
+                if(!can('roster.manage')) return gNo('You don’t have permission to manage logins.');
+                return `<p class="text-xs muted mt-3">Each pilot gets a username and a one-time link to choose their own password — paste their message into a Discord DM. No passwords for you to handle.</p>${gRow(gBtn('logins','Set up logins','key-round',true))}`;
+            case 'recruiting': {
+                if(!can('settings.recruitment')) return gNo('You don’t have permission to change recruitment.');
+                const m=JOIN.mode||'application';
+                const opt=(v,t,d)=>`<button data-guide-join="${v}" class="text-left rounded-lg p-2.5 hair" style="${m===v?'border-color:var(--accent);background:color-mix(in srgb, var(--accent) 8%, transparent)':''}"><div class="text-sm font-semibold">${t}</div><div class="text-[11px] muted mt-0.5">${d}</div></button>`;
+                return `<div class="grid grid-cols-2 gap-2 mt-3">${opt('application','Applications','Pilots apply; staff accept them.')}${opt('free','Open joining','Anyone who meets your requirements is in straight away.')}</div>
+                    <label class="block text-xs font-semibold mt-3" for="guideInvite">Discord invite for new pilots</label>
+                    <input id="guideInvite" type="url" placeholder="https://discord.gg/…" value="${escapeHtml(JOIN.discordInvite||'')}" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                    ${gRow(gBtn('join-save','Save','check',true), gBtn('join-more','Questions, requirements & callsigns','sliders-horizontal'))}`;
+            }
+            case 'team':
+                return `<p class="text-xs muted mt-3">Staff sign in with their own accounts, made in the VA portal under Team. Then give each one a role here with only the permissions they need.</p>
+                    ${gRow(L.vaPortal?`<a href="${escapeHtml(L.vaPortal)}" target="_blank" rel="noopener" class="accent-bg text-white rounded-lg px-3 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Add staff in the portal</a>`:'', can('team.manage')?gBtn('team','Permissions','shield'):'')}`;
+            case 'alerts':
+                return `<p class="text-xs muted mt-3">In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL, then paste it in.</p>${gRow(gBtn('alerts','Set up Discord alerts','bell',true))}`;
+            case 'email':
+                return gRow(gBtn('email','Set up email','mail',true));
+            case 'infinite-flight':
+                return gRow(gBtn('if','Connect Infinite Flight','plug',true));
+            case 'launch':
+                return `${L.signIn?gLink('Crew center — your pilots sign in here',L.signIn):''}${L.join?gLink('Join page — share with recruits',L.join):''}${gRow(gBtn('website','Build a website','globe'), gBtn('tour','Show me around','compass'))}`;
+            }
+            return '';
+        }
+        function renderGuide(){
+            parkWizard();
+            const body=document.getElementById('guideBody'); if(!body) return;
+            if(!GUIDE){ body.innerHTML='<p class="text-sm faint text-center py-10">Loading…</p>'; return; }
+            const p=GUIDE.progress||{};
+            document.getElementById('guideBar').style.width=`${Math.round(100*(p.done||0)/Math.max(1,p.total||1))}%`;
+            document.getElementById('guideCount').textContent=`${p.requiredDone||0}/${p.required||0} essentials · ${p.done||0}/${p.total||0} steps`;
+            keepPlace(body,()=>{
+                body.innerHTML=(GUIDE.groups||[]).map(g=>{
+                    const steps=(GUIDE.steps||[]).filter(s=>s.group===g.id);
+                    if(!steps.length) return '';
+                    return `<section><div class="text-[11px] font-semibold uppercase tracking-wider faint mb-2">${escapeHtml(g.title)}</div>
+                        <div class="space-y-2">${steps.map(st=>{
+                            const open=GUIDE_OPEN===st.id;
+                            return `<div class="surface rounded-xl hair ${open?'':'hover:border-[var(--ink)]'} transition" data-guide-step="${escapeHtml(st.id)}" ${open?'style="border-color:var(--accent)"':''}>
+                                <button data-guide-toggle="${escapeHtml(st.id)}" class="w-full text-left flex items-start gap-3 p-3.5">
+                                    ${GUIDE_ICON[st.state]||GUIDE_ICON.todo}
+                                    <span class="min-w-0 flex-1">
+                                        <span class="flex items-center gap-2 flex-wrap"><span class="font-semibold text-sm">${escapeHtml(st.title)}</span>${st.required&&st.state!=='done'?'<span class="text-[10px] font-bold uppercase tracking-wide accent-text">Essential</span>':''}${GUIDE.next===st.id?'<span class="text-[10px] font-bold uppercase tracking-wide text-white accent-bg rounded-full px-1.5 py-0.5">Next</span>':''}</span>
+                                        <span class="block text-xs muted mt-0.5">${escapeHtml(st.summary||'')}</span>
+                                    </span>
+                                    <i data-lucide="${open?'chevron-up':'chevron-down'}" class="w-4 h-4 faint shrink-0 mt-1"></i>
+                                </button>
+                                ${open&&st.state!=='blocked'?`<div class="px-3.5 pb-3.5 -mt-1 pl-[3.25rem]">${guideStepBody(st)}<p data-guide-note class="hidden text-sm mt-2"></p></div>`:''}
+                            </div>`;
+                        }).join('')}</div></section>`;
+                }).join('');
+            });
+            if(GUIDE_OPEN==='database') mountWizard(document.getElementById('guideWizardSlot'));
+            if(window.lucide) lucide.createIcons();
+        }
+        function guideNote(msg,kind){
+            const n=document.querySelector('#guideBody [data-guide-note]'); if(!n) return;
+            n.textContent=msg; n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':'muted');
+        }
+        async function guidePostSettings(payload){
+            const slug=getSlug(), token=sessionToken();
+            const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{
+                method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                body:JSON.stringify(payload) });
+            const d=await res.json().catch(()=>({}));
+            if(!res.ok) throw new Error(d.error||saveFailureReason(res.status));
+            return d;
+        }
+        async function guideSave(btn, payload, after){
+            const stop=busy(btn,'Saving…');
+            try{ const d=await guidePostSettings(payload); if(after) after(d); await refreshGuide(); }
+            catch(e){ guideNote(e.message||'Could not save.','error'); }
+            finally{ stop(); }
+        }
+        document.addEventListener('click', async e=>{
+            const t=e.target.closest&&e.target.closest('[data-guide-toggle],[data-guide-act],[data-guide-rank],[data-guide-join],[data-guide-copy]');
+            if(!t || !t.closest('#guide')) return;
+            if(t.hasAttribute('data-guide-toggle')){
+                const id=t.getAttribute('data-guide-toggle');
+                GUIDE_OPEN = GUIDE_OPEN===id ? null : id; renderGuide(); return;
+            }
+            if(t.hasAttribute('data-guide-rank')){ GUIDE_RANK_PICK=t.getAttribute('data-guide-rank'); renderGuide(); return; }
+            if(t.hasAttribute('data-guide-join')){ JOIN.mode=t.getAttribute('data-guide-join'); const v=(document.getElementById('guideInvite')||{}).value; if(v!==undefined) JOIN.discordInvite=v.trim(); renderGuide(); return; }
+            if(t.hasAttribute('data-guide-copy')){ const ok=await copyText(t.getAttribute('data-guide-copy')); t.textContent=ok?'Copied':'Copy failed'; setTimeout(()=>{ t.textContent='Copy'; },1500); return; }
+            const act=t.getAttribute('data-guide-act');
+            switch(act){
+            case 'refresh': await refreshGuide(); return;
+            case 'db-upgrade': return guideGo(openDbUpgrade);
+            case 'ranks-apply': {
+                const tpl=RANK_TEMPLATES.find(x=>x.id===GUIDE_RANK_PICK)||RANK_TEMPLATES[0];
+                if(RANKS.length && !confirm(`Replace your ${RANKS.length} current rank${RANKS.length===1?'':'s'} with the ${tpl.name} ladder? Pilots’ hours are not touched — their ranks just follow the new ladder.`)) return;
+                const ranks=tpl.ranks.map(r=>({ requiresCheck:false, checkNote:'', ...r }));
+                return guideSave(t, { ranks }, d=>{ RANKS=Array.isArray(d.ranks)?d.ranks:ranks; renderStructure(); });
+            }
+            case 'ranks-edit': return guideGo(()=>openSettings('crew'));
+            case 'roles-apply': {
+                const roles=[
+                    {name:'Chief Executive Officer',color:'#b45309',icon:'crown',staff:true,message:''},
+                    {name:'Chief Operating Officer',color:'#0f766e',icon:'shield',staff:true,message:''},
+                    {name:'Head of Operations',color:'#d97706',icon:'route',staff:true,message:''},
+                    {name:'Head of Recruitment',color:'#16a34a',icon:'user-plus',staff:true,message:''},
+                    {name:'Head of Events',color:'#db2777',icon:'calendar',staff:true,message:''},
+                    {name:'Head of Media',color:'#0ea5e9',icon:'camera',staff:true,message:''},
+                ];
+                return guideSave(t, { roles }, d=>{ ROLES=Array.isArray(d.roles)?d.roles:roles; renderStructure(); });
+            }
+            case 'roles-edit': return guideGo(()=>openSettings('crew'));
+            case 'fleet': return guideGo(openFleet);
+            case 'routes-lib': return guideGo(()=>{ openRoutes(); openRouteLib(); });
+            case 'routes-csv': return guideGo(()=>{ openRoutes(); openCsv('routes'); });
+            case 'routes-add': return guideGo(()=>{ openRoutes(); openRouteForm(); });
+            case 'roster-csv': return guideGo(()=>{ openRoster(); openCsv('roster'); });
+            case 'roster-add': return guideGo(()=>{ openRoster(); openPilotForm(); });
+            case 'logins': return guideGo(()=>{ openRoster(); openLoginSetup(); });
+            case 'join-save': {
+                const invite=((document.getElementById('guideInvite')||{}).value||'').trim();
+                return guideSave(t, { joinMode:JOIN.mode||'application', discordInvite:invite }, ()=>{
+                    JOIN.discordInvite=invite;
+                    const f=document.getElementById('joinDiscord'); if(f) f.value=invite;
+                    if(typeof renderJoinMode==='function') renderJoinMode();
+                });
+            }
+            case 'join-more': return guideGo(()=>openRecruit('joining'));
+            case 'team': return guideGo(()=>openSettings('team'));
+            case 'alerts': return guideGo(()=>openSettings('alerts'));
+            case 'email': return guideGo(()=>{ openSettings('alerts'); setTimeout(()=>{ const el=document.getElementById('emailIntro'); if(el) el.scrollIntoView({block:'center',behavior:'smooth'}); },350); });
+            case 'if': return guideGo(openIfLive);
+            case 'website': return guideGo(openWebsite);
+            case 'tour': closeGuide(); setTimeout(()=>{ if(window.CrewTour) CrewTour.replay('staff'); },320); return;
+            }
+        });
+
+        /* =====================================================================
+           LOGINS FOR A WHOLE ROSTER, AND THE INVITATIONS THAT HAND THEM OVER
+
+           A roster brought in from a spreadsheet or a Discord bot is a list of
+           pilots who cannot sign in. Two halves:
+
+           Invitations — every pilot with a login waiting to be handed over, and
+             whether anybody has sent it. Copying one marks it "copied by you,
+             just now" on the server, so a second admin working the same list
+             (or the same admin tomorrow) sees it was already given out and is
+             asked before sending it twice.
+           Pilots without a login — tick, press once, and each gets a login and
+             an invitation in the list above.
+
+           On a database too old to keep invitations (pre-v24), links exist only
+           in the reply that made them, and the show-once view below is all
+           there is — with a note saying which button fixes that.
+           =================================================================== */
+        const SETUP={ pilots:null, open:false, picked:new Set(), results:null, mode:'link', keep:false, ttlDays:14, busy:false, kept:false, error:'', filter:'unsent' };
+        const SETUP_PICKABLE=new Set(['none','pending','sent']);
+        const SETUP_STATE={
+            none:   ['No login','bg-amber-500'],
+            pending:['Never signed in','bg-amber-500'],
+            sent:   ['Link out','bg-sky-600'],
+            active: ['Signed in','bg-emerald-600'],
+            staff:  ['Staff','bg-[var(--muted)]'],
+            suspended:['Suspended','bg-[var(--muted)]'],
+        };
+        const setupInvites=()=>(SETUP.pilots||[]).filter(p=>p.invite);
+        const inviteUnsent=(p)=>p.invite&&p.invite.state==='live'&&!p.invite.sentAt;
+        // The roster's own Logins badge counts these too: an invitation nobody
+        // has sent is a pilot waiting on somebody here.
+        const unsentInviteCount=()=>(SETUP.pilots||[]).filter(inviteUnsent).length;
+        async function fetchLoginSetup(){
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token||!ROSTER_CANMANAGE){ SETUP.pilots=null; return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/accounts/setup`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ SETUP.pilots=null; SETUP.error=d.error||''; return; }
+                SETUP.error='';
+                SETUP.pilots=Array.isArray(d.pilots)?d.pilots:[];
+                SETUP.ttlDays=d.ttlDays||SETUP.ttlDays; SETUP.keep=!!d.keep; SETUP.mode=d.mode||'link';
+                // Default pick: everybody with no way in yet. Re-issuing a link
+                // that is already out is a deliberate tick.
+                SETUP.picked=new Set(SETUP.pilots.filter(p=>!p.invite&&(p.state==='none'||p.state==='pending')&&p.status!=='inactive').map(p=>String(p.memberId)));
+                if(SETUP.filter==='unsent' && !unsentInviteCount()) SETUP.filter='all';
+            }catch{ SETUP.pilots=null; }
+        }
+        // `shown` is a show-once batch (an older database) to open straight onto.
+        function openLoginSetup(shown){
+            SETUP.open=true; SETUP.results=null;
+            if(shown && Array.isArray(shown.results)){
+                SETUP.results=shown.results; SETUP.mode=shown.mode||'link'; SETUP.ttlDays=shown.ttlDays||SETUP.ttlDays;
+                SETUP.signInUrl=shown.signInUrl||''; SETUP.kept=false;
+            }
+            SETUP.filter='unsent';
+            switchRosterView('invites');
+        }
+        const ago=(t)=>{ const v=t?Date.parse(t):NaN; if(!Number.isFinite(v)) return ''; const m=Math.round((Date.now()-v)/60000);
+            if(m<1) return 'just now'; if(m<60) return `${m} min ago`; const h=Math.round(m/60); if(h<24) return `${h}h ago`; const d=Math.round(h/24); return d===1?'yesterday':`${d} days ago`; };
+        const shortDate=(t)=>{ try{ return new Date(t).toLocaleDateString(undefined,{day:'numeric',month:'short'}); }catch{ return ''; } };
+
+        function inviteRowHtml(p){
+            const inv=p.invite, id=String(inv.accountId), live=inv.state==='live';
+            const status = !live
+                ? `<span class="text-[10px] font-bold uppercase tracking-wide text-white bg-[var(--muted)] rounded-full px-1.5 py-0.5">Expired</span>`
+                : inv.sentAt
+                ? `<span class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold inline-flex items-center gap-1"><i data-lucide="check-check" class="w-3.5 h-3.5"></i> Already copied${inv.sentBy?` by ${escapeHtml(inv.sentBy)}`:''} · ${escapeHtml(ago(inv.sentAt))}</span>`
+                : `<span class="text-[10px] font-bold uppercase tracking-wide text-white bg-amber-500 rounded-full px-1.5 py-0.5">Not sent</span>`;
+            return `<div class="py-2.5" data-inv="${escapeHtml(id)}" data-inv-member="${escapeHtml(String(p.memberId))}">
+                <div class="flex items-start gap-2">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm truncate">${escapeHtml(p.name||'')} <span class="faint font-mono text-xs">${escapeHtml(p.callsign||'')}</span></div>
+                        <div class="flex items-center gap-2 flex-wrap mt-0.5"><span class="font-mono text-[11px] faint">${escapeHtml(p.username||'')}</span>${status}</div>
+                    </div>
+                    ${live?`<button data-inv-copy class="${inv.sentAt?'surface hair':'accent-bg text-white'} rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:opacity-90 transition inline-flex items-center gap-1 shrink-0"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> ${inv.sentAt?'Copy again':'Copy'}</button>`:''}
+                </div>
+                <div class="flex items-center gap-3 mt-1 text-[11px]">
+                    ${live&&inv.sentAt?'<button data-inv-unsend class="muted hover:underline">Mark as not sent</button>':''}
+                    ${live&&!inv.sentAt?'<button data-inv-mark class="muted hover:underline">Mark as sent</button>':''}
+                    <button data-inv-renew class="muted hover:underline">${live?'New link':'Issue a new link'}</button>
+                    ${live&&inv.expiresAt?`<span class="faint ml-auto">works until ${escapeHtml(shortDate(inv.expiresAt))}</span>`:''}
+                </div>
+            </div>`;
+        }
+        function loginSetupHtml(){
+            if(!ROSTER_CANMANAGE) return '';
+            if(SETUP.results) return loginSetupResultsHtml();
+            const ps=SETUP.pilots;
+            if(!ps) return SETUP.error?`<div class="surface rounded-xl p-4 text-sm muted">${escapeHtml(SETUP.error)}</div>`:'';
+            const invs=setupInvites();
+            const unsent=invs.filter(inviteUnsent), copied=invs.filter(p=>p.invite.state==='live'&&p.invite.sentAt), expired=invs.filter(p=>p.invite.state==='expired');
+            const noLogin=ps.filter(p=>!p.invite&&SETUP_PICKABLE.has(p.state));
+            const lines=[];
+            if(unsent.length) lines.push(`${unsent.length} invitation${unsent.length===1?'':'s'} not sent yet`);
+            if(noLogin.filter(p=>p.state==='none').length) lines.push(`${noLogin.filter(p=>p.state==='none').length} pilot${noLogin.filter(p=>p.state==='none').length===1?'':'s'} without a login`);
+            const head=`<div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-full grid place-items-center shrink-0 accent-bg text-white"><i data-lucide="key-round" class="w-5 h-5"></i></div>
+                    <div class="min-w-0 flex-1">
+                        <div class="font-semibold">Pilot logins & invitations</div>
+                        <div class="text-xs muted mt-0.5">${escapeHtml(lines.length?lines.join(' · ')+'.':(ps.length?'Everyone on the roster has a login.':'Nobody on the roster yet.'))}</div>
+                    </div>
+                    ${SETUP.open?'':`<button data-setup-open class="${lines.length?'accent-bg text-white':'surface hair'} rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition shrink-0">${lines.length?'Open':'Manage'}</button>`}
+                </div>`;
+            if(!SETUP.open) return `<div class="surface rounded-xl p-4">${head}</div>`;
+
+            // --- Invitations
+            let invHtml='';
+            if(SETUP.keep && invs.length){
+                const f=SETUP.filter;
+                const shown = f==='unsent'?unsent : f==='copied'?copied : f==='expired'?expired : invs;
+                const chip=(k,label,n)=>`<button data-inv-filter="${k}" class="px-2.5 py-1 rounded-full text-xs font-semibold ${f===k?'accent-bg text-white':'surface hair'}">${label} <span class="${f===k?'':'muted'}">${n}</span></button>`;
+                invHtml=`<div class="mt-4">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Invitations</div>
+                    <div class="flex flex-wrap gap-1.5 mt-2">${chip('unsent','Not sent',unsent.length)}${chip('copied','Copied',copied.length)}${expired.length?chip('expired','Expired',expired.length):''}${chip('all','All',invs.length)}</div>
+                    <div class="flex flex-wrap gap-2 mt-2.5">
+                        ${unsent.length?`<button data-inv-copyall class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy all not sent (${unsent.length})</button>`:''}
+                        <button data-inv-csv class="${unsent.length?'':'flex-1 '}surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="download" class="w-3.5 h-3.5"></i> Download</button>
+                    </div>
+                    <div class="mt-1 divide-y divide-[color:var(--hair)] max-h-[26rem] overflow-y-auto">${shown.length?shown.map(inviteRowHtml).join(''):`<p class="text-xs faint py-3">${f==='unsent'?'Every invitation has been copied to somebody.':'None here.'}</p>`}</div>
+                    <p class="text-[11px] faint mt-1.5">Copying marks it as sent, for everyone on your team. Each link works once and stops working when the pilot sets their password.</p>
+                </div>`;
+            } else if(!SETUP.keep && SETUP.mode==='link'){
+                invHtml=`<div class="mt-3 rounded-lg p-2.5 text-xs" style="background:color-mix(in srgb, #f59e0b 14%, transparent);">Your database is on an older version, so invitations are shown once when you make them rather than kept here with who sent them. <button onclick="openDbUpgrade()" class="font-semibold underline">Update my database</button> to keep them.</div>`;
+            }
+
+            // --- Pilots without a login
+            let newHtml='';
+            if(noLogin.length){
+                const n=[...SETUP.picked].filter(id=>noLogin.some(p=>String(p.memberId)===id)).length;
+                const rows=noLogin.map(p=>{
+                    const id=String(p.memberId);
+                    const [label,colour]=SETUP_STATE[p.state]||['',''];
+                    return `<label class="flex items-center gap-2.5 py-1.5 cursor-pointer">
+                        <input type="checkbox" data-setup-pick="${escapeHtml(id)}" ${SETUP.picked.has(id)?'checked':''}>
+                        <span class="min-w-0 flex-1 truncate text-sm">${escapeHtml(p.name||'Unnamed')} <span class="faint font-mono text-xs">${escapeHtml(p.callsign||'')}</span></span>
+                        ${label?`<span class="text-[10px] font-bold uppercase tracking-wide text-white ${colour} rounded-full px-1.5 py-0.5 shrink-0">${escapeHtml(label)}</span>`:''}
+                    </label>`;
+                }).join('');
+                newHtml=`<div class="mt-5">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Pilots without a way in</div>
+                    <p class="text-xs muted mt-1">Each one you tick gets a username and a one-time link to choose their own password, lasting ${escapeHtml(String(SETUP.ttlDays))} days. Nobody — you included — ever sees their password.</p>
+                    <div class="flex items-center gap-3 mt-2 text-xs">
+                        <button data-setup-all class="accent-text font-semibold hover:underline">Select all</button>
+                        <button data-setup-none class="accent-text font-semibold hover:underline">Select none</button>
+                    </div>
+                    <div class="mt-1 max-h-64 overflow-y-auto divide-y divide-[color:var(--hair)]">${rows}</div>
+                    <button data-setup-go ${n&&!SETUP.busy?'':'disabled'} style="opacity:${n&&!SETUP.busy?1:.5}" class="w-full mt-3 accent-bg text-white rounded-lg px-3 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="key-round" class="w-4 h-4"></i> ${escapeHtml(SETUP.busy?'Creating…':`Create ${n} invitation${n===1?'':'s'}`)}</button>
+                </div>`;
+            }
+            return `<div class="surface rounded-xl p-4">${head}${invHtml}${newHtml}
+                <div class="flex mt-3"><button data-setup-close class="ml-auto text-xs muted hover:underline">Collapse</button></div>
+                <p data-setup-note class="hidden text-sm mt-2"></p>
+            </div>`;
+        }
+        // Show-once: an older database, or temporary passwords.
+        function loginSetupResultsHtml(){
+            const r=SETUP.results||[], ok=r.filter(x=>x.message), other=r.filter(x=>!x.message);
+            const pw=SETUP.mode==='password';
+            const list=ok.map((x,i)=>`<div class="flex items-center gap-2 py-2">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm truncate">${escapeHtml(x.name||'')} <span class="faint font-mono text-xs">${escapeHtml(x.callsign||'')}</span></div>
+                        <div class="font-mono text-[11px] faint truncate">${escapeHtml(x.username||'')}</div>
+                    </div>
+                    <button data-setup-copy="${i}" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1 shrink-0"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> ${x.copied?'Copied ✓':'Copy message'}</button>
+                </div>`).join('');
+            const skipped=other.length?`<div class="mt-2 text-xs muted"><div class="font-semibold mb-0.5">Not set up</div><ul class="space-y-0.5">${other.map(x=>`<li>${escapeHtml(x.name||x.memberId||'')}: ${escapeHtml(x.reason||x.status||'')}</li>`).join('')}</ul></div>`:'';
+            return `<div class="surface rounded-xl p-4">
+                <div class="font-semibold">${escapeHtml(`${ok.length} login${ok.length===1?'':'s'} ready to hand over`)}</div>
+                <div class="mt-2 rounded-lg p-2.5 text-xs" style="background:color-mix(in srgb, #f59e0b 14%, transparent);">
+                    ${pw
+                        ? 'This crew center’s database is too old for setup links, so these are temporary passwords. They are shown only here — download or copy them before you close this.'
+                        : `These links are shown only here, because your database is on an older version — download or copy them before you close this.`}
+                    <button onclick="openDbUpgrade()" class="font-semibold underline">Update my database</button> to keep invitations in this list with who sent them.
+                </div>
+                <div class="flex flex-wrap gap-2 mt-3">
+                    <button data-setup-csv class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="download" class="w-3.5 h-3.5"></i> Download as CSV</button>
+                    <button data-setup-copyall class="flex-1 surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy all messages</button>
+                </div>
+                <div class="mt-2 divide-y divide-[color:var(--hair)]">${list}</div>
+                ${skipped}
+                <button data-setup-done class="w-full surface hair rounded-lg px-3 py-2 text-sm font-semibold mt-3">Done</button>
+                <p data-setup-note class="hidden text-sm mt-2"></p>
+            </div>`;
+        }
+        function setupNote(msg,kind){
+            const n=document.querySelector('[data-setup-note]'); if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':'muted');
+        }
+        const csvCell=v=>{ const t=String(v==null?'':v); return /[",\r\n]/.test(t)?`"${t.replace(/"/g,'""')}"`:t; };
+        function downloadText(name, text){
+            const url=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8'}));
+            const a=document.createElement('a'); a.href=url; a.download=name;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(()=>URL.revokeObjectURL(url),2000);
+        }
+        function setupCsv(){
+            const pw=SETUP.mode==='password';
+            const head=['pilot','callsign','ifcName','username',pw?'temporaryPassword':'setupLink',pw?'signIn':'linkExpires'];
+            const rows=(SETUP.results||[]).filter(x=>x.message).map(x=>[x.name,x.callsign,x.ifcName,x.username,
+                pw?x.password:x.link, pw?(SETUP.signInUrl||''):(x.expiresAt?String(x.expiresAt).slice(0,10):'')]);
+            return '﻿'+[head,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n');
+        }
+        function invitesCsv(){
+            const head=['pilot','callsign','ifcName','username','setupLink','linkExpires','status','copiedBy','copiedAt'];
+            const rows=setupInvites().map(p=>{ const i=p.invite; return [p.name,p.callsign,p.ifcName,p.username,i.link||'',
+                i.expiresAt?String(i.expiresAt).slice(0,10):'', i.state==='expired'?'expired':(i.sentAt?'copied':'not sent'), i.sentBy||'', i.sentAt?String(i.sentAt).slice(0,16).replace('T',' '):'' ]; });
+            return '﻿'+[head,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n');
+        }
+        // Record on the server who copied which, and redraw from its answer.
+        async function markInvites(accountIds, sent){
+            const slug=getSlug(), token=sessionToken();
+            const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/accounts/invites/sent`,{
+                method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                body:JSON.stringify({ accountIds, sent }) });
+            const d=await res.json().catch(()=>({}));
+            if(!res.ok) throw new Error(d.error||'Could not record that.');
+            for(const p of SETUP.pilots||[]){
+                if(p.invite && Object.prototype.hasOwnProperty.call(d.invites||{}, String(p.invite.accountId))) p.invite=d.invites[String(p.invite.accountId)];
+            }
+            setInvitesBadge(waitingCount());
+            return d;
+        }
+        async function runLoginSetup(ids){
+            const slug=getSlug(), token=sessionToken();
+            const memberIds=ids||[...SETUP.picked];
+            if(!slug||!token||!memberIds.length) return;
+            SETUP.busy=true; renderInvites();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/accounts/setup`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                    body:JSON.stringify({ memberIds }) });
+                const d=await res.json().catch(()=>({}));
+                SETUP.busy=false;
+                if(!res.ok){ renderInvites(); setupNote(d.error||'Could not create those invitations.','error'); return; }
+                const made=(d.results||[]).filter(x=>x.message).length, failed=(d.results||[]).filter(x=>x.status==='failed').length;
+                if(d.kept){
+                    // Kept: they are in the list now, waiting to be sent.
+                    await fetchLoginSetup(); SETUP.filter='unsent'; renderInvites();
+                    setupNote(`${made} invitation${made===1?'':'s'} ready — copy each one into a Discord DM.${failed?` ${failed} couldn’t be made.`:''}`, failed?'error':'ok');
+                } else {
+                    SETUP.results=Array.isArray(d.results)?d.results:[];
+                    SETUP.mode=d.mode||'link'; SETUP.ttlDays=d.ttlDays||SETUP.ttlDays; SETUP.signInUrl=d.signInUrl||'';
+                    SETUP.kept=false; renderInvites();
+                }
+            }catch{ SETUP.busy=false; renderInvites(); setupNote('Server unreachable.','error'); }
+        }
+        document.addEventListener('change', e=>{
+            const box=e.target.closest&&e.target.closest('[data-setup-pick]');
+            if(!box) return;
+            const id=box.getAttribute('data-setup-pick');
+            if(box.checked) SETUP.picked.add(id); else SETUP.picked.delete(id);
+            const go=document.querySelector('[data-setup-go]');
+            const n=[...SETUP.picked].filter(x=>(SETUP.pilots||[]).some(p=>String(p.memberId)===x&&!p.invite)).length;
+            if(go){ go.disabled=!n; go.style.opacity=n?'1':'.5'; go.innerHTML=`<i data-lucide="key-round" class="w-4 h-4"></i> Create ${n} invitation${n===1?'':'s'}`; if(window.lucide) lucide.createIcons(); }
+        });
+        document.addEventListener('click', async e=>{
+            const t=e.target.closest&&e.target.closest('[data-setup-open],[data-setup-close],[data-setup-all],[data-setup-none],[data-setup-go],[data-setup-copy],[data-setup-copyall],[data-setup-csv],[data-setup-done],[data-inv-filter],[data-inv-copy],[data-inv-copyall],[data-inv-csv],[data-inv-mark],[data-inv-unsend],[data-inv-renew]');
+            if(!t) return;
+            if(t.hasAttribute('data-setup-open')){ SETUP.open=true; renderInvites(); return; }
+            if(t.hasAttribute('data-setup-close')){ SETUP.open=false; renderInvites(); return; }
+            if(t.hasAttribute('data-inv-filter')){ SETUP.filter=t.getAttribute('data-inv-filter'); renderInvites(); return; }
+            if(t.hasAttribute('data-setup-all')||t.hasAttribute('data-setup-none')){
+                const all=t.hasAttribute('data-setup-all');
+                SETUP.picked=new Set(all?(SETUP.pilots||[]).filter(p=>!p.invite&&SETUP_PICKABLE.has(p.state)).map(p=>String(p.memberId)):[]);
+                renderInvites(); return;
+            }
+            if(t.hasAttribute('data-setup-go')){ await runLoginSetup(); return; }
+
+            // --- Kept invitations
+            const row=t.closest('[data-inv]');
+            const pilot=row?(SETUP.pilots||[]).find(p=>p.invite&&String(p.invite.accountId)===row.getAttribute('data-inv')):null;
+            try{
+                if(t.hasAttribute('data-inv-copy') && pilot){
+                    const inv=pilot.invite;
+                    // The whole point of recording it: somebody may already
+                    // have sent this one, and two links' worth of DMs is how a
+                    // pilot ends up holding the dead one.
+                    if(inv.sentAt && !confirm(`${pilot.name}’s invitation was already copied${inv.sentBy?` by ${inv.sentBy}`:''} ${ago(inv.sentAt)}. Copy it again?`)) return;
+                    if(!await copyText(inv.message||'')){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
+                    await markInvites([String(inv.accountId)], true);
+                    renderInvites(); setupNote(`Copied ${pilot.name}’s invitation — paste it into their DM.`,'ok');
+                    return;
+                }
+                if(t.hasAttribute('data-inv-copyall')){
+                    const list=setupInvites().filter(inviteUnsent);
+                    if(!list.length) return;
+                    if(!await copyText(list.map(p=>p.invite.message).join('\n\n— — —\n\n'))){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
+                    await markInvites(list.map(p=>String(p.invite.accountId)), true);
+                    renderInvites(); setupNote(`Copied ${list.length} invitation${list.length===1?'':'s'} and marked ${list.length===1?'it':'them'} as sent.`,'ok');
+                    return;
+                }
+                if(t.hasAttribute('data-inv-mark') && pilot){ await markInvites([String(pilot.invite.accountId)], true); renderInvites(); return; }
+                if(t.hasAttribute('data-inv-unsend') && pilot){ await markInvites([String(pilot.invite.accountId)], false); renderInvites(); return; }
+                if(t.hasAttribute('data-inv-renew') && pilot){
+                    if(pilot.invite.state==='live' && !confirm(`Make a new link for ${pilot.name}? The one already made stops working${pilot.invite.sentAt?' — including the one that was sent':''}.`)) return;
+                    await runLoginSetup([String(pilot.memberId)]); return;
+                }
+                if(t.hasAttribute('data-inv-csv')){ downloadText(`${getSlug()||'crew'}-invitations-${new Date().toISOString().slice(0,10)}.csv`, invitesCsv()); return; }
+            }catch(err){ setupNote(err.message||'Something went wrong.','error'); return; }
+
+            // --- Show-once batch (older database)
+            const ok=(SETUP.results||[]).filter(x=>x.message);
+            if(t.hasAttribute('data-setup-copy')){
+                const x=ok[Number(t.getAttribute('data-setup-copy'))];
+                if(x && x.copied && !confirm(`You already copied ${x.name}’s message. Copy it again?`)) return;
+                if(x && await copyText(x.message)){ x.copied=true; SETUP.kept=true; renderInvites(); setupNote(`Copied ${x.name}’s message.`,'ok'); }
+                else setupNote('Could not copy — download the CSV instead.','error');
+                return;
+            }
+            if(t.hasAttribute('data-setup-copyall')){
+                if(await copyText(ok.map(x=>x.message).join('\n\n— — —\n\n'))){ ok.forEach(x=>{ x.copied=true; }); SETUP.kept=true; renderInvites(); setupNote(`Copied ${ok.length} message${ok.length===1?'':'s'}.`,'ok'); }
+                else setupNote('Could not copy — download the CSV instead.','error');
+                return;
+            }
+            if(t.hasAttribute('data-setup-csv')){
+                downloadText(`${getSlug()||'crew'}-logins-${new Date().toISOString().slice(0,10)}.csv`, setupCsv());
+                SETUP.kept=true; return;
+            }
+            if(t.hasAttribute('data-setup-done')){
+                // The links exist nowhere else. Closing without keeping them is
+                // allowed — they can be issued again — but not by accident.
+                if(!SETUP.kept && !confirm('You haven’t copied or downloaded these yet, and they won’t be shown again. Close anyway? (You can always set those pilots up again.)')) return;
+                SETUP.results=null;
+                await fetchLoginSetup(); renderInvites();
+            }
+        });
+
         /* =====================================================================
            PILOTS WHO HAVE FORGOTTEN THEIR PASSWORD
 
@@ -9648,8 +10364,8 @@
                 // The rest of the screen should now agree with reality.
                 SUPA={ ...SUPA, connected:true, url:d.url||SUPA.url, hasServiceKey:true, store:'supabase', health:h };
                 updateSupaStatus(); updateSqlEditorLink();
-                document.getElementById('onboard').classList.add('hidden');
                 refreshStoreState();
+                refreshGuide();
                 // Nothing needs the token from here on.
                 WIZ.token=''; document.getElementById('wizToken').value='';
             }catch{ fail('Couldn’t reach Inflight. Try again in a moment.'); }
@@ -10127,6 +10843,7 @@
                 // stored before the name was known, or one that has gone stale.
                 renderAccount(d);
                 ME_LOADED=true;
+                refreshGuide();
             }catch{}
         }
         function applyCapState(){
@@ -11073,7 +11790,7 @@
             // Fills in where the data actually lives and how much is still with
             // us, so the migrate panel is accurate before anyone presses it.
             refreshStoreState();
-            document.getElementById('onboard').classList.toggle('hidden', !(show && !SUPA.connected));
+            updateGuideBanner();
         }
         async function testSupabase(){
             const url=document.getElementById('supaUrl').value.trim().replace(/\/+$/,'');
@@ -11104,7 +11821,7 @@
                 document.getElementById('supaService').value='';   // never keep the secret in the field
                 updateSupaStatus();
                 updateSqlEditorLink();
-                document.getElementById('onboard').classList.toggle('hidden', SUPA.connected);
+                refreshGuide();
                 supaMsg(SUPA.connected?'Connected — your crew center is linked to your Supabase.':'Saved.','ok');
             }catch{ supaMsg('Server unreachable. Please try again.','error'); }
         }
@@ -11407,7 +12124,7 @@
                 {
                     el:'#onboard',
                     title:'Start here',
-                    body:'Your crew, your flights and your pilots\u2019 logins live in your own database, not ours. One token sets it up, and most of this page stays empty until it is done.',
+                    body:'The setup guide, step by step: your database, ranks, fleet, routes, roster and pilot logins. It ticks each one off as it is done, and shows what is next.',
                 },
                 {
                     el:'.r-identity',
