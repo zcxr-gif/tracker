@@ -2243,8 +2243,18 @@
                 <input id="csvFile" type="file" multiple accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/csv,text/plain" onchange="csvPicked(this)"
                     class="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[var(--accent)] file:text-white hover:file:opacity-90 file:cursor-pointer">
                 <div id="csvPreview" class="hidden mt-3"></div>
+                <!-- Several files from several systems is the normal case for
+                     a roster arriving from elsewhere — a bot export and the
+                     spreadsheet somebody kept by hand. They are read together
+                     and a pilot in both is one pilot. -->
+                <input id="csvFileMore" type="file" multiple hidden accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/csv,text/plain" onchange="csvPicked(this,true)">
+                <label id="csvInviteRow" class="hidden mt-3 flex items-start gap-2 text-xs cursor-pointer rounded-lg hair p-2.5">
+                    <input type="checkbox" id="csvCreateInvites" class="mt-0.5" checked>
+                    <span><b>Create invitations for the new pilots</b> <span class="muted">— each gets a login and a one-time link to choose their password, waiting in Roster → Logins for you to send.</span></span>
+                </label>
                 <div id="csvActions" class="hidden flex gap-2 mt-3">
                     <button onclick="csvReset()" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition">Cancel</button>
+                    <button onclick="document.getElementById('csvFileMore').click()" title="Read another file or workbook alongside this one" class="surface hair rounded-lg px-3 py-2 text-sm font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="file-plus" class="w-4 h-4"></i> Add file</button>
                     <button id="csvCommitBtn" onclick="commitCsv()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="upload" class="w-4 h-4"></i> Apply</button>
                 </div>
                 <p id="csvNote" class="hidden text-sm mt-2"></p>
@@ -6433,6 +6443,7 @@
             const exp=document.getElementById('csvExportBtn'); if(exp) exp.disabled=false;
             document.getElementById('csvPreview').classList.add('hidden');
             document.getElementById('csvActions').classList.add('hidden');
+            document.getElementById('csvInviteRow').classList.add('hidden');
             document.getElementById('csvNote').classList.add('hidden');
         }
         function csvMsg(msg, kind){
@@ -6556,7 +6567,7 @@
         // Every file picked, and every tab of every workbook, becomes one sheet
         // of CSV. The backend reads each on its own terms, so the tabs do not
         // have to agree on their columns.
-        async function csvPicked(input){
+        async function csvPicked(input, append){
             const files=[...(input.files||[])];
             if(!files.length) return;
             const total=files.reduce((n,f)=>n+(f.size||0),0);
@@ -6589,7 +6600,19 @@
                     }
                 }
             }catch{ csvMsg('We couldn’t open that file. If it’s a spreadsheet, try saving it as .xlsx or .csv.','error'); return; }
-            CSV_SHEETS=sheets;
+            if(append && Array.isArray(CSV_SHEETS) && CSV_SHEETS.length){
+                // Names are how the preview says where a row came from, so two
+                // files that are both "roster" must not read as one.
+                const taken=new Set(CSV_SHEETS.map(x=>x.name));
+                for(const sh of sheets){
+                    let name=sh.name||'Sheet', n=2;
+                    while(taken.has(name)) name=`${sh.name} (${n++})`;
+                    taken.add(name); CSV_SHEETS.push({ ...sh, name });
+                }
+            } else CSV_SHEETS=sheets;
+            // The add-file picker is cleared so the same file can be picked
+            // again; the main one keeps showing what was chosen.
+            if(append) input.value='';
             previewCsv();
         }
         const csvBody=(extra)=>JSON.stringify({ sheets:CSV_SHEETS, mapping:CSV_MAP, ...extra });
@@ -6794,6 +6817,7 @@
             </div>`;
             box.classList.remove('hidden');
             document.getElementById('csvActions').classList.remove('hidden');
+            document.getElementById('csvInviteRow').classList.toggle('hidden', !(CSV_KIND==='roster' && !failed && d.create));
             renderCsvCommit();
             if(window.lucide) lucide.createIcons();
         }
@@ -6820,7 +6844,8 @@
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/${CSV_KIND}/import`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token},
-                    body:csvBody({ dryRun:false, skipErrors:skip, expectErrors:CSV_PLAN.errorCount||0 }) });
+                    body:csvBody({ dryRun:false, skipErrors:skip, expectErrors:CSV_PLAN.errorCount||0,
+                        createInvites: CSV_KIND==='roster' && !!(document.getElementById('csvCreateInvites')||{}).checked }) });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){ csvMsg(d.error||'Could not import.','error'); btn.disabled=false; return; }
                 const failed=(d.failures||[]).length;
@@ -6828,7 +6853,9 @@
                 // no column for them lands the routes and loses the flag, which
                 // is worth saying out loud rather than reporting "42 added".
                 const drift=checkResponseDrift(d);
-                const summary=`${d.created||0} added, ${d.updated||0} updated.${d.skipped?` ${d.skipped} unreadable row${d.skipped===1?'':'s'} skipped.`:''}${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}${drift?' '+drift:''}`;
+                const inv=d.invites;
+                const invSaid=inv&&inv.created?` ${inv.created} invitation${inv.created===1?'':'s'} ready to send.`:(d.followUpError?` Invitations weren’t created: ${d.followUpError}`:'');
+                const summary=`${d.created||0} added, ${d.updated||0} updated.${d.skipped?` ${d.skipped} unreadable row${d.skipped===1?'':'s'} skipped.`:''}${failed?` ${failed} row${failed===1?'':'s'} failed — re-upload to retry those.`:''}${invSaid}${drift?' '+drift:''}`;
                 csvMsg(summary, (failed||drift)?'warn':'ok');
                 // The dialog this is reported in is about to be closed, so the
                 // result has to outlive it.
@@ -6849,7 +6876,13 @@
                 // gained anybody goes straight to setting their logins up.
                 const kind=CSV_KIND;
                 closeCsv();
-                if(kind==='roster' && d.created) openLoginSetup();
+                if(kind==='roster' && d.created){
+                    // Kept invitations are in the list the Logins tab draws; an
+                    // older database only has them in this reply, so they are
+                    // handed straight to the show-once view.
+                    if(inv && !inv.kept && Array.isArray(inv.results) && inv.results.some(x=>x.message)) openLoginSetup(inv);
+                    else openLoginSetup();
+                }
             }catch{ csvMsg('Server unreachable.','error'); }
             // Always give the button back. It used to be re-enabled only on the
             // two failure paths, so importing a second spreadsheet in the same
@@ -8661,7 +8694,8 @@
            the more urgent of the two, which is why they are drawn first. */
         const waitingCount=()=>
             INVITES.filter(x=>x.invite&&x.invite.state==='live').length
-            + RESETS.filter(r=>!r.password).length;
+            + RESETS.filter(r=>!r.password).length
+            + (typeof unsentInviteCount==='function'?unsentInviteCount():0);
         async function fetchInvites(){
             const slug=getSlug(), token=sessionToken();
             if(!slug||!token){ INVITES=[]; return; }
@@ -9046,28 +9080,38 @@
         });
 
         /* =====================================================================
-           LOGINS FOR A WHOLE ROSTER
+           LOGINS FOR A WHOLE ROSTER, AND THE INVITATIONS THAT HAND THEM OVER
 
            A roster brought in from a spreadsheet or a Discord bot is a list of
-           pilots who cannot sign in. This is the step after the import: pick
-           who, press once, and each pilot gets a login and a one-time link to
-           choose their own password. The links are in the reply and nowhere
-           else — the backend keeps only their hashes — so they are shown here
-           once, to copy or download, and issuing again is always possible.
+           pilots who cannot sign in. Two halves:
 
-           A project too old for links gets temporary passwords instead
-           (mode 'password'), and this says so.
+           Invitations — every pilot with a login waiting to be handed over, and
+             whether anybody has sent it. Copying one marks it "copied by you,
+             just now" on the server, so a second admin working the same list
+             (or the same admin tomorrow) sees it was already given out and is
+             asked before sending it twice.
+           Pilots without a login — tick, press once, and each gets a login and
+             an invitation in the list above.
+
+           On a database too old to keep invitations (pre-v24), links exist only
+           in the reply that made them, and the show-once view below is all
+           there is — with a note saying which button fixes that.
            =================================================================== */
-        const SETUP={ pilots:null, open:false, picked:new Set(), results:null, mode:'link', ttlDays:14, busy:false, kept:false, error:'' };
+        const SETUP={ pilots:null, open:false, picked:new Set(), results:null, mode:'link', keep:false, ttlDays:14, busy:false, kept:false, error:'', filter:'unsent' };
         const SETUP_PICKABLE=new Set(['none','pending','sent']);
         const SETUP_STATE={
             none:   ['No login','bg-amber-500'],
             pending:['Never signed in','bg-amber-500'],
-            sent:   ['Link sent','bg-sky-600'],
+            sent:   ['Link out','bg-sky-600'],
             active: ['Signed in','bg-emerald-600'],
             staff:  ['Staff','bg-[var(--muted)]'],
             suspended:['Suspended','bg-[var(--muted)]'],
         };
+        const setupInvites=()=>(SETUP.pilots||[]).filter(p=>p.invite);
+        const inviteUnsent=(p)=>p.invite&&p.invite.state==='live'&&!p.invite.sentAt;
+        // The roster's own Logins badge counts these too: an invitation nobody
+        // has sent is a pilot waiting on somebody here.
+        const unsentInviteCount=()=>(SETUP.pilots||[]).filter(inviteUnsent).length;
         async function fetchLoginSetup(){
             const slug=getSlug(), token=sessionToken();
             if(!slug||!token||!ROSTER_CANMANAGE){ SETUP.pilots=null; return; }
@@ -9077,58 +9121,121 @@
                 if(!res.ok){ SETUP.pilots=null; SETUP.error=d.error||''; return; }
                 SETUP.error='';
                 SETUP.pilots=Array.isArray(d.pilots)?d.pilots:[];
-                SETUP.ttlDays=d.ttlDays||SETUP.ttlDays;
-                // Default pick: everybody who has never got in and has not
-                // already been sent a link. Re-sending is a deliberate tick.
-                SETUP.picked=new Set(SETUP.pilots.filter(p=>(p.state==='none'||p.state==='pending')&&p.status!=='inactive').map(p=>String(p.memberId)));
+                SETUP.ttlDays=d.ttlDays||SETUP.ttlDays; SETUP.keep=!!d.keep; SETUP.mode=d.mode||'link';
+                // Default pick: everybody with no way in yet. Re-issuing a link
+                // that is already out is a deliberate tick.
+                SETUP.picked=new Set(SETUP.pilots.filter(p=>!p.invite&&(p.state==='none'||p.state==='pending')&&p.status!=='inactive').map(p=>String(p.memberId)));
+                if(SETUP.filter==='unsent' && !unsentInviteCount()) SETUP.filter='all';
             }catch{ SETUP.pilots=null; }
         }
-        function openLoginSetup(){
+        // `shown` is a show-once batch (an older database) to open straight onto.
+        function openLoginSetup(shown){
             SETUP.open=true; SETUP.results=null;
+            if(shown && Array.isArray(shown.results)){
+                SETUP.results=shown.results; SETUP.mode=shown.mode||'link'; SETUP.ttlDays=shown.ttlDays||SETUP.ttlDays;
+                SETUP.signInUrl=shown.signInUrl||''; SETUP.kept=false;
+            }
+            SETUP.filter='unsent';
             switchRosterView('invites');
+        }
+        const ago=(t)=>{ const v=t?Date.parse(t):NaN; if(!Number.isFinite(v)) return ''; const m=Math.round((Date.now()-v)/60000);
+            if(m<1) return 'just now'; if(m<60) return `${m} min ago`; const h=Math.round(m/60); if(h<24) return `${h}h ago`; const d=Math.round(h/24); return d===1?'yesterday':`${d} days ago`; };
+        const shortDate=(t)=>{ try{ return new Date(t).toLocaleDateString(undefined,{day:'numeric',month:'short'}); }catch{ return ''; } };
+
+        function inviteRowHtml(p){
+            const inv=p.invite, id=String(inv.accountId), live=inv.state==='live';
+            const status = !live
+                ? `<span class="text-[10px] font-bold uppercase tracking-wide text-white bg-[var(--muted)] rounded-full px-1.5 py-0.5">Expired</span>`
+                : inv.sentAt
+                ? `<span class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold inline-flex items-center gap-1"><i data-lucide="check-check" class="w-3.5 h-3.5"></i> Already copied${inv.sentBy?` by ${escapeHtml(inv.sentBy)}`:''} · ${escapeHtml(ago(inv.sentAt))}</span>`
+                : `<span class="text-[10px] font-bold uppercase tracking-wide text-white bg-amber-500 rounded-full px-1.5 py-0.5">Not sent</span>`;
+            return `<div class="py-2.5" data-inv="${escapeHtml(id)}" data-inv-member="${escapeHtml(String(p.memberId))}">
+                <div class="flex items-start gap-2">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm truncate">${escapeHtml(p.name||'')} <span class="faint font-mono text-xs">${escapeHtml(p.callsign||'')}</span></div>
+                        <div class="flex items-center gap-2 flex-wrap mt-0.5"><span class="font-mono text-[11px] faint">${escapeHtml(p.username||'')}</span>${status}</div>
+                    </div>
+                    ${live?`<button data-inv-copy class="${inv.sentAt?'surface hair':'accent-bg text-white'} rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:opacity-90 transition inline-flex items-center gap-1 shrink-0"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> ${inv.sentAt?'Copy again':'Copy'}</button>`:''}
+                </div>
+                <div class="flex items-center gap-3 mt-1 text-[11px]">
+                    ${live&&inv.sentAt?'<button data-inv-unsend class="muted hover:underline">Mark as not sent</button>':''}
+                    ${live&&!inv.sentAt?'<button data-inv-mark class="muted hover:underline">Mark as sent</button>':''}
+                    <button data-inv-renew class="muted hover:underline">${live?'New link':'Issue a new link'}</button>
+                    ${live&&inv.expiresAt?`<span class="faint ml-auto">works until ${escapeHtml(shortDate(inv.expiresAt))}</span>`:''}
+                </div>
+            </div>`;
         }
         function loginSetupHtml(){
             if(!ROSTER_CANMANAGE) return '';
             if(SETUP.results) return loginSetupResultsHtml();
             const ps=SETUP.pilots;
             if(!ps) return SETUP.error?`<div class="surface rounded-xl p-4 text-sm muted">${escapeHtml(SETUP.error)}</div>`:'';
-            const waiting=ps.filter(p=>p.state==='none'||p.state==='pending').length;
+            const invs=setupInvites();
+            const unsent=invs.filter(inviteUnsent), copied=invs.filter(p=>p.invite.state==='live'&&p.invite.sentAt), expired=invs.filter(p=>p.invite.state==='expired');
+            const noLogin=ps.filter(p=>!p.invite&&SETUP_PICKABLE.has(p.state));
+            const lines=[];
+            if(unsent.length) lines.push(`${unsent.length} invitation${unsent.length===1?'':'s'} not sent yet`);
+            if(noLogin.filter(p=>p.state==='none').length) lines.push(`${noLogin.filter(p=>p.state==='none').length} pilot${noLogin.filter(p=>p.state==='none').length===1?'':'s'} without a login`);
             const head=`<div class="flex items-start gap-3">
                     <div class="w-10 h-10 rounded-full grid place-items-center shrink-0 accent-bg text-white"><i data-lucide="key-round" class="w-5 h-5"></i></div>
                     <div class="min-w-0 flex-1">
-                        <div class="font-semibold">Pilot logins</div>
-                        <div class="text-xs muted mt-0.5">${waiting
-                            ? escapeHtml(`${waiting} of ${ps.length} pilot${ps.length===1?'':'s'} on the roster can’t sign in yet.`)
-                            : escapeHtml(ps.length?'Everyone on the roster has a login.':'Nobody on the roster yet.')}</div>
+                        <div class="font-semibold">Pilot logins & invitations</div>
+                        <div class="text-xs muted mt-0.5">${escapeHtml(lines.length?lines.join(' · ')+'.':(ps.length?'Everyone on the roster has a login.':'Nobody on the roster yet.'))}</div>
                     </div>
-                    ${SETUP.open?'':`<button data-setup-open class="${waiting?'accent-bg text-white':'surface hair'} rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition shrink-0">${waiting?'Set up logins':'Manage'}</button>`}
+                    ${SETUP.open?'':`<button data-setup-open class="${lines.length?'accent-bg text-white':'surface hair'} rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition shrink-0">${lines.length?'Open':'Manage'}</button>`}
                 </div>`;
             if(!SETUP.open) return `<div class="surface rounded-xl p-4">${head}</div>`;
-            const rows=ps.map(p=>{
-                const id=String(p.memberId), can=SETUP_PICKABLE.has(p.state);
-                const [label,colour]=SETUP_STATE[p.state]||['',''];
-                return `<label class="flex items-center gap-2.5 py-1.5 ${can?'cursor-pointer':'opacity-60'}">
-                    <input type="checkbox" data-setup-pick="${escapeHtml(id)}" ${can?'':'disabled'} ${SETUP.picked.has(id)?'checked':''}>
-                    <span class="min-w-0 flex-1 truncate text-sm">${escapeHtml(p.name||'Unnamed')} <span class="faint font-mono text-xs">${escapeHtml(p.callsign||'')}</span></span>
-                    ${p.username?`<span class="font-mono text-[11px] faint truncate max-w-[30%]">${escapeHtml(p.username)}</span>`:''}
-                    ${label?`<span class="text-[10px] font-bold uppercase tracking-wide text-white ${colour} rounded-full px-1.5 py-0.5 shrink-0">${escapeHtml(label)}</span>`:''}
-                </label>`;
-            }).join('');
-            const n=SETUP.picked.size;
-            return `<div class="surface rounded-xl p-4">${head}
-                <p class="text-xs muted mt-3">Each pilot you tick gets a username and a link to choose their own password. The link works once and lasts ${escapeHtml(String(SETUP.ttlDays))} days; nobody — you included — ever sees their password. Send each pilot their message on Discord or the IFC.</p>
-                <div class="flex items-center gap-3 mt-3 text-xs">
-                    <button data-setup-all class="accent-text font-semibold hover:underline">Select all</button>
-                    <button data-setup-none class="accent-text font-semibold hover:underline">Select none</button>
-                </div>
-                <div class="mt-1.5 max-h-80 overflow-y-auto divide-y divide-[color:var(--hair)]">${rows}</div>
-                <div class="flex gap-2 mt-3">
-                    <button data-setup-go ${n&&!SETUP.busy?'':'disabled'} style="opacity:${n&&!SETUP.busy?1:.5}" class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="key-round" class="w-4 h-4"></i> ${escapeHtml(SETUP.busy?'Setting up…':`Set up ${n} login${n===1?'':'s'}`)}</button>
-                    <button data-setup-close class="surface hair rounded-lg px-4 text-sm font-semibold">Close</button>
-                </div>
+
+            // --- Invitations
+            let invHtml='';
+            if(SETUP.keep && invs.length){
+                const f=SETUP.filter;
+                const shown = f==='unsent'?unsent : f==='copied'?copied : f==='expired'?expired : invs;
+                const chip=(k,label,n)=>`<button data-inv-filter="${k}" class="px-2.5 py-1 rounded-full text-xs font-semibold ${f===k?'accent-bg text-white':'surface hair'}">${label} <span class="${f===k?'':'muted'}">${n}</span></button>`;
+                invHtml=`<div class="mt-4">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Invitations</div>
+                    <div class="flex flex-wrap gap-1.5 mt-2">${chip('unsent','Not sent',unsent.length)}${chip('copied','Copied',copied.length)}${expired.length?chip('expired','Expired',expired.length):''}${chip('all','All',invs.length)}</div>
+                    <div class="flex flex-wrap gap-2 mt-2.5">
+                        ${unsent.length?`<button data-inv-copyall class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy all not sent (${unsent.length})</button>`:''}
+                        <button data-inv-csv class="${unsent.length?'':'flex-1 '}surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="download" class="w-3.5 h-3.5"></i> Download</button>
+                    </div>
+                    <div class="mt-1 divide-y divide-[color:var(--hair)] max-h-[26rem] overflow-y-auto">${shown.length?shown.map(inviteRowHtml).join(''):`<p class="text-xs faint py-3">${f==='unsent'?'Every invitation has been copied to somebody.':'None here.'}</p>`}</div>
+                    <p class="text-[11px] faint mt-1.5">Copying marks it as sent, for everyone on your team. Each link works once and stops working when the pilot sets their password.</p>
+                </div>`;
+            } else if(!SETUP.keep && SETUP.mode==='link'){
+                invHtml=`<div class="mt-3 rounded-lg p-2.5 text-xs" style="background:color-mix(in srgb, #f59e0b 14%, transparent);">Your database is on an older version, so invitations are shown once when you make them rather than kept here with who sent them. <button onclick="openDbUpgrade()" class="font-semibold underline">Update my database</button> to keep them.</div>`;
+            }
+
+            // --- Pilots without a login
+            let newHtml='';
+            if(noLogin.length){
+                const n=[...SETUP.picked].filter(id=>noLogin.some(p=>String(p.memberId)===id)).length;
+                const rows=noLogin.map(p=>{
+                    const id=String(p.memberId);
+                    const [label,colour]=SETUP_STATE[p.state]||['',''];
+                    return `<label class="flex items-center gap-2.5 py-1.5 cursor-pointer">
+                        <input type="checkbox" data-setup-pick="${escapeHtml(id)}" ${SETUP.picked.has(id)?'checked':''}>
+                        <span class="min-w-0 flex-1 truncate text-sm">${escapeHtml(p.name||'Unnamed')} <span class="faint font-mono text-xs">${escapeHtml(p.callsign||'')}</span></span>
+                        ${label?`<span class="text-[10px] font-bold uppercase tracking-wide text-white ${colour} rounded-full px-1.5 py-0.5 shrink-0">${escapeHtml(label)}</span>`:''}
+                    </label>`;
+                }).join('');
+                newHtml=`<div class="mt-5">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Pilots without a way in</div>
+                    <p class="text-xs muted mt-1">Each one you tick gets a username and a one-time link to choose their own password, lasting ${escapeHtml(String(SETUP.ttlDays))} days. Nobody — you included — ever sees their password.</p>
+                    <div class="flex items-center gap-3 mt-2 text-xs">
+                        <button data-setup-all class="accent-text font-semibold hover:underline">Select all</button>
+                        <button data-setup-none class="accent-text font-semibold hover:underline">Select none</button>
+                    </div>
+                    <div class="mt-1 max-h-64 overflow-y-auto divide-y divide-[color:var(--hair)]">${rows}</div>
+                    <button data-setup-go ${n&&!SETUP.busy?'':'disabled'} style="opacity:${n&&!SETUP.busy?1:.5}" class="w-full mt-3 accent-bg text-white rounded-lg px-3 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="key-round" class="w-4 h-4"></i> ${escapeHtml(SETUP.busy?'Creating…':`Create ${n} invitation${n===1?'':'s'}`)}</button>
+                </div>`;
+            }
+            return `<div class="surface rounded-xl p-4">${head}${invHtml}${newHtml}
+                <div class="flex mt-3"><button data-setup-close class="ml-auto text-xs muted hover:underline">Collapse</button></div>
                 <p data-setup-note class="hidden text-sm mt-2"></p>
             </div>`;
         }
+        // Show-once: an older database, or temporary passwords.
         function loginSetupResultsHtml(){
             const r=SETUP.results||[], ok=r.filter(x=>x.message), other=r.filter(x=>!x.message);
             const pw=SETUP.mode==='password';
@@ -9137,15 +9244,16 @@
                         <div class="text-sm truncate">${escapeHtml(x.name||'')} <span class="faint font-mono text-xs">${escapeHtml(x.callsign||'')}</span></div>
                         <div class="font-mono text-[11px] faint truncate">${escapeHtml(x.username||'')}</div>
                     </div>
-                    <button data-setup-copy="${i}" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1 shrink-0"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy message</button>
+                    <button data-setup-copy="${i}" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1 shrink-0"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> ${x.copied?'Copied ✓':'Copy message'}</button>
                 </div>`).join('');
             const skipped=other.length?`<div class="mt-2 text-xs muted"><div class="font-semibold mb-0.5">Not set up</div><ul class="space-y-0.5">${other.map(x=>`<li>${escapeHtml(x.name||x.memberId||'')}: ${escapeHtml(x.reason||x.status||'')}</li>`).join('')}</ul></div>`:'';
             return `<div class="surface rounded-xl p-4">
                 <div class="font-semibold">${escapeHtml(`${ok.length} login${ok.length===1?'':'s'} ready to hand over`)}</div>
                 <div class="mt-2 rounded-lg p-2.5 text-xs" style="background:color-mix(in srgb, #f59e0b 14%, transparent);">
                     ${pw
-                        ? 'This crew center’s database is too old for setup links, so these are temporary passwords. They are shown only here — download or copy them before you close this. (Settings → Data store → Update my database switches you to links.)'
-                        : `These links are shown only here — download or copy them before you close this. Each works once, for ${escapeHtml(String(SETUP.ttlDays))} days. Lost one? Set that pilot up again and the old link stops working.`}
+                        ? 'This crew center’s database is too old for setup links, so these are temporary passwords. They are shown only here — download or copy them before you close this.'
+                        : `These links are shown only here, because your database is on an older version — download or copy them before you close this.`}
+                    <button onclick="openDbUpgrade()" class="font-semibold underline">Update my database</button> to keep invitations in this list with who sent them.
                 </div>
                 <div class="flex flex-wrap gap-2 mt-3">
                     <button data-setup-csv class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="download" class="w-3.5 h-3.5"></i> Download as CSV</button>
@@ -9162,29 +9270,62 @@
             n.textContent=msg;
             n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':'muted');
         }
+        const csvCell=v=>{ const t=String(v==null?'':v); return /[",\r\n]/.test(t)?`"${t.replace(/"/g,'""')}"`:t; };
+        function downloadText(name, text){
+            const url=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8'}));
+            const a=document.createElement('a'); a.href=url; a.download=name;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(()=>URL.revokeObjectURL(url),2000);
+        }
         function setupCsv(){
-            const q=v=>{ const t=String(v==null?'':v); return /[",\r\n]/.test(t)?`"${t.replace(/"/g,'""')}"`:t; };
             const pw=SETUP.mode==='password';
             const head=['pilot','callsign','ifcName','username',pw?'temporaryPassword':'setupLink',pw?'signIn':'linkExpires'];
             const rows=(SETUP.results||[]).filter(x=>x.message).map(x=>[x.name,x.callsign,x.ifcName,x.username,
                 pw?x.password:x.link, pw?(SETUP.signInUrl||''):(x.expiresAt?String(x.expiresAt).slice(0,10):'')]);
-            return '﻿'+[head,...rows].map(r=>r.map(q).join(',')).join('\r\n');
+            return '﻿'+[head,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n');
         }
-        async function runLoginSetup(){
+        function invitesCsv(){
+            const head=['pilot','callsign','ifcName','username','setupLink','linkExpires','status','copiedBy','copiedAt'];
+            const rows=setupInvites().map(p=>{ const i=p.invite; return [p.name,p.callsign,p.ifcName,p.username,i.link||'',
+                i.expiresAt?String(i.expiresAt).slice(0,10):'', i.state==='expired'?'expired':(i.sentAt?'copied':'not sent'), i.sentBy||'', i.sentAt?String(i.sentAt).slice(0,16).replace('T',' '):'' ]; });
+            return '﻿'+[head,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n');
+        }
+        // Record on the server who copied which, and redraw from its answer.
+        async function markInvites(accountIds, sent){
             const slug=getSlug(), token=sessionToken();
-            if(!slug||!token||!SETUP.picked.size) return;
+            const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/accounts/invites/sent`,{
+                method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                body:JSON.stringify({ accountIds, sent }) });
+            const d=await res.json().catch(()=>({}));
+            if(!res.ok) throw new Error(d.error||'Could not record that.');
+            for(const p of SETUP.pilots||[]){
+                if(p.invite && Object.prototype.hasOwnProperty.call(d.invites||{}, String(p.invite.accountId))) p.invite=d.invites[String(p.invite.accountId)];
+            }
+            setInvitesBadge(waitingCount());
+            return d;
+        }
+        async function runLoginSetup(ids){
+            const slug=getSlug(), token=sessionToken();
+            const memberIds=ids||[...SETUP.picked];
+            if(!slug||!token||!memberIds.length) return;
             SETUP.busy=true; renderInvites();
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/accounts/setup`,{
                     method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
-                    body:JSON.stringify({ memberIds:[...SETUP.picked] }) });
+                    body:JSON.stringify({ memberIds }) });
                 const d=await res.json().catch(()=>({}));
                 SETUP.busy=false;
-                if(!res.ok){ renderInvites(); setupNote(d.error||'Could not set up those logins.','error'); return; }
-                SETUP.results=Array.isArray(d.results)?d.results:[];
-                SETUP.mode=d.mode||'link'; SETUP.ttlDays=d.ttlDays||SETUP.ttlDays; SETUP.signInUrl=d.signInUrl||'';
-                SETUP.kept=false;
-                renderInvites();
+                if(!res.ok){ renderInvites(); setupNote(d.error||'Could not create those invitations.','error'); return; }
+                const made=(d.results||[]).filter(x=>x.message).length, failed=(d.results||[]).filter(x=>x.status==='failed').length;
+                if(d.kept){
+                    // Kept: they are in the list now, waiting to be sent.
+                    await fetchLoginSetup(); SETUP.filter='unsent'; renderInvites();
+                    setupNote(`${made} invitation${made===1?'':'s'} ready — copy each one into a Discord DM.${failed?` ${failed} couldn’t be made.`:''}`, failed?'error':'ok');
+                } else {
+                    SETUP.results=Array.isArray(d.results)?d.results:[];
+                    SETUP.mode=d.mode||'link'; SETUP.ttlDays=d.ttlDays||SETUP.ttlDays; SETUP.signInUrl=d.signInUrl||'';
+                    SETUP.kept=false; renderInvites();
+                }
             }catch{ SETUP.busy=false; renderInvites(); setupNote('Server unreachable.','error'); }
         }
         document.addEventListener('change', e=>{
@@ -9192,45 +9333,78 @@
             if(!box) return;
             const id=box.getAttribute('data-setup-pick');
             if(box.checked) SETUP.picked.add(id); else SETUP.picked.delete(id);
-            const go=document.querySelector('[data-setup-go]'), n=SETUP.picked.size;
-            if(go){ go.disabled=!n; go.style.opacity=n?'1':'.5'; go.innerHTML=`<i data-lucide="key-round" class="w-4 h-4"></i> Set up ${n} login${n===1?'':'s'}`; if(window.lucide) lucide.createIcons(); }
+            const go=document.querySelector('[data-setup-go]');
+            const n=[...SETUP.picked].filter(x=>(SETUP.pilots||[]).some(p=>String(p.memberId)===x&&!p.invite)).length;
+            if(go){ go.disabled=!n; go.style.opacity=n?'1':'.5'; go.innerHTML=`<i data-lucide="key-round" class="w-4 h-4"></i> Create ${n} invitation${n===1?'':'s'}`; if(window.lucide) lucide.createIcons(); }
         });
         document.addEventListener('click', async e=>{
-            const t=e.target.closest&&e.target.closest('[data-setup-open],[data-setup-close],[data-setup-all],[data-setup-none],[data-setup-go],[data-setup-copy],[data-setup-copyall],[data-setup-csv],[data-setup-done]');
+            const t=e.target.closest&&e.target.closest('[data-setup-open],[data-setup-close],[data-setup-all],[data-setup-none],[data-setup-go],[data-setup-copy],[data-setup-copyall],[data-setup-csv],[data-setup-done],[data-inv-filter],[data-inv-copy],[data-inv-copyall],[data-inv-csv],[data-inv-mark],[data-inv-unsend],[data-inv-renew]');
             if(!t) return;
             if(t.hasAttribute('data-setup-open')){ SETUP.open=true; renderInvites(); return; }
             if(t.hasAttribute('data-setup-close')){ SETUP.open=false; renderInvites(); return; }
+            if(t.hasAttribute('data-inv-filter')){ SETUP.filter=t.getAttribute('data-inv-filter'); renderInvites(); return; }
             if(t.hasAttribute('data-setup-all')||t.hasAttribute('data-setup-none')){
                 const all=t.hasAttribute('data-setup-all');
-                SETUP.picked=new Set(all?(SETUP.pilots||[]).filter(p=>SETUP_PICKABLE.has(p.state)).map(p=>String(p.memberId)):[]);
+                SETUP.picked=new Set(all?(SETUP.pilots||[]).filter(p=>!p.invite&&SETUP_PICKABLE.has(p.state)).map(p=>String(p.memberId)):[]);
                 renderInvites(); return;
             }
             if(t.hasAttribute('data-setup-go')){ await runLoginSetup(); return; }
+
+            // --- Kept invitations
+            const row=t.closest('[data-inv]');
+            const pilot=row?(SETUP.pilots||[]).find(p=>p.invite&&String(p.invite.accountId)===row.getAttribute('data-inv')):null;
+            try{
+                if(t.hasAttribute('data-inv-copy') && pilot){
+                    const inv=pilot.invite;
+                    // The whole point of recording it: somebody may already
+                    // have sent this one, and two links' worth of DMs is how a
+                    // pilot ends up holding the dead one.
+                    if(inv.sentAt && !confirm(`${pilot.name}’s invitation was already copied${inv.sentBy?` by ${inv.sentBy}`:''} ${ago(inv.sentAt)}. Copy it again?`)) return;
+                    if(!await copyText(inv.message||'')){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
+                    await markInvites([String(inv.accountId)], true);
+                    renderInvites(); setupNote(`Copied ${pilot.name}’s invitation — paste it into their DM.`,'ok');
+                    return;
+                }
+                if(t.hasAttribute('data-inv-copyall')){
+                    const list=setupInvites().filter(inviteUnsent);
+                    if(!list.length) return;
+                    if(!await copyText(list.map(p=>p.invite.message).join('\n\n— — —\n\n'))){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
+                    await markInvites(list.map(p=>String(p.invite.accountId)), true);
+                    renderInvites(); setupNote(`Copied ${list.length} invitation${list.length===1?'':'s'} and marked ${list.length===1?'it':'them'} as sent.`,'ok');
+                    return;
+                }
+                if(t.hasAttribute('data-inv-mark') && pilot){ await markInvites([String(pilot.invite.accountId)], true); renderInvites(); return; }
+                if(t.hasAttribute('data-inv-unsend') && pilot){ await markInvites([String(pilot.invite.accountId)], false); renderInvites(); return; }
+                if(t.hasAttribute('data-inv-renew') && pilot){
+                    if(pilot.invite.state==='live' && !confirm(`Make a new link for ${pilot.name}? The one already made stops working${pilot.invite.sentAt?' — including the one that was sent':''}.`)) return;
+                    await runLoginSetup([String(pilot.memberId)]); return;
+                }
+                if(t.hasAttribute('data-inv-csv')){ downloadText(`${getSlug()||'crew'}-invitations-${new Date().toISOString().slice(0,10)}.csv`, invitesCsv()); return; }
+            }catch(err){ setupNote(err.message||'Something went wrong.','error'); return; }
+
+            // --- Show-once batch (older database)
             const ok=(SETUP.results||[]).filter(x=>x.message);
             if(t.hasAttribute('data-setup-copy')){
                 const x=ok[Number(t.getAttribute('data-setup-copy'))];
-                if(x && await copyText(x.message)){ SETUP.kept=true; setupNote(`Copied ${x.name}’s message.`,'ok'); }
+                if(x && x.copied && !confirm(`You already copied ${x.name}’s message. Copy it again?`)) return;
+                if(x && await copyText(x.message)){ x.copied=true; SETUP.kept=true; renderInvites(); setupNote(`Copied ${x.name}’s message.`,'ok'); }
                 else setupNote('Could not copy — download the CSV instead.','error');
                 return;
             }
             if(t.hasAttribute('data-setup-copyall')){
-                if(await copyText(ok.map(x=>x.message).join('\n\n— — —\n\n'))){ SETUP.kept=true; setupNote(`Copied ${ok.length} message${ok.length===1?'':'s'}.`,'ok'); }
+                if(await copyText(ok.map(x=>x.message).join('\n\n— — —\n\n'))){ ok.forEach(x=>{ x.copied=true; }); SETUP.kept=true; renderInvites(); setupNote(`Copied ${ok.length} message${ok.length===1?'':'s'}.`,'ok'); }
                 else setupNote('Could not copy — download the CSV instead.','error');
                 return;
             }
             if(t.hasAttribute('data-setup-csv')){
-                const url=URL.createObjectURL(new Blob([setupCsv()],{type:'text/csv;charset=utf-8'}));
-                const a=document.createElement('a');
-                a.href=url; a.download=`${getSlug()||'crew'}-logins-${new Date().toISOString().slice(0,10)}.csv`;
-                document.body.appendChild(a); a.click(); a.remove();
-                setTimeout(()=>URL.revokeObjectURL(url),2000);
+                downloadText(`${getSlug()||'crew'}-logins-${new Date().toISOString().slice(0,10)}.csv`, setupCsv());
                 SETUP.kept=true; return;
             }
             if(t.hasAttribute('data-setup-done')){
                 // The links exist nowhere else. Closing without keeping them is
                 // allowed — they can be issued again — but not by accident.
                 if(!SETUP.kept && !confirm('You haven’t copied or downloaded these yet, and they won’t be shown again. Close anyway? (You can always set those pilots up again.)')) return;
-                SETUP.results=null; SETUP.open=false;
+                SETUP.results=null;
                 await fetchLoginSetup(); renderInvites();
             }
         });
