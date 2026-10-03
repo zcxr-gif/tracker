@@ -6356,6 +6356,7 @@
             distanceNm:'Distance (nm)', notes:'Notes', active:'Published', kind:'Own / codeshare',
             partnerName:'Codeshare partner', partnerLogo:'Partner logo URL', minRank:'Minimum rank',
             departureGate:'Departure gate', arrivalGate:'Arrival gate',
+            rank:'Rank', joined:'Joined', login:'Login',
         };
         // CSV_SHEETS is the upload, one entry per file or workbook tab.
         // CSV_MAP is the VA's own answer to "what is this column", which beats
@@ -6734,12 +6735,24 @@
 
             const missing=!failed&&(d.missing||[]).length
                 ? `<div class="text-[11px] faint mt-2">Not in your file, so left as they are: ${escapeHtml(d.missing.map(h=>CSV_FIELD_LABELS[h]||h).join(', '))}.</div>` : '';
+            // What a roster from another system means here, said once for the
+            // whole file rather than on every row it applies to.
+            const rosterNotes=[];
+            if(!failed && CSV_KIND==='roster'){
+                const cols=d.columns||[];
+                if(d.staffRoleCount) rosterNotes.push(`${n(d.staffRoleCount,'pilot is','pilots are')} marked owner or admin in your file. That stays as their roster role, but it doesn’t open this dashboard — dashboard access is a staff account, added in the VA portal under Team.`);
+                if(cols.includes('rank') && d.hasLadder===false) rosterNotes.push('You haven’t set up a rank ladder yet, so the rank column is skipped. Add your ranks under Settings → Ranks and every pilot’s rank follows from their hours.');
+                else if(cols.includes('rank')) rosterNotes.push(`Ranks here follow hours on your ladder, so the rank column is only checked against it${(d.unknownRanks||[]).length?` — not on your ladder: ${d.unknownRanks.join(', ')}`:''}. A rank that needs a check-ride is signed off for pilots the file lists at it.`);
+                if(cols.includes('joined')) rosterNotes.push('Join dates are kept, so new-pilot and inactivity reminders count from when each pilot really joined.');
+            }
+            const notesHtml=rosterNotes.length?`<ul class="text-[11px] muted mt-2 space-y-1 list-disc pl-4">${rosterNotes.map(t=>`<li>${escapeHtml(t)}</li>`).join('')}</ul>`:'';
 
             box.innerHTML=`<div class="rounded-lg surface hair p-3">
                 ${failed?'':`<div class="text-xs font-semibold uppercase tracking-wider faint mb-2">What this would do</div>
                 <div class="text-sm space-y-1">${bits.join('')}</div>`}
                 ${tabs}
                 ${missing}
+                ${notesHtml}
                 ${failed?'':`<div class="text-[11px] faint mt-2">Nothing is deleted. ${escapeHtml(noun[0].toUpperCase()+noun.slice(1))}s you already have that aren’t in the file are untouched.</div>`}
                 ${errs}
                 ${csvColumnsHtml(d)}
@@ -6797,8 +6810,12 @@
                 if(CSV_KIND==='roster') fetchRoster().then(()=>{ renderRoster(); changed('roster'); });
                 else fetchRoutes().then(()=>{ renderRoutes(); changed('routes'); });
                 // An import worth doing is worth seeing: close the dialog and
-                // leave the reader looking at what it changed.
+                // leave the reader looking at what it changed — except that
+                // pilots who just arrived cannot sign in yet, so a roster that
+                // gained anybody goes straight to setting their logins up.
+                const kind=CSV_KIND;
                 closeCsv();
+                if(kind==='roster' && d.created) openLoginSetup();
             }catch{ csvMsg('Server unreachable.','error'); }
             // Always give the button back. It used to be re-enabled only on the
             // two failure paths, so importing a second spreadsheet in the same
@@ -8549,7 +8566,7 @@
             document.getElementById('addPilotBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             if(v==='apps'){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
-            if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets()]).then(renderInvites); }
+            if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets(),fetchLoginSetup()]).then(renderInvites); }
             showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
         function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
@@ -8688,11 +8705,201 @@
             const resets=[...RESETS].sort((x,y)=>(x.password?1:0)-(y.password?1:0));
             keepPlace(list,()=>{
                 const html = resets.map(resetCardHtml).join('') + sorted.map(inviteCardHtml).join('');
-                list.innerHTML = html
-                    || '<p class="text-sm faint text-center py-10">Nothing waiting. Accepting an application with a login puts it here, and so does a pilot who asks for a new password from the sign-in page.</p>';
+                list.innerHTML = loginSetupHtml() + (html
+                    || '<p class="text-sm faint text-center py-10">Nothing waiting. Accepting an application with a login puts it here, and so does a pilot who asks for a new password from the sign-in page.</p>');
                 if(window.lucide) lucide.createIcons();
             });
         }
+        /* =====================================================================
+           LOGINS FOR A WHOLE ROSTER
+
+           A roster brought in from a spreadsheet or a Discord bot is a list of
+           pilots who cannot sign in. This is the step after the import: pick
+           who, press once, and each pilot gets a login and a one-time link to
+           choose their own password. The links are in the reply and nowhere
+           else — the backend keeps only their hashes — so they are shown here
+           once, to copy or download, and issuing again is always possible.
+
+           A project too old for links gets temporary passwords instead
+           (mode 'password'), and this says so.
+           =================================================================== */
+        const SETUP={ pilots:null, open:false, picked:new Set(), results:null, mode:'link', ttlDays:14, busy:false, kept:false, error:'' };
+        const SETUP_PICKABLE=new Set(['none','pending','sent']);
+        const SETUP_STATE={
+            none:   ['No login','bg-amber-500'],
+            pending:['Never signed in','bg-amber-500'],
+            sent:   ['Link sent','bg-sky-600'],
+            active: ['Signed in','bg-emerald-600'],
+            staff:  ['Staff','bg-[var(--muted)]'],
+            suspended:['Suspended','bg-[var(--muted)]'],
+        };
+        async function fetchLoginSetup(){
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token||!ROSTER_CANMANAGE){ SETUP.pilots=null; return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/accounts/setup`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ SETUP.pilots=null; SETUP.error=d.error||''; return; }
+                SETUP.error='';
+                SETUP.pilots=Array.isArray(d.pilots)?d.pilots:[];
+                SETUP.ttlDays=d.ttlDays||SETUP.ttlDays;
+                // Default pick: everybody who has never got in and has not
+                // already been sent a link. Re-sending is a deliberate tick.
+                SETUP.picked=new Set(SETUP.pilots.filter(p=>(p.state==='none'||p.state==='pending')&&p.status!=='inactive').map(p=>String(p.memberId)));
+            }catch{ SETUP.pilots=null; }
+        }
+        function openLoginSetup(){
+            SETUP.open=true; SETUP.results=null;
+            switchRosterView('invites');
+        }
+        function loginSetupHtml(){
+            if(!ROSTER_CANMANAGE) return '';
+            if(SETUP.results) return loginSetupResultsHtml();
+            const ps=SETUP.pilots;
+            if(!ps) return SETUP.error?`<div class="surface rounded-xl p-4 text-sm muted">${escapeHtml(SETUP.error)}</div>`:'';
+            const waiting=ps.filter(p=>p.state==='none'||p.state==='pending').length;
+            const head=`<div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-full grid place-items-center shrink-0 accent-bg text-white"><i data-lucide="key-round" class="w-5 h-5"></i></div>
+                    <div class="min-w-0 flex-1">
+                        <div class="font-semibold">Pilot logins</div>
+                        <div class="text-xs muted mt-0.5">${waiting
+                            ? escapeHtml(`${waiting} of ${ps.length} pilot${ps.length===1?'':'s'} on the roster can’t sign in yet.`)
+                            : escapeHtml(ps.length?'Everyone on the roster has a login.':'Nobody on the roster yet.')}</div>
+                    </div>
+                    ${SETUP.open?'':`<button data-setup-open class="${waiting?'accent-bg text-white':'surface hair'} rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition shrink-0">${waiting?'Set up logins':'Manage'}</button>`}
+                </div>`;
+            if(!SETUP.open) return `<div class="surface rounded-xl p-4">${head}</div>`;
+            const rows=ps.map(p=>{
+                const id=String(p.memberId), can=SETUP_PICKABLE.has(p.state);
+                const [label,colour]=SETUP_STATE[p.state]||['',''];
+                return `<label class="flex items-center gap-2.5 py-1.5 ${can?'cursor-pointer':'opacity-60'}">
+                    <input type="checkbox" data-setup-pick="${escapeHtml(id)}" ${can?'':'disabled'} ${SETUP.picked.has(id)?'checked':''}>
+                    <span class="min-w-0 flex-1 truncate text-sm">${escapeHtml(p.name||'Unnamed')} <span class="faint font-mono text-xs">${escapeHtml(p.callsign||'')}</span></span>
+                    ${p.username?`<span class="font-mono text-[11px] faint truncate max-w-[30%]">${escapeHtml(p.username)}</span>`:''}
+                    ${label?`<span class="text-[10px] font-bold uppercase tracking-wide text-white ${colour} rounded-full px-1.5 py-0.5 shrink-0">${escapeHtml(label)}</span>`:''}
+                </label>`;
+            }).join('');
+            const n=SETUP.picked.size;
+            return `<div class="surface rounded-xl p-4">${head}
+                <p class="text-xs muted mt-3">Each pilot you tick gets a username and a link to choose their own password. The link works once and lasts ${escapeHtml(String(SETUP.ttlDays))} days; nobody — you included — ever sees their password. Send each pilot their message on Discord or the IFC.</p>
+                <div class="flex items-center gap-3 mt-3 text-xs">
+                    <button data-setup-all class="accent-text font-semibold hover:underline">Select all</button>
+                    <button data-setup-none class="accent-text font-semibold hover:underline">Select none</button>
+                </div>
+                <div class="mt-1.5 max-h-80 overflow-y-auto divide-y divide-[color:var(--hair)]">${rows}</div>
+                <div class="flex gap-2 mt-3">
+                    <button data-setup-go ${n&&!SETUP.busy?'':'disabled'} style="opacity:${n&&!SETUP.busy?1:.5}" class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="key-round" class="w-4 h-4"></i> ${escapeHtml(SETUP.busy?'Setting up…':`Set up ${n} login${n===1?'':'s'}`)}</button>
+                    <button data-setup-close class="surface hair rounded-lg px-4 text-sm font-semibold">Close</button>
+                </div>
+                <p data-setup-note class="hidden text-sm mt-2"></p>
+            </div>`;
+        }
+        function loginSetupResultsHtml(){
+            const r=SETUP.results||[], ok=r.filter(x=>x.message), other=r.filter(x=>!x.message);
+            const pw=SETUP.mode==='password';
+            const list=ok.map((x,i)=>`<div class="flex items-center gap-2 py-2">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm truncate">${escapeHtml(x.name||'')} <span class="faint font-mono text-xs">${escapeHtml(x.callsign||'')}</span></div>
+                        <div class="font-mono text-[11px] faint truncate">${escapeHtml(x.username||'')}</div>
+                    </div>
+                    <button data-setup-copy="${i}" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1 shrink-0"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy message</button>
+                </div>`).join('');
+            const skipped=other.length?`<div class="mt-2 text-xs muted"><div class="font-semibold mb-0.5">Not set up</div><ul class="space-y-0.5">${other.map(x=>`<li>${escapeHtml(x.name||x.memberId||'')}: ${escapeHtml(x.reason||x.status||'')}</li>`).join('')}</ul></div>`:'';
+            return `<div class="surface rounded-xl p-4">
+                <div class="font-semibold">${escapeHtml(`${ok.length} login${ok.length===1?'':'s'} ready to hand over`)}</div>
+                <div class="mt-2 rounded-lg p-2.5 text-xs" style="background:color-mix(in srgb, #f59e0b 14%, transparent);">
+                    ${pw
+                        ? 'This crew center’s database is too old for setup links, so these are temporary passwords. They are shown only here — download or copy them before you close this. (Settings → Data store → Update my database switches you to links.)'
+                        : `These links are shown only here — download or copy them before you close this. Each works once, for ${escapeHtml(String(SETUP.ttlDays))} days. Lost one? Set that pilot up again and the old link stops working.`}
+                </div>
+                <div class="flex flex-wrap gap-2 mt-3">
+                    <button data-setup-csv class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="download" class="w-3.5 h-3.5"></i> Download as CSV</button>
+                    <button data-setup-copyall class="flex-1 surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy all messages</button>
+                </div>
+                <div class="mt-2 divide-y divide-[color:var(--hair)]">${list}</div>
+                ${skipped}
+                <button data-setup-done class="w-full surface hair rounded-lg px-3 py-2 text-sm font-semibold mt-3">Done</button>
+                <p data-setup-note class="hidden text-sm mt-2"></p>
+            </div>`;
+        }
+        function setupNote(msg,kind){
+            const n=document.querySelector('[data-setup-note]'); if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':'muted');
+        }
+        function setupCsv(){
+            const q=v=>{ const t=String(v==null?'':v); return /[",\r\n]/.test(t)?`"${t.replace(/"/g,'""')}"`:t; };
+            const pw=SETUP.mode==='password';
+            const head=['pilot','callsign','ifcName','username',pw?'temporaryPassword':'setupLink',pw?'signIn':'linkExpires'];
+            const rows=(SETUP.results||[]).filter(x=>x.message).map(x=>[x.name,x.callsign,x.ifcName,x.username,
+                pw?x.password:x.link, pw?(SETUP.signInUrl||''):(x.expiresAt?String(x.expiresAt).slice(0,10):'')]);
+            return '﻿'+[head,...rows].map(r=>r.map(q).join(',')).join('\r\n');
+        }
+        async function runLoginSetup(){
+            const slug=getSlug(), token=sessionToken();
+            if(!slug||!token||!SETUP.picked.size) return;
+            SETUP.busy=true; renderInvites();
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/accounts/setup`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                    body:JSON.stringify({ memberIds:[...SETUP.picked] }) });
+                const d=await res.json().catch(()=>({}));
+                SETUP.busy=false;
+                if(!res.ok){ renderInvites(); setupNote(d.error||'Could not set up those logins.','error'); return; }
+                SETUP.results=Array.isArray(d.results)?d.results:[];
+                SETUP.mode=d.mode||'link'; SETUP.ttlDays=d.ttlDays||SETUP.ttlDays; SETUP.signInUrl=d.signInUrl||'';
+                SETUP.kept=false;
+                renderInvites();
+            }catch{ SETUP.busy=false; renderInvites(); setupNote('Server unreachable.','error'); }
+        }
+        document.addEventListener('change', e=>{
+            const box=e.target.closest&&e.target.closest('[data-setup-pick]');
+            if(!box) return;
+            const id=box.getAttribute('data-setup-pick');
+            if(box.checked) SETUP.picked.add(id); else SETUP.picked.delete(id);
+            const go=document.querySelector('[data-setup-go]'), n=SETUP.picked.size;
+            if(go){ go.disabled=!n; go.style.opacity=n?'1':'.5'; go.innerHTML=`<i data-lucide="key-round" class="w-4 h-4"></i> Set up ${n} login${n===1?'':'s'}`; if(window.lucide) lucide.createIcons(); }
+        });
+        document.addEventListener('click', async e=>{
+            const t=e.target.closest&&e.target.closest('[data-setup-open],[data-setup-close],[data-setup-all],[data-setup-none],[data-setup-go],[data-setup-copy],[data-setup-copyall],[data-setup-csv],[data-setup-done]');
+            if(!t) return;
+            if(t.hasAttribute('data-setup-open')){ SETUP.open=true; renderInvites(); return; }
+            if(t.hasAttribute('data-setup-close')){ SETUP.open=false; renderInvites(); return; }
+            if(t.hasAttribute('data-setup-all')||t.hasAttribute('data-setup-none')){
+                const all=t.hasAttribute('data-setup-all');
+                SETUP.picked=new Set(all?(SETUP.pilots||[]).filter(p=>SETUP_PICKABLE.has(p.state)).map(p=>String(p.memberId)):[]);
+                renderInvites(); return;
+            }
+            if(t.hasAttribute('data-setup-go')){ await runLoginSetup(); return; }
+            const ok=(SETUP.results||[]).filter(x=>x.message);
+            if(t.hasAttribute('data-setup-copy')){
+                const x=ok[Number(t.getAttribute('data-setup-copy'))];
+                if(x && await copyText(x.message)){ SETUP.kept=true; setupNote(`Copied ${x.name}’s message.`,'ok'); }
+                else setupNote('Could not copy — download the CSV instead.','error');
+                return;
+            }
+            if(t.hasAttribute('data-setup-copyall')){
+                if(await copyText(ok.map(x=>x.message).join('\n\n— — —\n\n'))){ SETUP.kept=true; setupNote(`Copied ${ok.length} message${ok.length===1?'':'s'}.`,'ok'); }
+                else setupNote('Could not copy — download the CSV instead.','error');
+                return;
+            }
+            if(t.hasAttribute('data-setup-csv')){
+                const url=URL.createObjectURL(new Blob([setupCsv()],{type:'text/csv;charset=utf-8'}));
+                const a=document.createElement('a');
+                a.href=url; a.download=`${getSlug()||'crew'}-logins-${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(()=>URL.revokeObjectURL(url),2000);
+                SETUP.kept=true; return;
+            }
+            if(t.hasAttribute('data-setup-done')){
+                // The links exist nowhere else. Closing without keeping them is
+                // allowed — they can be issued again — but not by accident.
+                if(!SETUP.kept && !confirm('You haven’t copied or downloaded these yet, and they won’t be shown again. Close anyway? (You can always set those pilots up again.)')) return;
+                SETUP.results=null; SETUP.open=false;
+                await fetchLoginSetup(); renderInvites();
+            }
+        });
+
         /* =====================================================================
            PILOTS WHO HAVE FORGOTTEN THEIR PASSWORD
 

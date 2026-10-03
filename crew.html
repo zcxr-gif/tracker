@@ -439,7 +439,7 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                 <!-- ============ CHOOSING A NEW ONE ============ -->
                 <form class="resetForm hidden space-y-4 px-6 sm:px-7 pt-5">
                     <div>
-                        <h2 class="text-base font-bold tracking-tight">Choose a new password</h2>
+                        <h2 class="resetTitle text-base font-bold tracking-tight">Choose a new password</h2>
                         <p class="resetWho text-sm text-zinc-500 dark:text-zinc-400 mt-1">This link is good once. Pick something you will remember.</p>
                     </div>
                     <div>
@@ -581,7 +581,7 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                 <!-- ============ CHOOSING A NEW ONE ============ -->
                 <form class="resetForm hidden mt-8 space-y-4">
                     <div>
-                        <h2 class="serif text-2xl leading-tight tracking-tight">Choose a new password</h2>
+                        <h2 class="resetTitle serif text-2xl leading-tight tracking-tight">Choose a new password</h2>
                         <p class="resetWho text-zinc-500 dark:text-zinc-400 mt-2 text-[15px] leading-relaxed">This link is good once. Pick something you will remember.</p>
                     </div>
                     <input name="newPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="New password — at least 8 characters"
@@ -877,7 +877,15 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                     });
                     return;
                 }
-                if(d.name) forms.forEach(f=>{
+                /* A SETUP link is a first password for a pilot whose airline
+                   brought its roster here — they have never signed in and have
+                   never seen their username, so both are said. */
+                if(d.setup) forms.forEach(f=>{
+                    const t=f.querySelector('.resetTitle'); if(t) t.textContent='Set up your crew center login';
+                    const who=f.querySelector('.resetWho');
+                    if(who) who.textContent = `Welcome${d.name?`, ${d.name}`:''}. Your username is ${d.username||'on the message you were sent'} — choose a password to go with it. This link works once.`;
+                });
+                else if(d.name) forms.forEach(f=>{
                     const who=f.querySelector('.resetWho');
                     if(who) who.textContent = `Signing in as ${d.name}. This link is good once — pick something you will remember.`;
                 });
