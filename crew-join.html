@@ -365,7 +365,10 @@
 
             if(s==='intro'){
                 const reqs = [];
-                reqs.push(CFG.mode==='free' ? 'Instant access — no waiting' : 'Reviewed by the VA staff');
+                reqs.push(CFG.mode==='free' ? 'Accepted straight away — no waiting' : 'Reviewed by the VA staff');
+                // Never "instant access" any more: whichever way somebody joins,
+                // their crew center sign-in is sent by the staff (see success()).
+                reqs.push('Your sign-in is sent to you by the staff');
                 if(CFG.minGrade>0) reqs.push(`Infinite Flight Grade ${CFG.minGrade}+`);
                 body.innerHTML = `<div class="step text-center">
                     <div class="w-12 h-12 rounded-xl bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] accent-text grid place-items-center mx-auto mb-4"><i data-lucide="plane" class="w-6 h-6"></i></div>
@@ -395,7 +398,7 @@
                     <label class="block text-sm font-medium mt-4 mb-1.5">Email <span class="faint font-normal">— where your sign-in details go</span></label>
                     <input id="f_email" type="email" class="field" placeholder="you@example.com" value="${escapeHtml(DATA.email)}" autocomplete="email" autocapitalize="off" spellcheck="false">
                     <p class="text-xs faint mt-1.5">${CFG.emailEnabled
-                        ? `We’ll email you when ${escapeHtml(VA.name||'the VA')} accepts or declines${CFG.mode==='free'?'':' your application'} — and if you’re accepted, your crew center username and password go there too. Optional, but strongly recommended.`
+                        ? `We’ll email you when ${escapeHtml(VA.name||'the VA')} ${CFG.mode==='free'?'welcomes you':'accepts or declines your application'}. Your crew center sign-in comes from the staff — by email or on the IFC. Optional, but recommended.`
                         : `Optional. ${escapeHtml(VA.name||'The VA')} will use it to send you your crew center sign-in details.`}</p>
                 </div>`;
                 setNav(true, "Continue");
@@ -509,7 +512,7 @@
                 if(CFG.minGrade>0 || DATA.grade) rows.push(['Grade', 'Grade '+(DATA.grade||'—')]);
                 body.innerHTML = `<div class="step">
                     <h2 class="text-lg font-bold tracking-tight">Review &amp; ${CFG.mode==='free'?'join':'apply'}</h2>
-                    <p class="text-sm muted mt-1 mb-4">${CFG.mode==='free'?'You’ll get instant access.':'Staff will review your application.'}</p>
+                    <p class="text-sm muted mt-1 mb-4">${CFG.mode==='free'?'You’re accepted straight away; staff send your crew center sign-in.':'Staff will review your application.'}</p>
                     <div class="surface hair rounded-lg divide-y hair-soft">
                         ${rows.map(r=>`<div class="flex items-center justify-between px-4 py-2.5 text-sm"><span class="muted">${escapeHtml(r[0])}</span><span class="font-semibold text-right">${r[2]?r[1]:escapeHtml(r[1])}</span></div>`).join('')}
                     </div>
@@ -687,21 +690,6 @@
                 success(d);
             }catch{ if(note){ note.textContent='Couldn’t reach the server. Please try again.'; note.className='text-sm text-red-500 mt-3'; note.classList.remove('hidden'); } btn.disabled=false; }
         }
-        // A VA that accepts everyone issues the login on the spot, so the
-        // password comes back in the join response. This is the ONLY time it
-        // will ever be shown: nothing stores it, not the VA's database and not
-        // ours — only its hash. So it is displayed plainly, with the warning it
-        // deserves, and repeated by email when they gave an address.
-        function credentialsHtml(d){
-            const a=d.account;
-            if(!a||!a.password) return '';
-            return `<div class="surface hair rounded-xl p-4 mt-5 text-left">
-                <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="key-round" class="w-3.5 h-3.5"></i> Your crew center sign-in</div>
-                <div class="text-sm"><span class="muted">Username</span> <b class="font-mono select-all">${escapeHtml(a.username)}</b></div>
-                <div class="text-sm mt-0.5"><span class="muted">One-time password</span> <b class="font-mono select-all">${escapeHtml(a.password)}</b></div>
-                <p class="text-xs mt-3 text-amber-600 dark:text-amber-400">Write this down now — it is shown once and is stored nowhere. You’ll be asked to choose your own password the first time you sign in.${d.emailed?` We’ve also emailed it to <b>${escapeHtml(DATA.email)}</b>.`:''}</p>
-            </div>`;
-        }
         function success(d){
             document.getElementById('nav').classList.add('hidden');
             document.getElementById('bar').style.width='100%';
@@ -715,10 +703,23 @@
                 <h2 class="text-xl font-bold tracking-tight">${accepted?'Welcome aboard!':'Application received'}</h2>
                 ${accepted
                     ? `<p class="text-sm muted mt-2">You’re now part of <b>${escapeHtml(VA.name||'the crew')}</b>. Your callsign:</p><div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign||fullCallsign())}</div>
-                       ${credentialsHtml(d)}
-                       <a href="/crew/${escapeHtml(slug)}" ${EMBED?'target="_top"':''} class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">${d.account&&d.account.password?'Sign in to the crew center':'Go to the crew center'} <i data-lucide="arrow-right" class="w-4 h-4"></i></a>`
+                       <div class="surface hair rounded-xl p-4 mt-5 text-left">
+                          <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="mail" class="w-3.5 h-3.5"></i> Your crew center sign-in</div>
+                          <p class="text-sm muted">The ${escapeHtml(VA.name||'VA')} staff will send it to you${DATA.email?` — by email at <b>${escapeHtml(DATA.email)}</b> or`:''} in an IFC message. It’s also shown on your status link the moment it’s ready.</p>
+                       </div>
+                       ${statusUrl?statusLinkHtml(statusUrl):''}`
                     : `<p class="text-sm muted mt-2">Thanks, <b>${escapeHtml(DATA.ifcName)}</b>. The ${escapeHtml(VA.name||'VA')} staff will review your application${DATA.email?` and email you at <b>${escapeHtml(DATA.email)}</b> with their decision`:''}.</p>
-                       ${statusUrl?`<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                       ${statusUrl?statusLinkHtml(statusUrl):''}`}
+            </div>`;
+            if(window.lucide) lucide.createIcons();
+            postHeight();
+        }
+        // The applicant's private link back: their decision, any message from
+        // staff, an entrance test if they are sent one, and their sign-in once
+        // the staff release it. The only channel that reaches somebody with no
+        // email, so it is offered whichever way they joined.
+        function statusLinkHtml(statusUrl){
+            return `<div class="surface hair rounded-xl p-4 mt-5 text-left">
                           <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="bookmark" class="w-3.5 h-3.5"></i> Save your status link</div>
                           <p class="text-sm muted mb-3">Bookmark this to see the VA’s decision and any message they leave you.</p>
                           <div class="flex items-center gap-2">
@@ -726,10 +727,7 @@
                             <button onclick="copyStatus()" id="copyBtn" class="shrink-0 accent-bg text-white text-sm font-semibold px-3.5 py-2.5 rounded-lg hover:opacity-90 transition">Copy</button>
                           </div>
                           <a href="${escapeHtml(statusUrl)}" ${EMBED?'target="_top"':''} class="inline-flex items-center gap-1.5 accent-text text-sm font-semibold mt-3 hover:underline">Check status now <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
-                       </div>`:''}`}
-            </div>`;
-            if(window.lucide) lucide.createIcons();
-            postHeight();
+                       </div>`;
         }
         function copyStatus(){ const i=document.getElementById('statusLink'); if(!i) return; i.select(); try{ navigator.clipboard.writeText(i.value); }catch{ document.execCommand('copy'); } const b=document.getElementById('copyBtn'); if(b){ const t=b.textContent; b.textContent='Copied'; setTimeout(()=>b.textContent=t,1400); } }
 

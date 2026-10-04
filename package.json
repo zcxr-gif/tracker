@@ -24,7 +24,8 @@
     "test:csv-import": "node tools/test-crew-csv-import.js",
     "test:codeshare": "node tools/test-crew-codeshare.js",
     "test:design": "node tools/test-crew-design.js",
-    "test:view-switch": "node tools/test-crew-view-switch.js"
+    "test:view-switch": "node tools/test-crew-view-switch.js",
+    "test:entrance": "node tools/test-crew-entrance.js"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",

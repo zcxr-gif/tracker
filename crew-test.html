@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Entrance test — Crew Center</title>
+    <!-- Inflight's own mark, until the airline's arrives.
+         These pages carried no icon at all, so the browser drew its
+         placeholder globe — and kept drawing it for the whole of the first
+         request, because the VA's logo comes from the crew record and that is
+         a fetch away. This is what is shown in the meantime; CrewBrand.favicon
+         replaces it with the airline's own (or its monogram) the moment the
+         record lands. Absolute, because these pages are served under
+         /crew/<slug> and a relative path would look for them there. -->
+    <link rel="icon" type="image/x-icon" href="/Images/inflightIcon.ico">
+    <link rel="apple-touch-icon" href="/Images/inflight.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Guarded, because Tailwind is a CDN script: blocked by a network or an
+         ad blocker, slow, or simply down, and an unguarded `tailwind.config`
+         throws a ReferenceError that kills this inline script outright. Every
+         other page in the crew center already guards it. -->
+    <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
+    <!-- Which of the two interfaces this crew center is wearing (crewSkin.css).
+         Somebody opening their entrance test has usually never seen this
+         crew center before; it should already look like the airline. -->
+    <script src="/crewSkin.js"></script>
+    <!-- Keeps the airline's accent readable: the ink that sits on it, and a
+         version of it that stays legible as text on this page. See crewAccent.js.
+         After the skin, so the ground it measures against is the one in force. -->
+    <script src="/crewAccent.js"></script>
+    <!-- The tab's icon. This page is the one a pilot leaves open while they
+         wait to hear back, so it is the one most worth being recognisable.
+         Only CrewBrand.favicon is used here — this page paints its own
+         colours above and wants none of the theme. -->
+    <script src="/crewBrand.js"></script>
+    <style>
+        /* A VA's mark is very often a square PNG, and a square corner against
+           this page's rounded chrome reads as a sticker somebody left on it.
+           Written here rather than as a Tailwind class on purpose: Tailwind is
+           a CDN script, and when it is slow or blocked every logo on the page
+           goes back to being a block — the same reason `.hidden` is restated
+           above. A logo with its own transparent margin loses nothing to this;
+           the radius clips a corner that was never drawn on. */
+        #logo{ border-radius:.5rem; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        /* Never let a field or a stray wide child scroll the whole page sideways. */
+        html,body{ max-width:100%; overflow-x:hidden; }
+        input,select,textarea{ max-width:100%; }
+        /* iOS Safari zooms the whole page in when you focus a form control
+           whose text is smaller than 16px, and there is no way to ask it not
+           to: maximum-scale has been deliberately ignored since iOS 10,
+           because pinch-zoom is an accessibility feature. So the fix is the
+           font size itself, applied only where the pointer is coarse — the
+           desktop layout keeps its 14px controls.
+
+           !important because these controls carry Tailwind's text-sm, and a
+           class beats any number of element selectors. */
+        @media (pointer: coarse){
+            input,select,textarea{ font-size:16px !important; }
+        }
+        :root{ --bg:#F6F3ED; --surface:#FFFFFF; --line:#E7E2D8; --line-soft:#F0ECE4; --ink:#1C1A16; --muted:#736E64; --faint:#A8A296; --accent:#4f46e5; color-scheme: light dark; }
+        .dark{ --bg:#121110; --surface:#1A1815; --line:#2A2721; --line-soft:#211E1A; --ink:#F3EFE7; --muted:#A49E92; --faint:#6E685D; }
+        *{ -webkit-tap-highlight-color: transparent; }
+        body{ font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; background:var(--bg); color:var(--ink); }
+        [data-lucide]{ width:1.15em; height:1.15em; } svg.lucide{ stroke-width:1.6; }
+        .surface{ background:var(--surface); border:1px solid var(--line); }
+        .hair{ border-color:var(--line); } .hair-soft{ border-color:var(--line-soft); }
+        .muted{ color:var(--muted); } .faint{ color:var(--faint); }
+        /* THE HIGHLIGHTS, READABLE WHATEVER COLOUR THE AIRLINE PICKED.
+
+           --accent is the airline's own hex and is used unchanged as a block of
+           colour. The two properties beside it are derived from it by
+           crewAccent.js: --accent-ink is the ink that is legible ON it (a cream
+           or sky-blue brand needs dark text, not the white this used to hard-code
+           and then hide under), and --accent-on is the accent moved far enough in
+           lightness to be readable AS text on this page — which is what stops a
+           near-black accent from vanishing into the dark interface.
+
+           The compound selector is deliberate: it out-specifies the text-white
+           utility these controls are written with, without an !important. */
+        .accent-text{ color:var(--accent-on, var(--accent)); }
+        .accent-bg{ background:var(--accent-fill, var(--accent)); }
+        .accent-bg, .accent-bg.text-white{ color:var(--accent-ink, #fff); }
+        a:focus-visible, button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+        /* One answer per question, as a card the whole width of the paper —
+           a thumb-sized target on a phone, which is where most of these are
+           opened (an IFC message, on the sofa). */
+        .opt{ display:flex; gap:.7rem; align-items:flex-start; padding:.75rem .85rem; border:1px solid var(--line);
+            border-radius:.75rem; cursor:pointer; transition:border-color .15s, background .15s; }
+        .opt:hover{ border-color:var(--ink); }
+        .opt input{ margin-top:.2rem; accent-color:var(--accent); }
+        .opt:has(input:checked){ border-color:var(--accent); background:color-mix(in srgb, var(--accent) 8%, transparent); }
+        .q-missing{ border-color:#dc2626 !important; }
+        @media (prefers-reduced-motion: reduce){ *{ animation-duration:.001ms !important; transition-duration:.001ms !important; } }
+    </style>
+</head>
+<body class="min-h-screen antialiased">
+
+    <!--
+      Crew Center — ENTRANCE TEST. Opened from the link a VA's staff sent:
+      inflight.info/crew/<slug>/test?t=<token>. No account: the link is the key,
+      and it only ever opens a test sent to somebody who is not crew yet (a
+      pilot's own quizzes are sat signed in, inside the crew center). The paper
+      arrives without its answer key; the server marks it.
+    -->
+
+    <div class="min-h-screen flex items-start sm:items-center justify-center p-4 sm:p-6">
+        <div class="w-full max-w-xl">
+            <div class="text-center mb-5">
+                <img id="logo" alt="" class="hidden mx-auto mb-3 max-h-14 w-auto object-contain">
+                <div id="mono" class="accent-bg w-14 h-14 rounded-2xl grid place-items-center text-white text-xl font-black mx-auto mb-3">VA</div>
+                <h1 id="title" class="text-lg font-bold tracking-tight">Entrance test</h1>
+                <p class="text-sm muted mt-0.5"><span id="vaName">the crew</span></p>
+            </div>
+
+            <div class="surface rounded-2xl overflow-hidden shadow-sm">
+                <img id="banner" alt="" class="hidden w-full aspect-[3/1] object-cover">
+                <div id="body" class="p-6 sm:p-7">
+                    <div class="flex justify-center py-8"><i data-lucide="loader" class="w-6 h-6 muted animate-spin"></i></div>
+                </div>
+            </div>
+
+            <div class="mt-5 flex items-center justify-center gap-2 opacity-80">
+                <span class="text-[11px] font-medium tracking-wide faint">Powered by</span>
+                <img src="/Images/inflight.png" alt="Inflight" class="h-[16px] w-auto dark:hidden">
+                <img src="/Images/inflight-light.png" alt="Inflight" class="h-[16px] w-auto hidden dark:block">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BACKEND = 'https://site--indgo-backend--6dmjph8ltlhv.code.run';
+        let VA = { name:'' };
+        let D = null;          // the last answer from the server
+
+        (function(){ let p=null; try{p=localStorage.getItem('crew-theme');}catch{} const d=p?p==='dark':window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches; document.documentElement.classList.toggle('dark', !!d); })();
+
+        function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        function isSafeImageUrl(u){try{const url=new URL(u,location.href);if(url.origin===location.origin)return true;return url.protocol==='https:';}catch{return false;}}
+        function isHex(c){return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c||'');}
+        function initials(name){const s=(name||'VA').trim();const w=s.split(/\s+/).filter(Boolean);return (w.length>=2?(w[0][0]+w[1][0]):s.slice(0,2)).toUpperCase();}
+        function getSlug(){const m=location.pathname.match(/\/crew\/([^\/?#]+)/i);if(m&&m[1]&&!/\.html$/i.test(m[1]))return decodeURIComponent(m[1]).trim().toLowerCase();const q=new URLSearchParams(location.search).get('va');return q?q.trim().toLowerCase():'';}
+        function getToken(){ return (new URLSearchParams(location.search).get('t')||'').trim(); }
+        function when(d){ try{ return new Date(d).toLocaleString(undefined,{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }catch{ return ''; } }
+        // Study material is the airline's own words, sometimes with a link or
+        // two in it. Escaped first, then only plain https links are made
+        // clickable — nothing the VA typed is ever treated as markup.
+        function linkify(text){
+            return escapeHtml(text).replace(/https:\/\/[^\s<]+/g, (u)=>`<a href="${u}" target="_blank" rel="noopener noreferrer" class="accent-text font-semibold underline break-all">${u}</a>`);
+        }
+
+        function applyBranding(d){
+            const va=d.va||{};
+            if(isHex(va.accent)) document.documentElement.style.setProperty('--accent', va.accent);
+            VA={ name:va.name||'' };
+            document.getElementById('mono').textContent=initials(VA.name);
+            if(VA.name) document.getElementById('vaName').textContent=VA.name;
+            if(va.logo && isSafeImageUrl(va.logo)){ const el=document.getElementById('logo'); el.src=va.logo; el.classList.remove('hidden'); document.getElementById('mono').classList.add('hidden'); }
+            if(d.banner && isSafeImageUrl(d.banner)){ const b=document.getElementById('banner'); b.src=d.banner; b.classList.remove('hidden'); b.onerror=()=>b.classList.add('hidden'); }
+            if(d.quiz && d.quiz.title) document.getElementById('title').textContent=d.quiz.title;
+            if(window.CrewBrand) CrewBrand.favicon({ name:VA.name, logo:va.logo||'', accent:va.accent||'' });
+            document.title = `${d.quiz&&d.quiz.title?d.quiz.title:'Entrance test'} · ${VA.name||'Crew Center'}`;
+        }
+
+        function studyHtml(text){
+            if(!text) return '';
+            return `<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="book-open" class="w-3.5 h-3.5"></i> Study resources</div>
+                <p class="text-sm whitespace-pre-wrap">${linkify(text)}</p>
+            </div>`;
+        }
+
+        // Where they stand, when there is no paper to sit right now: passed,
+        // waiting out a retake, out of goes, or a link that was withdrawn.
+        function renderState(d, opts={}){
+            const a=d.attempt||{}, passed=a.status==='passed';
+            const score = a.total ? `<div class="text-3xl font-extrabold mt-3 ${passed?'text-emerald-600 dark:text-emerald-400':''}">${a.percent}%</div>
+                <div class="text-xs faint mt-0.5">${a.score} of ${a.total} right · ${a.passMark}% to pass</div>` : '';
+            document.getElementById('body').innerHTML = `<div class="text-center">
+                <div class="w-14 h-14 rounded-full ${passed?'bg-emerald-500':'bg-[color-mix(in_srgb,var(--muted)_22%,transparent)]'} ${passed?'text-white':'text-[var(--muted)]'} grid place-items-center mx-auto mb-4"><i data-lucide="${passed?'party-popper':(d.retryAt?'clock':'info')}" class="w-7 h-7"></i></div>
+                <h2 class="text-xl font-bold tracking-tight">${passed?'You passed!':(opts.justFailed?'Not this time':(d.retryAt?'Come back soon':'This test isn’t open'))}</h2>
+                ${score}
+                <p class="text-sm muted mt-3">${passed
+                    ? `Well done${a.name?`, ${escapeHtml(a.name)}`:''}. The ${escapeHtml(VA.name||'VA')} staff have your result and will send you your crew center invitation.`
+                    : escapeHtml(d.refusal || 'Ask the staff who sent it about your next step.')}</p>
+                ${!passed && d.retryAt ? `<p class="text-sm mt-2"><b>Next attempt:</b> ${escapeHtml(when(d.retryAt))}</p>` : ''}
+                ${!passed ? studyHtml(d.study) : ''}
+            </div>`;
+            if(window.lucide) lucide.createIcons();
+        }
+
+        function renderPaper(d){
+            const q=d.quiz, a=d.attempt||{};
+            const tries = a.maxAttempts ? `${Math.max(0, a.maxAttempts-(a.attemptsUsed||0))} of ${a.maxAttempts} attempts left` : '';
+            document.getElementById('body').innerHTML = `
+                <div>
+                    <h2 class="text-xl font-bold tracking-tight">${a.name?`Welcome, ${escapeHtml(a.name)}`:'Welcome'}</h2>
+                    ${q.blurb?`<p class="text-sm muted mt-1.5 whitespace-pre-wrap">${escapeHtml(q.blurb)}</p>`:''}
+                    <ul class="text-sm mt-4 space-y-1.5">
+                        <li class="flex items-center gap-2"><i data-lucide="target" class="w-4 h-4 accent-text"></i> Pass mark: <b>${q.passMark}%</b> or higher</li>
+                        <li class="flex items-center gap-2"><i data-lucide="list-checks" class="w-4 h-4 accent-text"></i> ${q.questions.length} question${q.questions.length===1?'':'s'}, one answer each</li>
+                        ${q.retakeHours?`<li class="flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4 accent-text"></i> Not this time? You can retake it after ${q.retakeHours%24===0?`${q.retakeHours/24} day${q.retakeHours===24?'':'s'}`:`${q.retakeHours} hour${q.retakeHours===1?'':'s'}`}</li>`:''}
+                        ${tries?`<li class="flex items-center gap-2"><i data-lucide="repeat" class="w-4 h-4 accent-text"></i> ${escapeHtml(tries)}</li>`:''}
+                    </ul>
+                    ${a.status==='failed'&&a.total?`<p class="text-sm mt-4 rounded-lg p-3" style="background:color-mix(in srgb,#f59e0b 14%,transparent)">Last time: ${a.percent}%. ${d.study?'The study resources are below the questions.':''}</p>`:''}
+                    <form id="paper" class="mt-6 space-y-6" novalidate>
+                        ${q.questions.map((qq,i)=>`<fieldset data-q="${i}">
+                            <legend class="text-sm font-semibold mb-2.5"><span class="faint mr-1">${i+1}.</span> ${escapeHtml(qq.text)}</legend>
+                            <div class="space-y-2">${qq.options.map((o,j)=>`<label class="opt"><input type="radio" name="q${i}" value="${j}"><span class="text-sm">${escapeHtml(o)}</span></label>`).join('')}</div>
+                        </fieldset>`).join('')}
+                        <p id="note" class="hidden text-sm"></p>
+                        <button id="submitBtn" type="submit" class="w-full accent-bg text-white text-sm font-semibold px-5 py-3 rounded-lg hover:opacity-90 transition">Hand it in</button>
+                    </form>
+                    ${a.status==='failed'?studyHtml(d.study):''}
+                </div>`;
+            document.getElementById('paper').addEventListener('submit', submit);
+            if(window.lucide) lucide.createIcons();
+        }
+
+        function render(d){
+            D=d;
+            applyBranding(d);
+            if(d.quiz && !d.refusal && d.attempt && d.attempt.status!=='passed') renderPaper(d);
+            else renderState(d);
+        }
+
+        function renderError(m){
+            document.getElementById('body').innerHTML = `<div class="text-center">
+                <div class="w-14 h-14 rounded-full bg-[color-mix(in_srgb,var(--muted)_22%,transparent)] text-[var(--muted)] grid place-items-center mx-auto mb-4"><i data-lucide="search-x" class="w-7 h-7"></i></div>
+                <h2 class="text-lg font-bold tracking-tight">We couldn’t open that test</h2>
+                <p class="text-sm muted mt-2">${escapeHtml(m||'Double-check the link you were sent.')}</p>
+            </div>`;
+            if(window.lucide) lucide.createIcons();
+        }
+
+        async function submit(e){
+            e.preventDefault();
+            const q=D.quiz, note=document.getElementById('note'), btn=document.getElementById('submitBtn');
+            const answers=q.questions.map((_,i)=>{ const c=document.querySelector(`input[name="q${i}"]:checked`); return c?Number(c.value):-1; });
+            // Every question answered before it goes — an unanswered one is
+            // marked wrong, and finding that out from the score is too late.
+            const missing=answers.map((v,i)=>v<0?i:-1).filter(i=>i>=0);
+            document.querySelectorAll('fieldset[data-q] .opt').forEach(el=>el.classList.remove('q-missing'));
+            if(missing.length){
+                missing.forEach(i=>document.querySelectorAll(`fieldset[data-q="${i}"] .opt`).forEach(el=>el.classList.add('q-missing')));
+                note.textContent=`Answer every question first — ${missing.length} still to go.`;
+                note.className='text-sm text-red-500';
+                document.querySelector(`fieldset[data-q="${missing[0]}"]`).scrollIntoView({behavior:'smooth',block:'center'});
+                return;
+            }
+            btn.disabled=true; btn.textContent='Marking…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(getSlug())}/test/${encodeURIComponent(getToken())}`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'}, body:JSON.stringify({answers}) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok && !d.attempt){ note.textContent=d.error||'That didn’t go through. Try again.'; note.className='text-sm text-red-500'; btn.disabled=false; btn.textContent='Hand it in'; return; }
+                D=d;
+                renderState(d, { justFailed: d.passed===false });
+                window.scrollTo({ top:0, behavior:'smooth' });
+            }catch{
+                note.textContent='Couldn’t reach the server. Your answers are still here — try again.'; note.className='text-sm text-red-500';
+                btn.disabled=false; btn.textContent='Hand it in';
+            }
+        }
+
+        (async function(){
+            const slug=getSlug(), token=getToken();
+            if(!slug || !token){ renderError('This test link is incomplete.'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/test/${encodeURIComponent(token)}`,{ headers:{Accept:'application/json'} });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ renderError(d.error); return; }
+                render(d);
+            }catch{ renderError('Couldn’t reach the server. Please try again in a moment.'); }
+        })();
+    </script>
+</body>
+</html>

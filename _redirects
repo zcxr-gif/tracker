@@ -15,6 +15,8 @@
 # the catch-all below, so it must come first.
 /crew/:slug/join  /crew-join.html  200
 /crew/:slug/status  /crew-status.html  200
+# An entrance test, opened from the link staff sent — no sign-in. crew-test.html.
+/crew/:slug/test  /crew-test.html  200
 # The website builder. A whole page rather than a panel on the dashboard —
 # see crew-website.html. Same session, same slug in the path.
 /crew/:slug/website  /crew-website.html  200

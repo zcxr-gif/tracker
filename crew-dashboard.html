@@ -145,6 +145,10 @@
          gets reminded that people are waiting. Drawn inside the Recruitment
          drawer rather than as a panel of its own — see that drawer's note. -->
     <script src="/crewQuizAdmin.js"></script>
+    <!-- Entrance tests: sent from an application card or to somebody new, sat
+         with no login (crew-test.html), read back here before anybody is
+         accepted. -->
+    <script src="/crewEntrance.js"></script>
     <!-- One pilot's flying, opened by their staff: every report they have
          filed, the arithmetic underneath it, and the two things that did not
          exist before — correcting a flight's hours, and filing one by hand
@@ -8680,7 +8684,7 @@
             // Add-pilot and the CSV tools only make sense on the roster tab.
             document.getElementById('addPilotBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
-            if(v==='apps'){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
+            if(v==='apps'){ closePilotForm(); renderApps(); Promise.all([fetchApps(), mountEntrance()]).then(renderApps); }
             if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets(),fetchLoginSetup()]).then(renderInvites); }
             showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
@@ -9694,6 +9698,7 @@
                     </div>
                 </div>
                 ${answers?`<div class="mt-2 pl-1">${answers}</div>`:''}
+                ${window.CrewEntrance?`<div class="mt-3">${CrewEntrance.cardHtml(a)}</div>`:''}
                 <textarea data-msg rows="2" placeholder="${a.email?'Message emailed to the applicant + shown on their status page…':'Message shown on their status page…'}" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-3 focus:outline-none focus:border-[var(--ink)]"></textarea>
 
                 <!-- What they get on acceptance. Ignored entirely on decline. -->
@@ -9724,14 +9729,34 @@
                 <p data-note class="hidden text-sm mt-2"></p>
             </div>`;
         }
+        // Entrance tests (crewEntrance.js). Mounted the first time the
+        // applications are opened, so a VA that never looks at them never asks
+        // its database about tests.
+        let ENTRANCE_MOUNTED=null;
+        function mountEntrance(){
+            if(!window.CrewEntrance || !sessionToken()) return Promise.resolve();
+            if(!ENTRANCE_MOUNTED){
+                ENTRANCE_MOUNTED=CrewEntrance.mount({ api: crewApi(), onChange: ()=>renderApps() }).catch(()=>{});
+                CrewEntrance.wire(document.getElementById('appsList'));
+            }
+            return ENTRANCE_MOUNTED;
+        }
         function renderApps(){
             refreshAppsBadge();
             const list=document.getElementById('appsList');
             if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to review applications.</p>'; return; }
             const pending=APPS.filter(a=>a.status==='pending');
+            if(window.CrewEntrance) CrewEntrance.noteCards(pending);
+            // The way to every test, and to sending one to somebody who never
+            // applied — a pilot met on the IFC.
+            const tests = window.CrewEntrance ? `<div class="flex items-center gap-2 flex-wrap surface hair rounded-xl px-3.5 py-2.5">
+                    <i data-lucide="file-pen-line" class="w-4 h-4 muted"></i>
+                    <span class="text-sm flex-1 min-w-[10rem]"><b>Entrance tests</b> <span class="muted">— send one before you accept. No login needed to sit it.</span></span>
+                    <button onclick="CrewEntrance.open()" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">All tests &amp; send to someone new</button>
+                </div>` : '';
             keepPlace(list,()=>{
-                list.innerHTML = pending.length ? pending.map(appCardHtml).join('')
-                    : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>';
+                list.innerHTML = tests + (pending.length ? pending.map(appCardHtml).join('')
+                    : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>');
                 if(window.lucide) lucide.createIcons();
             });
         }

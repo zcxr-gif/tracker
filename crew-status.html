@@ -163,6 +163,22 @@
             if(VA.name) document.title = `${VA.name} · Application status — Crew Center`;
         }
 
+        /* THE ENTRANCE TEST, when staff have sent one. The link to sit it
+           while it can be sat — this page is the one place an applicant with
+           no email is sure to find it again — and how it went once it has. */
+        function testHtml(t){
+            if(!t) return '';
+            const passed=t.status==='passed', failed=t.status==='failed';
+            const line = passed ? `You passed with ${t.percent}%. The staff will send your crew center invitation.`
+                : failed ? (t.retryAt ? `Not this time (${t.percent}%). You can try again from ${new Date(t.retryAt).toLocaleString(undefined,{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}.` : `Not this time (${t.percent}%).${t.link?' You can try again now.':''}`)
+                : `Pass with ${t.passMark}% or more. No account needed.`;
+            return `<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="${passed?'badge-check':'file-pen-line'}" class="w-3.5 h-3.5"></i> ${escapeHtml(t.title||'Entrance test')}</div>
+                <p class="text-sm">${escapeHtml(line)}</p>
+                ${t.link&&!passed&&!t.retryAt?`<a href="${escapeHtml(t.link)}" class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-4 py-2 rounded-lg mt-3 hover:opacity-90 transition">${failed?'Try again':'Take the test'} <i data-lucide="arrow-right" class="w-4 h-4"></i></a>`:''}
+            </div>`;
+        }
+
         function render(d){
             const body=document.getElementById('body');
             const slug=getSlug();
@@ -221,7 +237,7 @@
                     <p class="text-sm muted mt-2">Welcome to <b>${escapeHtml(VA.name||'the crew')}</b>${d.callsign?', flying as':''}</p>
                     ${d.callsign?`<div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign)}</div>`:''}
                     ${msg}
-                    ${creds}
+                    ${creds||`<div class="surface hair rounded-xl p-4 mt-5 text-left text-sm muted"><b class="text-[var(--ink)]">Your crew center sign-in is on its way.</b> The ${escapeHtml(VA.name||'VA')} staff send it to you — it will also appear right here the moment it’s ready.</div>`}
                     ${discordInvite(d)}
                     <a href="/crew/${escapeHtml(slug)}" class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">${creds?'Sign in to the crew center':'Go to the crew center'} <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
                     ${meta}
@@ -249,6 +265,7 @@
                     <div class="w-14 h-14 rounded-full accent-bg text-white grid place-items-center mx-auto mb-4"><i data-lucide="clock" class="w-7 h-7"></i></div>
                     <h2 class="text-xl font-bold tracking-tight">Under review</h2>
                     <p class="text-sm muted mt-2">${d.ifcName?('Hang tight, '+escapeHtml(d.ifcName)+'. '):''}The ${escapeHtml(VA.name||'VA')} staff are reviewing your application. Check back here — this page updates when they decide.</p>
+                    ${testHtml(d.test)}
                     ${msg}
                     <button id="refreshBtn" onclick="load(true)" class="inline-flex items-center gap-1.5 text-sm font-semibold accent-text mt-5 hover:underline"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Check now</button>
                     ${meta}
