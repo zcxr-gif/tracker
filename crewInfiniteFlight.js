@@ -107,6 +107,15 @@
      * ================================================================== */
     function injectStyles() {
         P.style('cif-styles', `
+        /* Locked in beta. A screen, not an error: nothing is wrong, it is shut. */
+        .cif-beta{ display:grid; justify-items:center; text-align:center; gap:.6rem; padding:2.25rem 1rem 1.5rem; }
+        .cif-beta-mark{ width:3rem; height:3rem; border-radius:999px; display:grid; place-items:center;
+            background:color-mix(in srgb, var(--accent,#2563eb) 12%, transparent); color:var(--accent,#2563eb); }
+        .cif-beta-mark svg{ width:1.4rem; height:1.4rem; }
+        .cif-beta-tag{ font-size:.66rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+            padding:.15rem .5rem; border-radius:999px; border:1px solid var(--line,#e5e5e5); color:var(--muted,#736E64); }
+        .cif-beta h3{ margin:0; font-size:1.05rem; letter-spacing:-.01em; color:var(--ink,#1C1A16); }
+        .cif-beta p{ margin:0; max-width:30rem; font-size:.86rem; line-height:1.5; color:var(--muted,#736E64); }
         .cif-tabs{ display:flex; gap:.25rem; padding:.25rem; border-radius:.6rem;
             background:color-mix(in srgb, var(--ink,#1C1A16) 6%, transparent); }
         .cif-tab{ flex:1; padding:.45rem .5rem; border:0; border-radius:.45rem; cursor:pointer;
@@ -542,6 +551,7 @@
     function view() {
         if (!S.loaded) return '<div class="cp-empty">Loading…</div>';
         if (S.error) {
+            if (S.error.code === 'if_live_beta') return betaView(S.error.message);
             if (P.isSchemaGap(S.error)) return P.schemaGapHtml(S.error);
             return `<div class="cp-empty"><i data-lucide="triangle-alert"></i>${esc(S.error.message || 'Could not load the connection.')}</div>`;
         }
@@ -575,6 +585,20 @@
      * the alternative to explaining them is a Connect button that produces a
      * 403 nobody can diagnose.
      * ----------------------------------------------------------------- */
+    /* Locked in beta (ifBeta.js on the backend). Every Live route answers 423
+       with this code until the platform opens it, so this is the whole panel
+       until then — what it is, that it is coming, and that nothing a VA set up
+       before the lock has gone anywhere. */
+    function betaView(message) {
+        return `<div class="cif-beta">
+            <span class="cif-beta-mark"><i data-lucide="lock"></i></span>
+            <span class="cif-beta-tag">Beta</span>
+            <h3>Infinite Flight Live is coming soon</h3>
+            <p>${esc(message || 'Infinite Flight Live is in beta and locked for every crew center for now.')}</p>
+            <p>When it opens you will be able to connect your Live organization, see your real fleet and push the week’s departures onto each aircraft’s rota.</p>
+        </div>`;
+    }
+
     function setupView(st) {
         // `canManage`, not `owner`. Connecting the account is gated on
         // integrations.manage, which an owner holds implicitly and can grant to

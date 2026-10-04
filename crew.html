@@ -715,6 +715,15 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
         }
 
         // ---- Auth (shared across looks) ----
+        // Where a sign-in lands. Pilots: their home. Staff: the dashboard — unless
+        // they last switched to the pilot view on this device, in which case
+        // that is where they go back to (crewViewSwitch.js keeps the note).
+        function landingPage(data){
+            if(data.view==='pilot') return 'crew-pilot.html';
+            const staff = data.role==='owner' || data.role==='staff' || data.oversight;
+            let pref=''; try{ pref=localStorage.getItem('crew:view:'+CREW_SLUG)||''; }catch{}
+            return staff && pref==='pilot' ? 'crew-pilot.html' : 'crew-dashboard.html';
+        }
         function sessionKey(){ return 'crew:session:'+CREW_SLUG; }
         async function handleLogin(e){
             e.preventDefault();
@@ -752,7 +761,7 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                 // and getSlug() reads the slug as "crew-dashboard.html" —
                 // which the backend has no VA for. The pilot signs in
                 // successfully and is told the crew center doesn't exist.
-                const page = data.view==='pilot' ? 'crew-pilot.html' : 'crew-dashboard.html';
+                const page = landingPage(data);
                 location.href = `/${page}?va=${encodeURIComponent(CREW_SLUG)}${embedQS}`;
             }catch{ note.textContent='Could not reach the server. Please try again.'; note.className='authNote text-sm font-medium text-red-500'; note.classList.remove('hidden'); btn.disabled=false; label.textContent=prev; }
         }
@@ -1024,7 +1033,7 @@ body[data-banner="1"] .dark .bannerBand + .cardHead .brand-mono-box{
                 // Same arrival flag as the password door above — a Discord
                 // sign-in is not a lesser way in.
                 if(window.CrewSplash) CrewSplash.mark(CREW_SLUG);
-                const page = data.view==='pilot' ? 'crew-pilot.html' : 'crew-dashboard.html';
+                const page = landingPage(data);
                 location.href = `/${page}?va=${encodeURIComponent(CREW_SLUG)}${embedQS}`;
                 return true;
             }catch{

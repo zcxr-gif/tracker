@@ -137,6 +137,8 @@
     <!-- A quiz the airline set, and — where it has switched that on — the door
          in front of the whole crew centre until this pilot has passed one. -->
     <script src="/crewQuiz.js"></script>
+    <!-- Admin view ⇄ pilot view, for staff. -->
+    <script src="/crewViewSwitch.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         /* `hidden` is Tailwind's, and Tailwind is a CDN script — when it is
@@ -435,6 +437,10 @@
                      pilot can get from their own device. -->
                 <time data-crew-zulu class="hidden sm:inline-flex mr-1.5"></time>
                 <span data-skin-toggle></span>
+                <!-- Back to the admin dashboard, for owner and staff who are
+                     looking at their crew center as a pilot. crewViewSwitch.js
+                     fills it; a pilot's session leaves it empty. -->
+                <span data-view-switch="admin" class="mr-1" hidden></span>
                 <!-- The dot that used to live here was markup: always on, never
                      counting anything. crewAlerts.js owns this button now and
                      paints a real number on it, or nothing at all. -->
@@ -493,6 +499,19 @@
             <!-- Was "You're 36 hours from Captain" for everybody, including
                  pilots who were already Captains and pilots with no hours. -->
             <p id="heroLine" class="text-white/85 text-sm sm:text-base mt-2.5 max-w-lg"></p>
+            <!-- Owner or staff on the pilot view with no pilot record of their
+                 own yet. One press makes it (POST /me/pilot-side), with the
+                 callsign they type if they type one. Hidden for everyone else. -->
+            <div id="staffPilotSetup" class="hidden mt-3 max-w-lg rounded-lg bg-black/35 backdrop-blur-sm px-3.5 py-3 text-white">
+                <div class="text-sm font-semibold">You’re seeing your crew center as your pilots do.</div>
+                <div class="text-xs text-white/80 mt-0.5">Set up your own pilot account to book legs, file flights and show up on the map as yourself.</div>
+                <div class="flex flex-wrap items-center gap-2 mt-2.5">
+                    <input id="staffPilotCs" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Your callsign (optional)"
+                        class="flex-1 min-w-[10rem] rounded-md bg-white/15 border border-white/25 px-2.5 py-1.5 text-sm text-white placeholder-white/60 uppercase focus:outline-none focus:border-white/60">
+                    <button id="staffPilotGo" type="button" class="rounded-md bg-white text-zinc-900 px-3 py-1.5 text-sm font-semibold hover:opacity-90">Set up my pilot account</button>
+                </div>
+                <div id="staffPilotNote" class="hidden text-xs mt-1.5"></div>
+            </div>
             <!-- ============ WHAT THIS PILOT WEARS ============
                  Their rank, their club, every award they have earned and
                  everything they have claimed from the shop, painted by
@@ -1045,6 +1064,35 @@
             if(logbookPanel&&logbookPanel.isOpen()) renderLogbook();
         }
 
+        /* STAFF ON THE PILOT VIEW, WITH NO PILOT RECORD YET.
+           The page works for them — it is their crew center — but every number
+           on it would be blank, because nothing yet says which pilot they are.
+           So the hero says so, once, with the button that fixes it. Not for
+           Inflight oversight: we are not a pilot at anybody's airline. */
+        function paintStaffPilotSetup(){
+            const box=document.getElementById('staffPilotSetup'); if(!box) return;
+            const s=storedSession();
+            const show=MY.loaded && !MY.pilot && !MY.error && isStaffViewer(s) && !(s&&s.oversight);
+            box.classList.toggle('hidden', !show);
+        }
+        async function setUpStaffPilot(){
+            const slug=getSlug(), tok=sessionToken(); if(!slug||!tok) return;
+            const btn=document.getElementById('staffPilotGo'), note=document.getElementById('staffPilotNote');
+            const callsign=(document.getElementById('staffPilotCs').value||'').trim();
+            btn.disabled=true; const was=btn.textContent; btn.textContent='Setting up…';
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/me/pilot-side`,{
+                    method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+tok},
+                    body:JSON.stringify(callsign?{callsign}:{}) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ note.textContent=d.error||'That didn’t work.'; note.className='text-xs mt-1.5 text-red-200'; return; }
+                note.className='hidden';
+                await loadMyFlying();
+            }catch{ note.textContent='Couldn’t reach the server.'; note.className='text-xs mt-1.5 text-red-200'; }
+            finally{ btn.disabled=false; btn.textContent=was; }
+        }
+        document.addEventListener('click',e=>{ if(e.target.closest('#staffPilotGo')) setUpStaffPilot(); });
+
         function paintHero(){
             if(!MY.loaded) return;
             const name=document.getElementById('heroName');
@@ -1054,7 +1102,7 @@
                 // First name only — "Welcome back, Rae Okafor" reads like a form.
                 const first=String(MY.pilot.name||'').trim().split(/\s+/)[0]||'';
                 if(name) name.textContent=first?`Welcome back, ${first}`:'Welcome back';
-                if(cs&&MY.pilot.callsign) cs.textContent=MY.pilot.callsign;
+                if(cs&&MY.pilot.callsign){ cs.textContent=MY.pilot.callsign; cs.closest('span').classList.remove('hidden'); }
                 else if(cs) cs.closest('span').classList.add('hidden');
             }else if(name){ name.textContent='Welcome back'; }
             if(!line) return;
@@ -1088,6 +1136,7 @@
             // when it is set, because ours says something true about this
             // particular pilot and a fixed line cannot. See crewHero.js.
             if(HERO && HERO.line) line.textContent=HERO.line;
+            paintStaffPilotSetup();
         }
 
         function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
@@ -1792,11 +1841,15 @@
         }
 
         // ---- Signed-in identity (from the login's stored session) ----
+        // An owner or staff member looking at the pilot home. Their session is
+        // the staff one, and every pilot endpoint already answers it as their
+        // own pilot record — this only changes what the page says about them.
+        function isStaffViewer(s){ s=s||storedSession(); return !!(s&&(s.role==='owner'||s.role==='staff'||s.oversight)); }
         function readSession(){
             let s=null; try{ s=JSON.parse(localStorage.getItem('crew:session:'+getSlug())||'null'); }catch{}
             if(!s||!s.name) return;
             document.getElementById('meName').textContent=s.name;
-            document.getElementById('meRole').textContent='Pilot';
+            document.getElementById('meRole').textContent=isStaffViewer(s)?(s.oversight?'Inflight · pilot view':'Staff · pilot view'):'Pilot';
             // Initials for now: the stored session has no picture in it. Once
             // /me lands, paintDiscord swaps in the linked Discord avatar.
             document.getElementById('meAvatar').textContent=initials(s.name,'');
