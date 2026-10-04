@@ -238,6 +238,7 @@
         const bits = [`${q.questionCount} question${q.questionCount === 1 ? '' : 's'}`, `${q.passMark}% to pass`];
         if (q.maxAttempts) bits.push(`${q.maxAttempts} attempt${q.maxAttempts === 1 ? '' : 's'}`);
         else bits.push('unlimited attempts');
+        if (q.retakeHours) bits.push(`retake after ${q.retakeHours}h`);
         if (q.open) bits.push('anyone can start it');
         if (!q.active) bits.push('off');
 
@@ -267,6 +268,16 @@
                     <input class="cp-input" type="number" min="0" max="20" inputmode="numeric"
                         data-qa-f="maxAttempts" value="${Number(q.maxAttempts) || 0}"></label>
             </div>
+            <!-- For an ENTRANCE TEST especially: how long somebody who did not
+                 pass waits before another go, and what they are pointed at to
+                 prepare. Both are stated in the message the test is sent with,
+                 and both are enforced by the server, not just said. -->
+            <label class="cp-label">Wait before a retake (hours, 0 = straight away)
+                <input class="cp-input" type="number" min="0" max="720" inputmode="numeric"
+                    data-qa-f="retakeHours" value="${Number(q.retakeHours) || 0}"></label>
+            <label class="cp-label">Study resources — shown to anybody who doesn’t pass
+                <textarea class="cp-textarea" rows="2" data-qa-f="study" maxlength="2000"
+                    placeholder="Read the SOP and the callsign guide before your next go: https://…">${esc(q.study || '')}</textarea></label>
             <label class="qa-check"><input type="checkbox" data-qa-f="open" ${q.open ? 'checked' : ''}>
                 <b>Any pilot can start this one<span>Otherwise it only opens for somebody staff have sent a link to.</span></b></label>
             <label class="qa-check"><input type="checkbox" data-qa-f="active" ${q.active ? 'checked' : ''}>
@@ -314,7 +325,9 @@
             ${quizzes().map(quizHtml).join('')}
             <div class="qa-acts">
                 <button class="cp-btn" data-qa-newquiz><i data-lucide="plus"></i> New quiz</button>
+                ${window.CrewEntrance ? '<button class="cp-btn" data-qa-entrance title="Send a quiz to somebody who is not crew yet — no login needed to sit it"><i data-lucide="file-pen-line"></i> Send as an entrance test</button>' : ''}
             </div>
+            <p class="cp-note">Any quiz can be an <b>entrance test</b>: send it from an application, or to somebody you met on the IFC. They sit it with no account; you see the score before you accept them.</p>
             ${gate}
             <div class="qa-h" style="margin-top:.4rem">Your pictures</div>
             ${bannerHtml('apply', 'Applications', 'Shown over your join form and your jobs board.', banners().apply)}
@@ -475,6 +488,8 @@
                 title: val('title'), blurb: val('blurb'),
                 passMark: Number(val('passMark')) || 80,
                 maxAttempts: Number(val('maxAttempts')) || 0,
+                retakeHours: Math.max(0, Math.min(720, Math.round(Number(val('retakeHours')) || 0))),
+                study: String(val('study') || ''),
                 open: !!val('open'), active: !!val('active'),
                 questions,
             };
@@ -679,10 +694,12 @@
             if (edit) { S.open = edit.getAttribute('data-qa-edit'); draw(); return; }
             if (t.closest('[data-qa-collapse]')) { S.open = ''; draw(); return; }
 
+            if (t.closest('[data-qa-entrance]')) { if (window.CrewEntrance) window.CrewEntrance.open(); return; }
             if (t.closest('[data-qa-newquiz]')) {
                 const n = quizzes().length + 1;
                 const fresh = { id: `quiz-${Date.now().toString(36)}`, title: `Quiz ${n}`, blurb: '', banner: '',
                     passMark: 80, maxAttempts: 3, open: false, active: true, ready: false,
+                    retakeHours: 24, study: '',
                     questionCount: 0, questions: [] };
                 S.data.quizzes = [...quizzes(), fresh];
                 S.open = fresh.id;

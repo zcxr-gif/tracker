@@ -17,6 +17,24 @@ airline is flying; the fleet was the piece it could not see.
 > recognise*, so an unknown status renders as "Status 5" instead of throwing),
 > and nothing here holds a token.
 
+## Locked in beta
+
+Live is **shut for every crew center** until the backend opens it with
+`IF_LIVE_BETA_SLUGS` (comma-separated slugs, or `*`). While it is:
+
+- every `/if` route answers `423` with `code: "if_live_beta"`, and the panel
+  draws its Beta screen from that code instead of an error;
+- `/if/board` and `/if/airframes` answer **empty** rather than refusing, so the
+  pilot board and the schedule editor's airframe field draw nothing — exactly
+  what they already do for a VA with no Live organization;
+- the dashboard tile stays, with a Beta lock on it (`/me` → `ifLive.locked`),
+  and the setup guide shows the step as blocked;
+- publishing a departure never touches a Live rota, whatever the sync switch
+  says.
+
+Nothing is deleted. A VA that connected before the lock finds its grant, its
+organization and its sync setting where it left them when the lock comes off.
+
 ## Two surfaces, two audiences
 
 | | staff panel | pilot board |

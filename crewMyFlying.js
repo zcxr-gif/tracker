@@ -48,6 +48,10 @@
         // { applies, ready, discord: { available, linked, name } }
         pilotSide: { applies: false, ready: true, discord: null },
         busy: false,         // a set-up or link round trip is in flight
+        // The callsign typed on the set-up card. Held here because the card
+        // repaints while it works, and a repaint must not eat what was typed.
+        csDraft: '',
+        csNote: null,        // { text, bad } — what the live check last said
         loaded: false,
         error: null,
         roster: [],          // only fetched when the picker is actually opened
@@ -136,6 +140,12 @@
                         <i data-lucide="user-plus"></i> ${S.busy ? 'Setting up…' : 'Set up my pilot account'}
                     </button>
                 </div>
+                <label class="mf-cs">
+                    <span class="mf-cs-label">Your callsign <span class="cp-note">— optional, and yours to choose</span></span>
+                    <input class="cp-input" data-mf-cs maxlength="40" autocomplete="off" spellcheck="false"
+                        placeholder="e.g. 001" value="${esc(S.csDraft)}" ${S.busy ? 'disabled' : ''}>
+                    ${S.csNote ? `<span class="cp-note${S.csNote.bad ? ' cp-note-bad' : ''}" data-mf-cs-note>${esc(S.csNote.text)}</span>` : '<span class="cp-note" data-mf-cs-note></span>'}
+                </label>
                 <p class="cp-note mf-alt">Already on the roster?
                     <button class="mf-inline" data-mf-pick>Point at your existing record instead</button>.</p>`;
             icons();
@@ -176,8 +186,12 @@
                     <span class="mf-name">${esc(me.name)}</span>
                     <span class="cp-note">${esc([me.callsign, hoursText(me.hours)].filter(Boolean).join(' · '))}</span>
                 </span>
+                ${S.pilotSide.applies ? `<button class="cp-icon-btn" data-mf-cs-edit title="${me.callsign ? 'Change your callsign' : 'Choose your callsign'}"><i data-lucide="radio"></i></button>` : ''}
                 ${S.linkable ? '<button class="cp-icon-btn" data-mf-pick title="Change which pilot you are"><i data-lucide="pencil"></i></button>' : ''}
             </div>
+            ${S.pilotSide.applies && !me.callsign
+                ? '<p class="cp-note mf-alt">No callsign yet. <button class="mf-inline" data-mf-cs-edit>Choose the one you fly as</button>.</p>'
+                : ''}
             ${discordRow()}
             <ul class="mf-legs">${rows}</ul>
             <div class="mf-actions">
@@ -185,6 +199,7 @@
                 <button class="cp-btn cp-btn-sm" data-mf-events><i data-lucide="calendar-days"></i> Events</button>
                 <button class="cp-btn cp-btn-sm" data-mf-file=""><i data-lucide="clipboard-check"></i> File a flight</button>
                 ${window.CrewStandings ? '<button class="cp-btn cp-btn-sm" data-mf-standings><i data-lucide="trophy"></i> Standings</button>' : ''}
+                ${pilotViewUrl() ? `<a class="cp-btn cp-btn-sm" href="${esc(pilotViewUrl())}"><i data-lucide="plane"></i> Pilot view</a>` : ''}
             </div>`;
         icons();
         wire(el);
@@ -226,16 +241,99 @@
         if (S.busy) return;
         S.busy = true; paintAll();
         try {
-            const d = await S.api('/me/pilot-side', { method: 'POST', body: {} });
+            const callsign = String(S.csDraft || '').trim();
+            const d = await S.api('/me/pilot-side', { method: 'POST', body: callsign ? { callsign } : {} });
+            S.csDraft = ''; S.csNote = null;
             S.me = d.pilot || null;
             S.pilotSide = Object.assign(S.pilotSide, { applies: true, ready: true, discord: d.discord || S.pilotSide.discord });
-            P.toast(d.created ? 'Your pilot account is set up.' : 'You already had one — here it is.', 'ok');
+            P.toast(d.created
+                ? (S.me && S.me.callsign ? `Your pilot account is set up — you fly as ${S.me.callsign}.` : 'Your pilot account is set up.')
+                : 'You already had one — here it is.', 'ok');
             if (S.me) await loadBookings();
         } catch (err) {
+            // A taken callsign belongs next to the box it was typed in.
+            if (err && err.code === 'callsign_taken') S.csNote = { text: err.message, bad: true };
             P.toast(err.message || 'Could not set that up.', 'bad');
         } finally {
             S.busy = false; paintAll();
         }
+    }
+
+    /* =====================================================================
+     * THEIR CALLSIGN
+     *
+     * Staff choose their own — the owner who founded the airline flies as 001,
+     * and nobody should have to edit the roster to say so. The server applies
+     * the VA's shape (a bare number becomes "BAW 001VA") and refuses one that
+     * somebody already flies; the check here is the same call with
+     * `check: true`, so "taken" arrives while they are still typing.
+     * =================================================================== */
+    const csTimers = new WeakMap();
+    function liveCheck(input, noteEl, { except = '' } = {}) {
+        clearTimeout(csTimers.get(input));
+        const v = String(input.value || '').trim();
+        const say = (text, bad) => {
+            if (!noteEl) return;
+            noteEl.textContent = text;
+            noteEl.className = 'cp-note' + (bad ? ' cp-note-bad' : '');
+        };
+        if (!v || v.toUpperCase() === String(except || '').toUpperCase()) { say('', false); return; }
+        csTimers.set(input, setTimeout(async () => {
+            try {
+                const d = await S.api('/me/callsign', { method: 'POST', body: { callsign: v, check: true } });
+                if (String(input.value || '').trim() !== v) return;   // they kept typing
+                say(d.ok ? `${d.callsign} is free.` : (d.error || 'That callsign is taken.'), !d.ok);
+            } catch { say('', false); /* the save will say */ }
+        }, 400));
+    }
+
+    function openCallsign() {
+        const current = (S.me && S.me.callsign) || '';
+        const modal = dialog(current ? 'Change your callsign' : 'Choose your callsign', `
+            <p class="cp-note">What you fly as here — on the roster, on the map and on frequency. Type a
+                number and it takes your airline’s callsign shape. As staff, the reserved low numbers
+                are yours to take; one another pilot already flies is not.</p>
+            <input id="mfCsInput" class="cp-input" maxlength="40" autocomplete="off" spellcheck="false"
+                value="${esc(current)}" placeholder="e.g. 001">
+            <span class="cp-note" id="mfCsNote"></span>
+            <div class="mf-actions">
+                <button class="cp-btn cp-btn-primary" id="mfCsSave"><i data-lucide="check"></i> Save</button>
+                <button class="cp-btn" data-mf-close>Cancel</button>
+            </div>`);
+        const input = modal.el.querySelector('#mfCsInput');
+        const note = modal.el.querySelector('#mfCsNote');
+        const btn = modal.el.querySelector('#mfCsSave');
+        input.addEventListener('input', () => liveCheck(input, note, { except: current }));
+        const save = async () => {
+            const v = String(input.value || '').trim();
+            if (!v) { note.textContent = 'Type the callsign you fly as.'; note.className = 'cp-note cp-note-bad'; return; }
+            btn.disabled = true;
+            try {
+                const d = await S.api('/me/callsign', { method: 'POST', body: { callsign: v } });
+                S.me = d.pilot || S.me;
+                S.pilotSide = Object.assign(S.pilotSide, { applies: true, ready: true, discord: d.discord || S.pilotSide.discord });
+                modal.close();
+                P.toast(`You fly as ${(d.pilot && d.pilot.callsign) || v.toUpperCase()}.`, 'ok');
+                if (S.me) await loadBookings();
+                paintAll();
+            } catch (err) {
+                note.textContent = err.message || 'Could not save that.';
+                note.className = 'cp-note cp-note-bad';
+                btn.disabled = false;
+            }
+        };
+        btn.addEventListener('click', save);
+        input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); save(); } });
+        setTimeout(() => { try { input.focus(); input.select(); } catch { /* fine */ } }, 30);
+    }
+
+    /* The other half of the house. Staff who fly land on the dashboard; this
+       is the door to the pilot home with the same session, which the backend
+       already answers as their pilot side. crewViewSwitch.js owns the address
+       so the header switch and this button cannot disagree about it. */
+    function pilotViewUrl() {
+        return (window.CrewViewSwitch && typeof window.CrewViewSwitch.url === 'function')
+            ? window.CrewViewSwitch.url('pilot') : '';
     }
 
     /* Linking is a navigation, and the address has to be asked for rather than
@@ -306,9 +404,19 @@
     function wire(el) {
         if (el.dataset.mfWired) return;      // the host element survives repaints
         el.dataset.mfWired = '1';
+        // The set-up card's callsign box: kept in S so a repaint keeps it, and
+        // checked as they type.
+        el.addEventListener('input', (ev) => {
+            const box = ev.target.closest('[data-mf-cs]');
+            if (!box) return;
+            S.csDraft = box.value;
+            S.csNote = null;
+            liveCheck(box, el.querySelector('[data-mf-cs-note]'));
+        });
         el.addEventListener('click', (ev) => {
             if (ev.target.closest('[data-mf-pick]')) return openPicker();
             if (ev.target.closest('[data-mf-setup]')) return setUpPilotSide();
+            if (ev.target.closest('[data-mf-cs-edit]')) return openCallsign();
             if (ev.target.closest('[data-mf-dc-link]')) return linkDiscord();
             if (ev.target.closest('[data-mf-dc-unlink]')) return unlinkDiscord();
             if (ev.target.closest('[data-mf-schedule]')) return window.CrewSchedule && CrewSchedule.open();
@@ -519,6 +627,10 @@
         .mf-link-text{ flex:1; min-width:12rem; }
         .mf-link-title{ font-weight:700; letter-spacing:-.01em; color:var(--ink,#1C1A16); }
         .mf-alt{ margin-top:.55rem; }
+        .mf-cs{ display:grid; gap:.3rem; margin-top:.75rem; max-width:22rem; }
+        .mf-cs-label{ font-size:.8125rem; font-weight:600; color:var(--ink,#1C1A16); }
+        .mf-cs .cp-input, #mfCsInput{ text-transform:uppercase; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+        .mf-cs .cp-input::placeholder, #mfCsInput::placeholder{ text-transform:none; font-family:inherit; }
 
         /* The Discord row. Sits between who they are and what they are flying,
            because it is about getting IN rather than about the flying itself. */
@@ -624,6 +736,8 @@
     window.CrewMyFlying = {
         mount, render,
         reload: () => load(),
+        // The setup guide's "Your own callsign" step opens the same box.
+        openCallsign: () => { if (S.api) openCallsign(); },
         get pilot() { return S.me ? { ...S.me } : null; },
     };
 })();

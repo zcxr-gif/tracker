@@ -126,6 +126,9 @@
     <!-- A staff member's OWN flying. Staff fly too, and this dashboard used to
          show them everyone else's operation and none of their own. -->
     <script src="/crewMyFlying.js"></script>
+    <!-- Pilot view ⇄ admin view. Before nothing in particular: it reads the
+         stored session and paints itself. -->
+    <script src="/crewViewSwitch.js"></script>
     <!-- The shop: what a flight is worth, the pilot's card, and Inflight Pay.
          Off until an owner turns it on, and silent in every VA that has not. -->
     <script src="/crewShop.js"></script>
@@ -142,6 +145,10 @@
          gets reminded that people are waiting. Drawn inside the Recruitment
          drawer rather than as a panel of its own — see that drawer's note. -->
     <script src="/crewQuizAdmin.js"></script>
+    <!-- Entrance tests: sent from an application card or to somebody new, sat
+         with no login (crew-test.html), read back here before anybody is
+         accepted. -->
+    <script src="/crewEntrance.js"></script>
     <!-- One pilot's flying, opened by their staff: every report they have
          filed, the arithmetic underneath it, and the two things that did not
          exist before — correcting a flight's hours, and filing one by hand
@@ -664,6 +671,10 @@
                      does, and empty for good if the script did not arrive.
                      Off the bar on a phone — it is in Settings › Appearance. -->
                 <span data-skin-toggle class="hidden sm:inline-flex"></span>
+                <!-- Owner and staff fly too: the door to the pilot home, same
+                     session. crewViewSwitch.js fills it, and leaves it empty for
+                     anybody it is not for. -->
+                <span data-view-switch="pilot" class="mr-1" hidden></span>
                 <!-- crewAlerts.js adopts this and paints the count on it. No dot
                      in the markup: one that is always there means nothing. -->
                 <button data-crew-bell class="w-9 h-9 grid place-items-center rounded-md muted hover:text-[var(--ink)] transition relative" title="Notifications"><i data-lucide="bell" class="w-[18px] h-[18px]"></i></button>
@@ -1989,6 +2000,17 @@
                     </select>
                 </div>
                 <div id="np_aircraft" class="flex flex-wrap gap-1.5 mt-2.5"></div>
+                <!-- ADDING BY INVITE. Only on a new pilot: their IFC name (so
+                     the message is addressed to them and the roster knows who
+                     to look for) and one tick that makes their login and a
+                     single-use setup link, with a message to paste on the IFC. -->
+                <div id="np_inviteBlock" class="mt-3 rounded-lg hair border p-3">
+                    <input id="np_ifc" placeholder="IFC username (optional)" autocomplete="off" spellcheck="false" class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <label class="flex items-start gap-2 mt-2.5 text-sm cursor-pointer">
+                        <input id="np_invite" type="checkbox" checked class="mt-0.5" onchange="pilotSubmitLabel()">
+                        <span><span class="font-semibold">Invite them</span> <span class="muted">— make their crew center login and give me a welcome message to send on the IFC, with your banner on it. No email needed.</span></span>
+                    </label>
+                </div>
                 <div class="flex gap-2 mt-3">
                     <button id="pilotSubmitBtn" onclick="submitPilot()" class="flex-1 accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Add pilot</button>
                     <button onclick="closePilotForm()" class="surface hair rounded-lg px-4 text-sm font-semibold">Cancel</button>
@@ -2898,7 +2920,9 @@
             {icon:'library',label:'Documents',desc:'Manuals, SOPs & policies',action:'documents'},
             {icon:'mail',label:'Messages',desc:'Message pilots directly',action:'inbox'},
             {icon:'link',label:'Quick links',desc:'Where the crew gets sent',action:'links'},
-            {icon:'plane',label:'Infinite Flight',desc:'Live fleet & aircraft schedules',action:'ifLive'},
+            // `beta` draws a lock on the tile while Live is shut (ifBeta.js in
+            // the database repo). The tile stays: the panel behind it says why.
+            {icon:'plane',label:'Infinite Flight',desc:'Live fleet & aircraft schedules',action:'ifLive',beta:true},
             {icon:'globe',label:'Website',desc:'Your public site',action:'website'},
             {icon:'code-xml',label:'Embeds',desc:'Site widgets',action:'embeds'},
             {icon:'graduation-cap',label:'Training',desc:'Check-rides & the ladder',action:'training'},
@@ -2954,6 +2978,10 @@
         // step with applyCapState's `vis` map — both answer the same question.
         // The tile set as last drawn, so a repeat render can be skipped.
         let TILES_DRAWN='';
+        // Infinite Flight Live is locked in beta unless the backend says this
+        // crew center is open (/me → ifLive). Locked until told otherwise, so
+        // the first paint never offers something the server will refuse.
+        let IF_BETA={ locked:true, message:'' };
         function canReachAnySettings(){
             return IS_OWNER || !sessionToken()
                 || can('settings.branding') || can('schedules.manage')
@@ -3011,14 +3039,14 @@
             // click that was mid-flight against the old nodes. For the common
             // case (an owner, where both passes agree) the second call now does
             // nothing at all.
-            const key=tools.map(t=>t.action).join(',');
+            const key=tools.map(t=>t.action).join(',')+(IF_BETA.locked?'|if-locked':'');
             if(key===TILES_DRAWN) return;
             TILES_DRAWN=key;
 
             document.getElementById('toolGrid').innerHTML=tools.map((t,i)=>`
                 <a data-i="${i}" data-action="${escapeHtml(t.action)}" class="tile surface rounded-xl p-5 flex flex-col gap-3 cursor-pointer group">
                     <span class="muted group-hover:accent-text transition-colors"><i data-lucide="${t.icon}" class="w-6 h-6"></i></span>
-                    <div><div class="font-semibold tracking-tight">${escapeHtml(t.label)}</div><div class="text-sm muted mt-0.5">${escapeHtml(t.desc)}</div></div>
+                    <div><div class="font-semibold tracking-tight flex items-center gap-1.5">${escapeHtml(t.label)}${t.beta&&IF_BETA.locked?'<span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full hair border muted" title="In beta — locked for now"><i data-lucide="lock" class="w-3 h-3"></i>Beta</span>':''}</div><div class="text-sm muted mt-0.5">${escapeHtml(t.beta&&IF_BETA.locked?'In beta — locked for now':t.desc)}</div></div>
                 </a>`).join('');
             // ONE TABLE, NOT TWENTY IFS.
             //
@@ -5896,11 +5924,22 @@
             buildAircraftChips(member ? (member.aircraft||[]) : []);
             document.getElementById('pilotFormTitle').textContent = member ? 'Edit pilot' : 'Add pilot';
             document.getElementById('pilotSubmitBtn').textContent = member ? 'Save changes' : 'Add pilot';
+            // Inviting is for somebody new; an existing pilot's login lives in Logins.
+            document.getElementById('np_inviteBlock').classList.toggle('hidden', !!member);
+            document.getElementById('np_ifc').value='';
+            document.getElementById('np_invite').checked=true;
+            pilotSubmitLabel();
             const note=document.getElementById('pilotNote'); if(note) note.classList.add('hidden');
             // Blank form: put them in the name box. Editing: leave the caret
             // alone — see revealForm.
             revealForm('addPilotForm', member?null:'np_name');
             if(window.lucide) lucide.createIcons();
+        }
+        // The button says what it is about to do: a new pilot with the invite
+        // ticked gets a login and a message as well as a roster row.
+        function pilotSubmitLabel(){
+            const b=document.getElementById('pilotSubmitBtn'); if(!b) return;
+            b.textContent = EDITING ? 'Save changes' : (document.getElementById('np_invite').checked ? 'Add & invite' : 'Add pilot');
         }
         function closePilotForm(){ EDITING=null; document.getElementById('addPilotForm').classList.add('hidden'); }
         async function submitPilot(){
@@ -5910,6 +5949,11 @@
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ note.textContent='Sign in as owner/staff to manage the roster.'; note.className='text-sm muted'; note.classList.remove('hidden'); return; }
             const editing=EDITING;
+            if(!editing){
+                const ifc=(document.getElementById('np_ifc').value||'').trim().replace(/^@/,'');
+                if(ifc) body.ifcName=ifc;
+                if(document.getElementById('np_invite').checked) body.invite=true;
+            }
             const url=`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster${editing?('/'+encodeURIComponent(editing)):''}`;
             const done=busy('pilotSubmitBtn', editing?'Saving…':'Adding…');
             try{
@@ -5919,8 +5963,16 @@
                 if(editing){ ROSTER=ROSTER.map(m=>String(m.id)===String(editing)?d.member:m); }
                 else { ROSTER.unshift(d.member); }
                 closePilotForm(); renderRoster();
-                say(editing?`${body.name} updated.`:`${body.name} is on the roster.`,'ok');
                 changed('roster');
+                // Added by invite: straight to their invitation, ready to copy.
+                // It is kept under Logins too, so closing this loses nothing.
+                const inv=d.invite||null;
+                if(inv && Array.isArray(inv.results) && inv.results.some(x=>x.message)){
+                    openLoginSetup(inv);
+                    say(`${body.name} is on the roster — copy their welcome message and send it on the IFC.`,'ok');
+                } else if(inv && (inv.error || (inv.results||[]).some(x=>x.status==='failed'))){
+                    say(`${body.name} is on the roster, but their login couldn’t be made: ${inv.error||((inv.results||[]).find(x=>x.reason)||{}).reason||'try again from Logins.'}`,'bad');
+                } else say(editing?`${body.name} updated.`:`${body.name} is on the roster.`,'ok');
             }catch{ note.textContent='Server unreachable.'; note.className='text-sm text-red-500'; note.classList.remove('hidden'); }
             finally{ done(); }
         }
@@ -8632,7 +8684,7 @@
             // Add-pilot and the CSV tools only make sense on the roster tab.
             document.getElementById('addPilotBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
-            if(v==='apps'){ closePilotForm(); renderApps(); fetchApps().then(renderApps); }
+            if(v==='apps'){ closePilotForm(); renderApps(); Promise.all([fetchApps(), mountEntrance()]).then(renderApps); }
             if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets(),fetchLoginSetup()]).then(renderInvites); }
             showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
@@ -8750,10 +8802,11 @@
                         <button data-invite-reveal class="text-xs accent-text font-semibold hover:underline">Show</button>
                     </div>
                     <div class="flex flex-wrap gap-2 mt-3">
-                        <button data-invite-copy class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy message</button>
+                        <button data-invite-copy class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy for IFC</button>
+                        <button data-invite-copy-plain title="The same words with no pictures — for Discord" class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="text" class="w-3.5 h-3.5"></i> Plain text</button>
                         <button data-invite-regen class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> New password</button>
                     </div>
-                    <div class="text-[11px] faint mt-2">Copy the message and send it however you reach them — IFC, Discord, anywhere. It disappears from here the moment they sign in.</div>
+                    <div class="text-[11px] faint mt-2">The IFC copy opens with your banner and ends with a welcome strip — paste it into their IFC message. Plain text is the same words for Discord. It disappears from here the moment they sign in.</div>
                 </div>`:`<div class="mt-3">
                     <button data-invite-regen class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Issue a new password</button>
                 </div>`}
@@ -8960,6 +9013,9 @@
             case 'team':
                 return `<p class="text-xs muted mt-3">Staff sign in with their own accounts, made in the VA portal under Team. Then give each one a role here with only the permissions they need.</p>
                     ${gRow(L.vaPortal?`<a href="${escapeHtml(L.vaPortal)}" target="_blank" rel="noopener" class="accent-bg text-white rounded-lg px-3 py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-1.5"><i data-lucide="external-link" class="w-4 h-4"></i> Add staff in the portal</a>`:'', can('team.manage')?gBtn('team','Permissions','shield'):'')}`;
+            case 'you':
+                return `<p class="text-xs muted mt-3">Your callsign goes on your own pilot record — made for you if you have none — so you can book, file and show up on the map as yourself. A bare number takes your airline’s shape.</p>
+                    ${gRow(gBtn('you-callsign',st.state==='done'?'Change my callsign':'Choose my callsign','radio',true), gBtn('you-pilot','Open pilot view','plane'))}`;
             case 'alerts':
                 return `<p class="text-xs muted mt-3">In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL, then paste it in.</p>${gRow(gBtn('alerts','Set up Discord alerts','bell',true))}`;
             case 'email':
@@ -9074,6 +9130,8 @@
             case 'alerts': return guideGo(()=>openSettings('alerts'));
             case 'email': return guideGo(()=>{ openSettings('alerts'); setTimeout(()=>{ const el=document.getElementById('emailIntro'); if(el) el.scrollIntoView({block:'center',behavior:'smooth'}); },350); });
             case 'if': return guideGo(openIfLive);
+            case 'you-callsign': return guideGo(()=>{ if(window.CrewMyFlying && CrewMyFlying.openCallsign) CrewMyFlying.openCallsign(); });
+            case 'you-pilot': { const u=window.CrewViewSwitch&&CrewViewSwitch.url('pilot'); if(u) location.href=u; return; }
             case 'website': return guideGo(openWebsite);
             case 'tour': closeGuide(); setTimeout(()=>{ if(window.CrewTour) CrewTour.replay('staff'); },320); return;
             }
@@ -9160,6 +9218,7 @@
                 <div class="flex items-center gap-3 mt-1 text-[11px]">
                     ${live&&inv.sentAt?'<button data-inv-unsend class="muted hover:underline">Mark as not sent</button>':''}
                     ${live&&!inv.sentAt?'<button data-inv-mark class="muted hover:underline">Mark as sent</button>':''}
+                    ${live&&inv.plainMessage?'<button data-inv-copy-plain class="muted hover:underline" title="The same words with no pictures — for Discord">Copy as plain text</button>':''}
                     <button data-inv-renew class="muted hover:underline">${live?'New link':'Issue a new link'}</button>
                     ${live&&inv.expiresAt?`<span class="faint ml-auto">works until ${escapeHtml(shortDate(inv.expiresAt))}</span>`:''}
                 </div>
@@ -9338,7 +9397,7 @@
             if(go){ go.disabled=!n; go.style.opacity=n?'1':'.5'; go.innerHTML=`<i data-lucide="key-round" class="w-4 h-4"></i> Create ${n} invitation${n===1?'':'s'}`; if(window.lucide) lucide.createIcons(); }
         });
         document.addEventListener('click', async e=>{
-            const t=e.target.closest&&e.target.closest('[data-setup-open],[data-setup-close],[data-setup-all],[data-setup-none],[data-setup-go],[data-setup-copy],[data-setup-copyall],[data-setup-csv],[data-setup-done],[data-inv-filter],[data-inv-copy],[data-inv-copyall],[data-inv-csv],[data-inv-mark],[data-inv-unsend],[data-inv-renew]');
+            const t=e.target.closest&&e.target.closest('[data-setup-open],[data-setup-close],[data-setup-all],[data-setup-none],[data-setup-go],[data-setup-copy],[data-setup-copyall],[data-setup-csv],[data-setup-done],[data-inv-filter],[data-inv-copy],[data-inv-copy-plain],[data-inv-copyall],[data-inv-csv],[data-inv-mark],[data-inv-unsend],[data-inv-renew]');
             if(!t) return;
             if(t.hasAttribute('data-setup-open')){ SETUP.open=true; renderInvites(); return; }
             if(t.hasAttribute('data-setup-close')){ SETUP.open=false; renderInvites(); return; }
@@ -9354,6 +9413,14 @@
             const row=t.closest('[data-inv]');
             const pilot=row?(SETUP.pilots||[]).find(p=>p.invite&&String(p.invite.accountId)===row.getAttribute('data-inv')):null;
             try{
+                if(t.hasAttribute('data-inv-copy-plain') && pilot){
+                    const inv=pilot.invite;
+                    if(inv.sentAt && !confirm(`${pilot.name}’s invitation was already copied${inv.sentBy?` by ${inv.sentBy}`:''} ${ago(inv.sentAt)}. Copy it again?`)) return;
+                    if(!await copyText(inv.plainMessage||inv.message||'')){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
+                    await markInvites([String(inv.accountId)], true);
+                    renderInvites(); setupNote(`Copied ${pilot.name}’s invitation as plain text.`,'ok');
+                    return;
+                }
                 if(t.hasAttribute('data-inv-copy') && pilot){
                     const inv=pilot.invite;
                     // The whole point of recording it: somebody may already
@@ -9590,6 +9657,12 @@
                 btn.textContent = shown ? 'Show' : 'Hide';
                 return;
             }
+            if(e.target.closest('[data-invite-copy-plain]')){
+                const msg=(a&&a.invite&&(a.invite.plainMessage||a.invite.message))||'';
+                if(!msg) return;
+                copyText(msg).then(ok=>inviteNote(card, ok?'Copied as plain text — paste it to them.':'Couldn’t copy. Select the text instead.', ok?'ok':'error'));
+                return;
+            }
             if(e.target.closest('[data-invite-copy]')){
                 const msg=(a&&a.invite&&a.invite.message)||'';
                 if(!msg) return;
@@ -9625,6 +9698,7 @@
                     </div>
                 </div>
                 ${answers?`<div class="mt-2 pl-1">${answers}</div>`:''}
+                ${window.CrewEntrance?`<div class="mt-3">${CrewEntrance.cardHtml(a)}</div>`:''}
                 <textarea data-msg rows="2" placeholder="${a.email?'Message emailed to the applicant + shown on their status page…':'Message shown on their status page…'}" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-3 focus:outline-none focus:border-[var(--ink)]"></textarea>
 
                 <!-- What they get on acceptance. Ignored entirely on decline. -->
@@ -9655,14 +9729,34 @@
                 <p data-note class="hidden text-sm mt-2"></p>
             </div>`;
         }
+        // Entrance tests (crewEntrance.js). Mounted the first time the
+        // applications are opened, so a VA that never looks at them never asks
+        // its database about tests.
+        let ENTRANCE_MOUNTED=null;
+        function mountEntrance(){
+            if(!window.CrewEntrance || !sessionToken()) return Promise.resolve();
+            if(!ENTRANCE_MOUNTED){
+                ENTRANCE_MOUNTED=CrewEntrance.mount({ api: crewApi(), onChange: ()=>renderApps() }).catch(()=>{});
+                CrewEntrance.wire(document.getElementById('appsList'));
+            }
+            return ENTRANCE_MOUNTED;
+        }
         function renderApps(){
             refreshAppsBadge();
             const list=document.getElementById('appsList');
             if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to review applications.</p>'; return; }
             const pending=APPS.filter(a=>a.status==='pending');
+            if(window.CrewEntrance) CrewEntrance.noteCards(pending);
+            // The way to every test, and to sending one to somebody who never
+            // applied — a pilot met on the IFC.
+            const tests = window.CrewEntrance ? `<div class="flex items-center gap-2 flex-wrap surface hair rounded-xl px-3.5 py-2.5">
+                    <i data-lucide="file-pen-line" class="w-4 h-4 muted"></i>
+                    <span class="text-sm flex-1 min-w-[10rem]"><b>Entrance tests</b> <span class="muted">— send one before you accept. No login needed to sit it.</span></span>
+                    <button onclick="CrewEntrance.open()" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">All tests &amp; send to someone new</button>
+                </div>` : '';
             keepPlace(list,()=>{
-                list.innerHTML = pending.length ? pending.map(appCardHtml).join('')
-                    : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>';
+                list.innerHTML = tests + (pending.length ? pending.map(appCardHtml).join('')
+                    : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>');
                 if(window.lucide) lucide.createIcons();
             });
         }
@@ -9700,7 +9794,10 @@
                     <div class="font-mono text-sm mt-1 select-all">${escapeHtml(acct.username)}</div>
                     <div class="font-mono text-sm select-all">${escapeHtml(acct.password)}</div>
                     ${d.signInUrl?`<div class="text-xs muted mt-1 break-all">Sign in at <span class="font-mono">${escapeHtml(d.signInUrl)}</span></div>`:''}
-                    <button data-copy-cred data-cred="${escapeHtml(message)}" class="mt-2 surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy message</button>
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        <button data-copy-cred data-cred="${escapeHtml(message)}" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy for IFC</button>
+                        ${inv&&inv.plainMessage?`<button data-copy-cred data-cred="${escapeHtml(inv.plainMessage)}" title="The same words with no pictures — for Discord" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="text" class="w-3.5 h-3.5"></i> Plain text</button>`:''}
+                    </div>
                     <div class="text-xs mt-2 muted">They’ll be asked to replace this password when they first sign in. ${d.emailed?`It has been emailed to ${escapeHtml(d.email||'them')} with a sign-in link, and it’s`:'It’s'} on their status link and under <b>Invitations</b> until they use it — so you can close this.</div>
                 </div>`);
             } else if(acct && acct.error){
@@ -10821,6 +10918,10 @@
 
                 IS_OWNER = !!(d.role==='owner' || d.oversight);
                 SITE_HOSTING = !!d.siteHosting;
+                // An older backend says nothing about Live, and nothing there
+                // was locked — so only an explicit answer changes the default.
+                if(d.ifLive && typeof d.ifLive.locked==='boolean') IF_BETA={ locked:d.ifLive.locked, message:d.ifLive.message||'' };
+                else if(!d.ifLive) IF_BETA={ locked:false, message:'' };
                 SITE_URL = d.siteUrl || '';
                 CAPS = new Set(Array.isArray(d.caps)?d.caps:[]);
                 CAP_CATALOG = Array.isArray(d.capabilities)?d.capabilities:[];
