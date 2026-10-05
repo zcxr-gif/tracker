@@ -259,7 +259,7 @@
            first on purpose: it is the one with a deadline on it. */
         .sg-feature-pair{ display:grid; gap:.7rem; }
         @media (min-width:38rem){ .sg-feature-pair{ grid-template-columns:1fr 1fr; } }
-        .sg-feature{ position:relative; overflow:hidden; border-radius:.9rem; padding:.95rem 1rem;
+        .sg-feature{ position:relative; overflow:hidden; border-radius:.9rem; padding:.95rem 1rem; text-align:left;
             color:#fff; isolation:isolate; display:grid; gap:.5rem; align-content:start;
             background:
                 radial-gradient(120% 140% at 10% 0%, color-mix(in srgb, var(--accent) 90%, #fff 10%), transparent 60%),
@@ -287,6 +287,33 @@
         .sg-tag{ font-size:.66rem; font-weight:700; letter-spacing:.03em; padding:.2rem .5rem;
             border-radius:999px; background:rgb(255 255 255 / .16); white-space:nowrap; }
         .sg-tag-lock{ background:rgb(0 0 0 / .3); }
+        /* ---- THE WEEK'S SEVEN -------------------------------------------
+           The week is a set of legs, so its tile is a board: one row per
+           leg, the partner's logo on a codeshare, the block time and any
+           bonus as pills — the same tile the Discord card is drawn from. */
+        .sg-week{ cursor:default; }
+        @media (min-width:38rem){ .sg-feature-pair-wide{ grid-template-columns:1fr; } }
+        .sg-week-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:.6rem; }
+        .sg-week-title{ font-size:1.05rem; font-weight:800; letter-spacing:-.01em; }
+        .sg-legs{ display:grid; gap:.35rem; }
+        @media (min-width:44rem){ .sg-legs{ grid-template-columns:1fr 1fr; } }
+        .sg-leg{ display:flex; align-items:center; gap:.6rem; width:100%; text-align:left; font:inherit; color:#fff;
+            cursor:pointer; padding:.5rem .6rem; border-radius:.65rem; border:1px solid rgb(255 255 255 / .14);
+            background:rgb(0 0 0 / .18); transition:background .15s ease, transform .15s ease; }
+        .sg-leg:hover{ background:rgb(0 0 0 / .3); transform:translateY(-1px); }
+        .sg-leg-logo{ width:1.9rem; height:1.9rem; flex:none; border-radius:999px; background:#fff; object-fit:contain;
+            display:grid; place-items:center; font-size:.62rem; font-weight:800; color:#1C1A16; overflow:hidden; }
+        .sg-leg-main{ flex:1; min-width:0; display:grid; gap:.1rem; }
+        .sg-leg-pair{ font-weight:800; letter-spacing:-.01em; font-size:.95rem; }
+        .sg-leg-sub{ font-size:.68rem; opacity:.82; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .sg-leg-side{ flex:none; display:grid; justify-items:end; gap:.2rem; font-size:.8rem; font-weight:800;
+            font-variant-numeric:tabular-nums; }
+        .sg-tag-bonus{ background:#FBBF24; color:#3B2A00; }
+        .sg-feature-logos{ display:flex; gap:.3rem; }
+        .sg-feature-logos .sg-leg-logo{ width:2.3rem; height:2.3rem; box-shadow:0 0 0 2px rgb(255 255 255 / .25); }
+        .sg-plan{ font:inherit; font-size:.66rem; font-weight:700; cursor:pointer; color:#fff; white-space:nowrap;
+            padding:.25rem .55rem; border-radius:999px; border:1px solid rgb(255 255 255 / .3); background:rgb(0 0 0 / .28); }
+        .sg-plan:hover{ background:rgb(0 0 0 / .45); }
         /* ---- THE SHORT LIST --------------------------------------------- */
         .sg-list{ display:grid; gap:.45rem; }
         .sg-item-wrap{ display:grid; gap:.2rem; }
@@ -427,12 +454,12 @@
     /* ---- The two features ----------------------------------------------- */
 
     function featuresHtml(d) {
-        const tiles = [
-            featureHtml(d.day, 'day'),
-            featureHtml(d.week, 'week'),
-        ].filter(Boolean);
-        if (!tiles.length) return '';
-        return `<div class="sg-feature-pair">${tiles.join('')}</div>`;
+        const day = featureHtml(d.day, 'day', d);
+        const week = d.week && d.week.legs && d.week.legs.length > 1 ? weekHtml(d.week, d) : featureHtml(d.week, 'week', d);
+        if (!day && !week) return '';
+        // The day's leg first: it is the one with a deadline on it. The week
+        // is a board of up to seven, so it gets the full width under it.
+        return `<div class="sg-feature-pair${week && d.week && d.week.legs && d.week.legs.length > 1 ? ' sg-feature-pair-wide' : ''}">${day}${week}</div>`;
     }
 
     const FEATURE = {
@@ -440,7 +467,60 @@
         week: { kicker: 'Route of the week', icon: 'calendar-days' },
     };
 
-    function featureHtml(f, period) {
+    const bonusLabel = (b, d) => `${Number(b)}× ${(d && d.currency && d.currency.short) || 'pay'}`;
+    /** Bonuses only mean something where the shop pays. */
+    const showsBonus = (d) => !!(d && d.currency);
+
+    function logoHtml(r) {
+        if (r && r.logo) return `<img class="sg-leg-logo" src="${esc(r.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+        const name = (r && r.kind === 'codeshare' && r.partnerName) || '';
+        const letters = name ? name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase() : '';
+        return letters ? `<span class="sg-leg-logo">${esc(letters)}</span>` : '';
+    }
+
+    /** Staff only: the way into the planner, on the tile it changes. */
+    function planButton(period, d) {
+        if (!d || !d.canManage || !window.CrewFeaturedPlanner) return '';
+        return `<button type="button" class="sg-plan" data-sg-plan="${esc(period)}" title="Pick the legs yourself, set bonuses, release when ready.">
+            <i data-lucide="pencil" style="width:.7rem;height:.7rem;vertical-align:-1px"></i> Plan</button>`;
+    }
+
+    function weekHtml(f, d) {
+        const meta = FEATURE.week;
+        const legs = f.legs || [];
+        const anyBonus = showsBonus(d) && legs.some((l) => l.bonus > 1);
+        const rows = legs.map((l) => {
+            const r = l.route || {};
+            const sub = [r.flightNumber, r.aircraft, r.kind === 'codeshare' ? (r.partnerName || 'Codeshare') : ''].filter(Boolean).join(' · ');
+            return `<button type="button" class="sg-leg" data-sg-route="${esc(r.id)}">
+                ${logoHtml(r) || `<span class="sg-leg-logo">${esc((String(r.flightNumber || '').match(/^[A-Za-z]+/) || ['✈'])[0].slice(0, 3).toUpperCase())}</span>`}
+                <span class="sg-leg-main"><span class="sg-leg-pair">${esc(r.origin)} → ${esc(r.destination)}</span>
+                    ${sub ? `<span class="sg-leg-sub">${esc(sub)}</span>` : ''}</span>
+                <span class="sg-leg-side">${l.estimatedMin ? esc(durationText(l.estimatedMin)) : ''}
+                    ${showsBonus(d) && l.bonus > 1 ? `<span class="sg-tag sg-tag-bonus">${esc(bonusLabel(l.bonus, d))}</span>` : ''}</span>
+            </button>`;
+        }).join('');
+        return `<div class="sg-feature-wrap">
+            <div class="sg-feature sg-week">
+                <div class="sg-week-head">
+                    <div>
+                        <span class="sg-feature-kicker"><i data-lucide="${esc(meta.icon)}"></i> ${esc(meta.kicker)} · ${legs.length} legs</span>
+                        <div class="sg-week-title">Fly any of them this week</div>
+                    </div>
+                    ${planButton('week', d)}
+                </div>
+                <div class="sg-legs">${rows}</div>
+                <span class="sg-feature-foot">
+                    <span class="sg-tag">Open to every rank</span>
+                    ${anyBonus ? '<span class="sg-tag sg-tag-bonus">Bonus legs pay extra</span>' : ''}
+                    ${f.planned ? '<span class="sg-tag">Picked by your staff</span>' : ''}
+                    <span class="sg-tag">File it as Route of the Week</span>
+                </span>
+            </div>
+        </div>`;
+    }
+
+    function featureHtml(f, period, d) {
         if (!f || !f.route) return '';
         const r = f.route;
         const meta = FEATURE[period] || FEATURE.week;
@@ -448,6 +528,8 @@
         const tags = [];
         if (f.estimatedMin) tags.push(`<span class="sg-tag">${esc(durationText(f.estimatedMin))}</span>`);
         if (r.distanceNm) tags.push(`<span class="sg-tag">${Math.round(r.distanceNm).toLocaleString()} nm</span>`);
+        if (showsBonus(d) && f.bonus > 1) tags.push(`<span class="sg-tag sg-tag-bonus">${esc(bonusLabel(f.bonus, d))}</span>`);
+        if (r.kind === 'codeshare' && r.partnerName) tags.push(`<span class="sg-tag">Codeshare · ${esc(r.partnerName)}</span>`);
         // The stands, when the airline publishes them. One tag for the pair
         // rather than two, because "gate to gate" is a single fact about the
         // leg — and a half-set pair still says the useful half.
@@ -456,24 +538,21 @@
         }
         // Staff picked this one by hand. Worth saying — it is the difference
         // between the airline choosing a leg and a rotation landing on one.
-        if (f.pinned) tags.push('<span class="sg-tag">Picked by your staff</span>');
-        // Staff can hand the slot back. A real button, and a SIBLING of the
-        // tile rather than a child of it: a button inside a button is invalid
-        // HTML, and a span dressed up as one is not reachable from a keyboard.
-        // Only where there IS a pin — the rotation's own pick is not a thing
-        // to undo.
-        const unpin = f.pinned && S.data && S.data.canManage
+        if (f.pinned || f.planned) tags.push('<span class="sg-tag">Picked by your staff</span>');
+        tags.push('<span class="sg-tag">Open to every rank</span>');
+        // Staff can hand a PIN back. A real button, and a SIBLING of the tile
+        // rather than a child of it: a button inside a button is invalid HTML.
+        const unpin = f.pinned && d && d.canManage
             ? `<button type="button" class="sg-unpin" data-sg-unpin="${esc(period)}"
-                 title="Hands the slot back to the rotation.">Unpin</button>` : '';
-        if (r.locked) {
-            tags.push(`<span class="sg-tag sg-tag-lock">${r.hoursUntilUnlock
-                ? `Unlocks in ${Math.round(r.hoursUntilUnlock)}h` : `${esc(r.minRank || 'Locked')}`}</span>`);
-        }
+                 title="Hands the slot back to the rotation.">Unpin</button>`
+            : (d && d.canManage && window.CrewFeaturedPlanner
+                ? `<button type="button" class="sg-unpin" data-sg-plan="${esc(period)}" title="Pick it yourself.">Plan</button>` : '');
+        const logo = r.kind === 'codeshare' ? logoHtml(r) : '';
         return `<div class="sg-feature-wrap">
             <button type="button" class="sg-feature${period === 'day' ? ' sg-feature-day' : ''}"
                 data-sg-route="${esc(r.id)}">
                 <span class="sg-feature-kicker"><i data-lucide="${esc(meta.icon)}"></i> ${esc(meta.kicker)}</span>
-                <span class="sg-pair">${esc(r.origin)} <i data-lucide="arrow-right"></i> ${esc(r.destination)}</span>
+                <span class="sg-pair">${logo ? `<span class="sg-feature-logos">${logo}</span>` : ''}${esc(r.origin)} <i data-lucide="arrow-right"></i> ${esc(r.destination)}</span>
                 ${bits ? `<span class="sg-feature-sub">${esc(bits)}</span>` : ''}
                 ${tags.length ? `<span class="sg-feature-foot">${tags.join('')}</span>` : ''}
             </button>
@@ -523,14 +602,14 @@
     function pinHtml(r) {
         if (!S.data || !S.data.canManage || !r || !r.id) return '';
         const isDay = S.data.day && S.data.day.route && String(S.data.day.route.id) === String(r.id);
-        const isWeek = S.data.week && S.data.week.route && String(S.data.week.route.id) === String(r.id);
+        const isWeek = S.data.week && (S.data.week.legs || [S.data.week]).some((l) => l.route && String(l.route.id) === String(r.id));
         return `<div class="sg-pin">
             <button type="button" data-sg-pin="day" data-sg-id="${esc(r.id)}" ${isDay ? 'disabled' : ''}
                 title="Makes this today's route for the whole airline. It goes back to the rotation tomorrow.">
                 ${isDay ? '✓ Today’s route' : 'Make it today’s'}</button>
             <button type="button" data-sg-pin="week" data-sg-id="${esc(r.id)}" ${isWeek ? 'disabled' : ''}
                 title="Makes this the airline's route this week. It goes back to the rotation on Monday.">
-                ${isWeek ? '✓ This week’s route' : 'Make it this week’s'}</button>
+                ${isWeek ? '✓ On this week’s list' : 'Lead this week’s list'}</button>
         </div>`;
     }
 
@@ -605,6 +684,8 @@
             host.dataset.sgWired = '1';
             host.addEventListener('click', (ev) => {
                 if (ev.target.closest('[data-sg-open]')) { open({ api: S.api }); return; }
+                const plan = ev.target.closest('[data-sg-plan]');
+                if (plan) { ev.preventDefault(); ev.stopPropagation(); openPlanner(plan.getAttribute('data-sg-plan')); return; }
                 const go = ev.target.closest('[data-sg-route]');
                 if (go) openRoute(go.getAttribute('data-sg-route'));
             });
@@ -615,6 +696,18 @@
     /* =====================================================================
      * WIRING
      * =================================================================== */
+
+    /** Staff: the planner, and a fresh read of the tiles once it changes something. */
+    function openPlanner(period) {
+        if (!window.CrewFeaturedPlanner) return;
+        window.CrewFeaturedPlanner.open({ api: S.api, period, onChange: refresh });
+    }
+    function refresh() {
+        live()
+            .then((picture) => S.api(`/suggestions?limit=6${busyQuery(picture)}`))
+            .then((d) => { S.data = d; draw(); repaint(); })
+            .catch(() => {});
+    }
 
     function openRoute(id) {
         if (typeof S.onOpenRoute === 'function') { S.onOpenRoute(id); return; }
@@ -662,6 +755,12 @@
                 // here is what keeps "unpin" from also meaning "open the route".
                 ev.preventDefault(); ev.stopPropagation();
                 pin(unpin.getAttribute('data-sg-unpin'), '', unpin);
+                return;
+            }
+            const plan = ev.target.closest('[data-sg-plan]');
+            if (plan) {
+                ev.preventDefault(); ev.stopPropagation();
+                openPlanner(plan.getAttribute('data-sg-plan'));
                 return;
             }
             const set = ev.target.closest('[data-sg-pin]');
@@ -716,6 +815,7 @@
         open,
         close: () => S.panel && S.panel.close(),
         mountStrip,
+        refresh,
         /* So a page that already has the live picture — the tracker itself —
            can hand it over instead of making this look for it. */
         live,

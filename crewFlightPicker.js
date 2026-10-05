@@ -63,6 +63,8 @@
         onFiled: null,      // told what came back, so the host can refresh
         onManual: null,     // "file by hand instead", when the host offers one
         extra: null,        // eventId / scheduleId this filing belongs to
+        flownAs: null,      // what can be claimed (crewFlownAs.js), once loaded
+        faChoice: null,     // what the pilot claimed, kept across a redraw
     };
 
     /* =====================================================================
@@ -126,16 +128,23 @@
      */
     async function file() {
         if (!S.picked || S.filing) return;
+        // Read the "flown as" claim BEFORE the redraw below replaces the form.
+        const claim = window.CrewFlownAs ? window.CrewFlownAs.read(S.panel.body) : {};
+        S.faChoice = claim;
+        const { regular, ...why } = claim;
+        const extra = { ...(S.extra || {}) };
+        // Said "a regular flight" over an event brief: it was not flown for it.
+        if (regular) delete extra.eventId;
         S.filing = true;
         render();
         try {
             const d = await S.api('/pireps', {
                 method: 'POST',
-                // `extra` is why-it-was-flown, never what-happened: an event or
-                // a booked departure this leg belongs to. The server takes the
-                // numbers from Infinite Flight regardless, so there is nothing
-                // here that can contradict the record.
-                body: { ...S.extra, flightId: S.picked.flightId, flightPage: S.picked._page || 1 },
+                // `extra` is why-it-was-flown, never what-happened: an event,
+                // a booked departure or a featured leg this flight belongs to.
+                // The server takes the numbers from Infinite Flight regardless,
+                // and checks the claim, so nothing here can contradict the record.
+                body: { ...extra, ...why, flightId: S.picked.flightId, flightPage: S.picked._page || 1 },
             });
             S.filing = false;
             // Mark it filed rather than dropping it: the pilot is about to look
@@ -152,7 +161,10 @@
             // 409 means somebody — or the staff sync — got there first. That is
             // not a failure to report, it is the list being out of date, so say
             // so and mark the row.
-            if (err && err.status === 409) {
+            // A claim the server would not accept ("that isn't this week's
+            // route") is a 409 too, and it is the pilot's to change, not a
+            // flight that is already filed.
+            if (err && err.status === 409 && err.code !== 'not_featured') {
                 const row = S.flights.find((f) => f.flightId === S.picked.flightId);
                 if (row) row.filed = true;
                 S.picked = null;
@@ -191,7 +203,14 @@
         const body = S.panel.body;
 
         if (S.error && P.isSchemaGap(S.error)) { body.innerHTML = P.schemaGapHtml(S.error); icons(); return; }
-        if (S.picked) { body.innerHTML = confirmHtml(S.picked); wireConfirm(); icons(); return; }
+        if (S.picked) {
+            if (window.CrewFlownAs && body.querySelector('[data-fa]')) S.faChoice = window.CrewFlownAs.read(body);
+            body.innerHTML = confirmHtml(S.picked);
+            wireConfirm();
+            if (window.CrewFlownAs) window.CrewFlownAs.wire(body);
+            icons();
+            return;
+        }
 
         if (S.loading && !S.flights.length) {
             body.innerHTML = '<div class="cp-empty">Reading your Infinite Flight logbook…</div>';
@@ -260,6 +279,8 @@
                 ${fact('Flown', whenText(f.flownAt))}
                 ${f.violations ? fact('Violations', String(f.violations)) : ''}
             </div>
+            ${S.flownAs && window.CrewFlownAs ? window.CrewFlownAs.html(S.flownAs, {
+                flight: f, eventId: (S.extra && S.extra.eventId) || '', chosen: S.faChoice }) : ''}
             <p class="cp-note">This is filed exactly as Infinite Flight recorded it${
                 f.routeMatched ? ` and credited against ${esc(f.flightNumber || 'the published route')}` : ''}.
                 ${f.inFleet ? '' : 'The aircraft isn’t in this airline’s fleet, so staff may not credit it. '}Staff review it either way.</p>
@@ -326,6 +347,7 @@
                 const id = pick.getAttribute('data-fp-pick');
                 S.picked = S.flights.find((f) => String(f.flightId) === String(id)) || null;
                 S.error = null;
+                S.faChoice = null;
                 return render();
             }
             if (ev.target.closest('[data-fp-more]')) return loadPage(S.page + 1, { append: true });
@@ -372,6 +394,11 @@
         }
         S.panel.open();
         loadPage(1);
+        S.flownAs = null;
+        S.faChoice = null;
+        if (window.CrewFlownAs) {
+            window.CrewFlownAs.load(api).then((o) => { S.flownAs = o; if (S.picked) render(); }).catch(() => {});
+        }
     }
 
     window.CrewFlightPicker = { open, close: () => S.panel && S.panel.close() };
