@@ -1337,7 +1337,7 @@
                          everything has become too noisy. Each box left empty
                          means "use the main channel above" — never "off". -->
                     <details id="feedHooks" class="mt-3 rounded-xl hair surface">
-                        <summary class="cursor-pointer text-sm font-semibold px-4 py-3 select-none">Send some of it somewhere else</summary>
+                        <summary class="cursor-pointer text-sm font-semibold px-4 py-3 select-none">Channels for each feed — announcements, roster, awards, shop…</summary>
                         <div class="px-4 pb-4 space-y-4">
                             <p class="text-xs muted">Point a feed at its own channel — recruitment in one, flight reports in another. Leave a box empty and that feed keeps going to the main webhook above.</p>
                             <div data-feed="recruitment">
@@ -1386,6 +1386,81 @@
                                     <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
                                     <button data-feed-clear title="Back to the main channel" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i></button>
                                 </div>
+                            <div data-feed="announcements" class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Announcements <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">Notices your staff post from the noticeboard with “Also post to Discord” ticked — banner and all.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Back to the main channel" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
+                            <div data-feed="retention" class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Inactivity sweep <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">First-flight and inactivity warnings, and the deadlines that follow them.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Back to the main channel" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
+                            <div class="pt-3 border-t hair-soft">
+                                <p class="text-xs muted"><b>Off until you give them a channel.</b> These are new, so they don’t start posting into a channel you set up for something else — paste a webhook to switch one on. The same URL as your main channel is fine.</p>
+                            </div>
+                            <div data-feed="roster" data-feed-optin class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Roster <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">Pilots joining and leaving, and people joining the staff team.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Turn this feed off" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="power-off" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
+                            <div data-feed="awards" data-feed-optin class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Awards &amp; training <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">Awards earned, check-rides passed, and quiz results.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Turn this feed off" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="power-off" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
+                            <div data-feed="library" data-feed-optin class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Library &amp; schedule <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">Documents published or revised, and departures added to the schedule (which otherwise go to Events).</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Turn this feed off" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="power-off" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
+                            <div data-feed="shop" data-feed-optin class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Shop <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">Orders bought, handed over and refunded.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Turn this feed off" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="power-off" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
                                 <p data-feed-note class="hidden text-xs mt-1.5"></p>
                             </div>
                         </div>
@@ -5596,8 +5671,13 @@
                 const status=row.querySelector('[data-feed-status]');
                 const input=row.querySelector('[data-feed-url]');
                 if(status){
+                    // An opt-in feed has no main-channel fallback, so empty
+                    // there means off — and says so, rather than "not set",
+                    // which reads as a mistake to fix.
+                    const optIn = f.optIn || row.hasAttribute('data-feed-optin');
                     status.innerHTML = f.configured
                         ? '<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> own channel</span>'
+                        : optIn ? '<span class="faint">off</span>'
                         : f.usingDefault ? '<span class="faint">→ main channel</span>' : '<span class="faint">not set</span>';
                 }
                 if(input) input.placeholder = f.configured && f.hint ? f.hint : 'https://discord.com/api/webhooks/…';
@@ -5630,14 +5710,14 @@
             const input=row.querySelector('[data-feed-url]');
             const v=input?input.value.trim():'';
             if(e.target.closest('[data-feed-save]')){
-                if(!v){ setFeedNote(row,'Paste a webhook URL, or use the arrow to send this feed back to the main channel.','muted'); return; }
+                if(!v){ setFeedNote(row, row.hasAttribute('data-feed-optin') ? 'Paste a webhook URL to switch this feed on.' : 'Paste a webhook URL, or use the arrow to send this feed back to the main channel.','muted'); return; }
                 postFeedHook(row,{webhookUrl:v},'Saved — this feed now posts to its own channel.');
             } else if(e.target.closest('[data-feed-test]')){
                 // Tests what the feed would ACTUALLY use, fallback included —
                 // "will my messages arrive" is the real question.
                 postFeedHook(row, v?{webhookUrl:v,test:true}:{test:true}, 'Test message sent — check that channel.');
             } else if(e.target.closest('[data-feed-clear]')){
-                postFeedHook(row,{webhookUrl:''},'Back to the main channel.');
+                postFeedHook(row,{webhookUrl:''}, row.hasAttribute('data-feed-optin') ? 'Turned off.' : 'Back to the main channel.');
             }
         });
 
