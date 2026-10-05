@@ -25,7 +25,8 @@
     "test:codeshare": "node tools/test-crew-codeshare.js",
     "test:design": "node tools/test-crew-design.js",
     "test:view-switch": "node tools/test-crew-view-switch.js",
-    "test:entrance": "node tools/test-crew-entrance.js"
+    "test:entrance": "node tools/test-crew-entrance.js",
+    "test:featured": "node tools/test-crew-featured.js"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",

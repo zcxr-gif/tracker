@@ -120,6 +120,9 @@
     <!-- Filing a flight by picking it out of the real Infinite Flight logbook.
          Loaded before crewMyFlying.js, which files through it. -->
     <script src="/crewFlightPicker.js"></script>
+    <!-- "Flown as" on a PIREP, and the Route of the Week / Day planner. -->
+    <script src="/crewFlownAs.js"></script>
+    <script src="/crewFeaturedPlanner.js"></script>
     <!-- The standings board, opened from the my-flying card. Loaded before
          crewMyFlying.js, which offers the button only when this is present. -->
     <script src="/crewStandings.js"></script>
@@ -1367,6 +1370,18 @@
                             <div data-feed="routes" class="pt-3 border-t hair-soft">
                                 <div class="text-sm font-semibold flex items-center gap-2">Route network <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
                                 <p class="text-[11px] faint mb-1.5">Routes added, edited, removed or imported.</p>
+                                <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
+                                    class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                                <div class="flex gap-2 mt-1.5">
+                                    <button data-feed-save class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Save</button>
+                                    <button data-feed-test class="flex-1 surface hair rounded-lg py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">Send test</button>
+                                    <button data-feed-clear title="Back to the main channel" class="surface hair rounded-lg px-2.5 text-xs font-semibold muted hover:text-red-500 transition"><i data-lucide="undo-2" class="w-3.5 h-3.5"></i></button>
+                                </div>
+                                <p data-feed-note class="hidden text-xs mt-1.5"></p>
+                            </div>
+                            <div data-feed="featured" class="pt-3 border-t hair-soft">
+                                <div class="text-sm font-semibold flex items-center gap-2">Route of the Week &amp; Day <span data-feed-status class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                                <p class="text-[11px] faint mb-1.5">The featured routes, posted as cards — when you release them and when a new week or day starts. Empty, they go to the route network channel (or the main one).</p>
                                 <input data-feed-url type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"
                                     class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                                 <div class="flex gap-2 mt-1.5">
@@ -2916,6 +2931,7 @@
         const TOOLS=[
             {icon:'users',label:'Roster',desc:'Pilots & ranks',action:'roster'},
             {icon:'route',label:'Routes',desc:'Where the airline flies',action:'routes'},
+            {icon:'sparkles',label:'Route of the Week',desc:'Plan, release & post the featured legs',action:'featured'},
             {icon:'plane-takeoff',label:'Fleet',desc:'Aircraft & liveries',action:'fleet'},
             {icon:'calendar-clock',label:'Schedules',desc:'Departures & bookings',action:'schedule'},
             {icon:'calendar-days',label:'Events',desc:'Group flights & gates',action:'events'},
@@ -2946,6 +2962,9 @@
         const TILE_CAP={
             roster:'roster.manage',
             routes:'routes.manage',
+            // Planning the featured legs is an editorial decision about the
+            // network — the same people who edit it.
+            featured:'routes.manage',
             // A partner airline is part of the network, so whoever may edit
             // routes may set one up.
             partners:'routes.manage',
@@ -3095,6 +3114,7 @@
             documents:'#cd-panel', inbox:'#ci-panel', links:'#cl-panel',
             ifLive:'#cif-panel',
             codeshare:'#crewCodeshare', goals:'#crewGoals', design:'#crewDesignStudio',
+            featured:'#crewFeaturedPlanner',
         };
         const TOPIC_CLOSE={
             roster:()=>closeRoster(), routes:()=>closeRoutes(), fleet:()=>closeFleet(), partners:()=>closePartners(), pireps:()=>closePireps(),
@@ -3109,6 +3129,7 @@
             inbox:()=>{ if(window.CrewInbox) CrewInbox.close(); },
             links:()=>{ if(window.CrewLinks) CrewLinks.close(); },
             ifLive:()=>{ if(window.CrewIF) CrewIF.close(); },
+            featured:()=>{ if(window.CrewFeaturedPlanner) CrewFeaturedPlanner.close(); },
             codeshare:()=>{ if(window.CrewCodeshare) CrewCodeshare.close(); },
             goals:()=>{ if(window.CrewGoals) CrewGoals.close(); },
             design:()=>{ if(window.CrewDesign) CrewDesign.closeStudio(); },
@@ -3123,6 +3144,7 @@
             documents:()=>openDocuments(), inbox:()=>openInbox(), links:()=>openLinks(),
             ifLive:()=>openIfLive(),
             codeshare:()=>openCodeshare(), goals:()=>openGoals(), design:()=>openDesign(),
+            featured:()=>openFeaturedPlanner(),
         };
         // What a TILE opens, which is every topic plus the website builder —
         // that one is a page of its own rather than a panel on this one, so it
@@ -3774,6 +3796,7 @@
         // The same shape as the three above. A codeshare accepted, synced or
         // ended changes this airline's route list, so the panel says so and
         // the drawer re-reads rather than showing yesterday's network.
+        function openFeaturedPlanner(period){ if(window.CrewFeaturedPlanner) CrewFeaturedPlanner.open({ api: crewApi(), period }); }
         function openCodeshare(tab){ if(window.CrewCodeshare) CrewCodeshare.open({ api: crewApi(), backend: BACKEND, slug: getSlug(), token: sessionToken, tab }); }
         function openHubs(){ if(window.CrewHubs) CrewHubs.open({ api: crewApi() }); }
         function openGoals(tab){ if(window.CrewGoals) CrewGoals.open({ api: crewApi(), tab }); }
@@ -8674,7 +8697,7 @@
         });
 
         // ---- Applications (staff review: accept / decline + message) ----
-        let ROSTER_VIEW='roster', APPS=[];
+        let ROSTER_VIEW='roster', APPS=[], WAITING_TESTS=[];
         function updateRosterTabs(){
             document.querySelectorAll('#rosterViewTabs [data-view]').forEach(b=>{
                 const on=b.getAttribute('data-view')===ROSTER_VIEW;
@@ -8695,7 +8718,12 @@
             if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets(),fetchLoginSetup()]).then(renderInvites); }
             showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
-        function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
+        // Applications, plus anybody who passed an entrance test handed out by
+        // hand and has not been let in yet — they are waiting just the same.
+        function appBadgeCount(){
+            const tests = window.CrewEntrance ? CrewEntrance.waitingCount(WAITING_TESTS) : WAITING_TESTS.length;
+            return APPS.filter(a=>a.status==='pending').length + tests;
+        }
         // Split out so the figures panel can raise the badge on load. The
         // applications list itself is only fetched when the roster is opened,
         // which meant nobody knew there were people waiting until they went
@@ -8710,7 +8738,11 @@
             if(!slug||!token){ APPS=[]; return; }
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications?status=pending`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
-                if(res.ok){ const d=await res.json(); APPS=Array.isArray(d.applications)?d.applications:[]; }
+                if(res.ok){
+                    const d=await res.json();
+                    APPS=Array.isArray(d.applications)?d.applications:[];
+                    WAITING_TESTS=Array.isArray(d.waitingTests)?d.waitingTests:[];
+                }
             }catch{}
         }
 
@@ -9768,9 +9800,16 @@
                     <span class="text-sm flex-1 min-w-[10rem]"><b>Create a crew center login when I accept</b>
                         <span class="muted">— for every application. You can still change it on one card.</span></span>
                 </label>`;
+            // Passed a test sent by hand (no email, so the link went over the
+            // IFC) — never applied, so there is no card above for them.
+            const passed = window.CrewEntrance ? CrewEntrance.waitingHtml(WAITING_TESTS) : '';
+            const passedBlock = passed ? `<div class="surface rounded-xl p-4 space-y-2.5">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Passed an entrance test — not added yet</div>
+                    ${passed}
+                </div>` : '';
             keepPlace(list,()=>{
-                list.innerHTML = tests + logins + (pending.length ? pending.map(appCardHtml).join('')
-                    : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>');
+                list.innerHTML = tests + logins + passedBlock + (pending.length ? pending.map(appCardHtml).join('')
+                    : (passed ? '' : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>'));
                 if(window.lucide) lucide.createIcons();
             });
         }

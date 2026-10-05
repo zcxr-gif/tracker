@@ -105,6 +105,10 @@
          ATC off the tracker where this page is running inside it, and works
          without it where it is not. -->
     <script src="/crewSuggestions.js"></script>
+    <!-- Staff build the Route of the Week / Day (opened from its tile), and
+         a pilot says what a flight was flown as when filing it. -->
+    <script src="/crewFeaturedPlanner.js"></script>
+    <script src="/crewFlownAs.js"></script>
     <!-- Paying should be felt. Silent on a desktop and in any browser without
          the Vibration API; the crew center's only use of it. -->
     <script src="/haptics.js"></script>
@@ -1272,6 +1276,7 @@
                         <div><label class="cp-label" for="pfTo">To</label>
                             <input id="pfTo" class="cp-input" maxlength="4" required placeholder="KJFK" autocomplete="off" style="text-transform:uppercase"></div>
                     </div>
+                    <div id="pfFlownAs"></div>
                     <div><label class="cp-label" for="pfAircraft">Aircraft</label>
                         <input id="pfAircraft" class="cp-input" maxlength="60" placeholder="Boeing 787-9" autocomplete="off"></div>
                     <div class="cp-grid2">
@@ -1292,6 +1297,22 @@
                 </form>`;
             CrewPanels.icons();
             document.getElementById('pfForm').addEventListener('submit', submitPirep);
+            // What it was flown as: a regular flight, a Route of the Week leg,
+            // the Route of the Day, or an event. Picking a leg fills the form.
+            if(window.CrewFlownAs){
+                const api=CrewPanels.api({ backend:BACKEND, slug:getSlug(), token:sessionToken });
+                CrewFlownAs.load(api).then(opts=>{
+                    const host=document.getElementById('pfFlownAs');
+                    if(!host) return;
+                    host.innerHTML=CrewFlownAs.html(opts);
+                    CrewFlownAs.wire(host,{ onLeg:(leg)=>{
+                        const set=(id,v)=>{ const el=document.getElementById(id); if(el&&v) el.value=v; };
+                        set('pfFrom',leg.origin); set('pfTo',leg.destination); set('pfAircraft',leg.aircraft);
+                        set('pfFlightNo',leg.flightNumber);
+                        if(leg.estimatedMin){ set('pfHours',String(Math.floor(leg.estimatedMin/60))); set('pfMinutes',String(leg.estimatedMin%60)); }
+                    } });
+                });
+            }
             const back=document.getElementById('pfPicker');
             if(back) back.addEventListener('click', ()=>{ filePanel.close(); openFilePirep(); });
         }
@@ -1322,6 +1343,7 @@
                         flightNumber: val('pfFlightNo'),
                         landings: Number(val('pfLandings'))||0,
                         memberId: MY.pilot?MY.pilot.memberId:undefined,
+                        ...(()=>{ const c=window.CrewFlownAs?CrewFlownAs.read(document.getElementById('pfFlownAs')):{}; delete c.regular; return c; })(),
                     }) });
                 const d=await res.json().catch(()=>({}));
                 if(!res.ok){
