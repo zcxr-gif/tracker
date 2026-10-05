@@ -58,10 +58,12 @@ const PATHS = {
 };
 
 // How long a stored crew session is trusted for before we send the pilot back
-// through the login. The backend signs crew tokens for 7 days; staying a little
-// under that means a deep link doesn't land on a dashboard whose token expires
-// mid-session.
+// through the login, for a session that doesn't say when it runs out. Newer
+// ones carry `expiresAt` (12 hours, or 30 days with "Stay signed in"), and an
+// hour of headroom means a deep link doesn't land on a dashboard whose token
+// expires mid-session.
 const SESSION_MAX_AGE = 6 * 24 * 60 * 60 * 1000;
+const SESSION_HEADROOM = 60 * 60 * 1000;
 
 export const CrewCenterOverlay = {
     _layer: null,
@@ -91,7 +93,9 @@ export const CrewCenterOverlay = {
         let s;
         try { s = JSON.parse(raw); } catch (_) { return null; }
         if (!s || !s.token || !s.view) return null;
-        if (!s.at || Date.now() - s.at > SESSION_MAX_AGE) return null;
+        if (s.expiresAt) {
+            if (Date.now() > s.expiresAt - SESSION_HEADROOM) return null;
+        } else if (!s.at || Date.now() - s.at > SESSION_MAX_AGE) return null;
         return s;
     },
 

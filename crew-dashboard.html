@@ -22,6 +22,9 @@
     <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
+    <!-- First, so an expired sign-in is sent back to the login before any of
+         this page is drawn from it. See crewSessionGuard.js. -->
+    <script src="/crewSessionGuard.js"></script>
     <script src="/crewBrand.js"></script>
     <!-- Which of the two interfaces this crew center is wearing. Sets
          data-skin on <html> and asks for crewSkin.css before the first paint;
@@ -10892,7 +10895,7 @@
                 // not leave you on a dashboard whose every call quietly fails.
                 // Reachable now that the app deep-links straight here when a
                 // stored session looks fresh (see crewCenterOverlay).
-                if(res.status===401||res.status===403){ logout(); return; }
+                if(res.status===401||res.status===403){ if(window.CrewSessionGuard) CrewSessionGuard.expire(); else logout(); return; }
                 if(!res.ok) return;
                 const d=await res.json();
 
