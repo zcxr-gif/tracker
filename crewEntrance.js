@@ -160,6 +160,7 @@
             ${bits.length ? `<div class="et-line">${bits.join(' · ')}</div>` : ''}
             ${passedNext}
             <div class="et-acts">
+                ${t.total && window.CrewAnswers ? '<button class="cp-btn cp-btn-sm" data-et-answers aria-expanded="false" title="Every question — what they picked and what was right"><i data-lucide="list-checks"></i> See answers</button>' : ''}
                 ${t.message ? `<button class="cp-btn cp-btn-sm" data-et-copy><i data-lucide="clipboard-copy"></i> Copy for IFC</button>
                     <button class="cp-btn cp-btn-sm" data-et-copy-plain title="The same words with no pictures — for Discord"><i data-lucide="text"></i> Plain text</button>` : ''}
                 ${t.status !== 'passed' ? `<button class="cp-btn cp-btn-sm" data-et-reissue title="A fresh link and a clean slate — the old link stops working"><i data-lucide="refresh-cw"></i> ${t.live ? 'New link' : 'Another go'}</button>` : ''}
@@ -257,6 +258,11 @@
             return send({ quizId, applicationId: box.getAttribute('data-et-app') }, sendBtn);
         }
         if (!test) return;
+        const ans = ev.target.closest('[data-et-answers]');
+        if (ans) {
+            if (window.CrewAnswers && S.api) window.CrewAnswers.toggle(ans, { api: S.api, id: test.id });
+            return;
+        }
         if (ev.target.closest('[data-et-copy]')) {
             const ok = await copy(test.message || '');
             return P.toast(ok ? 'Copied — paste it into their IFC message.' : 'Couldn’t copy that.', ok ? 'ok' : 'bad');

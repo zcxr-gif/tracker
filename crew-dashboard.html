@@ -144,6 +144,9 @@
          one, whether the crew centre is shut until somebody passes, and who
          gets reminded that people are waiting. Drawn inside the Recruitment
          drawer rather than as a panel of its own — see that drawer's note. -->
+    <!-- What somebody answered, question by question — shared by the quiz
+         results and the entrance tests below. Staff only. -->
+    <script src="/crewAnswers.js"></script>
     <script src="/crewQuizAdmin.js"></script>
     <!-- Entrance tests: sent from an application card or to somebody new, sat
          with no login (crew-test.html), read back here before anybody is
@@ -2996,7 +2999,7 @@
                 // nothing in it. Whoever can turn it on always sees it —
                 // otherwise the only way to switch it on would be a link
                 // somebody would have to be given.
-                if(t.action==='shop' && SHOP.enabled!==true && !can('settings.branding')) return false;
+                if(t.action==='shop' && SHOP.enabled!==true && !can('shop.manage') && !can('settings.branding')) return false;
                 // Websites are a deployment-level switch (VA_SITES_DOMAIN, in
                 // the database repo). Where they are off there is no address a
                 // site could live at, so the tile would open a page that can
@@ -3024,7 +3027,7 @@
                 // application, because handing a pilot a paper is deciding
                 // about a person rather than config. Either one opens the
                 // drawer; the tabs inside gate themselves.
-                if(t.action==='recruit' && !can('settings.recruitment') && !can('applications.review')) return false;
+                if(t.action==='recruit' && !can('settings.recruitment') && !can('applications.review') && !can('tests.manage')) return false;
                 // Settings is not one capability but several. Anybody with at
                 // least one settings tab gets the tile; somebody with none
                 // would otherwise open an empty drawer.
@@ -3760,7 +3763,7 @@
         // where the backend is, and who is asking. Staff land on the half they
         // came for — the queue, the board — and everyone else on their own.
         function crewApi(){ return CrewPanels.api({ backend: BACKEND, slug: getSlug(), token: sessionToken }); }
-        function openTraining(){ if(window.CrewTraining) CrewTraining.open({ api: crewApi(), view: can('roster.manage')?'queue':'me' }); }
+        function openTraining(){ if(window.CrewTraining) CrewTraining.open({ api: crewApi(), view: (can('training.manage')||can('roster.manage'))?'queue':'me' }); }
         function openAwards(){ if(window.CrewAwards) CrewAwards.open({ api: crewApi() }); }
         function openLeave(){ if(window.CrewLeave) CrewLeave.open({ api: crewApi(), view: can('roster.manage')?'health':'me' }); }
 
@@ -4336,8 +4339,10 @@
             // Each tab is its own power. Somebody who may send quizzes but not
             // rewrite the join form gets the screens they can actually use,
             // rather than a form that answers 403 on save.
-            const vis={ joining:can('settings.recruitment'), quizzes:can('settings.recruitment'),
-                        sent:can('applications.review'), nudges:can('settings.recruitment') };
+            // Quizzes and the tests sent from them are tests.manage (v26); the
+            // two permissions that used to open them still do.
+            const vis={ joining:can('settings.recruitment'), quizzes:can('settings.recruitment')||can('tests.manage'),
+                        sent:can('applications.review')||can('tests.manage'), nudges:can('settings.recruitment') };
             document.querySelectorAll('.recruit-tab').forEach(t=>{
                 const c=t.getAttribute('data-rcat');
                 if(c in vis) t.classList.toggle('hidden', !(vis[c]||IS_OWNER||!sessionToken()));
