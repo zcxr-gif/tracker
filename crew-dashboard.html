@@ -8674,7 +8674,7 @@
         });
 
         // ---- Applications (staff review: accept / decline + message) ----
-        let ROSTER_VIEW='roster', APPS=[];
+        let ROSTER_VIEW='roster', APPS=[], WAITING_TESTS=[];
         function updateRosterTabs(){
             document.querySelectorAll('#rosterViewTabs [data-view]').forEach(b=>{
                 const on=b.getAttribute('data-view')===ROSTER_VIEW;
@@ -8695,7 +8695,12 @@
             if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets(),fetchLoginSetup()]).then(renderInvites); }
             showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
-        function appBadgeCount(){ return APPS.filter(a=>a.status==='pending').length; }
+        // Applications, plus anybody who passed an entrance test handed out by
+        // hand and has not been let in yet — they are waiting just the same.
+        function appBadgeCount(){
+            const tests = window.CrewEntrance ? CrewEntrance.waitingCount(WAITING_TESTS) : WAITING_TESTS.length;
+            return APPS.filter(a=>a.status==='pending').length + tests;
+        }
         // Split out so the figures panel can raise the badge on load. The
         // applications list itself is only fetched when the roster is opened,
         // which meant nobody knew there were people waiting until they went
@@ -8710,7 +8715,11 @@
             if(!slug||!token){ APPS=[]; return; }
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications?status=pending`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
-                if(res.ok){ const d=await res.json(); APPS=Array.isArray(d.applications)?d.applications:[]; }
+                if(res.ok){
+                    const d=await res.json();
+                    APPS=Array.isArray(d.applications)?d.applications:[];
+                    WAITING_TESTS=Array.isArray(d.waitingTests)?d.waitingTests:[];
+                }
             }catch{}
         }
 
@@ -9768,9 +9777,16 @@
                     <span class="text-sm flex-1 min-w-[10rem]"><b>Create a crew center login when I accept</b>
                         <span class="muted">— for every application. You can still change it on one card.</span></span>
                 </label>`;
+            // Passed a test sent by hand (no email, so the link went over the
+            // IFC) — never applied, so there is no card above for them.
+            const passed = window.CrewEntrance ? CrewEntrance.waitingHtml(WAITING_TESTS) : '';
+            const passedBlock = passed ? `<div class="surface rounded-xl p-4 space-y-2.5">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Passed an entrance test — not added yet</div>
+                    ${passed}
+                </div>` : '';
             keepPlace(list,()=>{
-                list.innerHTML = tests + logins + (pending.length ? pending.map(appCardHtml).join('')
-                    : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>');
+                list.innerHTML = tests + logins + passedBlock + (pending.length ? pending.map(appCardHtml).join('')
+                    : (passed ? '' : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>'));
                 if(window.lucide) lucide.createIcons();
             });
         }

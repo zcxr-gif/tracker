@@ -101,6 +101,8 @@
         .qa-check input{ margin-top:.15rem; flex:none; accent-color:var(--accent); }
         .qa-check b{ display:block; }
         .qa-check span{ display:block; font-size:.75rem; color:var(--muted,#736E64); }
+        .qa-status{ margin-top:.3rem; }
+        .qa-status-bad{ color:#B45309; }
         `);
     }
 
@@ -109,10 +111,20 @@
      * =================================================================== */
 
     async function load() {
+        // Anything still waiting is written first, and the open quiz is put
+        // back as typed afterwards: a question not finished yet is not on the
+        // server, and a reload would otherwise take it away mid-edit.
+        keepOpenEdits();
+        await flushSave();
+        const typed = S.open ? quizzes().find((q) => q.id === S.open) : null;
         S.loading = true; S.error = null;
         draw();
         try {
             S.data = await S.api('/quizzes');
+            if (typed && Array.isArray(S.data.quizzes)) {
+                S.data.quizzes = S.data.quizzes.map((q) => (q.id === typed.id
+                    ? { ...typed, banner: q.banner, ready: q.ready, questionCount: q.questionCount } : q));
+            }
             // The queue and the roster are only the Send screen's business, and
             // only when somebody may work it. An owner who never opens that tab
             // never asks their database for it.
@@ -332,9 +344,7 @@
             <div class="qa-h" style="margin-top:.4rem">Your pictures</div>
             ${bannerHtml('apply', 'Applications', 'Shown over your join form and your jobs board.', banners().apply)}
             ${bannerHtml('quiz', 'Quizzes', 'Shown over any quiz that has not got a picture of its own.', banners().quiz)}
-            <div class="qa-acts" style="margin-top:.5rem">
-                <button class="cp-btn cp-btn-primary" data-qa-save>Save</button>
-            </div>
+            <p class="cp-note qa-status" data-qa-status aria-live="polite">${esc(saveStateText())}</p>
         </div>`;
     }
 
@@ -445,14 +455,14 @@
                 <label class="qa-check"><input type="checkbox" data-qa-r="quizzes" ${r.quizzes !== false ? 'checked' : ''}>
                     <b>Quiz links sent and never handed in</b></label>
                 <div class="qa-acts">
-                    <button class="cp-btn cp-btn-primary cp-btn-sm" data-qa-savenudge>Save</button>
                     <button class="cp-btn cp-btn-sm" data-qa-preview>What would it say?</button>
                     <button class="cp-btn cp-btn-sm" data-qa-sendnudge>Send one now</button>
                 </div>
                 ${S.preview ? (S.preview.lines && S.preview.lines.length
                     ? `<div class="qa-link">${S.preview.lines.map(l => esc(l.replace(/\*\*/g, ''))).join('<br>')}</div>`
                     : `<p class="cp-note">Nothing is waiting${S.preview.skipped ? ` — ${esc(S.preview.skipped)}` : ''}. Nothing would be sent.</p>`) : ''}
-                <p class="cp-note">It goes to your recruitment webhook — the one under Settings → Alerts.</p>
+                <p class="cp-note">It goes to your recruitment webhook — the one under Settings → Alerts.
+                    <span data-qa-nudgestatus>Changes save as you make them.</span></p>
             </div>
         </div>`;
     }
@@ -525,31 +535,105 @@
         return out;
     }
 
-    async function save(btn) {
+    /* ---- Saving as you go ----------------------------------------------
+       There is no Save button. Every edit is written a moment after the
+       typing stops, and structural ones (a question added, a quiz deleted)
+       straight away. The editor is NOT redrawn from the answer: somebody is
+       typing in it, and a redraw would take their cursor and any question
+       the server is not keeping yet. What comes back is folded into the
+       local copy, and shown the next time the screen is drawn. */
+
+    const AUTO = { timer: null, busy: null, again: false, state: '', note: '', nudgeTimer: null };
+
+    function setSaveState(state, note = '') {
+        AUTO.state = state;
+        AUTO.note = note;
+        const text = saveStateText();
+        document.querySelectorAll('[data-qa-status]').forEach((el) => {
+            el.textContent = text;
+            el.classList.toggle('qa-status-bad', state === 'error' || state === 'partial');
+        });
+    }
+
+    function saveStateText() {
+        if (AUTO.state === 'pending' || AUTO.state === 'saving') return 'Saving…';
+        if (AUTO.state === 'saved') return 'All changes saved.';
+        if (AUTO.state === 'partial' || AUTO.state === 'error') return AUTO.note;
+        return 'Changes save as you make them.';
+    }
+
+    /** Which questions in the open editor the server will not keep yet, by number. */
+    function incompleteIn(list, open) {
+        const q = open && list.find((x) => x.id === open);
+        return q ? (q.questions || []).map((qq, i) => (usableQuestion(qq) ? 0 : i + 1)).filter(Boolean) : [];
+    }
+
+    function queueSave(delay = 800) {
+        if (!S.data || !S.data.canBuild) return;
+        clearTimeout(AUTO.timer);
+        setSaveState('pending');
+        AUTO.timer = setTimeout(() => { AUTO.timer = null; autoSave(); }, delay);
+    }
+
+    /** Write anything still waiting, now. Resolves once it is written. */
+    async function flushSave() {
+        if (AUTO.timer) { clearTimeout(AUTO.timer); AUTO.timer = null; await autoSave(); }
+        while (AUTO.busy) await AUTO.busy;
+    }
+
+    async function autoSave() {
+        if (AUTO.busy) { AUTO.again = true; return AUTO.busy; }
         const root = host('quizzes');
-        if (!root) return;
+        if (!root || !S.data) return undefined;
         // A quiz banner typed into a per-quiz box rides on the quiz itself.
         const list = readQuizzes(root).map((q) => {
             const el = bannerField(root, 'quiz:' + q.id);
             return el ? { ...q, banner: el.value.trim() } : q;
         });
-        const dropped = list.reduce((n, q) => n + (q.questions || []).filter((qq) => !usableQuestion(qq)).length, 0);
-        const done = P.busy(btn, 'Saving…');
-        try {
-            await S.api('/quizzes', { method: 'POST', body: {
-                quizzes: list, gate: readGate(root), banners: readBanners(root),
-            } });
-            S.open = '';
-            await load();
-            if (dropped) {
-                P.toast(`Saved, but ${dropped} question${dropped === 1 ? ' was' : 's were'} left out — each needs its text, `
-                    + 'two answers and the right one ticked.', 'bad');
-            } else P.toast('Saved for your crew.', 'ok');
-        } catch (err) { P.toast((err && err.message) || 'That didn’t save.', 'bad'); }
-        finally { done(); }
+        const gate = readGate(root);
+        const pics = readBanners(root);
+        const open = S.open;
+        setSaveState('saving');
+        AUTO.busy = (async () => {
+            try {
+                const d = await S.api('/quizzes', { method: 'POST', body: { quizzes: list, gate, banners: pics } });
+                const kept = new Map((d.quizzes || []).map((q) => [q.id, q]));
+                // The local copy stays as typed — questions still being written
+                // included — with the server's word on how many it kept. Not
+                // replaced by `list` or by the answer: edits made while this
+                // was in flight are already in it, and the next save sends them.
+                S.data.quizzes = quizzes().map((q) => {
+                    const s = kept.get(q.id);
+                    return s ? { ...q, ready: s.ready, questionCount: s.questionCount } : q;
+                });
+                if (d.gateConfig) S.data.gateConfig = d.gateConfig;
+                if (d.banners) S.data.banners = d.banners;
+                const missing = incompleteIn(list, open);
+                if (missing.length) {
+                    setSaveState('partial', `Saved — except question${missing.length === 1 ? '' : 's'} ${missing.join(', ')}: `
+                        + 'each needs its text, two answers and the right one ticked.');
+                } else setSaveState('saved');
+            } catch (err) {
+                setSaveState('error', (err && err.message) || 'That didn’t save. It will try again with your next change.');
+            }
+        })();
+        await AUTO.busy;
+        AUTO.busy = null;
+        if (AUTO.again) { AUTO.again = false; return autoSave(); }
+        return undefined;
     }
 
-    async function saveNudges(btn) {
+    function queueNudgeSave(delay = 600) {
+        clearTimeout(AUTO.nudgeTimer);
+        AUTO.nudgeTimer = setTimeout(() => { AUTO.nudgeTimer = null; saveNudges(); }, delay);
+    }
+
+    // Closing the tab inside the typing pause would lose the last few words.
+    window.addEventListener('beforeunload', (ev) => {
+        if (AUTO.timer || AUTO.busy || AUTO.nudgeTimer) { ev.preventDefault(); ev.returnValue = ''; }
+    });
+
+    async function saveNudges() {
         const root = host('nudges');
         if (!root) return;
         const val = (f) => {
@@ -557,17 +641,19 @@
             if (!el) return undefined;
             return el.type === 'checkbox' ? el.checked : Number(el.value);
         };
-        const done = P.busy(btn, 'Saving…');
+        const note = root.querySelector('[data-qa-nudgestatus]');
+        if (note) note.textContent = 'Saving…';
         try {
-            await S.api('/quizzes', { method: 'POST', body: { reminders: {
+            const d = await S.api('/quizzes', { method: 'POST', body: { reminders: {
                 enabled: val('enabled'), everyHours: val('everyHours'), afterHours: val('afterHours'),
                 applications: val('applications'), staffApplications: val('staffApplications'),
                 quizzes: val('quizzes'),
             } } });
-            await load();
-            P.toast('Saved for your crew.', 'ok');
-        } catch (err) { P.toast((err && err.message) || 'That didn’t save.', 'bad'); }
-        finally { done(); }
+            if (d.reminders) S.data.reminders = d.reminders;
+            if (note) note.textContent = 'Saved.';
+        } catch (err) {
+            if (note) note.textContent = (err && err.message) || 'That didn’t save.';
+        }
     }
 
     /**
@@ -585,6 +671,7 @@
         form.append('slot', slot);
         P.toast('Uploading…', 'info');
         try {
+            await flushSave();
             const res = await fetch(`${base}/api/crew/${encodeURIComponent(S.cfg.slug)}/quizzes/banner`, {
                 method: 'POST',
                 headers: { Accept: 'application/json', Authorization: 'Bearer ' + (S.cfg.token || '') },
@@ -632,6 +719,7 @@
     async function previewNudge(btn) {
         const done = P.busy(btn, 'Looking…');
         try {
+            if (AUTO.nudgeTimer) { clearTimeout(AUTO.nudgeTimer); AUTO.nudgeTimer = null; await saveNudges(); }
             S.preview = await S.api('/staff-reminders/preview');
             draw();
         } catch (err) { P.toast((err && err.message) || 'Could not work that out.', 'bad'); }
@@ -647,15 +735,16 @@
         if (!yes) return;
         const done = P.busy(btn, 'Sending…');
         try {
+            if (AUTO.nudgeTimer) { clearTimeout(AUTO.nudgeTimer); AUTO.nudgeTimer = null; await saveNudges(); }
             const d = await S.api('/staff-reminders/send', { method: 'POST' });
             P.toast(d.sent ? 'Sent to your channel.' : 'Nothing was waiting, so nothing was sent.', d.sent ? 'ok' : 'info');
         } catch (err) { P.toast((err && err.message) || 'That didn’t send.', 'bad'); }
         finally { done(); }
     }
 
-    /* ---- Editing the shape of a quiz, before it is saved ----------------
-       These change what is on screen and nothing else. Nothing is written
-       until Save, which is why they edit the local copy rather than posting. */
+    /* ---- Editing the shape of a quiz -----------------------------------
+       These edit the local copy and redraw, then save straight away — the
+       same write a typed change makes, just without the wait. */
 
     function patchOpenQuiz(fn) {
         const root = host('quizzes');
@@ -666,6 +755,7 @@
         fn(list[i]);
         S.data.quizzes = list;
         draw();
+        queueSave(0);
     }
 
     // The server's rule for a question it will keep (crewQuizzes.js
@@ -701,9 +791,19 @@
         if (el.dataset.qaWired) return;
         el.dataset.qaWired = '1';
 
+        // Anything typed or ticked in the builder saves itself. Text waits for
+        // a pause in the typing; a box ticked or a number stepped goes sooner.
+        const BUILD_FIELDS = '[data-qa-f], [data-qa-qtext], [data-qa-opt], [data-qa-correct], [data-qa-g], [data-qa-bannerurl]';
+        el.addEventListener('input', (ev) => {
+            if (ev.target.closest(BUILD_FIELDS)) queueSave(800);
+            else if (ev.target.closest('[data-qa-r]')) queueNudgeSave(800);
+        });
+
         el.addEventListener('change', (ev) => {
             const up = ev.target.closest('[data-qa-upload]');
-            if (up) { upload(up.getAttribute('data-qa-upload'), up.files && up.files[0], up); }
+            if (up) { upload(up.getAttribute('data-qa-upload'), up.files && up.files[0], up); return; }
+            if (ev.target.closest(BUILD_FIELDS)) queueSave(250);
+            else if (ev.target.closest('[data-qa-r]')) queueNudgeSave(250);
         });
 
         el.addEventListener('click', (ev) => {
@@ -720,8 +820,8 @@
             }
 
             const edit = t.closest('[data-qa-edit]');
-            if (edit) { keepOpenEdits(); S.open = edit.getAttribute('data-qa-edit'); draw(); return; }
-            if (t.closest('[data-qa-collapse]')) { keepOpenEdits(); S.open = ''; draw(); return; }
+            if (edit) { keepOpenEdits(); S.open = edit.getAttribute('data-qa-edit'); draw(); queueSave(0); return; }
+            if (t.closest('[data-qa-collapse]')) { keepOpenEdits(); S.open = ''; draw(); queueSave(0); return; }
 
             if (t.closest('[data-qa-entrance]')) { if (window.CrewEntrance) window.CrewEntrance.open(); return; }
             if (t.closest('[data-qa-newquiz]')) {
@@ -734,6 +834,7 @@
                 S.data.quizzes = [...quizzes(), fresh];
                 S.open = fresh.id;
                 draw();
+                queueSave(0);
                 return;
             }
 
@@ -749,7 +850,8 @@
                     S.data.quizzes = quizzes().filter((q) => q.id !== id);
                     S.open = '';
                     draw();
-                    P.toast('Removed here. Press Save to make it stick.', 'info');
+                    queueSave(0);
+                    P.toast('Quiz deleted.', 'info');
                 });
                 return;
             }
@@ -793,13 +895,11 @@
                 const field = root && bannerField(root, slot);
                 if (field) field.value = '';
                 if (slot.startsWith('quiz:')) patchOpenQuiz((q) => { q.banner = ''; });
-                else { S.data.banners = { ...banners(), [slot]: '' }; draw(); }
-                P.toast('Removed here. Press Save to make it stick.', 'info');
+                else { S.data.banners = { ...banners(), [slot]: '' }; draw(); queueSave(0); }
+                P.toast('Picture removed.', 'info');
                 return;
             }
 
-            if (t.closest('[data-qa-save]')) { save(t.closest('[data-qa-save]')); return; }
-            if (t.closest('[data-qa-savenudge]')) { saveNudges(t.closest('[data-qa-savenudge]')); return; }
             if (t.closest('[data-qa-preview]')) { previewNudge(t.closest('[data-qa-preview]')); return; }
             if (t.closest('[data-qa-sendnudge]')) { sendNudge(t.closest('[data-qa-sendnudge]')); return; }
             if (t.closest('[data-qa-send]')) { send(t.closest('[data-qa-send]')); return; }

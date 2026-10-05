@@ -40,6 +40,12 @@ const QUIZ = {
 };
 const stripKey = (q) => ({ ...q, questions: q.questions.map(({ correct, ...rest }) => rest) });
 
+// Passed a test that was handed out by hand — sent to a name, no application.
+const SAM = { id: 't9', quizId: 'sop', quizTitle: 'SOP induction', status: 'passed', pilotName: 'Sam', ifcName: 'sam_flies',
+    applicationId: null, onRoster: false, score: 2, total: 2, percent: 100, passMark: 60, attemptsUsed: 1, maxAttempts: 3,
+    submittedAt: new Date().toISOString(), live: false };
+let samAdded = null;    // POST /roster body from "Add & invite"
+
 let saved = [];         // POST /quizzes bodies
 let sent = [];          // POST /quiz-attempts bodies
 let handedIn = [];      // POST /quiz/:token bodies
@@ -55,8 +61,14 @@ function api(route, { staff }) {
     const json = (b, s = 200) => route.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(b) });
 
     if (p.endsWith('/quizzes') && method === 'POST') {
-        saved.push(route.request().postDataJSON() || {});
-        return json({ quizzes: [QUIZ], banners: { apply: '', quiz: '' }, gateConfig: {}, reminders: {} });
+        const posted = route.request().postDataJSON() || {};
+        saved.push(posted);
+        // Echoed back the way the server would: what it kept, and how many.
+        const kept = (posted.quizzes || [QUIZ]).map((q) => {
+            const qs = (q.questions || []).filter((qq) => qq.text && (qq.options || []).filter(Boolean).length >= 2);
+            return { ...q, questions: qs, questionCount: qs.length, ready: q.active !== false && qs.length > 0 };
+        });
+        return json({ quizzes: kept, banners: { apply: '', quiz: '' }, gateConfig: {}, reminders: {} });
     }
     if (p.endsWith('/quizzes') && method === 'GET') {
         return json({
@@ -103,6 +115,11 @@ function api(route, { staff }) {
             attemptsLeft: passed ? 0 : 2, gate });
     }
     if (p.endsWith('/staff-reminders/preview')) return json({ lines: ['**2** membership applications waiting — the oldest for 3 days.'], skipped: '', rules: {} });
+    if (p.endsWith('/applications') && method === 'GET') return json({ applications: [], waitingTests: samAdded ? [] : [SAM] });
+    if (p.endsWith('/entrance-tests') && method === 'GET') {
+        return json({ tests: [{ ...SAM, onRoster: !!samAdded }], quizzes: [{ id: 'sop', title: 'SOP induction', passMark: 60, retakeHours: 0 }] });
+    }
+    if (p.endsWith('/roster') && method === 'POST') { samAdded = route.request().postDataJSON() || {}; return json({ member: { id: 'm9' }, invite: null }, 201); }
     if (p.endsWith('/roster')) return json({ roster: [{ id: 'm1', name: 'Rae Okafor', callsign: 'TVA101' }] });
     if (p.endsWith('/me')) {
         return json(staff
@@ -193,45 +210,60 @@ const head = (s) => console.log(`\n${s}`);
     });
     ok('the right answer is the one the server sent', checkedIsFirst === 0, String(checkedIsFirst));
 
-    // Change the right answer to the second option and save.
+    ok('there is no Save button — it saves itself', !(await page.$('#quizBuildHost [data-qa-save]')));
+
+    // Change the right answer to the second option, and do nothing else.
     await page.evaluate(() => {
         const q = document.querySelector('#quizBuildHost [data-qa-qi="0"]');
         const radios = q.querySelectorAll('[data-qa-correct]');
         radios[1].checked = true;
+        radios[1].dispatchEvent(new Event('change', { bubbles: true }));
     });
-    await clickIn(page, '[data-qa-save]');
-    await page.waitForTimeout(500);
-    const body = saved[0] || {};
-    ok('a save posts the quizzes', Array.isArray(body.quizzes) && body.quizzes.length === 1);
+    await page.waitForTimeout(800);
+    const body = saved[saved.length - 1] || {};
+    ok('ticking an answer saves the quizzes', Array.isArray(body.quizzes) && body.quizzes.length === 1, String(saved.length));
     ok('…carrying the answer key the screen shows', body.quizzes && body.quizzes[0].questions[0].correct === 1,
         JSON.stringify(body.quizzes && body.quizzes[0].questions[0]));
     ok('…and the door with it', !!body.gate, JSON.stringify(body.gate || null));
+    ok('…and says so', /All changes saved/.test(await page.textContent('#quizBuildHost [data-qa-status]')));
 
-    // Type a question, press Done, THEN Save — the order anybody would. Done
-    // used to fold the editor away without reading it, so what was typed was
-    // thrown out and the quiz saved with no questions in it.
-    await clickIn(page, '[data-qa-edit="sop"]');
-    await page.waitForTimeout(250);
+    // Type a question in and walk away. Typing saves after a pause; Done used
+    // to fold the editor away without reading it, throwing out what was typed.
     await clickIn(page, '[data-qa-addq]');
-    await page.waitForTimeout(250);
-    await page.evaluate(() => {
+    await page.waitForTimeout(400);
+    const typeInto = (sel, value) => page.evaluate(([s, v]) => {
         const all = document.querySelectorAll('#quizBuildHost [data-qa-qi]');
         const q = all[all.length - 1];
-        q.querySelector('[data-qa-qtext]').value = 'Which runway is in use?';
-        const opts = q.querySelectorAll('[data-qa-opt]');
-        opts[0].value = '27L'; opts[1].value = '09R';
-        q.querySelectorAll('[data-qa-correct]')[1].checked = true;
+        const [field, i] = s.split('#');
+        const el = q.querySelectorAll(field)[Number(i || 0)];
+        el.value = v;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, [sel, value]);
+    await typeInto('[data-qa-qtext]', 'Which runway is in use?');
+    await typeInto('[data-qa-opt]#0', '27L');
+    await page.waitForTimeout(1200);
+    ok('a half-written question is flagged, not silently dropped',
+        /question 3/.test(await page.textContent('#quizBuildHost [data-qa-status]')),
+        await page.textContent('#quizBuildHost [data-qa-status]'));
+    ok('…and stays on screen while it is finished',
+        await page.evaluate(() => [...document.querySelectorAll('#quizBuildHost [data-qa-qtext]')].some((e) => e.value === 'Which runway is in use?')));
+    await typeInto('[data-qa-opt]#1', '09R');
+    await page.evaluate(() => {
+        const all = document.querySelectorAll('#quizBuildHost [data-qa-qi]');
+        const r = all[all.length - 1].querySelectorAll('[data-qa-correct]')[1];
+        r.checked = true;
+        r.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    await page.waitForTimeout(800);
+    const typedSave = (saved[saved.length - 1] || {}).quizzes || [];
+    const typed = typedSave[0] && typedSave[0].questions[2];
+    ok('finishing it saves it, with no button pressed', !!typed && typed.text === 'Which runway is in use?'
+        && typed.options.join() === '27L,09R' && typed.correct === 1, JSON.stringify(typedSave[0] && typedSave[0].questions));
+
     await clickIn(page, '[data-qa-collapse]');
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(600);
     ok('Done keeps what was typed', (await page.textContent('#quizBuildHost')).includes('3 questions'),
         (await page.textContent('#quizBuildHost')).replace(/\s+/g, ' ').slice(0, 200));
-    await clickIn(page, '[data-qa-save]');
-    await page.waitForTimeout(500);
-    const after = (saved[1] || {}).quizzes || [];
-    const typed = after[0] && after[0].questions[2];
-    ok('…and Save sends it', !!typed && typed.text === 'Which runway is in use?'
-        && typed.options.join() === '27L,09R' && typed.correct === 1, JSON.stringify(after[0] && after[0].questions));
 
     // ------------------------------------------------------------------
     head('Sending one out');
@@ -248,6 +280,19 @@ const head = (s) => console.log(`\n${s}`);
     await page.waitForTimeout(500);
     ok('sending names the pilot and the quiz', sent[0] && sent[0].memberId === 'm1' && sent[0].quizId === 'sop',
         JSON.stringify(sent[0] || null));
+
+    // ------------------------------------------------------------------
+    head('A test handed out by hand shows up under Applications');
+
+    await page.evaluate(() => { window.openRoster && window.openRoster(); window.switchRosterView('apps'); });
+    await page.waitForTimeout(1200);
+    const apps = (await page.textContent('#appsList')).replace(/\s+/g, ' ');
+    ok('a pass with no application is listed with the applications', /Passed an entrance test/.test(apps) && /Sam/.test(apps), apps.slice(0, 300));
+    ok('…with the button that lets them in', !!(await page.$('#appsList [data-et-add]')));
+    await clickIn(page, '#appsList [data-et-add]');
+    await page.waitForTimeout(1000);
+    ok('Add & invite puts them on the roster', samAdded && samAdded.name === 'Sam' && samAdded.ifcName === 'sam_flies', JSON.stringify(samAdded));
+    ok('…and they leave the list', !/Passed an entrance test/.test(await page.textContent('#appsList')));
 
     await sctx.close();
 

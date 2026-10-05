@@ -150,7 +150,9 @@
                 ? '<div class="et-line et-pass">Passed — accept them below to send their crew center invite.</div>'
                 : (t.applicationId
                     ? '<div class="et-line">Passed — accept their application to send the invite.</div>'
-                    : `<div class="et-acts"><button class="cp-btn cp-btn-primary cp-btn-sm" data-et-add><i data-lucide="user-plus"></i> Add &amp; invite</button></div>`))
+                    : (t.onRoster
+                        ? '<div class="et-line">Passed — they’re on the roster now.</div>'
+                        : `<div class="et-acts"><button class="cp-btn cp-btn-primary cp-btn-sm" data-et-add><i data-lucide="user-plus"></i> Add &amp; invite</button></div>`)))
             : '';
         return `
             <div class="et-head">
@@ -165,6 +167,33 @@
                 ${t.status !== 'passed' ? `<button class="cp-btn cp-btn-sm" data-et-reissue title="A fresh link and a clean slate — the old link stops working"><i data-lucide="refresh-cw"></i> ${t.live ? 'New link' : 'Another go'}</button>` : ''}
                 ${t.live ? '<button class="cp-btn cp-btn-sm" data-et-revoke><i data-lucide="x"></i> Withdraw</button>' : ''}
             </div>`;
+    }
+
+    /* =====================================================================
+     * UNDER APPLICATIONS — passes from tests handed out by hand
+     *
+     * A VA with no email set up sends the test by pasting its message on the
+     * IFC, to a name typed in. Nothing ties that to an application, so a pass
+     * used to be seen only in the Entrance tests panel. These are people
+     * waiting to be let in exactly as an application is, so they are listed
+     * with the applications, with the one button that lets them in.
+     * =================================================================== */
+
+    /** Passed, never applied, not on the roster. `fallback` is what the applications list carried. */
+    function waiting(fallback) {
+        const list = S.loaded && !S.error ? S.tests : (fallback || []);
+        return list.filter((t) => t.status === 'passed' && !t.applicationId && !t.onRoster);
+    }
+
+    function waitingHtml(fallback) {
+        styles();
+        const list = waiting(fallback);
+        list.forEach((t) => { if (t && t.id && !S.tests.some((x) => String(x.id) === String(t.id))) CARD_TESTS.set(String(t.id), t); });
+        return list.map((t) => `<div class="et-box" data-et-id="${esc(t.id)}">
+                <div class="et-name">${esc(t.pilotName || t.ifcName || 'Somebody')}${t.ifcName && t.ifcName !== t.pilotName ? ` <span class="cp-note">@${esc(t.ifcName)}</span>` : ''}
+                    <span class="cp-chip cp-chip-mute">Sent by hand — no application</span></div>
+                ${testBody(t)}
+            </div>`).join('');
     }
 
     /* =====================================================================
@@ -230,6 +259,9 @@
             const r = inv && Array.isArray(inv.results) ? inv.results.find((x) => x.message) : null;
             if (r && await copy(r.message)) P.toast(`${t.pilotName || t.ifcName} is on the roster — their welcome message is on your clipboard.`, 'ok');
             else P.toast(`${t.pilotName || t.ifcName} is on the roster. Send their invitation from Roster → Logins.`, 'ok');
+            // On the roster now, so off the Applications list: read the tests
+            // again and let the dashboard redraw without them.
+            load().then(changed).catch(() => {});
             if (typeof window.openLoginSetup === 'function' && inv && Array.isArray(inv.results)) {
                 if (S.panel) S.panel.close();
                 window.openRoster && window.openRoster();
@@ -361,7 +393,8 @@
     }
 
     window.CrewEntrance = {
-        mount, open, wire, cardHtml, noteCards,
+        mount, open, wire, cardHtml, noteCards, waitingHtml,
+        waitingCount: (fallback) => waiting(fallback).length,
         reload: () => load(),
         get quizzes() { return S.quizzes.slice(); },
         get tests() { return S.tests.slice(); },
