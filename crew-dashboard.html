@@ -1910,6 +1910,11 @@
                         <input id="joinDiscord" type="url" placeholder="https://discord.gg/…" autocomplete="off" spellcheck="false"
                             class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
                     </div>
+                    <label class="mt-4 flex items-start gap-2.5 cursor-pointer">
+                        <input id="joinCreatesLogin" type="checkbox" checked class="mt-1 accent-[var(--accent)]">
+                        <span><span class="text-sm font-semibold">Create a crew center login when accepting</span>
+                            <span class="block text-xs muted mt-0.5">The starting point for every application. Turn it off if you hand logins out later — from Roster → Logins, or by ticking it on one card.</span></span>
+                    </label>
                     <button onclick="saveRecruitment(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
                     <p id="recruitNote" class="hidden text-sm mt-2"></p>
                 </div>
@@ -5458,7 +5463,7 @@
         // keeps for itself: the join form refuses them, staff assign them from
         // the roster. 001 is the founder's, not whoever filled the form in
         // first. 0 opens every number up.
-        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', callsignReservedMax:10, discordInvite:'', form:[], reqs:[] };
+        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', callsignReservedMax:10, discordInvite:'', createsLogin:true, form:[], reqs:[] };
         // Extensible join requirements. Numeric types are auto-checked against
         // the applicant's real IF stats; 'agree' is a custom checkbox. (Grade has
         // its own control above, so it's intentionally not offered here.)
@@ -5529,6 +5534,7 @@
                     : 'Nothing is reserved — applicants can pick any number, including 1.';
             }
             const inv=document.getElementById('joinDiscord'); if(inv) inv.value=JOIN.discordInvite||'';
+            const mk=document.getElementById('joinCreatesLogin'); if(mk) mk.checked=JOIN.createsLogin!==false;
             renderQuestions();
             renderRequirements();
             const slug=getSlug();
@@ -5715,7 +5721,8 @@
                 if(Number.isFinite(n)&&n>=0) JOIN.callsignReservedMax=Math.min(999,n);
             }
             JOIN.discordInvite=(document.getElementById('joinDiscord')||{}).value?.trim()||'';
-            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, callsignReservedMax:JOIN.callsignReservedMax, discordInvite:JOIN.discordInvite||'', applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
+            const mk=document.getElementById('joinCreatesLogin'); if(mk) JOIN.createsLogin=!!mk.checked;
+            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, callsignReservedMax:JOIN.callsignReservedMax, discordInvite:JOIN.discordInvite||'', acceptCreatesLogin:JOIN.createsLogin!==false, applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ note.textContent='Applied on this device. Sign in to save for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); say('Applied on this device. Sign in to save it for your crew.','info'); return; }
             const stop=busy(btn,'Saving…');
@@ -9705,7 +9712,7 @@
                 <div class="mt-2.5 rounded-lg border hair p-3 space-y-2.5">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">On acceptance</div>
                     <label class="flex items-start gap-2 text-sm cursor-pointer">
-                        <input data-mkacct type="checkbox" checked class="mt-0.5 accent-[var(--accent)]">
+                        <input data-mkacct type="checkbox"${JOIN.createsLogin!==false?' checked':''} class="mt-0.5 accent-[var(--accent)]">
                         <span>Create a crew center login
                             <span class="block text-xs muted">A temporary password is generated and they’re asked to replace it on first sign-in. ${a.email?'It is emailed to them with a sign-in link.':'They gave no email — add an address below and we’ll send it, or hand it over yourself.'} It also waits under <b>Invitations</b>, and on their own status link, until they sign in.</span>
                         </span>
@@ -9754,11 +9761,39 @@
                     <span class="text-sm flex-1 min-w-[10rem]"><b>Entrance tests</b> <span class="muted">— send one before you accept. No login needed to sit it.</span></span>
                     <button onclick="CrewEntrance.open()" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">All tests &amp; send to someone new</button>
                 </div>` : '';
+            // One switch for every card, so a VA that hands logins out later
+            // does not have to untick it on each application in turn.
+            const logins = `<label class="flex items-center gap-2.5 flex-wrap surface hair rounded-xl px-3.5 py-2.5 cursor-pointer">
+                    <input id="appsMkacctAll" type="checkbox"${JOIN.createsLogin!==false?' checked':''} onchange="setAcceptLogins(this.checked)" class="accent-[var(--accent)]">
+                    <span class="text-sm flex-1 min-w-[10rem]"><b>Create a crew center login when I accept</b>
+                        <span class="muted">— for every application. You can still change it on one card.</span></span>
+                </label>`;
             keepPlace(list,()=>{
-                list.innerHTML = tests + (pending.length ? pending.map(appCardHtml).join('')
+                list.innerHTML = tests + logins + (pending.length ? pending.map(appCardHtml).join('')
                     : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>');
                 if(window.lucide) lucide.createIcons();
             });
+        }
+        /**
+         * The crew-wide default for "Create a crew center login" on accept.
+         *
+         * Flips every card that is waiting, and is saved for the crew so the
+         * next reviewer — and tomorrow's applications — start the same way.
+         * Somebody without the recruitment settings permission still gets it
+         * for this session; the cards are theirs to tick either way.
+         */
+        async function setAcceptLogins(on){
+            JOIN.createsLogin=!!on;
+            document.querySelectorAll('#appsList [data-mkacct]').forEach(b=>{ b.checked=!!on; });
+            const mirror=document.getElementById('joinCreatesLogin'); if(mirror) mirror.checked=!!on;
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return;
+            if(!can('settings.recruitment')){ say(on?'Logins on for every card — for this session.':'Logins off for every card — for this session.','info'); return; }
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({ acceptCreatesLogin:!!on }) });
+                if(res.ok) say(on?'Accepting now creates a login — for every application.':'Accepting no longer creates a login. Tick it on a card when you want one.','ok');
+                else { const d=await res.json().catch(()=>({})); say(d.error||'Could not save that for the crew — it applies on this screen only.','bad'); }
+            }catch{ say('Server unreachable — it applies on this screen only.','bad'); }
         }
         // The VA's name as the page is currently showing it, for text a staff
         // member is about to send a pilot.
@@ -11979,7 +12014,10 @@
                 // A backend that doesn't send it yet leaves the default in
                 // place rather than reading as "reserve nothing".
                 callsignReservedMax:(typeof b.join.callsignReservedMax==='number'&&b.join.callsignReservedMax>=0)?b.join.callsignReservedMax:10,
-                discordInvite:b.join.discordInvite||'', form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
+                discordInvite:b.join.discordInvite||'',
+                // Absent from an older backend: the old behaviour, which was yes.
+                createsLogin:b.join.createsLogin!==false,
+                form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
             CREW_NAME=name;
             const mono=initials(name,b.code);
