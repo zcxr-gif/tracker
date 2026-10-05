@@ -207,6 +207,32 @@ const head = (s) => console.log(`\n${s}`);
         JSON.stringify(body.quizzes && body.quizzes[0].questions[0]));
     ok('…and the door with it', !!body.gate, JSON.stringify(body.gate || null));
 
+    // Type a question, press Done, THEN Save — the order anybody would. Done
+    // used to fold the editor away without reading it, so what was typed was
+    // thrown out and the quiz saved with no questions in it.
+    await clickIn(page, '[data-qa-edit="sop"]');
+    await page.waitForTimeout(250);
+    await clickIn(page, '[data-qa-addq]');
+    await page.waitForTimeout(250);
+    await page.evaluate(() => {
+        const all = document.querySelectorAll('#quizBuildHost [data-qa-qi]');
+        const q = all[all.length - 1];
+        q.querySelector('[data-qa-qtext]').value = 'Which runway is in use?';
+        const opts = q.querySelectorAll('[data-qa-opt]');
+        opts[0].value = '27L'; opts[1].value = '09R';
+        q.querySelectorAll('[data-qa-correct]')[1].checked = true;
+    });
+    await clickIn(page, '[data-qa-collapse]');
+    await page.waitForTimeout(250);
+    ok('Done keeps what was typed', (await page.textContent('#quizBuildHost')).includes('3 questions'),
+        (await page.textContent('#quizBuildHost')).replace(/\s+/g, ' ').slice(0, 200));
+    await clickIn(page, '[data-qa-save]');
+    await page.waitForTimeout(500);
+    const after = (saved[1] || {}).quizzes || [];
+    const typed = after[0] && after[0].questions[2];
+    ok('…and Save sends it', !!typed && typed.text === 'Which runway is in use?'
+        && typed.options.join() === '27L,09R' && typed.correct === 1, JSON.stringify(after[0] && after[0].questions));
+
     // ------------------------------------------------------------------
     head('Sending one out');
 

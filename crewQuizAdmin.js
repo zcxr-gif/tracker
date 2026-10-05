@@ -533,6 +533,7 @@
             const el = bannerField(root, 'quiz:' + q.id);
             return el ? { ...q, banner: el.value.trim() } : q;
         });
+        const dropped = list.reduce((n, q) => n + (q.questions || []).filter((qq) => !usableQuestion(qq)).length, 0);
         const done = P.busy(btn, 'Saving…');
         try {
             await S.api('/quizzes', { method: 'POST', body: {
@@ -540,7 +541,10 @@
             } });
             S.open = '';
             await load();
-            P.toast('Saved for your crew.', 'ok');
+            if (dropped) {
+                P.toast(`Saved, but ${dropped} question${dropped === 1 ? ' was' : 's were'} left out — each needs its text, `
+                    + 'two answers and the right one ticked.', 'bad');
+            } else P.toast('Saved for your crew.', 'ok');
         } catch (err) { P.toast((err && err.message) || 'That didn’t save.', 'bad'); }
         finally { done(); }
     }
@@ -664,6 +668,31 @@
         draw();
     }
 
+    // The server's rule for a question it will keep (crewQuizzes.js
+    // sanitizeQuestion): some text, two answers, and a right one ticked that
+    // is not blank. Anything short of that is dropped on save, silently.
+    function usableQuestion(qq) {
+        const opts = (qq.options || []).map((o) => String(o || '').trim());
+        return !!String(qq.text || '').trim() && opts.filter(Boolean).length >= 2
+            && qq.correct >= 0 && !!opts[qq.correct];
+    }
+
+    // Fold whatever is typed in the open editor into the local copy before it
+    // is closed. Done and Edit redraw from that copy, so without this anything
+    // typed since the last add/remove click was thrown away — and a quiz saved
+    // after Done went up with blank questions, which the server then dropped.
+    function keepOpenEdits() {
+        const root = host('quizzes');
+        if (!root || !S.open) return;
+        S.data.quizzes = readQuizzes(root).map((q) => {
+            if (q.id !== S.open) return q;
+            const el = bannerField(root, 'quiz:' + q.id);
+            const questionCount = (q.questions || []).filter(usableQuestion).length;
+            return { ...q, ...(el ? { banner: el.value.trim() } : {}),
+                questionCount, ready: !!q.active && questionCount > 0 };
+        });
+    }
+
     /* =====================================================================
      * WIRING
      * =================================================================== */
@@ -691,11 +720,12 @@
             }
 
             const edit = t.closest('[data-qa-edit]');
-            if (edit) { S.open = edit.getAttribute('data-qa-edit'); draw(); return; }
-            if (t.closest('[data-qa-collapse]')) { S.open = ''; draw(); return; }
+            if (edit) { keepOpenEdits(); S.open = edit.getAttribute('data-qa-edit'); draw(); return; }
+            if (t.closest('[data-qa-collapse]')) { keepOpenEdits(); S.open = ''; draw(); return; }
 
             if (t.closest('[data-qa-entrance]')) { if (window.CrewEntrance) window.CrewEntrance.open(); return; }
             if (t.closest('[data-qa-newquiz]')) {
+                keepOpenEdits();
                 const n = quizzes().length + 1;
                 const fresh = { id: `quiz-${Date.now().toString(36)}`, title: `Quiz ${n}`, blurb: '', banner: '',
                     passMark: 80, maxAttempts: 3, open: false, active: true, ready: false,
