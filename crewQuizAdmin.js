@@ -343,7 +343,7 @@
     function sentHtml() {
         if (!S.data.canReview) {
             return `<div class="cp-empty"><i data-lucide="lock"></i>
-                Sending quizzes out goes with reviewing applications, and that is not one of your permissions.</div>`;
+                Sending quizzes and reading the answers needs the “Build quizzes, send tests &amp; see everyone’s answers” permission (or reviewing applications). Ask whoever runs your staff roles.</div>`;
         }
         const ready = quizzes().filter((q) => q.ready && q.active);
         const rows = S.attempts || [];
@@ -392,6 +392,9 @@
         if (a.gate) sub.push('this is the door');
 
         const acts = [];
+        if (a.total && window.CrewAnswers) {
+            acts.push(`<button class="cp-btn cp-btn-sm" data-qa-answers="${esc(a.id)}" aria-expanded="false"><i data-lucide="list-checks"></i> See answers</button>`);
+        }
         if (a.link) acts.push(`<button class="cp-btn cp-btn-sm" data-qa-copy="${esc(a.link)}">Copy link</button>`);
         if (a.status === 'issued' || a.status === 'started') {
             acts.push(`<button class="cp-btn cp-btn-sm cp-btn-bad" data-qa-revoke="${esc(a.id)}">Withdraw</button>`);
@@ -680,6 +683,12 @@
         el.addEventListener('click', (ev) => {
             const t = ev.target;
             if (t.closest('[data-qa-retry]')) { load(); return; }
+
+            const answers = t.closest('[data-qa-answers]');
+            if (answers) {
+                if (window.CrewAnswers) window.CrewAnswers.toggle(answers, { api: S.api, id: answers.getAttribute('data-qa-answers') });
+                return;
+            }
 
             const copy = t.closest('[data-qa-copy]');
             if (copy) {
