@@ -54,7 +54,31 @@
         loaded: false,
         error: null,       // why the board could not be read, when it could not
         posting: false,
+        backend: '',
+        token: () => '',
+        // "Also post to Discord", as the composer last had it. Lives here rather
+        // than in the form because the form is rebuilt by every render.
+        share: { on: false, style: 'notice', image: '', ping: 'none' },
     };
+
+    /* ---------------------------------------------------------------------
+     * Discord banners
+     *
+     * A notice can also go to the airline's Discord, opening with a banner:
+     * drawn by the backend in the airline's colours in one of four styles, or
+     * the staff member's own upload. The preview is the real picture from the
+     * same renderer, so what they see here is what lands in the channel.
+     * ------------------------------------------------------------------- */
+    const BANNERS = [
+        { id: 'notice', label: 'Notice', icon: 'megaphone' },
+        { id: 'event', label: 'Event', icon: 'calendar-days' },
+        { id: 'celebration', label: 'Celebration', icon: 'party-popper' },
+        { id: 'urgent', label: 'Urgent', icon: 'triangle-alert' },
+        { id: 'own', label: 'My own image', icon: 'image-up' },
+        { id: 'none', label: 'No banner', icon: 'ban' },
+    ];
+    const SHARE_KEY = 'crew:notice:discord';
+    try { S.share.on = localStorage.getItem(SHARE_KEY) === '1'; } catch (_) { /* private mode */ }
 
     let panel = null;
 
@@ -179,6 +203,9 @@
                 </span>
                 <span class="cp-fact">${esc(whenText(n.createdAt))}</span>
                 ${S.canManage ? `<span class="cn-card-tools">
+                    ${auto ? '' : `<button class="cp-btn cp-btn-sm" data-share="${esc(n.id)}" title="Post this to Discord with a banner">
+                        <i data-lucide="send"></i> Discord
+                    </button>`}
                     <button class="cp-btn cp-btn-sm" data-pin="${esc(n.id)}" title="${n.pinned ? 'Unpin' : 'Pin to the top'}">
                         <i data-lucide="pin"></i> ${n.pinned ? 'Unpin' : 'Pin'}
                     </button>
@@ -236,6 +263,32 @@
                     placeholder="What does the crew need to know?">
                 <textarea id="cnBody" class="cp-textarea" maxlength="4000"
                     placeholder="Anything more (optional)"></textarea>
+                <div class="cn-share">
+                    <label class="cp-fact"><input type="checkbox" id="cnDiscord"${S.share.on ? ' checked' : ''}>
+                        <i data-lucide="send-to-back"></i> Also post to Discord</label>
+                    <div class="cn-share-opts${S.share.on ? '' : ' cp-hidden'}" id="cnShareOpts">
+                        <div class="cp-label">Banner</div>
+                        <div class="cn-styles" role="radiogroup" aria-label="Banner">
+                            ${BANNERS.map((b) => `<button type="button" role="radio" class="cn-style${S.share.style === b.id ? ' cn-style-on' : ''}"
+                                data-style="${b.id}" aria-checked="${S.share.style === b.id}"><i data-lucide="${b.icon}"></i> ${esc(b.label)}</button>`).join('')}
+                        </div>
+                        <div class="cn-own${S.share.style === 'own' ? '' : ' cp-hidden'}" id="cnOwn">
+                            <input type="file" id="cnOwnFile" accept="image/png,image/jpeg,image/gif,image/webp" class="cp-input">
+                            <p class="cp-note">Wide pictures look best — about 1200 × 500.</p>
+                        </div>
+                        <div class="cn-preview${S.share.style === 'none' ? ' cp-hidden' : ''}" id="cnPreviewWrap">
+                            <img id="cnPreview" class="cp-hidden" alt="Banner preview">
+                            <span class="cn-preview-hint" id="cnPreviewHint">Type a title to see the banner.</span>
+                        </div>
+                        <label class="cp-label" for="cnPing">Notify</label>
+                        <select id="cnPing" class="cp-input">
+                            <option value="none"${S.share.ping === 'none' ? ' selected' : ''}>Nobody — just post it</option>
+                            <option value="here"${S.share.ping === 'here' ? ' selected' : ''}>@here — whoever is online</option>
+                            <option value="everyone"${S.share.ping === 'everyone' ? ' selected' : ''}>@everyone</option>
+                        </select>
+                        <p class="cp-note">Goes to the Announcements channel in Settings → Alerts, or your main Discord webhook if that isn’t set.</p>
+                    </div>
+                </div>
                 <div class="cn-composer-foot">
                     <label class="cp-fact"><input type="checkbox" id="cnPin"> Pin to the top</label>
                     <button type="submit" class="cp-btn cp-btn-primary" id="cnPost">
@@ -259,7 +312,10 @@
         // The composer is rebuilt by every render, so its listener goes on the
         // fresh element each time.
         const form = body.querySelector('#cnCompose');
-        if (form) form.addEventListener('submit', onPost);
+        if (form) {
+            form.addEventListener('submit', onPost);
+            wireShare(form);
+        }
 
         // The delegated handler is not: `body` survives renders, so attaching
         // it again stacked it. Two handlers meant one tap on the bin asking
@@ -269,6 +325,8 @@
         body.dataset.cnWired = '1';
 
         body.addEventListener('click', async (ev) => {
+            const share = ev.target.closest('[data-share]');
+            if (share) { shareExisting(share); return; }
             const pin = ev.target.closest('[data-pin]');
             const del = ev.target.closest('[data-del]');
             if (!pin && !del) return;
@@ -311,15 +369,25 @@
         const t = title.value.trim();
         if (!t) { title.focus(); return; }
 
+        const sh = S.share;
+        if (sh.on && sh.style === 'own' && !sh.image) {
+            note.textContent = 'Choose your banner image first, or pick one of the drawn styles.';
+            note.className = 'cp-note cp-note-bad';
+            return;
+        }
+
         S.posting = true;
         btn.disabled = true;
         note.classList.add('cp-hidden');
         try {
-            await S.api('/announcements', {
+            const d = await S.api('/announcements', {
                 method: 'POST',
-                body: { title: t, body: bodyEl.value.trim(), pinned: !!pin.checked },
+                body: {
+                    title: t, body: bodyEl.value.trim(), pinned: !!pin.checked,
+                    ...(sh.on ? shareBody() : {}),
+                },
             });
-            P.toast('Posted to the noticeboard.', 'ok');
+            sayShared(d.discord, 'Posted to the noticeboard');
             await load();
         } catch (err) {
             note.textContent = err.message || 'Could not post that.';
@@ -328,6 +396,135 @@
         } finally {
             S.posting = false;
         }
+    }
+
+    /** What the backend wants for a share, from the composer's state. */
+    function shareBody() {
+        const sh = S.share;
+        return {
+            discord: true,
+            banner: sh.style !== 'none',
+            bannerStyle: sh.style === 'own' || sh.style === 'none' ? 'notice' : sh.style,
+            bannerImage: sh.style === 'own' ? sh.image : '',
+            ping: sh.ping,
+        };
+    }
+
+    /** One toast for every outcome of a post, Discord half included. */
+    function sayShared(discord, board) {
+        if (!discord) { P.toast(`${board}.`, 'ok'); return; }
+        if (discord.sent) P.toast(discord.warning ? `${board} and Discord. ${discord.warning}` : `${board} and Discord.`, discord.warning ? 'info' : 'ok');
+        else P.toast(`${board}, but not to Discord: ${discord.error || 'it didn’t go through.'}`, 'bad');
+    }
+
+    // A notice already on the board, to Discord — for one written before the box
+    // was ticked. Uses whichever banner the composer is set to.
+    async function shareExisting(btn) {
+        const id = btn.getAttribute('data-share');
+        const n = S.notices.find((x) => String(x.id) === String(id));
+        if (!n) return;
+        if (!window.confirm(`Post “${n.title}” to your Discord?`)) return;
+        btn.disabled = true;
+        try {
+            const sh = S.share;
+            const own = sh.style === 'own' && sh.image;
+            const d = await S.api(`/announcements/${encodeURIComponent(id)}/discord`, {
+                method: 'POST',
+                body: { ...shareBody(), ...(sh.style === 'own' && !own ? { bannerStyle: 'notice', bannerImage: '', banner: true } : {}) },
+            });
+            P.toast(d.discord && d.discord.warning ? `Posted to Discord. ${d.discord.warning}` : 'Posted to Discord.', 'ok');
+        } catch (err) {
+            P.toast(err.message || 'Could not post that to Discord.', 'bad');
+        } finally { btn.disabled = false; }
+    }
+
+    let previewTimer = null;
+    let previewUrl = '';
+    function refreshPreview() {
+        clearTimeout(previewTimer);
+        previewTimer = setTimeout(drawPreview, 450);
+    }
+    async function drawPreview() {
+        const img = document.getElementById('cnPreview');
+        const hint = document.getElementById('cnPreviewHint');
+        const titleEl = document.getElementById('cnTitle');
+        if (!img || !S.share.on) return;
+        const sh = S.share;
+        const show = (src, msg) => {
+            img.classList.toggle('cp-hidden', !src);
+            if (src) img.src = src;
+            if (hint) { hint.textContent = msg || ''; hint.classList.toggle('cp-hidden', !msg); }
+        };
+        if (sh.style === 'none') return;
+        if (sh.style === 'own') { show(sh.image, sh.image ? '' : 'Choose an image to see it here.'); return; }
+        const title = titleEl ? titleEl.value.trim() : '';
+        if (!title) { show('', 'Type a title to see the banner.'); return; }
+        const bodyEl = document.getElementById('cnBody');
+        const q = new URLSearchParams({ style: sh.style, title, body: bodyEl ? bodyEl.value.trim().slice(0, 300) : '' });
+        try {
+            const t = S.token();
+            const res = await fetch(`${S.backend}/api/crew/${encodeURIComponent(S.slug)}/announcements/banner.png?${q}`, {
+                headers: t ? { Authorization: 'Bearer ' + t } : {},
+            });
+            if (!res.ok) { show('', res.status === 404 ? 'Banner previews aren’t available on this server yet.' : 'Couldn’t draw the preview.'); return; }
+            const blob = await res.blob();
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            previewUrl = URL.createObjectURL(blob);
+            show(previewUrl, '');
+        } catch (_) { show('', 'Couldn’t draw the preview.'); }
+    }
+
+    async function uploadOwn(file, note) {
+        if (!file) return;
+        const say = (msg, bad) => { note.textContent = msg; note.className = 'cp-note' + (bad ? ' cp-note-bad' : ''); };
+        say('Uploading…');
+        try {
+            const fd = new FormData();
+            fd.append('image', file);
+            const t = S.token();
+            const res = await fetch(`${S.backend}/api/crew/${encodeURIComponent(S.slug)}/announcements/banner`, {
+                method: 'POST', headers: t ? { Authorization: 'Bearer ' + t } : {}, body: fd,
+            });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok || !d.url) { say(d.error || 'That image could not be uploaded.', true); return; }
+            S.share.image = d.url;
+            say('Uploaded — this is the banner Discord will show.');
+            drawPreview();
+        } catch (_) { say('Server unreachable. Try again.', true); }
+    }
+
+    function wireShare(form) {
+        const box = form.querySelector('#cnDiscord');
+        const opts = form.querySelector('#cnShareOpts');
+        const own = form.querySelector('#cnOwn');
+        const wrap = form.querySelector('#cnPreviewWrap');
+        if (!box || !opts) return;
+        box.addEventListener('change', () => {
+            S.share.on = box.checked;
+            try { localStorage.setItem(SHARE_KEY, box.checked ? '1' : '0'); } catch (_) { /* private mode */ }
+            opts.classList.toggle('cp-hidden', !box.checked);
+            if (box.checked) drawPreview();
+        });
+        form.querySelectorAll('[data-style]').forEach((b) => b.addEventListener('click', () => {
+            S.share.style = b.getAttribute('data-style');
+            form.querySelectorAll('[data-style]').forEach((o) => {
+                const on = o === b;
+                o.classList.toggle('cn-style-on', on);
+                o.setAttribute('aria-checked', String(on));
+            });
+            own.classList.toggle('cp-hidden', S.share.style !== 'own');
+            wrap.classList.toggle('cp-hidden', S.share.style === 'none');
+            drawPreview();
+        }));
+        const file = form.querySelector('#cnOwnFile');
+        if (file) file.addEventListener('change', () => uploadOwn(file.files && file.files[0], own.querySelector('.cp-note')));
+        const ping = form.querySelector('#cnPing');
+        if (ping) ping.addEventListener('change', () => { S.share.ping = ping.value; });
+        ['#cnTitle', '#cnBody'].forEach((sel) => {
+            const el = form.querySelector(sel);
+            if (el) el.addEventListener('input', refreshPreview);
+        });
+        if (S.share.on) drawPreview();
     }
 
     /**
@@ -365,6 +562,19 @@
         .cn-empty{ font-size:.85rem; color:var(--muted,#736E64); padding:.7rem 0; list-style:none; }
 
         .cn-composer{ display:grid; gap:.6rem; }
+        .cn-share{ display:grid; gap:.55rem; padding:.7rem .8rem; border:1px solid var(--line-soft,#F0ECE4); border-radius:.75rem; }
+        .cn-share input[type=checkbox]{ accent-color:var(--accent,#1C1A16); }
+        .cn-share-opts{ display:grid; gap:.55rem; }
+        .cn-styles{ display:flex; flex-wrap:wrap; gap:.4rem; }
+        .cn-style{ display:inline-flex; align-items:center; gap:.35rem; font-size:.78rem; font-weight:600;
+            padding:.35rem .65rem; border-radius:999px; border:1px solid var(--line,#E5E0D6);
+            background:transparent; color:var(--ink,#1C1A16); cursor:pointer; }
+        .cn-style i{ width:.9rem; height:.9rem; }
+        .cn-style-on{ border-color:var(--accent,#1C1A16); background:color-mix(in srgb, var(--accent,#1C1A16) 12%, transparent); }
+        .cn-preview{ position:relative; border-radius:.6rem; overflow:hidden; background:var(--line-soft,#F0ECE4);
+            aspect-ratio:12/5; display:grid; place-items:center; }
+        .cn-preview img{ width:100%; height:100%; object-fit:cover; display:block; }
+        .cn-preview-hint{ font-size:.8rem; color:var(--muted,#736E64); padding:0 1rem; text-align:center; }
         .cn-composer-foot{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; }
         .cn-composer-foot input[type=checkbox]{ accent-color:var(--accent,#1C1A16); }
 
@@ -413,6 +623,8 @@
     function mount({ backend, slug, token }) {
         injectStyles();
         S.api = P.api({ backend, slug, token });
+        S.backend = String(backend || '').replace(/\/+$/, '');
+        S.token = typeof token === 'function' ? token : () => String(token || '');
         S.slug = String(slug || '').toLowerCase();
         if (!S.slug) return Promise.resolve([]);
         return load();
