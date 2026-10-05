@@ -21,6 +21,9 @@
     <script>if (window.tailwind) tailwind.config = { darkMode: 'class' };</script>
     <!-- Paints the VA's own design tokens over the stock look. No-ops entirely
          for a VA that hasn't configured a theme. -->
+    <!-- First, so an expired sign-in is sent back to the login before any of
+         this page is drawn from it. See crewSessionGuard.js. -->
+    <script src="/crewSessionGuard.js"></script>
     <script src="/crewBrand.js"></script>
     <!-- Which of the two interfaces this crew center is wearing (crewSkin.css).
          Sets data-skin on <html> before the first paint; a VA that has never
@@ -1923,7 +1926,9 @@
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/me`,{
                     headers:{Accept:'application/json',Authorization:'Bearer '+s.token} });
-                if(!res.ok) return;                     // an expired session is the login page's problem
+                // Expired or revoked: back to the sign-in, not a page of dead buttons.
+                if(res.status===401 && window.CrewSessionGuard){ CrewSessionGuard.expire(); return; }
+                if(!res.ok) return;
                 const d=await res.json();
                 patchSession({ mustChangePassword:!!d.mustChangePassword, canChangePassword:!!d.canChangePassword });
                 showPasswordGate(!!d.mustChangePassword);
