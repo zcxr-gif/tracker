@@ -152,6 +152,7 @@
          with no login (crew-test.html), read back here before anybody is
          accepted. -->
     <script src="/crewEntrance.js"></script>
+    <script src="/crewProbation.js"></script>
     <!-- One pilot's flying, opened by their staff: every report they have
          filed, the arithmetic underneath it, and the two things that did not
          exist before — correcting a flight's hours, and filing one by hand
@@ -1236,7 +1237,7 @@
                                 <input type="checkbox" id="ret_firstFlight" class="accent-[var(--accent)] w-4 h-4">
                                 <span class="min-w-0">
                                     <span class="block text-sm font-semibold">First flight deadline</span>
-                                    <span class="block text-xs muted">A new recruit must fly and log one flight.</span>
+                                    <span class="block text-xs muted">A new recruit must fly and log one flight — or a set of routes, if you ask for some below.</span>
                                 </span>
                             </label>
                             <div class="grid grid-cols-2 gap-2.5">
@@ -1248,6 +1249,20 @@
                                     <input id="ret_firstFlightWarnDays" type="number" min="0" max="30" placeholder="2"
                                         class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
                                     <span class="block mt-1">days · 0 = no warning</span>
+                                </label>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2.5">
+                                <label class="text-xs muted">Routes to fly
+                                    <input id="ret_firstFlightRoutes" type="number" min="0" max="10" placeholder="0"
+                                        class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
+                                    <span class="block mt-1">0 = any one flight</span>
+                                </label>
+                                <label class="text-xs muted">Picked
+                                    <select id="ret_firstFlightRoutePick" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]">
+                                        <option value="random">At random from our routes</option>
+                                        <option value="staff">By staff, for each pilot</option>
+                                    </select>
+                                    <span class="block mt-1">Change any pilot’s under Roster → Probation</span>
                                 </label>
                             </div>
                             <label class="block text-xs muted">Then
@@ -2000,6 +2015,7 @@
                              a login minted for a new pilot and waiting to be handed over,
                              and one an existing pilot has asked to have replaced. -->
                         <button data-view="invites" onclick="switchRosterView('invites')" class="px-3 py-1.5 rounded-md transition inline-flex items-center gap-1.5">Logins<span id="invitesBadge" class="hidden min-w-[18px] h-[18px] px-1 grid place-items-center text-[11px] font-bold text-white accent-bg rounded-full"></span></button>
+                        <button data-view="probation" onclick="switchRosterView('probation')" class="hidden px-3 py-1.5 rounded-md transition">Probation</button>
                     </div>
                     <div class="drawer-actions flex items-center gap-2">
                         <button id="rosterCsvBtn" onclick="openCsv('roster')" title="Export or import the roster as CSV" class="hidden surface hair text-sm font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1"><i data-lucide="table" class="w-4 h-4"></i> CSV</button>
@@ -2043,6 +2059,7 @@
                  yet used, and pilots who have asked for a new password. Both
                  stay put until they are used or thrown away. -->
             <div id="invitesList" class="hidden p-5 space-y-3"></div>
+            <div id="probationList" class="hidden p-5 space-y-3"></div>
         </div>
     </div>
 
@@ -3443,6 +3460,8 @@
                 firstFlightDays: document.getElementById('ret_firstFlightDays'),
                 firstFlightWarnDays: document.getElementById('ret_firstFlightWarnDays'),
                 firstFlightAction: document.getElementById('ret_firstFlightAction'),
+                firstFlightRoutes: document.getElementById('ret_firstFlightRoutes'),
+                firstFlightRoutePick: document.getElementById('ret_firstFlightRoutePick'),
                 inactivity: document.getElementById('ret_inactivity'),
                 inactivityDays: document.getElementById('ret_inactivityDays'),
                 inactivityWarnDays: document.getElementById('ret_inactivityWarnDays'),
@@ -3468,6 +3487,8 @@
             e.firstFlightDays.value = v.firstFlightDays != null ? v.firstFlightDays : 7;
             e.firstFlightWarnDays.value = v.firstFlightWarnDays != null ? v.firstFlightWarnDays : 2;
             e.firstFlightAction.value = v.firstFlightAction || 'remove';
+            e.firstFlightRoutes.value = v.firstFlightRoutes != null ? v.firstFlightRoutes : 0;
+            e.firstFlightRoutePick.value = v.firstFlightRoutePick === 'staff' ? 'staff' : 'random';
             e.inactivity.checked = !!v.inactivity;
             e.inactivityDays.value = v.inactivityDays != null ? v.inactivityDays : 30;
             e.inactivityWarnDays.value = v.inactivityWarnDays != null ? v.inactivityWarnDays : 7;
@@ -3517,6 +3538,7 @@
             list(p.removed,'Delete');
             list(p.deactivated,'Mark inactive');
             list(p.warned,'Warn');
+            if(p.awaitingRoutes && p.awaitingRoutes.length) rows.push(`<div class="mt-1"><span class="font-semibold text-[var(--ink)]">Waiting for routes ${p.awaitingRoutes.length}</span> — ${p.awaitingRoutes.slice(0,8).map(x=>escapeHtml(x.name||'a pilot')).join(', ')}. Choose them under Roster → Probation; nobody is removed until you do.</div>`);
             host.innerHTML = rows.length
                 ? `${rows.join('')}<div class="mt-1.5">${p.checked} pilot${p.checked===1?'':'s'} checked.</div>`
                 : `Nobody. ${p.checked} pilot${p.checked===1?'':'s'} checked.`;
@@ -3531,6 +3553,8 @@
                 firstFlightDays: num(e.firstFlightDays,1,90,7),
                 firstFlightWarnDays: num(e.firstFlightWarnDays,0,30,2),
                 firstFlightAction: e.firstFlightAction.value,
+                firstFlightRoutes: num(e.firstFlightRoutes,0,10,0),
+                firstFlightRoutePick: e.firstFlightRoutePick.value,
                 inactivity: e.inactivity.checked,
                 inactivityDays: num(e.inactivityDays,7,365,30),
                 inactivityWarnDays: num(e.inactivityWarnDays,0,60,7),
@@ -5911,7 +5935,11 @@
             // are gated on the same capability.
             const invTab=document.querySelector('#rosterViewTabs [data-view=\"invites\"]');
             if(invTab) invTab.classList.toggle('hidden', !can('applications.review'));
+            // New pilots' set routes: choosing them is roster work.
+            const pbTab=document.querySelector('#rosterViewTabs [data-view=\"probation\"]');
+            if(pbTab) pbTab.classList.toggle('hidden', !can('roster.manage') || !window.CrewProbation);
             ROSTER_VIEW='roster';
+            document.getElementById('probationList').classList.add('hidden');
             document.getElementById('rosterList').classList.remove('hidden');
             document.getElementById('appsList').classList.add('hidden');
             document.getElementById('invitesList').classList.add('hidden');
@@ -8711,12 +8739,14 @@
             document.getElementById('rosterList').classList.toggle('hidden', !onRoster);
             document.getElementById('appsList').classList.toggle('hidden', v!=='apps');
             document.getElementById('invitesList').classList.toggle('hidden', v!=='invites');
+            document.getElementById('probationList').classList.toggle('hidden', v!=='probation');
             // Add-pilot and the CSV tools only make sense on the roster tab.
             document.getElementById('addPilotBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             if(v==='apps'){ closePilotForm(); renderApps(); Promise.all([fetchApps(), mountEntrance()]).then(renderApps); }
             if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets(),fetchLoginSetup()]).then(renderInvites); }
-            showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
+            if(v==='probation'){ closePilotForm(); if(window.CrewProbation) CrewProbation.mountStaff(document.getElementById('probationList'), { api: crewApi() }); }
+            showListTop(onRoster?'rosterList':v==='apps'?'appsList':v==='probation'?'probationList':'invitesList');
         }
         // Applications, plus anybody who passed an entrance test handed out by
         // hand and has not been let in yet — they are waiting just the same.
