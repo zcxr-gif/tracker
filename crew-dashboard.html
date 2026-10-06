@@ -2177,8 +2177,14 @@
                             <select id="nr_partnerPick" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm"></select>
                             <input id="nr_partner" placeholder="Partner airline (e.g. Iberia)" maxlength="60" class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
                             <div>
-                                <input id="nr_partnerLogo" type="url" placeholder="Partner logo URL — optional (https://…)" class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                                <div class="text-[11px] faint mt-1">Shown beside the route. Must be an https image URL.</div>
+                                <input id="nr_partnerLogo" type="hidden">
+                                <input id="nr_partnerLogoFile" type="file" accept="image/*" hidden>
+                                <div class="flex items-center gap-2.5 text-xs">
+                                    <span id="nr_partnerLogoPreview" class="shrink-0 w-9 h-9 rounded-lg overflow-hidden hair grid place-items-center" style="background:var(--surface);"></span>
+                                    <button type="button" id="nr_partnerLogoPick" class="surface hair rounded-lg px-2.5 py-1.5 font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="upload" class="w-3.5 h-3.5"></i> <span>Upload logo</span></button>
+                                    <button type="button" id="nr_partnerLogoClear" class="hidden muted hover:text-red-500 hover:underline">Remove</button>
+                                </div>
+                                <div id="nr_partnerLogoNote" class="text-[11px] faint mt-1">Optional — shown beside the route. A declared partner brings its own.</div>
                             </div>
                         </div>
                         <div>
@@ -2922,6 +2928,18 @@
 
         // ---- Helpers ----
         function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        /* A picture off the staff member's own computer, as a hosted https URL.
+           Same endpoint the rank badges and fleet art use, so a logo gets the
+           same resizing (square, transparency kept) and the same bucket. */
+        async function uploadCrewImage(file){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) throw new Error('Sign in as owner/staff to upload pictures.');
+            const fd=new FormData(); fd.append('image', file);
+            const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/badge-image`,{ method:'POST', headers:{Authorization:'Bearer '+token}, body:fd });
+            const d=await res.json().catch(()=>({}));
+            if(!res.ok||!d.url) throw new Error(d.error||'Upload failed. Try again.');
+            return d.url;
+        }
         function isSafeImageUrl(u){try{const url=new URL(u,location.href);if(url.origin===location.origin)return true;return url.protocol==='https:'||url.protocol==='data:';}catch{return false;}}
         function isHex(c){return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c||'');}
         function initials(name,code){const s=(name||code||'VA').trim();const w=s.split(/\s+/).filter(Boolean);return (w.length>=2?(w[0][0]+w[1][0]):s.slice(0,2)).toUpperCase();}
@@ -4916,8 +4934,11 @@
                         class="flex-1 min-w-0 surface hair rounded-md px-2.5 py-2 text-sm font-semibold focus:outline-none focus:border-[var(--ink)]">
                     <button data-pdel title="Remove partner" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                 </div>
-                <input data-p="logo" type="url" value="${escapeHtml(p.logo||'')}" placeholder="Logo URL — optional (https://…)"
-                    class="w-full mt-2 surface hair rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-[var(--ink)]">
+                <div class="flex items-center gap-3 mt-2 text-xs">
+                    <button data-plogo class="surface hair rounded-md px-2.5 py-1.5 font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="upload" class="w-3.5 h-3.5"></i> ${p.logo?'Replace logo':'Upload logo'}</button>
+                    ${p.logo?'<button data-plogoclr class="muted hover:text-red-500 hover:underline">Remove</button>':'<span class="faint">Optional · PNG or JPG</span>'}
+                    <input type="file" accept="image/*" hidden data-plogofile>
+                </div>
                 <div class="mt-2.5">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint mb-1.5">What they fly</div>
                     <div class="space-y-1.5">${acs.map((a,ai)=>partnerAircraftRowHtml(a,pi,ai)).join('')
@@ -4994,7 +5015,24 @@
                     renderPartnerCount();
                 }
             });
-            host.addEventListener('change', e=>{
+            host.addEventListener('change', async e=>{
+                if(e.target.hasAttribute('data-plogofile')){
+                    const input=e.target, file=input.files&&input.files[0];
+                    const cards=[...document.querySelectorAll('#partnerRows > [data-pidx]')];
+                    const card=cards.find(c=>c.contains(input)); if(!file||!card) return;
+                    const pi=+card.getAttribute('data-pidx');
+                    const note=document.getElementById(noteIdFor('partners'));
+                    const say=(t,cls)=>{ if(!note) return; note.textContent=t; note.className='text-sm '+cls; note.classList.remove('hidden'); };
+                    say('Uploading…','muted');
+                    try{
+                        const url=await uploadCrewImage(file);
+                        if(PARTNERS[pi]) PARTNERS[pi].logo=url;
+                        renderStructure();
+                        say('Logo uploaded — remember to Save.','text-emerald-600 dark:text-emerald-400');
+                    }catch(err){ say(err.message||'Upload failed. Try again.','text-red-500'); }
+                    finally{ input.value=''; }
+                    return;
+                }
                 const af=e.target.getAttribute('data-pa');
                 if(af!=='type' && af!=='name') return;
                 const row=e.target.closest('[data-aidx]'); if(!row) return;
@@ -5007,7 +5045,9 @@
                 const padel=e.target.closest('[data-padel]');
                 const ppic=e.target.closest('[data-ppic]');
                 const pclr=e.target.closest('[data-pclearimg]');
-                const hit=pdel||paadd||padel||ppic||pclr; if(!hit) return;
+                const plogo=e.target.closest('[data-plogo]');
+                const plogoclr=e.target.closest('[data-plogoclr]');
+                const hit=pdel||paadd||padel||ppic||pclr||plogo||plogoclr; if(!hit) return;
                 const pRow=hit.closest('[data-pidx]'); if(!pRow) return;
                 // An aircraft row carries BOTH attributes, so the partner index
                 // has to come from the outermost card, not the nearest ancestor.
@@ -5016,7 +5056,9 @@
                 const pi=+card.getAttribute('data-pidx');
                 const aRow=hit.closest('[data-aidx]');
                 const ai=aRow?+aRow.getAttribute('data-aidx'):-1;
-                if(pdel){ PARTNERS.splice(pi,1); renderStructure(); }
+                if(plogo){ const f=card.querySelector('[data-plogofile]'); if(f) f.click(); }
+                else if(plogoclr){ PARTNERS[pi].logo=''; renderStructure(); }
+                else if(pdel){ PARTNERS.splice(pi,1); renderStructure(); }
                 else if(paadd){ (PARTNERS[pi].aircraft=PARTNERS[pi].aircraft||[]).push({type:'',name:'',image:'',imageAuto:false,photographer:'',photoLink:''}); renderStructure(); }
                 else if(padel && ai>=0){ PARTNERS[pi].aircraft.splice(ai,1); renderStructure(); }
                 else if(ppic && ai>=0){ resolvePartnerPicture(pi, ai, { force:true }); }
@@ -7588,7 +7630,7 @@
             document.getElementById('nr_active').checked = route ? !!route.active : true;
             document.getElementById('nr_partner').value = route ? (route.partnerName||'') : '';
             renderPartnerPicker(route ? (route.partnerName||'') : '');
-            document.getElementById('nr_partnerLogo').value = route ? (route.partnerLogo||'') : '';
+            setRouteLogo(route ? (route.partnerLogo||'') : '');
             setRouteKind(route && route.kind==='codeshare' ? 'codeshare' : 'own');
             // The ladder comes from the routes endpoint, so the picker offers
             // the VA's own rank names. Falls back to the ranks the settings
@@ -7686,11 +7728,40 @@
                     // to paste the same URL onto every leg again.
                     const p=PARTNERS.find(x=>acNorm(x.name)===acNorm(v));
                     const logo=document.getElementById('nr_partnerLogo');
-                    if(p && p.logo && logo && !logo.value.trim()) logo.value=p.logo;
+                    if(p && p.logo && logo && !logo.value.trim()) setRouteLogo(p.logo);
                 });
             }
             syncPartnerAircraft(cur);
         }
+        // The route's partner logo is a hidden value; this keeps the preview
+        // and the buttons beside it in step with it.
+        function setRouteLogo(url){
+            const v=String(url||'');
+            const input=document.getElementById('nr_partnerLogo'); if(input) input.value=v;
+            const box=document.getElementById('nr_partnerLogoPreview');
+            if(box) box.innerHTML=(v && isSafeImageUrl(v))
+                ? `<img src="${escapeHtml(v)}" alt="" class="w-full h-full object-contain" style="border-radius:inherit;">`
+                : '<i data-lucide="image" class="w-4 h-4 muted"></i>';
+            const pick=document.getElementById('nr_partnerLogoPick');
+            if(pick && pick.lastElementChild) pick.lastElementChild.textContent=v?'Replace logo':'Upload logo';
+            const clr=document.getElementById('nr_partnerLogoClear'); if(clr) clr.classList.toggle('hidden', !v);
+            if(window.lucide) lucide.createIcons();
+        }
+        (function wireRouteLogo(){
+            const pick=document.getElementById('nr_partnerLogoPick'), file=document.getElementById('nr_partnerLogoFile');
+            const clr=document.getElementById('nr_partnerLogoClear'), note=document.getElementById('nr_partnerLogoNote');
+            if(!pick||!file) return;
+            const say=(t,cls)=>{ if(note){ note.textContent=t; note.className='text-[11px] mt-1 '+cls; } };
+            pick.addEventListener('click', ()=>file.click());
+            if(clr) clr.addEventListener('click', ()=>setRouteLogo(''));
+            file.addEventListener('change', async ()=>{
+                const f=file.files&&file.files[0]; if(!f) return;
+                say('Uploading…','muted');
+                try{ setRouteLogo(await uploadCrewImage(f)); say('Logo uploaded — save the route to keep it.','text-emerald-600 dark:text-emerald-400'); }
+                catch(err){ say(err.message||'Upload failed. Try again.','text-red-500'); }
+                finally{ file.value=''; }
+            });
+        })();
         /* What that partner flies, offered as a list.
          *
          * The codeshare aircraft box has always been free text over the whole
