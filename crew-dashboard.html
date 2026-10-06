@@ -9239,6 +9239,18 @@
             if(m<1) return 'just now'; if(m<60) return `${m} min ago`; const h=Math.round(m/60); if(h<24) return `${h}h ago`; const d=Math.round(h/24); return d===1?'yesterday':`${d} days ago`; };
         const shortDate=(t)=>{ try{ return new Date(t).toLocaleDateString(undefined,{day:'numeric',month:'short'}); }catch{ return ''; } };
 
+        // Whether a copied invitation opens with the airline's banner and ends
+        // with the sign-off strip. Staff who paste somewhere that shows a
+        // markdown image as text — or who simply don't want the pictures —
+        // turn it off once and every copy button here follows. Per crew center,
+        // per browser.
+        const inviteArtKey=()=>'crew:inviteArt:'+getSlug();
+        function inviteArtOn(){ try{ return localStorage.getItem(inviteArtKey())!=='off'; }catch{ return true; } }
+        const inviteText=x=>(x&&(inviteArtOn()?x.message:(x.plainMessage||x.message)))||'';
+        const inviteArtToggleHtml=()=>`<label class="flex items-center gap-2 mt-2.5 text-xs cursor-pointer" title="Off copies the same words with no pictures — for Discord, or anywhere a markdown image shows up as text">
+                <input type="checkbox" data-inv-art ${inviteArtOn()?'checked':''}>
+                <span>Include banners <span class="muted">— the airline's banner on top and the welcome strip underneath</span></span>
+            </label>`;
         function inviteRowHtml(p){
             const inv=p.invite, id=String(inv.accountId), live=inv.state==='live';
             const status = !live
@@ -9257,7 +9269,6 @@
                 <div class="flex items-center gap-3 mt-1 text-[11px]">
                     ${live&&inv.sentAt?'<button data-inv-unsend class="muted hover:underline">Mark as not sent</button>':''}
                     ${live&&!inv.sentAt?'<button data-inv-mark class="muted hover:underline">Mark as sent</button>':''}
-                    ${live&&inv.plainMessage?'<button data-inv-copy-plain class="muted hover:underline" title="The same words with no pictures — for Discord">Copy as plain text</button>':''}
                     <button data-inv-renew class="muted hover:underline">${live?'New link':'Issue a new link'}</button>
                     ${live&&inv.expiresAt?`<span class="faint ml-auto">works until ${escapeHtml(shortDate(inv.expiresAt))}</span>`:''}
                 </div>
@@ -9293,6 +9304,7 @@
                 invHtml=`<div class="mt-4">
                     <div class="text-[11px] font-semibold uppercase tracking-wider faint">Invitations</div>
                     <div class="flex flex-wrap gap-1.5 mt-2">${chip('unsent','Not sent',unsent.length)}${chip('copied','Copied',copied.length)}${expired.length?chip('expired','Expired',expired.length):''}${chip('all','All',invs.length)}</div>
+                    ${inviteArtToggleHtml()}
                     <div class="flex flex-wrap gap-2 mt-2.5">
                         ${unsent.length?`<button data-inv-copyall class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy all not sent (${unsent.length})</button>`:''}
                         <button data-inv-csv class="${unsent.length?'':'flex-1 '}surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="download" class="w-3.5 h-3.5"></i> Download</button>
@@ -9353,6 +9365,7 @@
                         : `These links are shown only here, because your database is on an older version — download or copy them before you close this.`}
                     <button onclick="openDbUpgrade()" class="font-semibold underline">Update my database</button> to keep invitations in this list with who sent them.
                 </div>
+                ${inviteArtToggleHtml()}
                 <div class="flex flex-wrap gap-2 mt-3">
                     <button data-setup-csv class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="download" class="w-3.5 h-3.5"></i> Download as CSV</button>
                     <button data-setup-copyall class="flex-1 surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy all messages</button>
@@ -9427,6 +9440,13 @@
             }catch{ SETUP.busy=false; renderInvites(); setupNote('Server unreachable.','error'); }
         }
         document.addEventListener('change', e=>{
+            const art=e.target.closest&&e.target.closest('[data-inv-art]');
+            if(art){
+                try{ localStorage.setItem(inviteArtKey(), art.checked?'on':'off'); }catch{}
+                document.querySelectorAll('[data-inv-art]').forEach(b=>{ b.checked=art.checked; });
+                setupNote(art.checked?'Invitations will be copied with the banners.':'Invitations will be copied as plain text, no banners.','ok');
+                return;
+            }
             const box=e.target.closest&&e.target.closest('[data-setup-pick]');
             if(!box) return;
             const id=box.getAttribute('data-setup-pick');
@@ -9436,7 +9456,7 @@
             if(go){ go.disabled=!n; go.style.opacity=n?'1':'.5'; go.innerHTML=`<i data-lucide="key-round" class="w-4 h-4"></i> Create ${n} invitation${n===1?'':'s'}`; if(window.lucide) lucide.createIcons(); }
         });
         document.addEventListener('click', async e=>{
-            const t=e.target.closest&&e.target.closest('[data-setup-open],[data-setup-close],[data-setup-all],[data-setup-none],[data-setup-go],[data-setup-copy],[data-setup-copyall],[data-setup-csv],[data-setup-done],[data-inv-filter],[data-inv-copy],[data-inv-copy-plain],[data-inv-copyall],[data-inv-csv],[data-inv-mark],[data-inv-unsend],[data-inv-renew]');
+            const t=e.target.closest&&e.target.closest('[data-setup-open],[data-setup-close],[data-setup-all],[data-setup-none],[data-setup-go],[data-setup-copy],[data-setup-copyall],[data-setup-csv],[data-setup-done],[data-inv-filter],[data-inv-copy],[data-inv-copyall],[data-inv-csv],[data-inv-mark],[data-inv-unsend],[data-inv-renew]');
             if(!t) return;
             if(t.hasAttribute('data-setup-open')){ SETUP.open=true; renderInvites(); return; }
             if(t.hasAttribute('data-setup-close')){ SETUP.open=false; renderInvites(); return; }
@@ -9452,21 +9472,13 @@
             const row=t.closest('[data-inv]');
             const pilot=row?(SETUP.pilots||[]).find(p=>p.invite&&String(p.invite.accountId)===row.getAttribute('data-inv')):null;
             try{
-                if(t.hasAttribute('data-inv-copy-plain') && pilot){
-                    const inv=pilot.invite;
-                    if(inv.sentAt && !confirm(`${pilot.name}’s invitation was already copied${inv.sentBy?` by ${inv.sentBy}`:''} ${ago(inv.sentAt)}. Copy it again?`)) return;
-                    if(!await copyText(inv.plainMessage||inv.message||'')){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
-                    await markInvites([String(inv.accountId)], true);
-                    renderInvites(); setupNote(`Copied ${pilot.name}’s invitation as plain text.`,'ok');
-                    return;
-                }
                 if(t.hasAttribute('data-inv-copy') && pilot){
                     const inv=pilot.invite;
                     // The whole point of recording it: somebody may already
                     // have sent this one, and two links' worth of DMs is how a
                     // pilot ends up holding the dead one.
                     if(inv.sentAt && !confirm(`${pilot.name}’s invitation was already copied${inv.sentBy?` by ${inv.sentBy}`:''} ${ago(inv.sentAt)}. Copy it again?`)) return;
-                    if(!await copyText(inv.message||'')){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
+                    if(!await copyText(inviteText(inv))){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
                     await markInvites([String(inv.accountId)], true);
                     renderInvites(); setupNote(`Copied ${pilot.name}’s invitation — paste it into their DM.`,'ok');
                     return;
@@ -9474,7 +9486,7 @@
                 if(t.hasAttribute('data-inv-copyall')){
                     const list=setupInvites().filter(inviteUnsent);
                     if(!list.length) return;
-                    if(!await copyText(list.map(p=>p.invite.message).join('\n\n— — —\n\n'))){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
+                    if(!await copyText(list.map(p=>inviteText(p.invite)).join('\n\n— — —\n\n'))){ setupNote('Couldn’t copy — use Download instead.','error'); return; }
                     await markInvites(list.map(p=>String(p.invite.accountId)), true);
                     renderInvites(); setupNote(`Copied ${list.length} invitation${list.length===1?'':'s'} and marked ${list.length===1?'it':'them'} as sent.`,'ok');
                     return;
@@ -9493,12 +9505,12 @@
             if(t.hasAttribute('data-setup-copy')){
                 const x=ok[Number(t.getAttribute('data-setup-copy'))];
                 if(x && x.copied && !confirm(`You already copied ${x.name}’s message. Copy it again?`)) return;
-                if(x && await copyText(x.message)){ x.copied=true; SETUP.kept=true; renderInvites(); setupNote(`Copied ${x.name}’s message.`,'ok'); }
+                if(x && await copyText(inviteText(x))){ x.copied=true; SETUP.kept=true; renderInvites(); setupNote(`Copied ${x.name}’s message.`,'ok'); }
                 else setupNote('Could not copy — download the CSV instead.','error');
                 return;
             }
             if(t.hasAttribute('data-setup-copyall')){
-                if(await copyText(ok.map(x=>x.message).join('\n\n— — —\n\n'))){ ok.forEach(x=>{ x.copied=true; }); SETUP.kept=true; renderInvites(); setupNote(`Copied ${ok.length} message${ok.length===1?'':'s'}.`,'ok'); }
+                if(await copyText(ok.map(x=>inviteText(x)).join('\n\n— — —\n\n'))){ ok.forEach(x=>{ x.copied=true; }); SETUP.kept=true; renderInvites(); setupNote(`Copied ${ok.length} message${ok.length===1?'':'s'}.`,'ok'); }
                 else setupNote('Could not copy — download the CSV instead.','error');
                 return;
             }
