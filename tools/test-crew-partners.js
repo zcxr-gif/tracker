@@ -97,6 +97,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     const page = await ctx.newPage();
     const errs = []; page.on('pageerror', e => errs.push(e.message));
     const writes = [];
+    const uploads = [];
 
     await page.route('**/cdn.tailwindcss.com**', r => r.fulfill({ contentType: 'application/javascript', body: TW }));
     await page.route('**/unpkg.com/**', r => r.fulfill({ contentType: 'application/javascript', body: '' }));
@@ -111,6 +112,10 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
             writes.push({ what: 'settings', keys: Object.keys(b), partners: b.partners, fleet: b.fleet });
             if (b.partners) PARTNERS = b.partners;
             return json({ ok: true, partners: b.partners || [], fleet: b.fleet || [] });
+        }
+        if (p.endsWith('/badge-image') && req.method() === 'POST') {
+            uploads.push(p);
+            return json({ url: `https://cdn.test/upload-${uploads.length}.png` });
         }
         if (p.endsWith('/crew/aircraft-metadata')) return json({ ok: true,
             aircraft: ['Airbus A320-200', 'Airbus A350-900', 'Boeing 777-200ER'],
@@ -189,6 +194,13 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     ok('choosing it fills the name', (await page.inputValue('#nr_partner')) === 'Iberia Virtual');
     ok('…and brings the logo, so it is not pasted per leg',
         (await page.inputValue('#nr_partnerLogo')) === 'https://cdn.test/iberia.png');
+    ok('…with the route’s logo picked by upload, not typed as a link',
+        (await page.evaluate(() => document.getElementById('nr_partnerLogo').type)) === 'hidden'
+        && !!(await page.$('#nr_partnerLogoPick')));
+    await page.setInputFiles('#nr_partnerLogoFile', { name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') });
+    await page.waitForTimeout(300);
+    ok('uploading one on a route sets it',
+        (await page.inputValue('#nr_partnerLogo')) === `https://cdn.test/upload-${uploads.length}.png` && uploads.length === 1);
     ok('…and offers THEIR aircraft, which free text never could',
         (await page.evaluate(() => [...document.querySelectorAll('#nr_partnerAc option')].map(o => o.value)))
             .includes('Airbus A350-900 · Iberia'));
@@ -208,7 +220,12 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
     await page.evaluate(() => addPartner());
     await page.waitForTimeout(250);
     await page.fill('#partnerRows > [data-pidx="1"] [data-p="name"]', 'Vueling Virtual');
-    await page.fill('#partnerRows > [data-pidx="1"] [data-p="logo"]', 'https://cdn.test/vy.png');
+    ok('a partner’s logo is an upload, not a link box',
+        !(await page.$('#partnerRows [data-p="logo"]')) && !!(await page.$('#partnerRows > [data-pidx="1"] [data-plogo]')));
+    await page.setInputFiles('#partnerRows > [data-pidx="1"] [data-plogofile]', { name: 'vy.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') });
+    await page.waitForTimeout(300);
+    ok('…and uploading one sets it on that partner',
+        (await page.evaluate(() => PARTNERS[1].logo)) === `https://cdn.test/upload-${uploads.length}.png`);
     await page.evaluate(() => { document.querySelector('#partnerRows > [data-pidx="1"] [data-paadd]').click(); });
     await page.waitForTimeout(250);
     await page.fill('#partnerRows > [data-pidx="1"] [data-aidx="0"] [data-pa="type"]', 'Airbus A320-200');

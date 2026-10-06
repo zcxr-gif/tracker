@@ -105,6 +105,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
             const json = (x, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(x) });
             const body = () => { try { return JSON.parse(req.postData() || '{}'); } catch { return {}; } };
             if (m !== 'GET') sent.push({ m, p, body: body() });
+            if (p.endsWith('/badge-image') && m === 'POST') return json({ url: 'https://cdn.test/fjord-logo.png' });
             if (p.endsWith('/routes/export')) return route.fulfill({ status: 200, contentType: 'text/csv', headers: { 'Content-Disposition': 'attachment; filename="x.csv"' }, body: 'a,b\n' });
             if (p.endsWith('/codeshare/external') && m === 'GET') return json({ partners: [EXT], platforms: [], max: 40 });
             if (p.endsWith('/codeshare/external/preview')) return json({ total: 2, errors: 1, format: 'csv', routes: [{ id: 'id:N1', flightNumber: 'NV1', origin: 'EKCH', destination: 'EGLL' }, { id: 'id:N2', flightNumber: 'NV2', origin: 'EKCH', destination: 'LFPG' }] });
@@ -245,6 +246,40 @@ const ok = (n, c, x) => { if (c) { console.log('  ✓ ' + n); pass++; } else { c
         add && add.body.name === 'Fjord Air' && add.body.platform === 'phpvms' && add.body.feedUrl === 'https://fjord.example/export.csv'
         && add.body.take.mode === 'selected' && add.body.take.routeIds.join() === 'id:N1' && add.body.share.mode === 'all', JSON.stringify(add && add.body));
     ok('no word of selling', await page.evaluate(() => !/\bsell/i.test(document.querySelector('#crewCodeshare').textContent)));
+
+    // No feed, no spreadsheet: their logo uploaded and their legs typed in.
+    await page.waitForSelector('#crewCodeshare [data-ext-add]');
+    await page.click('#crewCodeshare [data-ext-add]');
+    await page.waitForSelector('#extName');
+    await page.fill('#extName', 'Skerry Air');
+    ok('a partner’s logo is uploaded, not pasted as a link', !(await page.$('#crewCodeshare [data-ext-f="logo"]')) && !!(await page.$('#crewCodeshare [data-ext-logopick]')));
+    await page.setInputFiles('#crewCodeshare [data-ext-file="logo"]', { name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') });
+    await page.waitForSelector('#crewCodeshare [data-ext-logoclr]');
+    ok('…and shows once it is up', await page.evaluate(() => !!document.querySelector('#crewCodeshare .cs-logo img[src="https://cdn.test/fjord-logo.png"]')));
+    ok('…without losing the name typed before it', await page.inputValue('#extName') === 'Skerry Air');
+    await page.click('#crewCodeshare [data-ext-type]');
+    await page.waitForSelector('#crewCodeshare [data-ext-lk="origin"]');
+    const legRow = (i, k) => `#crewCodeshare [data-ext-leg="${i}"][data-ext-lk="${k}"]`;
+    await page.fill(legRow(0, 'flightNumber'), 'SK10');
+    await page.fill(legRow(0, 'origin'), 'ekch');
+    await page.fill(legRow(0, 'destination'), 'ENGM');
+    await page.fill(legRow(0, 'aircraft'), 'ATR 72');
+    await page.click('#crewCodeshare [data-ext-legadd]');
+    await page.fill(legRow(1, 'flightNumber'), 'SK11');
+    await page.fill(legRow(1, 'origin'), 'ENGM');
+    await page.fill(legRow(1, 'destination'), 'EKCH');
+    ok('a second leg keeps the first', await page.inputValue(legRow(0, 'flightNumber')) === 'SK10');
+    await page.click('#crewCodeshare [data-ext-legsuse]');
+    await page.waitForTimeout(300);
+    const typed = last(/external\/preview$/);
+    ok('typed legs are read like a spreadsheet would be',
+        typed && typed.body.csv === 'flightNumber,origin,destination,aircraft\nSK10,EKCH,ENGM,ATR 72\nSK11,ENGM,EKCH,', JSON.stringify(typed && typed.body));
+    ok('…and the preview says where they came from', /2 legs typed in/.test(await page.textContent('#crewCodeshare [data-ext-preview]')));
+    await page.click('#crewCodeshare [data-ext-save]');
+    await page.waitForTimeout(400);
+    const addTyped = last(/codeshare\/external$/);
+    ok('adding sends the typed legs and the uploaded logo',
+        addTyped && addTyped.body.name === 'Skerry Air' && addTyped.body.logo === 'https://cdn.test/fjord-logo.png' && /SK11,ENGM,EKCH/.test(addTyped.body.csv || ''), JSON.stringify(addTyped && addTyped.body));
     await page.evaluate(() => CrewCodeshare.close());
 
     console.log('\n hubs');

@@ -95,6 +95,11 @@
         .cs-back{ border:0; background:transparent; color:var(--muted,#736E64); font-weight:700; font-size:.8rem;
             cursor:pointer; display:inline-flex; align-items:center; gap:.3rem; padding:0; }
         .cs-back i{ width:1rem; height:1rem; }
+        .cs-legs{ display:grid; gap:.35rem; margin-top:.2rem; }
+        .cs-leg{ display:grid; grid-template-columns:5.5rem 4.6rem 4.6rem minmax(0,1fr) 2rem; gap:.35rem; align-items:center; }
+        .cs-leg .cp-input{ padding:.4rem .5rem; font-size:.82rem; }
+        .cs-leg-h{ font-size:.66rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--faint,#A8A296); }
+        @media (max-width:520px){ .cs-leg{ grid-template-columns:4.6rem 3.9rem 3.9rem minmax(0,1fr) 1.8rem; } }
         .cs-step{ font-size:.7rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--faint,#A8A296); }
         .cs-toggle{ display:flex; align-items:flex-start; gap:.6rem; font-size:.85rem; cursor:pointer; }
         .cs-toggle input{ margin-top:.2rem; accent-color:var(--accent); }
@@ -608,6 +613,81 @@
             </div>`).join('');
     }
 
+    /*
+     * Their routes, typed in. For a partner with no route list to point at
+     * and no spreadsheet to hand over: the rows become the same CSV an upload
+     * would, so it goes through the same preview and the same sync — the list
+     * typed here IS their network on ours, and a leg taken off it goes.
+     * That is why an existing partner's table opens with what we already hold.
+     */
+    const LEG_KEYS = ['flightNumber', 'origin', 'destination', 'aircraft'];
+    const blankLeg = () => ({ flightNumber: '', origin: '', destination: '', aircraft: '' });
+    const typedLeg = (r) => ({ flightNumber: r.flightNumber || '', origin: r.origin || '', destination: r.destination || '', aircraft: r.aircraft || '' });
+
+    function legsHtml(v) {
+        const legs = v.legs || [];
+        const cell = (i, k, ph, max) => `<input class="cp-input" data-ext-leg="${i}" data-ext-lk="${k}" value="${esc(legs[i][k])}" placeholder="${ph}" maxlength="${max}" aria-label="${ph}"${k === 'origin' || k === 'destination' ? ' style="text-transform:uppercase"' : ''}>`;
+        return `<div class="cs-legs">
+                <div class="cs-leg"><span class="cs-leg-h">Flight</span><span class="cs-leg-h">From</span><span class="cs-leg-h">To</span><span class="cs-leg-h">Aircraft</span><span></span></div>
+                ${legs.map((_, i) => `<div class="cs-leg">${cell(i, 'flightNumber', 'NV101', 12)}${cell(i, 'origin', 'EKCH', 4)}${cell(i, 'destination', 'ENGM', 4)}${cell(i, 'aircraft', 'A320 — optional', 60)}
+                    <button type="button" class="cp-btn cp-btn-sm" data-ext-legdel="${i}" title="Remove this leg" aria-label="Remove this leg"><i data-lucide="x"></i></button></div>`).join('')}
+                <div class="cs-actions" style="margin-top:.2rem">
+                    <button type="button" class="cp-btn cp-btn-sm" data-ext-legadd><i data-lucide="plus"></i> Add a leg</button>
+                    <button type="button" class="cp-btn cp-btn-sm cp-btn-primary" data-ext-legsuse><i data-lucide="check"></i> Use these legs</button>
+                    <button type="button" class="cp-btn cp-btn-sm" data-ext-legscancel>Cancel</button>
+                </div>
+                <div class="cp-note">From and To are ICAO codes. Nothing is saved until you press ${v.partner ? '“Save and sync”' : '“Add partner”'} below.</div>
+            </div>`;
+    }
+
+    async function startTyping(v) {
+        v.typing = true;
+        if (!v.legs) {
+            let legs = v.preview && v.preview.routes && v.preview.routes.length ? v.preview.routes.map(typedLeg) : [];
+            if (!legs.length && v.partner) {
+                try {
+                    const d = await S.api('/routes');
+                    legs = (d.routes || []).filter((r) => r.kind === 'codeshare' && r.partnerSlug === v.partner.partnerSlug).map(typedLeg);
+                } catch (_) { /* an empty table is still a table */ }
+            }
+            v.legs = legs.length ? legs : [blankLeg()];
+        }
+        if (S.view === v) draw();
+    }
+
+    function useTypedLegs(v) {
+        const legs = (v.legs || []).map((l) => ({
+            flightNumber: String(l.flightNumber || '').trim(),
+            origin: String(l.origin || '').trim().toUpperCase(),
+            destination: String(l.destination || '').trim().toUpperCase(),
+            aircraft: String(l.aircraft || '').trim(),
+        })).filter((l) => l.flightNumber || l.origin || l.destination || l.aircraft);
+        if (!legs.length) { P.toast('Type at least one leg — a From and a To.', 'bad'); return; }
+        const bad = legs.findIndex((l) => !/^[A-Z0-9]{3,4}$/.test(l.origin) || !/^[A-Z0-9]{3,4}$/.test(l.destination));
+        if (bad >= 0) { P.toast(`Leg ${bad + 1} needs a From and a To airport (ICAO, like EGLL).`, 'bad'); return; }
+        const q = (x) => (/[",\r\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x);
+        const csv = [LEG_KEYS.join(','), ...legs.map((l) => LEG_KEYS.map((k) => q(l[k])).join(','))].join('\n');
+        v.typing = false;
+        extPreview({ csv }, { name: `${legs.length} leg${legs.length === 1 ? '' : 's'} typed in`, body: { csv } });
+    }
+
+    /* A logo off the staff member's own computer — the same image upload the
+       dashboard uses for rank badges, which keeps a logo's transparency. */
+    async function uploadLogo(file) {
+        const c = S.conn || {};
+        const token = typeof c.token === 'function' ? c.token() : c.token;
+        const base = String(c.backend || '').replace(/\/+$/, '');
+        if (!c.slug || !token) throw new Error('Sign in as owner or staff to upload a logo.');
+        const form = new FormData();
+        form.append('image', file);
+        const res = await fetch(`${base}/api/crew/${encodeURIComponent(c.slug)}/badge-image`, {
+            method: 'POST', headers: { Accept: 'application/json', Authorization: 'Bearer ' + token }, body: form,
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || !d.url) throw new Error(d.error || 'That logo didn’t upload.');
+        return d.url;
+    }
+
     function extFormHtml(v) {
         const d = v.draft;
         const pv = v.preview;
@@ -623,7 +703,10 @@
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.6rem">
                     <div><label class="cp-label" for="extPlatform">Their crew centre runs on</label><select id="extPlatform" class="cp-select" data-ext-f="platform">${Object.entries(PLATFORM_NAMES).map(([k, n]) => `<option value="${k}" ${d.platform === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
                     <div><label class="cp-label" for="extSite">Website (optional)</label><input id="extSite" class="cp-input" data-ext-f="website" value="${esc(d.website)}" placeholder="https://"></div>
-                    <div><label class="cp-label" for="extLogo">Logo address (optional)</label><input id="extLogo" class="cp-input" data-ext-f="logo" value="${esc(d.logo)}" placeholder="https://…/logo.png"></div>
+                    <div><span class="cp-label">Logo (optional)</span><div class="cs-row" style="gap:.4rem">
+                        <button type="button" class="cp-btn cp-btn-sm" data-ext-logopick><i data-lucide="upload"></i> ${d.logo ? 'Replace logo' : 'Upload logo'}</button>
+                        ${d.logo ? '<button type="button" class="cp-btn cp-btn-sm" data-ext-logoclr>Remove</button>' : ''}
+                        <input type="file" hidden accept="image/*" data-ext-file="logo"></div></div>
                 </div>
             </div>
             <div class="cs-step">1 · Where their routes come from</div>
@@ -636,8 +719,10 @@
                 <div class="cs-actions" style="margin-top:0">
                     <button type="button" class="cp-btn cp-btn-sm" data-ext-check><i data-lucide="scan-search"></i> Check their routes</button>
                     <button type="button" class="cp-btn cp-btn-sm" data-ext-pickfile><i data-lucide="upload"></i> Or upload their spreadsheet</button>
+                    ${d.feedUrl.trim() ? '' : `<button type="button" class="cp-btn cp-btn-sm" data-ext-type><i data-lucide="keyboard"></i> Or type them in</button>`}
                     <input type="file" hidden data-ext-file="form" multiple accept=".csv,.tsv,.txt,.json,.xlsx,.xlsm,.xls,.ods,text/csv,text/plain,application/json">
                 </div>
+                ${v.typing ? legsHtml(v) : ''}
                 <div class="cp-note" data-ext-preview>${previewNote}</div>
             </div>
             <div class="cs-step">2 · Their flights your pilots fly</div>
@@ -655,6 +740,7 @@
             kind: 'ext-form', partner: partner || null, noRoutes: [], mine: [],
             draft: { name: p.name || '', logo: p.logo || '', website: p.website || '', platform: p.platform || 'other', feedUrl: p.feedUrl || '', format: p.format || 'auto', autoSync: p.autoSync !== false, notes: p.notes || '' },
             preview: null, previewing: false, previewError: '', upload: null,
+            typing: false, legs: null,
         };
         draw();
         try {
@@ -727,6 +813,21 @@
 
     async function onExtFile(input) {
         const kind = input.getAttribute('data-ext-file');
+        if (kind === 'logo') {
+            const v = S.view && S.view.kind === 'ext-form' ? S.view : null;
+            const file = input.files && input.files[0];
+            input.value = '';
+            if (!v || !file) return;
+            P.toast('Uploading…', 'info');
+            try {
+                const url = await uploadLogo(file);
+                if (S.view !== v) return;
+                v.draft.logo = url;
+                draw();
+                P.toast(v.partner ? 'Logo uploaded — press “Save and sync” to keep it.' : 'Logo uploaded.', 'ok');
+            } catch (err) { P.toast(err.message || 'That logo didn’t upload.', 'bad'); }
+            return;
+        }
         let got;
         try { got = await readSheetFiles([...(input.files || [])]); } catch (err) { P.toast(err.message, 'bad'); return; } finally { input.value = ''; }
         if (!got) return;
@@ -768,6 +869,24 @@
             return true;
         }
         if (t.hasAttribute('data-ext-upload') && card) { const f = card.querySelector('[data-ext-file="sync"]'); if (f) f.click(); return true; }
+        if (t.hasAttribute('data-ext-logopick')) { const f = S.panel.body.querySelector('[data-ext-file="logo"]'); if (f) f.click(); return true; }
+        if (t.hasAttribute('data-ext-logoclr') && v) { v.draft.logo = ''; draw(); return true; }
+        if (t.hasAttribute('data-ext-type') && v) { await startTyping(v); return true; }
+        if (t.hasAttribute('data-ext-legadd') && v && v.legs) {
+            v.legs.push(blankLeg());
+            draw();
+            const rows = S.panel.body.querySelectorAll('[data-ext-lk="flightNumber"]');
+            if (rows.length) rows[rows.length - 1].focus();
+            return true;
+        }
+        if (t.hasAttribute('data-ext-legdel') && v && v.legs) {
+            v.legs.splice(Number(t.getAttribute('data-ext-legdel')), 1);
+            if (!v.legs.length) v.legs.push(blankLeg());
+            draw();
+            return true;
+        }
+        if (t.hasAttribute('data-ext-legsuse') && v) { useTypedLegs(v); return true; }
+        if (t.hasAttribute('data-ext-legscancel') && v) { v.typing = false; draw(); return true; }
         if (t.hasAttribute('data-ext-pickfile')) { const f = S.panel.body.querySelector('[data-ext-file="form"]'); if (f) f.click(); return true; }
         if (t.hasAttribute('data-ext-sync') && p) {
             const res = await withBusy(t, 'Reading their routes…', () => S.api(`/codeshare/external/${encodeURIComponent(p.id)}/sync`, { method: 'POST', body: {} }));
@@ -842,6 +961,11 @@
     function onExtInput(ev) {
         const t = ev.target;
         const v = S.view && S.view.kind === 'ext-form' ? S.view : null;
+        if (v && t && t.hasAttribute('data-ext-lk') && v.legs) {
+            const leg = v.legs[Number(t.getAttribute('data-ext-leg'))];
+            if (leg) leg[t.getAttribute('data-ext-lk')] = t.value;
+            return;
+        }
         if (!v || !t || !t.hasAttribute('data-ext-f')) return;
         const f = t.getAttribute('data-ext-f');
         v.draft[f] = t.type === 'checkbox' ? t.checked : t.value;
