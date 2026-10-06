@@ -2025,10 +2025,22 @@
                      to look for) and one tick that makes their login and a
                      single-use setup link, with a message to paste on the IFC. -->
                 <div id="np_inviteBlock" class="mt-3 rounded-lg hair border p-3">
-                    <input id="np_ifc" placeholder="IFC username (optional)" autocomplete="off" spellcheck="false" class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                    <!-- THE BACKGROUND CHECK. Somebody invited by hand skips the
+                         join form and every check it makes; "Check" puts them
+                         back in front of staff — their IF account and stats, this
+                         airline's requirements, whether they are already here,
+                         and the next free callsign — and fills the form in. -->
+                    <div class="flex gap-2">
+                        <input id="np_ifc" placeholder="IFC username" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();checkInvitee();}" oninput="NP_CHECK=null;" class="flex-1 min-w-0 surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
+                        <button id="np_ifcCheck" type="button" onclick="checkInvitee()" class="surface hair rounded-lg px-3 text-sm font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5 shrink-0"><i data-lucide="shield-check" class="w-4 h-4"></i> Check</button>
+                    </div>
+                    <div id="np_check" class="hidden mt-2.5 text-sm"></div>
                     <label class="flex items-start gap-2 mt-2.5 text-sm cursor-pointer">
                         <input id="np_invite" type="checkbox" checked class="mt-0.5" onchange="pilotSubmitLabel()">
                         <span><span class="font-semibold">Invite them</span> <span class="muted">— make their crew center login and give me a welcome message to send on the IFC, with your banner on it. No email needed.</span></span>
+                    </label>
+                    <label class="block text-xs muted mt-2.5">Your welcome note <span class="faint">— saved, and sent with every invitation</span>
+                        <textarea id="np_note" rows="3" maxlength="800" placeholder="e.g. Welcome aboard! Read the SOP under Documents, then book your first flight from the Routes tab. Questions go to #pilot-help on Discord." class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 text-[var(--ink)] focus:outline-none focus:border-[var(--ink)]"></textarea>
                     </label>
                 </div>
                 <div class="flex gap-2 mt-3">
@@ -5958,6 +5970,9 @@
             document.getElementById('np_inviteBlock').classList.toggle('hidden', !!member);
             document.getElementById('np_ifc').value='';
             document.getElementById('np_invite').checked=true;
+            NP_CHECK=null;
+            const chk=document.getElementById('np_check'); if(chk){ chk.classList.add('hidden'); chk.innerHTML=''; }
+            if(!member) loadInviteNote();
             pilotSubmitLabel();
             const note=document.getElementById('pilotNote'); if(note) note.classList.add('hidden');
             // Blank form: put them in the name box. Editing: leave the caret
@@ -5972,6 +5987,75 @@
             b.textContent = EDITING ? 'Save changes' : (document.getElementById('np_invite').checked ? 'Add & invite' : 'Add pilot');
         }
         function closePilotForm(){ EDITING=null; document.getElementById('addPilotForm').classList.add('hidden'); }
+
+        /* ---- Inviting: the background check and the welcome note ----
+           NP_CHECK is the last check's answer, kept only while the IFC box
+           still says what was checked — typing in it throws it away, so a
+           verified IF id can never ride along with a different name. */
+        let NP_CHECK=null, NP_NOTE_SAVED='';
+        async function loadInviteNote(){
+            const box=document.getElementById('np_note'); if(!box) return;
+            const slug=getSlug(), token=sessionToken(); if(!slug||!token) return;
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/invite-note`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                if(!res.ok) return;
+                const d=await res.json();
+                NP_NOTE_SAVED=d.note||''; box.value=NP_NOTE_SAVED;
+            }catch{ /* the form works without it */ }
+        }
+        async function saveInviteNoteIfChanged(){
+            const box=document.getElementById('np_note'); if(!box) return;
+            const note=box.value.trim();
+            if(note===NP_NOTE_SAVED.trim()) return;
+            const slug=getSlug(), token=sessionToken();
+            const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/invite-note`,{ method:'PUT', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token}, body:JSON.stringify({ note }) });
+            if(res.ok) NP_NOTE_SAVED=note;
+        }
+        function inviteCheckHtml(d, asked){
+            const row=(cls,icon,text)=>`<div class="flex items-start gap-2 ${cls}"><i data-lucide="${icon}" class="w-4 h-4 mt-0.5 shrink-0"></i><span>${text}</span></div>`;
+            if(!d.available) return row('muted','cloud-off','Couldn’t reach Infinite Flight just now — you can still add them, unchecked.');
+            if(!d.found) return row('text-amber-600 dark:text-amber-400','user-x',`There is no Infinite Flight account called <b>${escapeHtml(asked)}</b>. Check the spelling with them.`);
+            const s=d.stats||{};
+            const fact=(label,v)=>v==null?'':`<span class="whitespace-nowrap"><span class="faint">${label}</span> <b>${escapeHtml(String(v))}</b></span>`;
+            const facts=[fact('Grade',d.grade), fact('Hours',s.hours), fact('Landings',s.landings), fact('Online flights',s.flights), fact('Violations',s.violations)].filter(Boolean).join(' · ');
+            const reqs=(d.requirements||[]).map(r=>{
+                const word=r.cmp==='max'?'at most':'at least';
+                const cls=r.ok===false?'bg-red-500/10 text-red-600 dark:text-red-400':r.ok?'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400':'surface hair muted';
+                return `<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${cls}">${r.ok===false?'✗':r.ok?'✓':'?'} ${escapeHtml(r.label)} ${word} ${escapeHtml(String(r.need))}${r.have!=null?` <span class="font-normal">(${escapeHtml(String(r.have))})</span>`:''}</span>`;
+            }).join(' ');
+            const out=[row('text-emerald-700 dark:text-emerald-400','badge-check',`<b>${escapeHtml(d.username)}</b> is a real Infinite Flight account.`)];
+            if(facts) out.push(`<div class="mt-1 text-xs flex flex-wrap gap-x-1.5 gap-y-0.5">${facts}</div>`);
+            if(reqs) out.push(`<div class="mt-1.5 flex flex-wrap gap-1">${reqs}</div>`,
+                d.meets?'':row('mt-1 text-red-600 dark:text-red-400 text-xs','triangle-alert','They don’t meet everything your join form asks for. You can still invite them — it’s your call.'));
+            if(d.onRoster) out.push(row('mt-1.5 text-red-600 dark:text-red-400','users',`Already on your roster as <b>${escapeHtml(d.onRoster.name||d.username)}</b>${d.onRoster.callsign?` (${escapeHtml(d.onRoster.callsign)})`:''}${d.onRoster.status&&d.onRoster.status!=='active'?` — ${escapeHtml(d.onRoster.status)}`:''}.`));
+            if(d.application) out.push(row('mt-1.5 text-amber-600 dark:text-amber-400','inbox','They have an application waiting — you can accept it under Applications instead.'));
+            if(d.otherVas&&d.otherVas.length) out.push(row('mt-1.5 muted','plane',`Also on the roster of ${d.otherVas.slice(0,5).map(escapeHtml).join(', ')}${d.otherVas.length>5?` and ${d.otherVas.length-5} more`:''}.`));
+            return out.join('');
+        }
+        async function checkInvitee(){
+            const input=document.getElementById('np_ifc'), host=document.getElementById('np_check');
+            const asked=(input.value||'').trim().replace(/^@/,'');
+            if(!asked){ input.focus(); return; }
+            const slug=getSlug(), token=sessionToken(); if(!slug||!token) return;
+            host.classList.remove('hidden'); host.innerHTML='<span class="muted">Checking…</span>';
+            const done=busy('np_ifcCheck','Checking…');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/invite-check`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token}, body:JSON.stringify({ ifcName: asked }) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){ host.innerHTML=`<span class="text-red-500">${escapeHtml(d.error||'The check didn’t run.')}</span>`; return; }
+                host.innerHTML=inviteCheckHtml(d, asked);
+                if(d.found){
+                    NP_CHECK={ asked:d.username, userId:d.userId };
+                    input.value=d.username;   // the account's own spelling
+                    // Pre-filled, never overwritten: whatever staff already typed stays.
+                    const nm=document.getElementById('np_name'), cs=document.getElementById('np_callsign');
+                    if(nm && !nm.value.trim()) nm.value=d.username;
+                    if(cs && !cs.value.trim() && d.suggestedCallsign) cs.value=d.suggestedCallsign;
+                }
+                if(window.lucide) lucide.createIcons();
+            }catch{ host.innerHTML='<span class="text-red-500">Server unreachable.</span>'; }
+            finally{ done(); }
+        }
         async function submitPilot(){
             const note=document.getElementById('pilotNote');
             const body={ name:document.getElementById('np_name').value.trim(), callsign:document.getElementById('np_callsign').value.trim(), hours:Number(document.getElementById('np_hours').value)||0, role:document.getElementById('np_role').value, aircraft:[...NP_AIRCRAFT], status:document.getElementById('np_status').value };
@@ -5982,7 +6066,14 @@
             if(!editing){
                 const ifc=(document.getElementById('np_ifc').value||'').trim().replace(/^@/,'');
                 if(ifc) body.ifcName=ifc;
-                if(document.getElementById('np_invite').checked) body.invite=true;
+                // A checked account links them to IF straight away, so their
+                // flights are theirs from the first one.
+                if(NP_CHECK && ifc && NP_CHECK.asked.toLowerCase()===ifc.toLowerCase()) body.ifUserId=NP_CHECK.userId;
+                if(document.getElementById('np_invite').checked){
+                    body.invite=true;
+                    // The note rides in the invitation, so it is saved first.
+                    try{ await saveInviteNoteIfChanged(); }catch{ /* the invite still goes */ }
+                }
             }
             const url=`${BACKEND}/api/crew/${encodeURIComponent(slug)}/roster${editing?('/'+encodeURIComponent(editing)):''}`;
             const done=busy('pilotSubmitBtn', editing?'Saving…':'Adding…');
