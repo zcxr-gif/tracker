@@ -105,6 +105,8 @@
          ATC off the tracker where this page is running inside it, and works
          without it where it is not. -->
     <script src="/crewSuggestions.js"></script>
+    <!-- What is boosted right now: events and routes with a multiplier. -->
+    <script src="/crewMultipliers.js"></script>
     <!-- Staff build the Route of the Week / Day (opened from its tile), and
          a pilot says what a flight was flown as when filing it. -->
     <script src="/crewFeaturedPlanner.js"></script>
@@ -587,6 +589,11 @@
              crewSuggestions.js. Hidden outright until the fetch lands and
              there is a leg to name: a VA that has published no routes must not
              carry an empty frame here. -->
+        <!-- ============ BONUS FLYING ============
+             Events and routes staff have put a multiplier on, drawn by
+             crewMultipliers.js. Hidden unless something is live or coming. -->
+        <section id="bonusStrip" class="mt-6 cp-hidden"></section>
+
         <section id="suggestStrip" class="mt-6 cp-hidden"></section>
 
         <!-- ============ THE CARD ============
@@ -2370,6 +2377,7 @@
             // After applyBranding, not before: the card has the airline's name
             // and mark on the front of it, and both arrive with the record.
             mountShopCard();
+            if(window.CrewMultipliers) CrewMultipliers.mountStrip(document.getElementById('bonusStrip'), { api: crewApi() });
             mountSuggestStrip();
             // After applyBranding for the same reason the card is: this sits on
             // the airline's own hero image, and until that has resolved there

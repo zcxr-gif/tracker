@@ -162,6 +162,7 @@
     <!-- Codeshares agreed with other crew centres (request, review, sync,
          end) and the hubs the airline says it is based at. -->
     <script src="/crewCodeshare.js"></script>
+    <script src="/crewMultipliers.js"></script>
     <!-- Tours and challenges: what the airline sets its pilots to fly. -->
     <script src="/crewGoals.js"></script>
     <!-- The airline's own look: artwork showcase, section covers, theme file
@@ -842,7 +843,10 @@
             <section class="r-event surface rounded-xl p-6">
                 <div class="flex items-center justify-between mb-3">
                     <h2 class="text-lg font-bold tracking-tight">Next event</h2>
-                    <button onclick="openEvents()" class="text-sm accent-text font-semibold hover:opacity-80">All events</button>
+                    <div class="flex items-center gap-3">
+                        <button id="eventMxBtn" onclick="openMultipliers()" title="Make an event count double for a while" class="hidden text-sm muted font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="zap" class="w-3.5 h-3.5"></i> Multipliers</button>
+                        <button onclick="openEvents()" class="text-sm accent-text font-semibold hover:opacity-80">All events</button>
+                    </div>
                 </div>
                 <div id="nextEvent"></div>
             </section>
@@ -2106,6 +2110,7 @@
                  full on a phone. -->
             <div id="routeTools" class="hidden px-5 pt-3 flex flex-wrap gap-2">
                 <button type="button" onclick="openCodeshare()" title="Codeshares agreed with other crew centres" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="arrow-left-right" class="w-3.5 h-3.5"></i> Codeshare partners <span id="csReqBadge" class="hidden min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold grid place-items-center"></span></button>
+                <button type="button" onclick="openMultipliers()" title="Make a route or an event count double for a while" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5"></i> Multipliers</button>
                 <button type="button" onclick="openHubs()" title="The airports your airline is based at" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i> Hubs</button>
                 <button type="button" id="routeSelectBtn" onclick="toggleRouteSelect()" title="Tick routes to export just those" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="list-checks" class="w-3.5 h-3.5"></i> <span>Select</span></button>
             </div>
@@ -3797,6 +3802,7 @@
         // ended changes this airline's route list, so the panel says so and
         // the drawer re-reads rather than showing yesterday's network.
         function openFeaturedPlanner(period){ if(window.CrewFeaturedPlanner) CrewFeaturedPlanner.open({ api: crewApi(), period }); }
+        function openMultipliers(){ if(window.CrewMultipliers) CrewMultipliers.open({ api: crewApi() }); }
         function openCodeshare(tab){ if(window.CrewCodeshare) CrewCodeshare.open({ api: crewApi(), backend: BACKEND, slug: getSlug(), token: sessionToken, tab }); }
         function openHubs(){ if(window.CrewHubs) CrewHubs.open({ api: crewApi() }); }
         function openGoals(tab){ if(window.CrewGoals) CrewGoals.open({ api: crewApi(), tab }); }
@@ -11022,6 +11028,10 @@
             }catch{}
         }
         function applyCapState(){
+            // Multipliers on events: offered beside the events card to whoever
+            // runs events. Route ones live in the Routes drawer's tools.
+            const mx=document.getElementById('eventMxBtn');
+            if(mx) mx.classList.toggle('hidden', !can('events.manage') || !window.CrewMultipliers);
             // Gate settings tabs by what the caller can do (owner/preview see all).
             const vis={ appearance:can('settings.branding'),
                 // The Crew tab carries the rank ladder AND the schedule's rules,
