@@ -1410,6 +1410,30 @@
                         </div>
                     </details>
 
+                    <!-- The Inflight bot in the VA's own server (vaBot.js on the
+                         backend). Webhooks above only post; the bot also runs
+                         recruitment tickets, sends the entrance test and hands
+                         the pilot their login. Linking takes a one-time code
+                         from here typed into the server by someone with Manage
+                         Server, so neither half alone can link anything. -->
+                    <div id="botCard" class="mt-4 pt-4 border-t hair-soft">
+                        <div class="text-sm font-semibold mb-1 flex items-center gap-2">Discord bot
+                            <span id="botStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
+                        <p class="text-xs muted mb-2.5">Add the Inflight bot to your server and it runs recruitment there: an Apply button opens a private ticket, the application lands here, staff send the entrance test from the ticket, and the pilot gets their crew center login in Discord. It also answers <span class="font-mono">/crew links</span>, <span class="font-mono">/crew events</span>, <span class="font-mono">/crew stats</span> and posts each event with its own thread.</p>
+                        <ol class="text-xs muted list-decimal pl-4 space-y-1 mb-2.5">
+                            <li><a id="botInvite" href="#" target="_blank" rel="noopener" class="font-semibold text-[var(--ink)] underline">Add the bot to your server</a>.</li>
+                            <li>Make a link code below and run <span class="font-mono">/crew-admin setup</span> with it in your server.</li>
+                            <li>Run <span class="font-mono">/crew-admin settings</span>, then <span class="font-mono">/crew-admin panel</span> in your recruitment channel.</li>
+                        </ol>
+                        <button id="botCodeBtn" onclick="makeBotCode(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Make a link code</button>
+                        <div id="botCode" class="hidden mt-2 rounded-lg p-3 text-center" style="background:color-mix(in srgb, var(--ink) 5%, transparent);">
+                            <div id="botCodeValue" class="font-mono text-xl font-bold tracking-widest text-[var(--ink)] select-all"></div>
+                            <div id="botCodeNote" class="text-[11px] faint mt-1"></div>
+                        </div>
+                        <div id="botGuilds" class="mt-3 space-y-2"></div>
+                        <p id="botNote" class="hidden text-sm mt-2"></p>
+                    </div>
+
                     <div class="mt-4 pt-4 border-t hair-soft">
                         <div class="text-sm font-semibold mb-1 flex items-center gap-2">Email applicants
                             <span id="emailStatus" class="text-[11px] font-medium normal-case tracking-normal"></span></div>
@@ -5674,6 +5698,71 @@
             } else if(e.target.closest('[data-feed-clear]')){
                 postFeedHook(row,{webhookUrl:''},'Back to the main channel.');
             }
+        });
+
+        // ---- Discord bot (vaBot.js) ----
+        // Owner-level, like connecting the data store: the server it links to
+        // gets to run this airline's recruitment.
+        function setBotNote(msg, kind){
+            const n=document.getElementById('botNote'); if(!n) return;
+            n.textContent=msg;
+            n.className='text-sm mt-2 '+(kind==='ok'?'text-emerald-600 dark:text-emerald-400':kind==='err'?'text-red-500':'muted');
+            n.classList.remove('hidden');
+        }
+        function renderBot(d){
+            const status=document.getElementById('botStatus'), list=document.getElementById('botGuilds'), inv=document.getElementById('botInvite');
+            if(!status||!list) return;
+            if(inv){ if(d.inviteUrl){ inv.href=d.inviteUrl; inv.removeAttribute('aria-disabled'); } else { inv.removeAttribute('href'); inv.setAttribute('aria-disabled','true'); } }
+            const guilds=d.guilds||[];
+            status.innerHTML = !d.available ? '<span class="faint">not available on this deployment</span>'
+                : guilds.length ? `<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> ${guilds.length===1?'1 server':guilds.length+' servers'}</span>`
+                : '<span class="faint">not linked</span>';
+            const tick=(on,label)=>`<span class="${on?'':'faint line-through'}">${label}</span>`;
+            list.innerHTML = guilds.map(g=>`
+                <div class="rounded-lg hair surface px-3 py-2 flex items-center justify-between gap-2">
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold truncate">${escapeHtml(g.name||'Discord server')}</div>
+                        <div class="text-[11px] faint">Linked ${g.linkedAt?new Date(g.linkedAt).toLocaleDateString():''}${g.linkedBy?' by '+escapeHtml(g.linkedBy):''} ·
+                            ${tick(g.settings.staffRole,'staff role')} · ${tick(g.settings.ticketChannel,'tickets')} · ${tick(g.settings.pilotRole,'pilot role')} · ${tick(g.settings.eventsChannel,'events')}${g.settings.autoInvite?' · auto-invite':''}</div>
+                    </div>
+                    <button data-bot-unlink="${escapeHtml(g.guildId)}" title="Unlink this server" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold muted hover:text-red-500 transition shrink-0">Unlink</button>
+                </div>`).join('');
+            if(window.lucide) lucide.createIcons();
+        }
+        async function botCall(method, path){
+            const token=sessionToken(), slug=getSlug();
+            if(!slug||!token) return { ok:false, data:{ error:'Sign in as the owner to connect the bot.' } };
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/discord-bot${path||''}`,{ method, headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                return { ok:res.ok, status:res.status, data:await res.json().catch(()=>({})) };
+            }catch{ return { ok:false, data:{ error:'Server unreachable. Try again.' } }; }
+        }
+        async function loadDiscordBot(){
+            const card=document.getElementById('botCard'); if(!card) return;
+            if(sessionToken() && !can('integrations.manage')){ card.classList.add('hidden'); return; }
+            const r=await botCall('GET');
+            if(r.ok) renderBot(r.data);
+            else if(r.status===403) card.classList.add('hidden');
+        }
+        async function makeBotCode(btn){
+            btn.disabled=true;
+            const r=await botCall('POST','/code');
+            btn.disabled=false;
+            if(!r.ok){ setBotNote(r.data.error||'Could not make a code.','err'); return; }
+            document.getElementById('botCodeValue').textContent=r.data.code;
+            const mins=Math.max(1,Math.round((new Date(r.data.expiresAt)-Date.now())/60000));
+            document.getElementById('botCodeNote').textContent=`Works once, for ${mins} minutes. Run /crew-admin setup code:${r.data.code} in your server.`;
+            document.getElementById('botCode').classList.remove('hidden');
+            btn.textContent='Make a new code';
+            document.getElementById('botNote').classList.add('hidden');
+        }
+        document.addEventListener('click', async e=>{
+            const b=e.target.closest('[data-bot-unlink]'); if(!b) return;
+            if(!confirm('Unlink this Discord server? The bot stops posting there and its tickets stop working until you link it again.')) return;
+            const r=await botCall('DELETE','/guilds/'+encodeURIComponent(b.getAttribute('data-bot-unlink')));
+            if(!r.ok){ setBotNote(r.data.error||'Could not unlink.','err'); return; }
+            setBotNote('Server unlinked.','ok');
+            loadDiscordBot();
         });
 
         // ---- Email provider (bring-your-own; no platform default) ----
@@ -12401,7 +12490,7 @@
             wireStructure(); renderStructure(); loadFleetMeta();
             wireSocial(); renderSocialEditor(); renderSocial();   // the Instagram wall + its editor
             renderSchedulePrefs();          // the rank picker needs the ladder, which renderStructure has now
-            renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook(); loadEmailCfg();
+            renderRecruitment(); wireRecruitment(); wireRequirements(); loadWebhook(); loadEmailCfg(); loadDiscordBot();
             wireTeam(); applyCapState();     // render team editors + gate tabs by caps
             const emP=document.getElementById('emProvider'); if(emP) emP.addEventListener('change', emToggleFields);
             setCat('appearance');
