@@ -105,6 +105,8 @@
                 <li><b>Inactivity, handled kindly.</b> Pilots who stop flying move to an inactive role and are told — nicely — how to stay. The moment they fly again their pilot role comes back. Removal after a month is optional and always comes with a reminder first.</li>
                 <li><b>Discord linked to the crew center.</b> Pilots accepted through a ticket are linked automatically. Everyone else runs <code>/crew link</code> — one button, and they can sign in with Discord from then on.</li>
                 <li><b>Your airline on demand.</b> <code>/crew links</code>, <code>/crew stats</code>, <code>/crew events</code> and <code>/crew pilot</code> answer from your crew center.</li>
+                <li><b>Pilot commands.</b> <code>/crew me</code> (hours, rank, hours to the next rank, streak, this month's position), <code>/crew leaderboard</code> and <code>/crew route</code> (a route to fly, filtered by airport or aircraft).</li>
+                <li><b>Event sign-up in Discord.</b> <b>I'm in</b> and <b>Can't make it</b> on every event post, a sign-up menu on <code>/crew events</code>, and a ping to everyone going an hour before.</li>
                 <li><b>Events with threads.</b> Every event you publish gets a post in your events channel with its own discussion thread, kept up to date when you edit or cancel it.</li>
             </ul>
             <p>The bot does not replace your Discord alerts (the webhooks in the same Alerts tab). Those keep posting applications, flight reports and route changes as before.</p>
@@ -214,6 +216,7 @@
                 <li>As soon as they fly and the report is approved, the roles swap back and they get a "welcome back" message.</li>
                 <li>With <code>kick_after_days</code> set, a reminder goes out a week before. If they still haven't flown, they get a kind goodbye (with your Discord invite, if you've saved one) and are removed. Their logbook stays in the crew center.</li>
             </ol>
+            <p>The note to an inactive pilot has a <b>Suggest a route</b> button, so getting back in the air is one press away.</p>
             <p><b>Never touched:</b> pilots on leave of absence, staff, and anybody who hasn't linked Discord (the bot can't know who they are). Run <code>/crew-admin sweep</code> first — it shows exactly who would be moved, reminded, removed or welcomed back without changing anything. <code>/crew-admin sweep apply:True</code> runs it straight away.</p>
             <p>Safety limits: at most 25 people are moved and 10 removed in one sweep; if the crew center can't be read completely, the sweep does nothing. Turning removal on never removes anyone sooner than eight days from that moment.</p>
 
@@ -239,11 +242,13 @@
                 <thead><tr><th>Button</th><th>What happens</th></tr></thead>
                 <tbody>
                     <tr><td><b>Send entrance test</b></td><td>Posts a <b>Take the test</b> link for the applicant. With more than one test built, staff pick which. The result is posted back to the ticket automatically. After a fail, pressing it again re-posts the same link while they have attempts left, or sends a fresh test once they've used them all.</td></tr>
-                    <tr><td><b>Accept &amp; send login</b></td><td>Accepts the application, adds them to your roster, creates their crew center login and gives the pilot role. The applicant gets a <b>Show my login</b> button.</td></tr>
+                    <tr><td><b>Accept &amp; send login</b></td><td>Accepts the application, adds them to your roster, creates their crew center login, <b>links their Discord to that login</b> and gives the pilot role (and takes away the welcome role). The applicant gets a <b>Show my login</b> button.</td></tr>
                     <tr><td><b>Decline</b></td><td>Asks for an optional message to the applicant, then tells them in the ticket.</td></tr>
                     <tr><td><b>Close</b></td><td>Locks and archives the thread. The applicant can close their own ticket too.</td></tr>
                 </tbody>
             </table></div>
+            <h3>Their Discord is linked the moment they're accepted</h3>
+            <p>When an applicant passes the entrance test, the result in the ticket tells them their Discord will be linked automatically. Whether you accept from the ticket, by auto-invite, or from <b>Roster → Applications</b> in the crew center, the ticket follows through: their Discord is linked to the new login, they get the pilot role, and the welcome with <b>Show my login</b> appears in the ticket. If the link can't be made for them (for example, that Discord is already linked to another login), the welcome gives them a <b>Link my account</b> button and your log channel says why.</p>
             <p>Everything staff do in Discord is the same action as in the crew center, and where the crew center notes who did something (who sent a test, who made a login) it shows the staff member's Discord name. You can also finish any application from <b>Roster → Applications</b> — the ticket still gets the test result.</p>
             <h3>The login</h3>
             <ul>
@@ -267,6 +272,13 @@
                 <li><b>Cancelled or removed:</b> the post is marked and the thread is locked.</li>
                 <li>Drafts are never posted.</li>
             </ul>
+            <h3>Signing up from Discord</h3>
+            <ul>
+                <li>Every event post has <b>I'm in</b> and <b>Can't make it</b>. Pilots sign up as themselves, with the same rules as the crew center: rank locks, slots and the waitlist. The post shows how many are going.</li>
+                <li><code>/crew events</code> has a <b>Sign me up for…</b> menu.</li>
+                <li>An hour before an event starts, everyone going is pinged in its thread.</li>
+                <li>Signing up needs a linked Discord. Anyone who isn't linked yet is given the <b>Link my account</b> button.</li>
+            </ul>
             <p>If your <b>Events</b> webhook alert points at the same channel, you'll see both. Point one of them somewhere else, or clear the webhook.</p>
 
             <h2 id="commands"><i data-lucide="terminal-square" class="text-indigo-500"></i> Every command</h2>
@@ -278,9 +290,12 @@
                     <tr><td><code>/crew close reason:</code></td><td>Inside a ticket: closes it, with an optional reason.</td></tr>
                     <tr><td><code>/crew add member:</code></td><td>Staff, inside a ticket: adds someone to it.</td></tr>
                     <tr><td><code>/crew link</code></td><td>Links your Discord to your crew center login — or says who you're linked to.</td></tr>
+                    <tr><td><code>/crew me share:</code></td><td>Your rank, hours, hours to the next rank, last 30 days, last flight, streak and this month's position. Only you see it unless you add <code>share:True</code>.</td></tr>
+                    <tr><td><code>/crew leaderboard window:</code></td><td>Top ten pilots by hours for the last 30 days, 90 days or all time, and where you are.</td></tr>
+                    <tr><td><code>/crew route from: aircraft:</code></td><td>Suggests an open route (featured ones more often), with <b>Another one</b> to roll again. Never a route your rank hasn't opened.</td></tr>
                     <tr><td><code>/crew links</code></td><td>Your crew center, Discord invite and every published link from your crew center's Links board.</td></tr>
                     <tr><td><code>/crew stats</code></td><td>Pilots, hours, flights, the last 30 days, routes and your top five pilots.</td></tr>
-                    <tr><td><code>/crew events</code></td><td>The next eight events.</td></tr>
+                    <tr><td><code>/crew events</code></td><td>The next eight events, with a menu to sign up for one.</td></tr>
                     <tr><td><code>/crew pilot who:</code></td><td>Looks a pilot up on your roster by callsign or name: rank, hours, status.</td></tr>
                 </tbody>
             </table></div>
