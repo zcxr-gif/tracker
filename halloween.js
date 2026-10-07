@@ -5,12 +5,13 @@
 // anything else loads. This file adds the rest once the page is up:
 //
 //   - a faint orange / purple glow at the edges of the map
-//   - a few bats crossing the sky now and then
+//   - a little ghost hanging on a thread from the top bar, softly glowing
+//   - a little pumpkin on the logo (desktop) or the server button (phone)
 //   - a one-a-day greeting with a "Turn off" button
 //
 // All of it sits under the panels (or, for the greeting, briefly above them),
 // never takes a pointer event it does not need, and comes down completely
-// when the switch is turned off. Bats are skipped for prefers-reduced-motion.
+// when the switch is turned off. Nothing moves for prefers-reduced-motion.
 (function () {
     'use strict';
 
@@ -20,12 +21,31 @@
     var GREETED_KEY = 'inflight-halloween-greeted';
     var THEME_COLOR = '#f97316';
 
-    var BAT_SVG =
-        '<svg viewBox="0 0 100 42" aria-hidden="true" focusable="false"><path d="' +
-        'M50 14 L53 8 L54 15 C60 12 68 10 74 12 C82 8 92 10 98 18 C92 18 88 22 87 27 ' +
-        'C83 24 78 25 76 29 C72 26 64 27 60 32 C57 30 54 32 52 38 L50 40 L48 38 ' +
-        'C46 32 43 30 40 32 C36 27 28 26 24 29 C22 25 17 24 13 27 C12 22 8 18 2 18 ' +
-        'C8 10 18 8 26 12 C32 10 40 12 46 15 L47 8 Z"/></svg>';
+    var GHOST_SVG =
+        '<svg viewBox="0 0 40 48" aria-hidden="true" focusable="false">' +
+        '<defs><linearGradient id="hw-ghost-shade" x1="0" y1="0" x2="1" y2="1">' +
+        '<stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#ddd6fe"/></linearGradient></defs>' +
+        '<path fill="url(#hw-ghost-shade)" d="M20 2C9 2 4 10 4 20v22c0 2 2 3 3.5 1.5L10 41l3 3.5c1 1 2 1 3 0' +
+        'l4-3.5 4 3.5c1 1 2 1 3 0l3-3.5 2.5 2.5c1.5 1.5 3.5.5 3.5-1.5V20C36 10 31 2 20 2z"/>' +
+        '<ellipse cx="14.5" cy="19" rx="2.6" ry="3.6" fill="#2e1065"/>' +
+        '<ellipse cx="25.5" cy="19" rx="2.6" ry="3.6" fill="#2e1065"/>' +
+        '<ellipse cx="20" cy="28" rx="2.3" ry="3" fill="#2e1065"/>' +
+        '<ellipse cx="9.5" cy="25" rx="2.2" ry="1.3" fill="#f9a8d4" opacity=".55"/>' +
+        '<ellipse cx="30.5" cy="25" rx="2.2" ry="1.3" fill="#f9a8d4" opacity=".55"/>' +
+        '</svg>';
+
+    // A jack-o'-lantern, as a data URI so CSS can place it on existing chrome.
+    var PUMPKIN_SVG =
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+        '<path d="M16 8.5c.3-2.6 1.4-4.6 3.6-5.6l.9 1.5c-1.7.8-2.6 2.3-2.7 4.3z" fill="#4d7c0f"/>' +
+        '<ellipse cx="9.5" cy="18.5" rx="7" ry="10" fill="#ea580c"/>' +
+        '<ellipse cx="22.5" cy="18.5" rx="7" ry="10" fill="#ea580c"/>' +
+        '<ellipse cx="16" cy="18.5" rx="8" ry="10.5" fill="#f97316"/>' +
+        '<path d="M16 8.3v20.4" stroke="#c2410c" stroke-width=".8" opacity=".6"/>' +
+        '<path d="M10 15l3 3.2h-6zM22 15l3 3.2h-6z" fill="#fde047"/>' +
+        '<path d="M8.5 21.5c2 3 13 3 15 0l-2.2 1-1.3-1.2-1.6 1.6-1.7-1.4-1.7 1.4-1.6-1.6-1.3 1.2z" fill="#fde047"/>' +
+        '</svg>';
+    var PUMPKIN_URI = 'url("data:image/svg+xml,' + encodeURIComponent(PUMPKIN_SVG) + '")';
 
     var CSS = [
         '.hw-glow{position:fixed;inset:0;z-index:5;pointer-events:none;',
@@ -34,14 +54,37 @@
         'radial-gradient(ellipse 40% 30% at 100% 100%,rgba(249,115,22,.08),transparent 70%);',
         'opacity:0;transition:opacity 1.2s ease}',
         '.hw-glow.is-in{opacity:1}',
-        '.hw-sky{position:fixed;inset:0;z-index:6;pointer-events:none;overflow:hidden}',
-        '.hw-bat{position:absolute;top:0;left:0;will-change:transform}',
-        '.hw-bat-bob{animation:hw-bob 1.6s ease-in-out infinite alternate}',
-        '.hw-bat svg{display:block;width:100%;height:auto;fill:#0b0910;',
-        'filter:drop-shadow(0 0 6px rgba(249,115,22,.35));',
-        'transform-origin:50% 35%;animation:hw-flap .19s ease-in-out infinite alternate}',
-        '@keyframes hw-flap{from{transform:scaleY(1)}to{transform:scaleY(.45)}}',
-        '@keyframes hw-bob{from{transform:translateY(-10px)}to{transform:translateY(10px)}}',
+        // The ghost hangs from behind the top bar (it sits under the panels),
+        // swinging a little from the top of its thread.
+        '.hw-ghost{position:fixed;top:0;right:max(84px,14vw);z-index:5;pointer-events:none;',
+        'display:flex;flex-direction:column;align-items:center;transform-origin:50% 0;',
+        'animation:hw-sway 4.2s ease-in-out infinite alternate;opacity:0;transition:opacity 1.2s ease}',
+        '.hw-ghost.is-in{opacity:1}',
+        '.hw-ghost-thread{width:1px;height:calc(env(safe-area-inset-top,0px) + 92px);',
+        'background:linear-gradient(rgba(255,255,255,.1),rgba(255,255,255,.45))}',
+        '.hw-ghost-body{position:relative;width:34px;margin-top:-2px}',
+        '.hw-ghost-body svg{position:relative;display:block;width:100%;height:auto;',
+        'filter:drop-shadow(0 0 4px rgba(221,214,254,.8))}',
+        '.hw-ghost-glow{position:absolute;left:50%;top:50%;width:96px;height:96px;margin:-48px 0 0 -48px;',
+        'border-radius:50%;background:radial-gradient(circle,rgba(221,214,254,.55) 0%,rgba(167,139,250,.22) 38%,transparent 70%);',
+        'animation:hw-glow 3.2s ease-in-out infinite alternate}',
+        '@keyframes hw-sway{from{transform:rotate(-5deg)}to{transform:rotate(5deg)}}',
+        '@keyframes hw-glow{from{opacity:.35;transform:scale(.9)}to{opacity:.9;transform:scale(1.05)}}',
+        '@media (max-width:768px){.hw-ghost{right:76px}.hw-ghost-body{width:28px}',
+        '.hw-ghost-thread{height:calc(env(safe-area-inset-top,0px) + 70px)}}',
+        // The pumpkin: perched on the corner of the desktop logo, and on the
+        // server button in the phone's top bar (where the logo is hidden).
+        'html.is-halloween #inflight-tactical-ui .lui-brand{position:relative}',
+        'html.is-halloween #inflight-tactical-ui .lui-brand::after{content:"";position:absolute;',
+        'left:13px;top:11px;width:19px;height:19px;background:' + PUMPKIN_URI + ' center/contain no-repeat;',
+        'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));transform-origin:50% 100%;',
+        'animation:hw-wobble 5s ease-in-out infinite;pointer-events:none}',
+        'html.is-halloween #ios-server-pill::after{content:"";position:absolute;right:-7px;top:-6px;',
+        'width:18px;height:18px;background:' + PUMPKIN_URI + ' center/contain no-repeat;',
+        'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));transform-origin:50% 100%;',
+        'animation:hw-wobble 5s ease-in-out infinite;pointer-events:none}',
+        '@keyframes hw-wobble{0%,86%,100%{transform:rotate(0)}89%{transform:rotate(-12deg)}',
+        '92%{transform:rotate(10deg)}95%{transform:rotate(-5deg)}}',
         '.hw-hello{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 16px);z-index:1200;',
         'display:flex;align-items:center;gap:10px;max-width:calc(100vw - 32px);box-sizing:border-box;',
         'padding:8px 8px 8px 14px;border-radius:999px;',
@@ -57,11 +100,12 @@
         'color:#fdba74;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.35);padding:5px 10px}',
         '.hw-hello button:hover,.hw-hello button:focus-visible{background:rgba(249,115,22,.22)}',
         '.hw-hello .hw-hello-x{color:#b9b2c4;background:none;border-color:transparent;padding:5px 8px}',
-        '@media (prefers-reduced-motion:reduce){.hw-glow,.hw-hello{transition:none}}'
+        '@media (prefers-reduced-motion:reduce){.hw-glow,.hw-hello,.hw-ghost{transition:none}',
+        '.hw-ghost,.hw-ghost-glow{animation:none}',
+        'html.is-halloween #inflight-tactical-ui .lui-brand::after,html.is-halloween #ios-server-pill::after{animation:none}}'
     ].join('');
 
-    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var state = null; // { glow, sky, timers[], prevThemeColor } while mounted
+    var state = null; // { glow, ghost, hello, timers[], prevThemeColor } while mounted
 
     function injectStyles() {
         if (document.getElementById('hw-styles')) return;
@@ -79,47 +123,6 @@
 
     function splashUp() {
         return !!document.getElementById('inflight-pro-loader-overlay');
-    }
-
-    // One bat across the screen, on a slightly sloped line, then removed.
-    function flyBat(delay) {
-        if (!state) return;
-        var w = window.innerWidth, h = window.innerHeight;
-        var size = 26 + Math.random() * 22;
-        var ltr = Math.random() < 0.5;
-        var y0 = h * (0.08 + Math.random() * 0.45);
-        var y1 = y0 + (Math.random() - 0.5) * h * 0.3;
-        var x0 = ltr ? -size - 20 : w + 20;
-        var x1 = ltr ? w + 20 : -size - 20;
-
-        var bat = document.createElement('div');
-        bat.className = 'hw-bat';
-        bat.style.width = size + 'px';
-        bat.innerHTML = '<div class="hw-bat-bob">' + BAT_SVG + '</div>';
-        // Desync the flap and bob so a group doesn't move as one.
-        bat.firstChild.style.animationDelay = (-Math.random() * 1.6) + 's';
-        bat.querySelector('svg').style.animationDelay = (-Math.random() * 0.2) + 's';
-        bat.style.transform = 'translate(' + x0 + 'px,' + y0 + 'px)';
-        state.sky.appendChild(bat);
-
-        var anim = bat.animate([
-            { transform: 'translate(' + x0 + 'px,' + y0 + 'px)' },
-            { transform: 'translate(' + x1 + 'px,' + y1 + 'px)' }
-        ], { duration: 7000 + Math.random() * 5000, delay: delay || 0, easing: 'linear', fill: 'forwards' });
-        anim.onfinish = function () { bat.remove(); };
-    }
-
-    // A small flight of one to three bats, then wait and do it again. Skipped
-    // while the tab is hidden or the splash is still up.
-    function scheduleFlight(ms) {
-        later(function () {
-            if (!state) return;
-            if (!document.hidden && !splashUp()) {
-                var n = 1 + Math.floor(Math.random() * 3);
-                for (var i = 0; i < n; i++) flyBat(i * (250 + Math.random() * 500));
-            }
-            scheduleFlight(18000 + Math.random() * 17000);
-        }, ms);
     }
 
     function today() {
@@ -140,7 +143,7 @@
         el.setAttribute('role', 'status');
         el.innerHTML =
             '<span class="hw-hello-icon" aria-hidden="true">🎃</span>' +
-            '<span class="hw-hello-text">Happy Halloween — watch out for bats</span>' +
+            '<span class="hw-hello-text">Happy Halloween!</span>' +
             '<button type="button" class="hw-hello-off">Turn off</button>' +
             '<button type="button" class="hw-hello-x" aria-label="Dismiss"><i class="fa-solid fa-xmark"></i></button>';
         document.body.appendChild(el);
@@ -164,23 +167,26 @@
         state.glow = document.createElement('div');
         state.glow.className = 'hw-glow';
         document.body.appendChild(state.glow);
-        requestAnimationFrame(function () { if (state) state.glow.classList.add('is-in'); });
+        requestAnimationFrame(function () {
+            if (state) { state.glow.classList.add('is-in'); state.ghost.classList.add('is-in'); }
+        });
 
-        state.sky = document.createElement('div');
-        state.sky.className = 'hw-sky';
-        document.body.appendChild(state.sky);
+        state.ghost = document.createElement('div');
+        state.ghost.className = 'hw-ghost';
+        state.ghost.innerHTML = '<div class="hw-ghost-thread"></div>' +
+            '<div class="hw-ghost-body"><div class="hw-ghost-glow"></div>' + GHOST_SVG + '</div>';
+        document.body.appendChild(state.ghost);
 
         var meta = document.querySelector('meta[name="theme-color"]');
         if (meta) { state.prevThemeColor = meta.content; meta.content = THEME_COLOR; }
 
-        if (!reduceMotion) scheduleFlight(3500);
         later(greet, 2500);
     }
 
     function unmount() {
         if (!state) return;
         state.timers.forEach(clearTimeout);
-        [state.glow, state.sky, state.hello].forEach(function (el) { if (el) el.remove(); });
+        [state.glow, state.ghost, state.hello].forEach(function (el) { if (el) el.remove(); });
         var meta = document.querySelector('meta[name="theme-color"]');
         if (meta && state.prevThemeColor) meta.content = state.prevThemeColor;
         state = null;
