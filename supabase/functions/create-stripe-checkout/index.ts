@@ -48,11 +48,12 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
 const PRICE_ID = Deno.env.get("STRIPE_PRICE_ID") ?? "";
 
 // ── Sale (Halloween 2026: first month $0.99, then $1.99) ─────────────────
-// A Stripe coupon (amount off $1.00, duration "once") applied to the first
-// invoice of a FIRST-TIME subscriber's checkout until SALE_ENDS_AT. Unset the
-// coupon id and there is no sale. index.html (window.InflightSale) shows the
-// same end time to pilots; this is the copy that actually decides.
-const SALE_COUPON_ID = Deno.env.get("STRIPE_SALE_COUPON_ID") ?? "";
+// The live coupon HALLOWEEN26 ($1.00 off, duration "once", monthly Pro only,
+// redeem_by Nov 1 04:00 UTC) applied to the first invoice of a FIRST-TIME
+// subscriber's checkout until SALE_ENDS_AT. STRIPE_SALE_COUPON_ID overrides
+// it; set it to "" to stop the sale early. index.html (window.InflightSale)
+// shows the same end time to pilots; this is the copy that actually decides.
+const SALE_COUPON_ID = Deno.env.get("STRIPE_SALE_COUPON_ID") ?? "HALLOWEEN26";
 const SALE_ENDS_AT = Date.parse(Deno.env.get("SALE_ENDS_AT") ?? "2026-11-01T04:00:00Z"); // Oct 31 23:59 EDT
 
 const corsHeaders = {
