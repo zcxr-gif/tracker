@@ -268,7 +268,20 @@ serve(async (req) => {
     }
 
     type SessionParams = Parameters<typeof stripe.checkout.sessions.create>[0];
-    const session = await stripe.checkout.sessions.create(sessionParams as SessionParams);
+    let session;
+    try {
+      session = await stripe.checkout.sessions.create(sessionParams as SessionParams);
+    } catch (err) {
+      // A sale coupon Stripe refuses (expired early, deleted, or limited to a
+      // product this price is not) must cost the pilot the discount, never the
+      // checkout: retry at full price, the way it was before the sale.
+      if (!saleApplies) throw err;
+      console.error("Sale coupon refused; retrying without it:", err);
+      delete sessionParams.discounts;
+      delete (sessionParams.metadata as Record<string, string>).sale;
+      sessionParams.allow_promotion_codes = allow_promotion_codes !== false;
+      session = await stripe.checkout.sessions.create(sessionParams as SessionParams);
+    }
 
     // The session id goes back either way: the embedded flow finalises without
     // ever visiting the success URL, so the client needs it up front.
