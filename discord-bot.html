@@ -82,6 +82,10 @@
                 <a href="#permissions">4. Permissions</a>
                 <a href="#panel">5. Post the panel</a>
                 <a href="#recruitment">How recruitment works</a>
+                <a href="#welcome">Welcome</a>
+                <a href="#tickets">Help tickets</a>
+                <a href="#inactivity">Inactivity</a>
+                <a href="#linking">Linking Discord to the crew center</a>
                 <a href="#events">Events</a>
                 <a href="#commands">Every command</a>
                 <a href="#troubleshooting">Troubleshooting</a>
@@ -96,7 +100,10 @@
                 <li><b>Recruitment tickets.</b> An <b>Apply</b> button opens a private thread for the applicant and your staff. The application is filled in there and lands in your crew center exactly as if it came through your join page — same requirements, same callsign checks, same Infinite Flight verification.</li>
                 <li><b>Entrance tests.</b> Staff send the test from the ticket with one button. The score comes back to the same ticket the moment it is submitted.</li>
                 <li><b>Crew center logins.</b> Accepting from the ticket creates the pilot's login and gives them your pilot role. The pilot reads their temporary password from a button only they can see — it is never posted in the thread.</li>
-                <li><b>Support tickets.</b> A <b>Contact staff</b> button opens a private thread with your staff for anything else.</li>
+                <li><b>Help tickets for anything.</b> A <b>Contact staff</b> button (or <code>/crew ticket</code>) asks what it's about, then opens a private thread with your staff — for a question, a problem, a leave request, anything. Tickets can be closed with a reason and reopened.</li>
+                <li><b>A warm welcome.</b> Newcomers are greeted in your welcome channel with your own message and Apply / Contact staff buttons. A pilot who rejoins gets their pilot role back automatically.</li>
+                <li><b>Inactivity, handled kindly.</b> Pilots who stop flying move to an inactive role and are told — nicely — how to stay. The moment they fly again their pilot role comes back. Removal after a month is optional and always comes with a reminder first.</li>
+                <li><b>Discord linked to the crew center.</b> Pilots accepted through a ticket are linked automatically. Everyone else runs <code>/crew link</code> — one button, and they can sign in with Discord from then on.</li>
                 <li><b>Your airline on demand.</b> <code>/crew links</code>, <code>/crew stats</code>, <code>/crew events</code> and <code>/crew pilot</code> answer from your crew center.</li>
                 <li><b>Events with threads.</b> Every event you publish gets a post in your events channel with its own discussion thread, kept up to date when you edit or cancel it.</li>
             </ul>
@@ -155,13 +162,14 @@
                     <tr><td>View Channels, Send Messages, Embed Links, Read Message History</td><td>Posting the panel, tickets, results and events.</td></tr>
                     <tr><td>Create Private Threads, Send Messages in Threads, Manage Threads</td><td>Opening, locking and archiving ticket threads.</td></tr>
                     <tr><td>Create Public Threads</td><td>The discussion thread under each event.</td></tr>
-                    <tr><td>Manage Roles</td><td>Giving the pilot role on acceptance.</td></tr>
+                    <tr><td>Manage Roles</td><td>Giving the pilot role on acceptance, the welcome role on joining, and swapping the pilot and inactive roles.</td></tr>
+                    <tr><td>Kick Members</td><td>Only if you turn on removal with <code>kick_after_days</code>. At most ten people per sweep, each sent a kind goodbye first. Servers that added the bot before this was asked for: grant it to the bot's role, or re-add the bot from the Discord bot card.</td></tr>
                     <tr><td>Mention @everyone, @here and All Roles</td><td>Pinging your staff role in a ticket when it isn't set to "anyone can mention". Every message the bot sends is restricted to the one role and the one applicant it means — it never pings @everyone.</td></tr>
                 </tbody>
             </table></div>
             <h3>Three things Discord needs from you</h3>
             <ul>
-                <li><b>Role order.</b> In <b>Server Settings → Roles</b>, drag the bot's role <b>above</b> your pilot role. Discord won't let a bot give out a role ranked above its own.</li>
+                <li><b>Role order.</b> In <b>Server Settings → Roles</b>, drag the bot's role <b>above</b> your pilot, welcome and inactive roles. Discord won't let a bot give out a role ranked above its own.</li>
                 <li><b>Staff can see every ticket.</b> Give your staff role <b>Manage Threads</b> in the ticket channel. Without it, staff only see the tickets they're pinged into.</li>
                 <li><b>Channel overrides.</b> If your ticket or events channel is locked down, make sure the bot's role is allowed in it.</li>
             </ul>
@@ -176,6 +184,45 @@
                 <li><b>Crew center</b> — your sign-in page.</li>
             </ul>
             <p>If you haven't set a ticket channel, tickets open under the channel the panel is in. Post the panel again whenever you like; old panels keep working.</p>
+            <p>For a <b>help-only</b> panel (say in <code>#support</code>), run <code>/crew-admin panel type:Help</code>. It has <b>Open a ticket</b>, <b>Link my account</b> and <b>Crew center</b>.</p>
+
+            <h2 id="welcome"><i data-lucide="hand" class="text-indigo-500"></i> Welcome</h2>
+            <p>Run <code>/crew-admin welcome</code> with any of:</p>
+            <ul>
+                <li><code>channel</code> — where newcomers are greeted, with <b>Apply</b>, <b>Contact staff</b>, <b>Already a pilot? Link</b> and <b>Crew center</b> buttons.</li>
+                <li><code>role</code> — a role everybody gets on joining (for example <i>Visitor</i>).</li>
+                <li><code>message</code> — your own words. Use <code>{user}</code> (mentions them), <code>{name}</code>, <code>{server}</code>, <code>{airline}</code> and <code>{members}</code>. Type <code>\n</code> for a new line.</li>
+                <li><code>dm</code> — also send the welcome by direct message.</li>
+                <li><code>test:True</code> — posts a sample for you right now. <code>off:True</code> turns it off.</li>
+            </ul>
+            <p>Somebody whose Discord is already linked to a pilot on your roster is welcomed <b>back</b> instead, by callsign, and gets the pilot role straight away. If lots of people join within a minute (a raid, or a big import), roles are still given but the greetings pause until it calms down.</p>
+
+            <h2 id="tickets"><i data-lucide="ticket" class="text-indigo-500"></i> Help tickets</h2>
+            <p>Tickets aren't only for joining. <b>Contact staff</b>, <b>Open a ticket</b> or <code>/crew ticket</code> asks two quick questions — what it's about, and any details — then opens a private thread only that member and your staff can see, pinging your staff role with the summary.</p>
+            <ul>
+                <li><b>Close</b> — the <b>Close ticket</b> button, or <code>/crew close reason:</code> inside the thread to give a reason. The member is told kindly (by DM if staff closed it) and the thread is locked.</li>
+                <li><b>Reopen</b> — the closed message has a <b>Reopen</b> button for the member or staff.</li>
+                <li><b>Add someone</b> — staff run <code>/crew add member:</code> in the thread.</li>
+                <li>Pilots in the inactive role get a <b>Request leave</b> button that opens a ticket titled <i>Leave of absence</i>.</li>
+            </ul>
+
+            <h2 id="inactivity"><i data-lucide="moon" class="text-indigo-500"></i> Inactivity</h2>
+            <p>Run <code>/crew-admin inactivity role:@Inactive channel:#inactive</code>. Optional: <code>after_days</code> (default 30, how long without a flight) and <code>kick_after_days</code> (default 0 = never remove).</p>
+            <ol>
+                <li>Every few hours the bot checks your crew center's <b>approved</b> flight reports for each pilot whose Discord is linked.</li>
+                <li>A pilot with no flight in <code>after_days</code> gets the inactive role (and loses the pilot role), with a friendly note in your inactive channel: fly any route to stay, or press <b>Request leave</b>. No channel set? It's sent by DM.</li>
+                <li>As soon as they fly and the report is approved, the roles swap back and they get a "welcome back" message.</li>
+                <li>With <code>kick_after_days</code> set, a reminder goes out a week before. If they still haven't flown, they get a kind goodbye (with your Discord invite, if you've saved one) and are removed. Their logbook stays in the crew center.</li>
+            </ol>
+            <p><b>Never touched:</b> pilots on leave of absence, staff, and anybody who hasn't linked Discord (the bot can't know who they are). Run <code>/crew-admin sweep</code> first — it shows exactly who would be moved, reminded, removed or welcomed back without changing anything. <code>/crew-admin sweep apply:True</code> runs it straight away.</p>
+            <p>Safety limits: at most 25 people are moved and 10 removed in one sweep; if the crew center can't be read completely, the sweep does nothing. Turning removal on never removes anyone sooner than eight days from that moment.</p>
+
+            <h2 id="linking"><i data-lucide="link-2" class="text-indigo-500"></i> Linking Discord to the crew center</h2>
+            <ul>
+                <li><b>Joined through a ticket?</b> Already done — accepting links their Discord to the login it creates, so <b>Sign in with Discord</b> works the first time.</li>
+                <li><b>Everyone else:</b> <code>/crew link</code> (or the <b>Link</b> buttons on the welcome and help panel). It opens their pilot page, signs them in if needed, and goes straight to Discord's <b>Authorize</b> screen. Their pilot role is given the moment it's linked.</li>
+                <li>Already linked? <code>/crew link</code> says which pilot they're linked to.</li>
+            </ul>
 
             <h2 id="recruitment"><i data-lucide="user-plus" class="text-indigo-500"></i> How recruitment works</h2>
             <h3>What the applicant does</h3>
@@ -227,7 +274,10 @@
             <div class="table-wrap"><table>
                 <tbody>
                     <tr><td><code>/crew apply</code></td><td>Opens an application ticket (same as the Apply button).</td></tr>
-                    <tr><td><code>/crew ticket</code></td><td>Opens a support ticket with your staff.</td></tr>
+                    <tr><td><code>/crew ticket</code></td><td>Opens a help ticket with your staff.</td></tr>
+                    <tr><td><code>/crew close reason:</code></td><td>Inside a ticket: closes it, with an optional reason.</td></tr>
+                    <tr><td><code>/crew add member:</code></td><td>Staff, inside a ticket: adds someone to it.</td></tr>
+                    <tr><td><code>/crew link</code></td><td>Links your Discord to your crew center login — or says who you're linked to.</td></tr>
                     <tr><td><code>/crew links</code></td><td>Your crew center, Discord invite and every published link from your crew center's Links board.</td></tr>
                     <tr><td><code>/crew stats</code></td><td>Pilots, hours, flights, the last 30 days, routes and your top five pilots.</td></tr>
                     <tr><td><code>/crew events</code></td><td>The next eight events.</td></tr>
@@ -239,7 +289,10 @@
                 <tbody>
                     <tr><td><code>/crew-admin setup code:</code></td><td>Links this server to your crew center.</td></tr>
                     <tr><td><code>/crew-admin settings</code></td><td>Roles, channels and auto-invite. Shows the current settings when run on its own.</td></tr>
-                    <tr><td><code>/crew-admin panel</code></td><td>Posts the recruitment panel.</td></tr>
+                    <tr><td><code>/crew-admin panel</code></td><td>Posts the recruitment panel, or the help panel with <code>type:Help</code>.</td></tr>
+                    <tr><td><code>/crew-admin welcome</code></td><td>Welcome channel, role, message and DM.</td></tr>
+                    <tr><td><code>/crew-admin inactivity</code></td><td>Inactive role, channel, days, and optional removal.</td></tr>
+                    <tr><td><code>/crew-admin sweep</code></td><td>Shows who is inactive right now; <code>apply:True</code> acts on it immediately.</td></tr>
                     <tr><td><code>/crew-admin check</code></td><td>Checks every permission, role and channel the bot needs.</td></tr>
                     <tr><td><code>/crew-admin unlink</code></td><td>Disconnects this server from your crew center.</td></tr>
                 </tbody>
@@ -261,6 +314,8 @@
                     <tr><td><i>"Only staff can …"</i></td><td>The person pressing needs your staff role or Manage Server. Check <code>staff_role</code> in <code>/crew-admin settings</code>.</td></tr>
                     <tr><td><i>"There is no login waiting for you right now"</i></td><td>The temporary password expired or was withdrawn. Reissue it from <b>Roster → Applications</b>.</td></tr>
                     <tr><td><i>"The crew center is busy right now."</i> or <i>"Still working on the last press"</i></td><td>Many requests at once. Wait a few seconds and press again — nothing was done twice.</td></tr>
+                    <tr><td>A pilot wasn't moved to inactive</td><td>Their Discord isn't linked (ask them to run <code>/crew link</code>), they're on leave or staff, or their latest flight report is still waiting to be approved.</td></tr>
+                    <tr><td><i>"I could not remove …"</i></td><td>Give the bot <b>Kick Members</b> and drag its role above theirs — or set <code>kick_after_days:0</code>.</td></tr>
                     <tr><td><i>"Already accepted."</i></td><td>Someone (or auto-invite) accepted first. The welcome with <b>Show my login</b> is already in the ticket.</td></tr>
                 </tbody>
             </table></div>
@@ -268,7 +323,8 @@
 
             <h2 id="privacy"><i data-lucide="lock" class="text-indigo-500"></i> What is stored, and unlinking</h2>
             <ul>
-                <li><b>Inflight keeps:</b> which server is linked to your crew center, its name, who linked it, the role and channel choices above, and which ticket thread belongs to which application.</li>
+                <li><b>Inflight keeps:</b> which server is linked to your crew center, its name, who linked it, the role, channel and welcome choices above, which ticket thread belongs to which application, and — for inactivity — who is in the inactive role and when they'd be reminded or removed.</li>
+                <li><b>Discord links</b> live on the pilot's login in your own database, like the Link button on their pilot page. Pilots can unlink from that page any time.</li>
                 <li><b>While an application is being filled in,</b> its answers are held so the applicant can go back and edit. They are cleared the moment it is submitted — from then on the application lives in your own database, like every other.</li>
                 <li><b>Passwords are never posted.</b> The temporary password is read from your crew center each time the applicant presses <b>Show my login</b>, and stops being readable once they sign in.</li>
                 <li><b>To unlink:</b> press <b>Unlink</b> next to the server on the Discord bot card, or run <code>/crew-admin unlink</code>. Open tickets stay where they are; nothing new is posted. Removing the bot from your server unlinks it too.</li>
