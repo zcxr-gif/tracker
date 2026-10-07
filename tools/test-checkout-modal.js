@@ -16,6 +16,8 @@
 //   • the fallbacks still redirect — Stripe.js blocked, or an edge function too
 //     old to know what `ui_mode` means — because a purchase that cannot mount
 //     must still be completable;
+//   • the plan is chosen BEFORE any session exists, and the choice is what
+//     gets sent — a yearly pick billed monthly (or the reverse) is a refund;
 //   • ProAccess.finalizeCheckout() verifies with the server BEFORE reporting
 //     an entitlement, and reports failure honestly when the grant never lands.
 //
@@ -143,6 +145,9 @@ function fakeSupabase(handler) {
         success_url: 'https://inflight.info?payment=success&session_id={CHECKOUT_SESSION_ID}',
         cancel_url: 'https://inflight.info?payment=cancel',
         is_renew: true,
+        // A caller that already knows the plan skips the picker; the picker
+        // itself is covered in its own block below.
+        plan: 'monthly',
     };
 
     // ── An embedded session, completed in the modal ──────────────────────
@@ -201,6 +206,54 @@ function fakeSupabase(handler) {
         ok('closing resolves dismissed, never complete', result.status === 'dismissed');
         ok('…and hands back no session id, so nothing can be finalised',
             result.sessionId === undefined);
+    }
+
+    // ── Monthly or yearly, picked before anything is created ─────────────
+    console.log('\nchoosing a plan');
+    {
+        global.window.Stripe = () => ({ initEmbeddedCheckout: async () => ({ mount() {}, destroy() {} }) });
+        const supabase = fakeSupabase(() => ({
+            data: { client_secret: 'cs_y_secret_q', session_id: 'cs_y' }, error: null,
+        }));
+        const { plan: _drop, ...noPlan } = payload;
+
+        const opened = StripeCheckoutModal.open({ supabase, payload: noPlan });
+        for (let i = 0; i < 6; i++) await tick();
+        ok('with no plan given, the picker is shown first',
+            document.getElementById('ifp-checkout-plans')?.hidden === false);
+        ok('…and no session is created until one is chosen', supabase.calls.length === 0);
+
+        document.getElementById('ifp-plan-yearly').dispatch('click');
+        document.getElementById('ifp-plan-continue').dispatch('click');
+        for (let i = 0; i < 6; i++) await tick();
+        ok('the chosen plan is the one sent', supabase.calls[0]?.body?.plan === 'yearly',
+            JSON.stringify(supabase.calls[0]?.body));
+        ok('…and the heading says what it costs',
+            /19\.99\/yr/.test(document.getElementById('ifp-checkout-sub')?.textContent || ''));
+
+        document.getElementById('ifp-checkout-close').dispatch('click');
+        await opened;
+    }
+    {
+        const supabase = fakeSupabase(() => ({ data: { client_secret: 'cs_m_secret_q', session_id: 'cs_m' }, error: null }));
+        const { plan: _drop, ...noPlan } = payload;
+        const opened = StripeCheckoutModal.open({ supabase, payload: noPlan });
+        for (let i = 0; i < 6; i++) await tick();
+        document.getElementById('ifp-plan-continue').dispatch('click');
+        for (let i = 0; i < 6; i++) await tick();
+        ok('Continue without touching anything buys monthly', supabase.calls[0]?.body?.plan === 'monthly');
+        document.getElementById('ifp-checkout-close').dispatch('click');
+        await opened;
+    }
+    {
+        const supabase = fakeSupabase(() => ({ data: {}, error: null }));
+        const { plan: _drop, ...noPlan } = payload;
+        const opened = StripeCheckoutModal.open({ supabase, payload: noPlan });
+        for (let i = 0; i < 6; i++) await tick();
+        document.getElementById('ifp-checkout-close').dispatch('click');
+        const result = await opened;
+        ok('closing at the picker is a dismissal with nothing created',
+            result.status === 'dismissed' && supabase.calls.length === 0);
     }
 
     // ── The fallbacks still buy the subscription ─────────────────────────

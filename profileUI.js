@@ -1951,7 +1951,11 @@ if (type === 'flights') {
         return {
             status,
             plan: row.plan_name || 'Pro Access',
-            price: Number.isFinite(amount) ? `$${(amount / 100).toFixed(2)} / month` : '$1.99 / month',
+            // The row has no interval column; the yearly plan is the one named
+            // or priced like it ($19.99 against $1.99 monthly).
+            price: Number.isFinite(amount)
+                ? `$${(amount / 100).toFixed(2)} / ${(/year|annual/i.test(row.plan_name || '') || amount >= 1000) ? 'year' : 'month'}`
+                : '$1.99 / month',
             nextPayment: validEnd
                 ? validEnd.toLocaleDateString('en-US', { timeZone: this._timezone, year: 'numeric', month: 'short', day: 'numeric' })
                 : 'Pending',

@@ -46,6 +46,9 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
 });
 
 const PRICE_ID = Deno.env.get("STRIPE_PRICE_ID") ?? "";
+// Pro yearly ($19.99/yr). Chosen with `plan: "yearly"`; anything else — the
+// iOS app included, which sends no plan — stays on the monthly PRICE_ID.
+const YEARLY_PRICE_ID = Deno.env.get("STRIPE_YEARLY_PRICE_ID") ?? "price_1TRiao6y7GsJq8x0jSqIEaw1";
 
 // ── Sale (Halloween 2026: first month $0.99, then $1.99) ─────────────────
 // The live coupon HALLOWEEN26 ($1.00 off, duration "once", monthly Pro only,
@@ -115,8 +118,10 @@ serve(async (req) => {
     const {
       email, name, password, user_id, is_renew,
       success_url, cancel_url, trial_days, allow_promotion_codes,
-      ui_mode, return_url,
+      ui_mode, return_url, plan,
     } = await req.json();
+
+    const yearly = plan === "yearly" && !!YEARLY_PRICE_ID;
 
     const embedded = ui_mode === "embedded";
 
@@ -199,6 +204,7 @@ serve(async (req) => {
     //    instead of leaving the processor to infer it from a missing password.
     const sharedMetadata: Record<string, string> = {};
     sharedMetadata.flow = isRenewal ? "upgrade" : "signup";
+    sharedMetadata.plan = yearly ? "yearly" : "monthly";
     putIfPresent(sharedMetadata, "user_email", email);
     putIfPresent(sharedMetadata, "user_id", user_id);
     putIfPresent(sharedMetadata, "user_name", name);
@@ -218,8 +224,9 @@ serve(async (req) => {
     }
 
     // 4b. The sale: first-time subscribers only (the same "never had a
-    //     subscription" test as the trial), and only until it ends.
-    const saleApplies = !!SALE_COUPON_ID && eligibleForTrial && Date.now() < SALE_ENDS_AT;
+    //     subscription" test as the trial), monthly only (the coupon is limited
+    //     to the monthly product), and only until it ends.
+    const saleApplies = !!SALE_COUPON_ID && eligibleForTrial && !yearly && Date.now() < SALE_ENDS_AT;
 
     // 5. Create the Checkout Session — hosted by default, embedded on request.
     const sessionParams: Record<string, unknown> = {
@@ -235,7 +242,7 @@ serve(async (req) => {
       metadata: { ...sharedMetadata },
       line_items: [
         {
-          price: PRICE_ID,
+          price: yearly ? YEARLY_PRICE_ID : PRICE_ID,
           quantity: 1,
         },
       ],
