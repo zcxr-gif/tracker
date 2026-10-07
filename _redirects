@@ -20,6 +20,9 @@
 # The website builder. A whole page rather than a panel on the dashboard —
 # see crew-website.html. Same session, same slug in the path.
 /crew/:slug/website  /crew-website.html  200
+# The Discord bot's setup guide for crew center owners. Linked from the
+# dashboard's bot card, the setup guide and the bot's own replies.
+/discord-bot  /discord-bot.html  200
 /crew      /crew.html  200
 /crew/*    /crew.html  200
 
