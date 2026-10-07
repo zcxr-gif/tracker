@@ -50,13 +50,17 @@ const PRICE_ID = Deno.env.get("STRIPE_PRICE_ID") ?? "";
 // iOS app included, which sends no plan — stays on the monthly PRICE_ID.
 const YEARLY_PRICE_ID = Deno.env.get("STRIPE_YEARLY_PRICE_ID") ?? "price_1TRiao6y7GsJq8x0jSqIEaw1";
 
-// ── Sale (Halloween 2026: first month $0.99, then $1.99) ─────────────────
-// The live coupon HALLOWEEN26 ($1.00 off, duration "once", monthly Pro only,
-// redeem_by Nov 1 04:00 UTC) applied to the first invoice of a FIRST-TIME
-// subscriber's checkout until SALE_ENDS_AT. STRIPE_SALE_COUPON_ID overrides
-// it; set it to "" to stop the sale early. index.html (window.InflightSale)
-// shows the same end time to pilots; this is the copy that actually decides.
+// ── Sale (Halloween 2026) ─────────────────────────────────────────────────
+// Applied to the first invoice of a FIRST-TIME subscriber's checkout until
+// SALE_ENDS_AT, one live coupon per plan (both duration "once", redeem_by
+// Nov 1 04:00 UTC, each limited to its own product):
+//   HALLOWEEN26   monthly  $1.00 off  → first month $0.99, then $1.99
+//   HALLOWEEN26Y  yearly   $3.00 off  → first year $16.99 (15% off), then $19.99
+// STRIPE_SALE_COUPON_ID / STRIPE_SALE_YEARLY_COUPON_ID override them; "" stops
+// that plan's sale early. index.html (window.InflightSale) shows the same end
+// time to pilots; this is the copy that actually decides.
 const SALE_COUPON_ID = Deno.env.get("STRIPE_SALE_COUPON_ID") ?? "HALLOWEEN26";
+const SALE_YEARLY_COUPON_ID = Deno.env.get("STRIPE_SALE_YEARLY_COUPON_ID") ?? "HALLOWEEN26Y";
 const SALE_ENDS_AT = Date.parse(Deno.env.get("SALE_ENDS_AT") ?? "2026-11-01T04:00:00Z"); // Oct 31 23:59 EDT
 
 const corsHeaders = {
@@ -224,9 +228,10 @@ serve(async (req) => {
     }
 
     // 4b. The sale: first-time subscribers only (the same "never had a
-    //     subscription" test as the trial), monthly only (the coupon is limited
-    //     to the monthly product), and only until it ends.
-    const saleApplies = !!SALE_COUPON_ID && eligibleForTrial && !yearly && Date.now() < SALE_ENDS_AT;
+    //     subscription" test as the trial), with the coupon for the plan being
+    //     bought, and only until it ends.
+    const saleCoupon = yearly ? SALE_YEARLY_COUPON_ID : SALE_COUPON_ID;
+    const saleApplies = !!saleCoupon && eligibleForTrial && Date.now() < SALE_ENDS_AT;
 
     // 5. Create the Checkout Session — hosted by default, embedded on request.
     const sessionParams: Record<string, unknown> = {
@@ -254,7 +259,7 @@ serve(async (req) => {
     // Stripe refuses `discounts` together with `allow_promotion_codes`, so a
     // sale checkout carries the coupon and takes no codes on top of it.
     if (saleApplies) {
-      sessionParams.discounts = [{ coupon: SALE_COUPON_ID }];
+      sessionParams.discounts = [{ coupon: saleCoupon }];
       (sessionParams.metadata as Record<string, string>).sale = "halloween_2026";
     } else {
       // Let customers enter promo/discount codes on the checkout page.

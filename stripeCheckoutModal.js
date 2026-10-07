@@ -22,7 +22,8 @@
 //   error      — the session could not be created; `error` explains
 //
 // Before any session exists the modal asks which plan — monthly ($1.99, or the
-// Halloween $0.99 first month) or yearly ($19.99) — and sends it as `plan`.
+// Halloween $0.99 first month) or yearly ($19.99, or the Halloween $16.99 first
+// year) — and sends it as `plan`.
 // A caller that already knows passes payload.plan and the picker is skipped.
 //
 // A payment method that must leave the page (bank redirects) is not an
@@ -150,7 +151,9 @@ export const StripeCheckoutModal = {
             const plan = await Promise.race([this._choosePlan(ui), done.then(() => null)]);
             if (finished) return done;
             payload = Object.assign({}, payload, { plan });
-            ui.sub.textContent = plan === 'yearly' ? '$19.99/yr · cancel anytime'
+            const sale = !!(window.InflightSale && window.InflightSale.active());
+            ui.sub.textContent = plan === 'yearly'
+                ? (sale ? 'New subscribers: $16.99 your first year, then $19.99/yr · cancel anytime' : '$19.99/yr · cancel anytime')
                 : (window.InflightSale ? window.InflightSale.checkoutLine() : '$1.99/mo · cancel anytime');
         }
 
@@ -242,10 +245,10 @@ export const StripeCheckoutModal = {
                     <span class="ifp-plan-note">${sale ? 'First month, then $1.99/mo. New subscribers only.' : 'Billed monthly.'}</span>
                 </button>
                 <button type="button" class="ifp-plan" id="ifp-plan-yearly" data-plan="yearly" role="radio" aria-checked="false">
-                    <span class="ifp-plan-tag">Best value</span>
+                    <span class="ifp-plan-tag${sale ? ' ifp-plan-tag-sale' : ''}">${sale ? '15% off \u00B7 Great value' : 'Best value'}</span>
                     <span class="ifp-plan-name">Yearly</span>
-                    <span class="ifp-plan-price"><b>$19.99</b><span>/yr</span></span>
-                    <span class="ifp-plan-note">$1.67/mo, billed yearly. Save 16%.</span>
+                    <span class="ifp-plan-price">${sale ? '<b>$16.99</b> <s>$19.99</s>' : '<b>$19.99</b><span>/yr</span>'}</span>
+                    <span class="ifp-plan-note">${sale ? 'Your first year, then $19.99/yr. Just $1.42/mo. New subscribers only.' : '$1.67/mo, billed yearly. Save 16%.'}</span>
                 </button>
             </div>
             <button type="button" class="ifp-plan-continue" id="ifp-plan-continue">Continue</button>
