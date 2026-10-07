@@ -56,6 +56,7 @@ const PUSH_DEBOUNCE_MS = 2500;
 export const SYNCED_KEYS = [
     // Appearance (profileUI, crew centre)
     'pui-theme', 'pui-accent', 'pui-locale', 'pui-density', 'crew-theme',
+    'inflight-halloween',
 
     // Where and how the map opens
     'preferredServer', 'mobileDisplayMode', 'landingUI_visible',
