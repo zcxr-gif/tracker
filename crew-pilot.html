@@ -1967,6 +1967,7 @@
                 const me=(storedSession()||{});
                 paintAvatar(document.getElementById('meAvatar'), DISCORD.linked && DISCORD.avatar, me.name || '');
                 handleDiscordLinkReturn();
+                if(!d.mustChangePassword) maybeStartDiscordLink();
                 // After the password gate is decided, so two modals never
                 // stack: the password is the one that actually blocks, and a
                 // notice on top of it would hide the thing they have to do.
@@ -2241,6 +2242,36 @@
             finally{ btn.disabled=false; }
         }
 
+        /* ARRIVING FROM THE AIRLINE'S DISCORD SERVER.
+           The bot's "Link my account" button (/crew link) lands here with
+           ?link=discord. The wish is kept in sessionStorage so it survives the
+           sign-in page in between, and the link itself is the ordinary one the
+           button on this page starts — Discord's own consent screen says which
+           Discord account it is, so a link forwarded to somebody else links
+           their Discord to their own login, never the sender's. */
+        const LINK_WISH = () => 'crew:linkDiscord:'+getSlug();
+        function noteDiscordLinkWish(){
+            let q; try{ q=new URLSearchParams(location.search); }catch{ return; }
+            if(q.get('link')!=='discord') return;
+            try{ sessionStorage.setItem(LINK_WISH(),'1'); }catch{}
+            q.delete('link');
+            history.replaceState(null,'',location.pathname+(q.toString()?'?'+q.toString():''));
+            const s=storedSession();
+            // Not signed in yet: the sign-in page brings a pilot back here.
+            if(!s||!s.token){ const slug=getSlug(); location.href = slug ? `/crew/${encodeURIComponent(slug)}` : '/crew'; }
+        }
+        function maybeStartDiscordLink(){
+            let want=false; try{ want=sessionStorage.getItem(LINK_WISH())==='1'; }catch{}
+            if(!want) return;
+            try{ sessionStorage.removeItem(LINK_WISH()); }catch{}
+            const card=document.getElementById('signinSec');
+            if(card && card.scrollIntoView) card.scrollIntoView({ behavior:'smooth', block:'center' });
+            if(!DISCORD.available){ sayDiscord('Signing in with Discord isn’t switched on here.','bad'); return; }
+            if(DISCORD.linked){ sayDiscord('Your Discord is already linked — you’re all set.','ok'); return; }
+            sayDiscord('Taking you to Discord to link your account…','');
+            toggleDiscord();
+        }
+
         /* Coming back from a link round trip. The sign-in page handles the
            sign-in case; this handles the one that lands here. */
         function handleDiscordLinkReturn(){
@@ -2349,6 +2380,7 @@
             // the <head> of this file, before the page is parsed, because a
             // cover raised from here goes up over a page the reader has
             // already seen. All that is left for the boot to do is `done`.
+            noteDiscordLinkWish();
             renderActions(); renderFlights(); renderNotices([]); readSession();
             document.addEventListener('visibilitychange', catchUpMyFlying);
             window.addEventListener('focus', catchUpMyFlying);
