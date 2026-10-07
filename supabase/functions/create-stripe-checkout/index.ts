@@ -47,6 +47,14 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
 
 const PRICE_ID = Deno.env.get("STRIPE_PRICE_ID") ?? "";
 
+// ── Sale (Halloween 2026: first month $0.99, then $1.99) ─────────────────
+// A Stripe coupon (amount off $1.00, duration "once") applied to the first
+// invoice of a FIRST-TIME subscriber's checkout until SALE_ENDS_AT. Unset the
+// coupon id and there is no sale. index.html (window.InflightSale) shows the
+// same end time to pilots; this is the copy that actually decides.
+const SALE_COUPON_ID = Deno.env.get("STRIPE_SALE_COUPON_ID") ?? "";
+const SALE_ENDS_AT = Date.parse(Deno.env.get("SALE_ENDS_AT") ?? "2026-11-01T04:00:00Z"); // Oct 31 23:59 EDT
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -208,6 +216,10 @@ serve(async (req) => {
       subscriptionData.trial_period_days = parseInt(trial_days, 10);
     }
 
+    // 4b. The sale: first-time subscribers only (the same "never had a
+    //     subscription" test as the trial), and only until it ends.
+    const saleApplies = !!SALE_COUPON_ID && eligibleForTrial && Date.now() < SALE_ENDS_AT;
+
     // 5. Create the Checkout Session — hosted by default, embedded on request.
     const sessionParams: Record<string, unknown> = {
       customer: customerId,
@@ -229,10 +241,18 @@ serve(async (req) => {
       mode: "subscription",
       subscription_data: subscriptionData,
       payment_method_collection: "always",
+    };
+
+    // Stripe refuses `discounts` together with `allow_promotion_codes`, so a
+    // sale checkout carries the coupon and takes no codes on top of it.
+    if (saleApplies) {
+      sessionParams.discounts = [{ coupon: SALE_COUPON_ID }];
+      (sessionParams.metadata as Record<string, string>).sale = "halloween_2026";
+    } else {
       // Let customers enter promo/discount codes on the checkout page.
       // Defaults to true so codes are accepted unless the client explicitly opts out.
-      allow_promotion_codes: allow_promotion_codes !== false,
-    };
+      sessionParams.allow_promotion_codes = allow_promotion_codes !== false;
+    }
 
     if (embedded) {
       sessionParams.ui_mode = "embedded";

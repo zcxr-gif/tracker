@@ -402,7 +402,7 @@ export const AuthUI = {
             html += `
                 <div class="auth-payment-header">
                     <h3 style="margin: 0; color: #0f172a; font-size: 1.25rem; font-weight: 700;">Subscribe to InFlight Pro</h3>
-                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">$1.99/mo. Cancel anytime.</p>
+                    <p style="margin: 6px 0 0; color: #64748b; font-size: 0.9rem;">${window.InflightSale ? window.InflightSale.checkoutLine() : '$1.99/mo · cancel anytime'}</p>
                 </div>
             `;
         } else if (isRenew) {
@@ -579,7 +579,7 @@ export const AuthUI = {
                     <div class="auth-or-divider"><span>or</span></div>
                     <button class="auth-choose-secondary auth-submit-pro" id="auth-submit-btn">
                         <i class="fa-solid fa-bolt"></i>
-                        <span>Go Pro — $1.99/mo</span>
+                        <span>Go Pro — ${window.InflightSale ? window.InflightSale.buttonPrice() : '$1.99/mo'}</span>
                     </button>
                     <p class="auth-free-note">Pro adds the virtual hangar, dispatch, airspace intel, the pilot watchlist and custom profile banners. Upgrade any time.</p>
                 `;
@@ -842,7 +842,10 @@ export const AuthUI = {
                 supabase: this._supabase,
                 payload,
                 heading: payload.is_renew ? 'Reactivate InFlight Pro' : 'Subscribe to InFlight Pro',
-                subheading: '$1.99/mo · cancel anytime',
+                // Reactivating means they have subscribed before, and the sale is
+                // for first-time subscribers only.
+                subheading: (!payload.is_renew && window.InflightSale)
+                    ? window.InflightSale.checkoutLine() : '$1.99/mo · cancel anytime',
             });
 
             // The hosted fallback is already navigating away — leave the

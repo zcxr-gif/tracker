@@ -119,6 +119,11 @@ MobileDashboardUI._ifData = ProfileUI._ifData;
 
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);
+// "Get Pro" from outside the profile panel (the Halloween sale greeting):
+// checkout straight away when signed in, otherwise the paid sign-up.
+window.startProUpgrade = () => (ProfileUI._currentUser
+    ? ProfileUI._startProUpgrade()
+    : AuthUI.open('signup'));
 FlightDispatchService.init(supabase);
 
 

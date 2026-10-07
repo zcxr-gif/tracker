@@ -486,7 +486,7 @@ init(supabaseClient) {
                 supabase: this._supabase,
                 payload,
                 heading: 'Upgrade to InFlight Pro',
-                subheading: '$1.99/mo · cancel anytime',
+                subheading: window.InflightSale ? window.InflightSale.checkoutLine() : '$1.99/mo · cancel anytime',
             });
 
             // The hosted fallback is navigating away — leave the button alone.
@@ -3359,7 +3359,7 @@ init(supabaseClient) {
                       </div>
                   </div>
                   <button class="mdui-btn-primary mdui-btn-block" data-action="upgrade-pro" style="margin-top:12px;">
-                      <i class="fa-solid fa-bolt"></i> Upgrade to Pro — $1.99 / month
+                      <i class="fa-solid fa-bolt"></i> Upgrade to Pro — ${window.InflightSale ? window.InflightSale.buttonPrice() : '$1.99 / month'}
                   </button>
                   <div id="mdui-billing-msg" class="mdui-alert" style="display:none; margin-top: 10px;"></div>
                   <button class="mdui-btn-ghost mdui-btn-block" data-action="restore-pro" type="button" style="margin-top:10px;">

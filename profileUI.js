@@ -1517,7 +1517,7 @@ if (type === 'flights') {
                 supabase: this._supabase,
                 payload,
                 heading: 'Upgrade to InFlight Pro',
-                subheading: '$1.99/mo · cancel anytime',
+                subheading: window.InflightSale ? window.InflightSale.checkoutLine() : '$1.99/mo · cancel anytime',
             });
 
             // The hosted fallback is navigating away — leave the button as it is.
@@ -4521,7 +4521,7 @@ if (this._activeTab === 'flight-plan') {
                                 </div>
                                 <div class="pui-billing-actions">
                                     <button class="pui-btn-primary pui-btn-block" data-action="upgrade-pro">
-                                        <i class="fa-solid fa-bolt"></i> Upgrade to Pro — $1.99 / month
+                                        <i class="fa-solid fa-bolt"></i> Upgrade to Pro — ${window.InflightSale ? window.InflightSale.buttonPrice() : '$1.99 / month'}
                                     </button>
                                 </div>
                                 <div id="pui-billing-msg" class="pui-alert" style="display: none; margin-top: 14px;"></div>

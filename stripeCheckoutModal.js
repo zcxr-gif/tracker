@@ -254,7 +254,7 @@ export const StripeCheckoutModal = {
                 <div class="ifp-checkout-head">
                     <div>
                         <h3 class="ifp-checkout-title">${heading || 'Subscribe to InFlight Pro'}</h3>
-                        <p class="ifp-checkout-sub">${subheading || '$1.99/mo · cancel anytime'}</p>
+                        <p class="ifp-checkout-sub">${subheading || (window.InflightSale ? window.InflightSale.checkoutLine() : '$1.99/mo · cancel anytime')}</p>
                     </div>
                     <button class="ifp-checkout-close" id="ifp-checkout-close" aria-label="Close checkout">&times;</button>
                 </div>

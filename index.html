@@ -119,6 +119,35 @@
                 }
             };
         })();
+
+        // Halloween sale: the first month of Pro for $0.99 (then $1.99/mo) for
+        // first-time subscribers, until Oct 31 11:59pm US Eastern. This only changes what the page
+        // SAYS; the discount itself is applied by create-stripe-checkout, which
+        // keeps its own copy of the end time (SALE_ENDS_AT) and is the one that
+        // decides. Keep the two in step.
+        (function () {
+            var ENDS = Date.UTC(2026, 10, 1, 4, 0, 0); // Nov 1 00:00 EDT
+            var REGULAR = '$1.99/mo';
+            var active = function () {
+                if (window.isIOSNative && window.isIOSNative()) return false;
+                return Date.now() < ENDS;
+            };
+            window.InflightSale = {
+                active: active,
+                // The line under the checkout heading.
+                checkoutLine: function () {
+                    return active()
+                        ? 'New subscribers: $0.99 your first month, then $1.99/mo · cancel anytime'
+                        : REGULAR + ' · cancel anytime';
+                },
+                // The price on an upgrade button, as HTML.
+                buttonPrice: function () {
+                    return active()
+                        ? '<s style="opacity:.6;font-weight:500">$1.99</s> $0.99 first month'
+                        : REGULAR;
+                }
+            };
+        })();
     </script>
 
     <!-- Safari on iPhone/iPad offers the App Store app in its own banner. -->
