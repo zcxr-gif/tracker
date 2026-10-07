@@ -1425,6 +1425,7 @@
                             <li>Make a link code below and run <span class="font-mono">/crew-admin setup</span> with it in your server.</li>
                             <li>Run <span class="font-mono">/crew-admin settings</span>, then <span class="font-mono">/crew-admin panel</span> in your recruitment channel.</li>
                         </ol>
+                        <p class="text-xs muted mb-2.5">New to it? <a id="botGuide" href="/discord-bot" target="_blank" rel="noopener" class="font-semibold text-[var(--ink)] underline">Read the full setup guide</a> — permissions, every command and what to do when something is off.</p>
                         <button id="botCodeBtn" onclick="makeBotCode(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition">Make a link code</button>
                         <div id="botCode" class="hidden mt-2 rounded-lg p-3 text-center" style="background:color-mix(in srgb, var(--ink) 5%, transparent);">
                             <div id="botCodeValue" class="font-mono text-xl font-bold tracking-widest text-[var(--ink)] select-all"></div>
@@ -5712,6 +5713,7 @@
         function renderBot(d){
             const status=document.getElementById('botStatus'), list=document.getElementById('botGuilds'), inv=document.getElementById('botInvite');
             if(!status||!list) return;
+            const gl=document.getElementById('botGuide'); if(gl && d.guideUrl) gl.href=d.guideUrl;
             if(inv){ if(d.inviteUrl){ inv.href=d.inviteUrl; inv.removeAttribute('aria-disabled'); } else { inv.removeAttribute('href'); inv.setAttribute('aria-disabled','true'); } }
             const guilds=d.guilds||[];
             status.innerHTML = !d.available ? '<span class="faint">not available on this deployment</span>'
@@ -9152,6 +9154,16 @@
                     ${gRow(gBtn('you-callsign',st.state==='done'?'Change my callsign':'Choose my callsign','radio',true), gBtn('you-pilot','Open pilot view','plane'))}`;
             case 'alerts':
                 return `<p class="text-xs muted mt-3">In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL, then paste it in.</p>${gRow(gBtn('alerts','Set up Discord alerts','bell',true))}`;
+            case 'discord-bot': {
+                if(!can('integrations.manage')) return gNo('Only the owner can connect the Discord bot. Ask them to open this guide.');
+                const guideLink=L.discordBotGuide?`<a href="${escapeHtml(L.discordBotGuide)}" target="_blank" rel="noopener" class="surface hair hover:border-[var(--ink)] rounded-lg px-3 py-2 text-sm font-semibold transition inline-flex items-center gap-1.5"><i data-lucide="book-open" class="w-4 h-4"></i> Read the setup guide</a>`:'';
+                return `<ol class="text-xs muted list-decimal pl-4 space-y-1 mt-3">
+                        <li>Add the bot to your server and make a link code (Alerts → Discord bot).</li>
+                        <li>In Discord, run <span class="font-mono">/crew-admin setup</span> with the code, then <span class="font-mono">/crew-admin settings</span> to pick your staff role and ticket channel.</li>
+                        <li>Run <span class="font-mono">/crew-admin panel</span> in your recruitment channel, and <span class="font-mono">/crew-admin check</span> to confirm the permissions.</li>
+                    </ol>
+                    ${gRow(gBtn('discord-bot',st.state==='todo'?'Add the Discord bot':'Open the Discord bot','bot',true), guideLink, st.state!=='todo'?gBtn('refresh','I’ve done it — check again','refresh-cw'):'')}`;
+            }
             case 'email':
                 return gRow(gBtn('email','Set up email','mail',true));
             case 'infinite-flight':
@@ -9262,6 +9274,7 @@
             case 'join-more': return guideGo(()=>openRecruit('joining'));
             case 'team': return guideGo(()=>openSettings('team'));
             case 'alerts': return guideGo(()=>openSettings('alerts'));
+            case 'discord-bot': return guideGo(()=>{ openSettings('alerts'); setTimeout(()=>{ const el=document.getElementById('botCard'); if(el) el.scrollIntoView({block:'center',behavior:'smooth'}); },350); });
             case 'email': return guideGo(()=>{ openSettings('alerts'); setTimeout(()=>{ const el=document.getElementById('emailIntro'); if(el) el.scrollIntoView({block:'center',behavior:'smooth'}); },350); });
             case 'if': return guideGo(openIfLive);
             case 'you-callsign': return guideGo(()=>{ if(window.CrewMyFlying && CrewMyFlying.openCallsign) CrewMyFlying.openCallsign(); });
