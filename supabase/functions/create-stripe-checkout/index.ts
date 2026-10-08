@@ -46,6 +46,22 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
 });
 
 const PRICE_ID = Deno.env.get("STRIPE_PRICE_ID") ?? "";
+// Pro yearly ($19.90/yr). Chosen with `plan: "yearly"`; anything else — the
+// iOS app included, which sends no plan — stays on the monthly PRICE_ID.
+const YEARLY_PRICE_ID = Deno.env.get("STRIPE_YEARLY_PRICE_ID") ?? "price_1UO65T6y7GsJq8x0e4QmeCEc";
+
+// ── Sale (Halloween 2026) ─────────────────────────────────────────────────
+// Applied to the first invoice of a FIRST-TIME subscriber's checkout until
+// SALE_ENDS_AT, one live coupon per plan (both duration "once", redeem_by
+// Nov 1 04:00 UTC, each limited to its own product):
+//   HALLOWEEN26   monthly  $1.00 off  → first month $0.99, then $1.99
+//   HALLOWEEN26Y15 yearly  $2.98 off  → first year $16.92 (15% off), then $19.90
+// STRIPE_SALE_COUPON_ID / STRIPE_SALE_YEARLY_COUPON_ID override them; "" stops
+// that plan's sale early. index.html (window.InflightSale) shows the same end
+// time to pilots; this is the copy that actually decides.
+const SALE_COUPON_ID = Deno.env.get("STRIPE_SALE_COUPON_ID") ?? "HALLOWEEN26";
+const SALE_YEARLY_COUPON_ID = Deno.env.get("STRIPE_SALE_YEARLY_COUPON_ID") ?? "HALLOWEEN26Y15";
+const SALE_ENDS_AT = Date.parse(Deno.env.get("SALE_ENDS_AT") ?? "2026-11-01T04:00:00Z"); // Oct 31 23:59 EDT
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -106,8 +122,10 @@ serve(async (req) => {
     const {
       email, name, password, user_id, is_renew,
       success_url, cancel_url, trial_days, allow_promotion_codes,
-      ui_mode, return_url,
+      ui_mode, return_url, plan,
     } = await req.json();
+
+    const yearly = plan === "yearly" && !!YEARLY_PRICE_ID;
 
     const embedded = ui_mode === "embedded";
 
@@ -190,6 +208,7 @@ serve(async (req) => {
     //    instead of leaving the processor to infer it from a missing password.
     const sharedMetadata: Record<string, string> = {};
     sharedMetadata.flow = isRenewal ? "upgrade" : "signup";
+    sharedMetadata.plan = yearly ? "yearly" : "monthly";
     putIfPresent(sharedMetadata, "user_email", email);
     putIfPresent(sharedMetadata, "user_id", user_id);
     putIfPresent(sharedMetadata, "user_name", name);
@@ -208,6 +227,12 @@ serve(async (req) => {
       subscriptionData.trial_period_days = parseInt(trial_days, 10);
     }
 
+    // 4b. The sale: first-time subscribers only (the same "never had a
+    //     subscription" test as the trial), with the coupon for the plan being
+    //     bought, and only until it ends.
+    const saleCoupon = yearly ? SALE_YEARLY_COUPON_ID : SALE_COUPON_ID;
+    const saleApplies = !!saleCoupon && eligibleForTrial && Date.now() < SALE_ENDS_AT;
+
     // 5. Create the Checkout Session — hosted by default, embedded on request.
     const sessionParams: Record<string, unknown> = {
       customer: customerId,
@@ -222,17 +247,25 @@ serve(async (req) => {
       metadata: { ...sharedMetadata },
       line_items: [
         {
-          price: PRICE_ID,
+          price: yearly ? YEARLY_PRICE_ID : PRICE_ID,
           quantity: 1,
         },
       ],
       mode: "subscription",
       subscription_data: subscriptionData,
       payment_method_collection: "always",
+    };
+
+    // Stripe refuses `discounts` together with `allow_promotion_codes`, so a
+    // sale checkout carries the coupon and takes no codes on top of it.
+    if (saleApplies) {
+      sessionParams.discounts = [{ coupon: saleCoupon }];
+      (sessionParams.metadata as Record<string, string>).sale = "halloween_2026";
+    } else {
       // Let customers enter promo/discount codes on the checkout page.
       // Defaults to true so codes are accepted unless the client explicitly opts out.
-      allow_promotion_codes: allow_promotion_codes !== false,
-    };
+      sessionParams.allow_promotion_codes = allow_promotion_codes !== false;
+    }
 
     if (embedded) {
       sessionParams.ui_mode = "embedded";
@@ -247,7 +280,20 @@ serve(async (req) => {
     }
 
     type SessionParams = Parameters<typeof stripe.checkout.sessions.create>[0];
-    const session = await stripe.checkout.sessions.create(sessionParams as SessionParams);
+    let session;
+    try {
+      session = await stripe.checkout.sessions.create(sessionParams as SessionParams);
+    } catch (err) {
+      // A sale coupon Stripe refuses (expired early, deleted, or limited to a
+      // product this price is not) must cost the pilot the discount, never the
+      // checkout: retry at full price, the way it was before the sale.
+      if (!saleApplies) throw err;
+      console.error("Sale coupon refused; retrying without it:", err);
+      delete sessionParams.discounts;
+      delete (sessionParams.metadata as Record<string, string>).sale;
+      sessionParams.allow_promotion_codes = allow_promotion_codes !== false;
+      session = await stripe.checkout.sessions.create(sessionParams as SessionParams);
+    }
 
     // The session id goes back either way: the embedded flow finalises without
     // ever visiting the success URL, so the client needs it up front.

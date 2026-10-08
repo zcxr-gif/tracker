@@ -87,6 +87,69 @@
         html.ios-native .ios-hide { display: none !important; }
     </style>
 
+    <script>
+        // Halloween. Decided here, before first paint, so the splash is already
+        // dressed when it appears; halloween.js (deferred) adds the bats and the
+        // greeting once the page is up. On by itself from Oct 20 to Nov 1 unless
+        // the user switched it off; ?halloween=1 / ?halloween=0 forces it for a
+        // look outside the season.
+        (function () {
+            var KEY = 'inflight-halloween';
+            var now = new Date(), m = now.getMonth(), d = now.getDate();
+            var inSeason = (m === 9 && d >= 20) || (m === 10 && d === 1);
+            var forced = null;
+            try {
+                var q = new URLSearchParams(location.search).get('halloween');
+                if (q === '1' || q === '0') forced = q === '1';
+            } catch (_) {}
+            var stored = null;
+            try { stored = localStorage.getItem(KEY); } catch (_) {}
+            var on = forced !== null ? forced : (inSeason && stored !== 'off');
+            var apply = function (v) { on = v; document.documentElement.classList.toggle('is-halloween', v); };
+            apply(on);
+            window.InflightHalloween = {
+                // Whether the switch should be offered at all.
+                available: function () { return inSeason || forced === true; },
+                isOn: function () { return on; },
+                set: function (v) {
+                    v = !!v;
+                    try { localStorage.setItem(KEY, v ? 'on' : 'off'); } catch (_) {}
+                    apply(v);
+                    window.dispatchEvent(new CustomEvent('inflight:halloween', { detail: { on: v } }));
+                }
+            };
+        })();
+
+        // Halloween sale: the first month of Pro for $0.99 (then $1.99/mo) for
+        // first-time subscribers, until Oct 31 11:59pm US Eastern. This only changes what the page
+        // SAYS; the discount itself is applied by create-stripe-checkout, which
+        // keeps its own copy of the end time (SALE_ENDS_AT) and is the one that
+        // decides. Keep the two in step.
+        (function () {
+            var ENDS = Date.UTC(2026, 10, 1, 4, 0, 0); // Nov 1 00:00 EDT
+            var REGULAR = '$1.99/mo';
+            var active = function () {
+                if (window.isIOSNative && window.isIOSNative()) return false;
+                return Date.now() < ENDS;
+            };
+            window.InflightSale = {
+                active: active,
+                // The line under the checkout heading.
+                checkoutLine: function () {
+                    return active()
+                        ? 'New subscribers: $0.99 your first month, then $1.99/mo · cancel anytime'
+                        : REGULAR + ' · cancel anytime';
+                },
+                // The price on an upgrade button, as HTML.
+                buttonPrice: function () {
+                    return active()
+                        ? '<s style="opacity:.6;font-weight:500">$1.99</s> $0.99 first month'
+                        : REGULAR;
+                }
+            };
+        })();
+    </script>
+
     <!-- Safari on iPhone/iPad offers the App Store app in its own banner. -->
     <meta name="apple-itunes-app" content="app-id=6756477098">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2221,6 +2284,21 @@
         .inflight-splash-status.is-visible { opacity: 1; transform: none; }
         .inflight-splash-status.is-error { color: #ffb4a8; }
 
+        /* Halloween (html.is-halloween is set in <head>, before this paints). */
+        html.is-halloween #inflight-pro-loader-overlay {
+            background:
+                radial-gradient(ellipse 70% 45% at 50% 108%, rgba(249, 115, 22, 0.22), transparent 70%),
+                radial-gradient(ellipse 60% 40% at 50% -8%, rgba(124, 58, 237, 0.18), transparent 70%),
+                linear-gradient(180deg, #1c1824 0%, #121016 100%);
+        }
+        html.is-halloween .inflight-splash-bar::after {
+            background: linear-gradient(90deg, #f97316, #fbbf24);
+        }
+        html.is-halloween .inflight-splash-sub::after {
+            content: ' \1F383';
+            letter-spacing: 0;
+        }
+
         .inflight-splash-retry {
             margin: 0;
             padding: 9px 20px;
@@ -2688,6 +2766,7 @@
     <script src="fuelEstimator.js"></script>
     <script src="cabinMap.js"></script>
     <script src="communityHub.js"></script>
+    <script src="halloween.js" defer></script>
     <script type="module" src="aircraftPhoto.js"></script>
     <script type="module" src="searchEngine.js"></script>
     <script type="module" src="flight.js"></script>

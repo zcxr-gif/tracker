@@ -427,6 +427,12 @@ export const MobileSettingsUI = {
                             <div class="m-settings-list">
                                 ${this.renderToggle('live3DTraffic', '3D Live Traffic', 'fa-cubes')}
                                 ${this.renderToggle('show3DPath', '3D Flown Path', 'fa-cube')}
+                                ${window.InflightHalloween && window.InflightHalloween.available()
+                                    // Drawn already on when it is, so the switch never reads off
+                                    // over a live theme, whichever path opened the sheet.
+                                    ? this.renderToggle('halloweenTheme', 'Halloween Theme', 'fa-ghost')
+                                        .replace('data-setting="halloweenTheme"', `data-setting="halloweenTheme"${window.InflightHalloween.isOn() ? ' checked' : ''}`)
+                                    : ''}
                             </div>
 
                             <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Custom Colors</div>
@@ -2057,6 +2063,8 @@ export const MobileSettingsUI = {
         }
 
         root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
+            // Not a map filter — halloween.js owns it.
+            if (input.dataset.setting === 'halloweenTheme') return;
             input.checked = !!filters[input.dataset.setting];
         });
         root.querySelectorAll('select[data-setting]').forEach(sel => {
@@ -2198,6 +2206,10 @@ export const MobileSettingsUI = {
 
                     if (window.updateBaseMapLayerVisibility) window.updateBaseMapLayerVisibility();
                     if (window.updatePro3DLayers) window.updatePro3DLayers();
+                } else if (setting === 'halloweenTheme') {
+                    // Not a map filter: halloween.js owns it (index.html <head>).
+                    if (window.InflightHalloween) window.InflightHalloween.set(e.target.checked);
+                    return;
                 } else if (setting === 'live3DTraffic' && window.setLive3DTraffic) {
                     // The 3D live-traffic dot field needs more than a flag flip:
                     // it swaps the flat icon layers for the THREE dot field,
@@ -2567,6 +2579,8 @@ export const MobileSettingsUI = {
                     || !!(typeof window !== 'undefined' && window.isInflightPro && window.isInflightPro());
                 input.checked = hasEntitlement
                     && !!(filters.proMapConfig && filters.proMapConfig[input.dataset.setting]);
+            } else if (input.dataset.setting === 'halloweenTheme') {
+                input.checked = !!(window.InflightHalloween && window.InflightHalloween.isOn());
             } else {
                 input.checked = !!filters[input.dataset.setting];
             }

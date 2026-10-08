@@ -119,6 +119,11 @@ MobileDashboardUI._ifData = ProfileUI._ifData;
 
 window.AuthUI = AuthUI;
 window.AuthUI.init(supabase);
+// "Get Pro" from outside the profile panel (the Halloween sale greeting):
+// checkout straight away when signed in, otherwise the paid sign-up.
+window.startProUpgrade = () => (ProfileUI._currentUser
+    ? ProfileUI._startProUpgrade()
+    : AuthUI.open('signup'));
 FlightDispatchService.init(supabase);
 
 
@@ -20247,6 +20252,14 @@ renderCategory(catId) {
                                 Note: This feature is experimental and may be broken at times.
                             </p>
                         </div>
+                        ${window.InflightHalloween && window.InflightHalloween.available() ? `
+                        <div class="settings-section">
+                            <label class="config-header">Seasonal</label>
+                            <div class="settings-row">
+                                <div class="row-label"><i class="fa-solid fa-ghost"></i> Halloween Theme</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-halloween" ${window.InflightHalloween.isOn() ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+                        </div>` : ''}
                     `;
                     break;
                 case 'labels': {
@@ -20773,6 +20786,8 @@ renderCategory(catId) {
         });
         const pilotStylesEl = document.getElementById('set-show-pilot-styles');
         if (pilotStylesEl) pilotStylesEl.addEventListener('change', (e) => setShowPilotStyles(e.target.checked));
+        const halloweenEl = document.getElementById('set-halloween');
+        if (halloweenEl) halloweenEl.addEventListener('change', (e) => window.InflightHalloween?.set(e.target.checked));
 
         // --- 4b. Window presentation ---
         // The flight window's look is the shared panel (wireWindowLookPanel);
