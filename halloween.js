@@ -98,8 +98,10 @@
         'animation:hw-glow 3.2s ease-in-out infinite alternate}',
         '@keyframes hw-sway{from{transform:rotate(-5deg)}to{transform:rotate(5deg)}}',
         '@keyframes hw-glow{from{opacity:.35;transform:scale(.9)}to{opacity:.9;transform:scale(1.05)}}',
+        // Phones: the ghost hangs a little lower, clear of the greeting that
+        // drops in under the top bar, so it can be tapped while that shows.
         '@media (max-width:768px){.hw-ghost{right:76px}.hw-ghost-body{width:28px}',
-        '.hw-ghost-thread{height:calc(env(safe-area-inset-top,0px) + 70px)}}',
+        '.hw-ghost-thread{height:calc(env(safe-area-inset-top,0px) + 126px)}}',
         // The pumpkin: perched on the corner of the desktop logo, and on the
         // server button in the phone's top bar (where the logo is hidden).
         'html.is-halloween #inflight-tactical-ui .lui-brand{position:relative}',
@@ -127,7 +129,13 @@
         '.hw-hello button{flex:none;font:inherit;font-size:12px;cursor:pointer;border-radius:999px;',
         'color:#fdba74;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.35);padding:5px 10px}',
         '.hw-hello button:hover,.hw-hello button:focus-visible{background:rgba(249,115,22,.22)}',
-        '.hw-hello .hw-hello-x{color:#b9b2c4;background:none;border-color:transparent;padding:5px 8px}',
+        '.hw-hello .hw-hello-x{color:#b9b2c4;background:none;border-color:transparent;padding:2px 9px;font-size:18px;line-height:1}',
+        // Phones: the top bar (search, server, profile) owns the first ~56px,
+        // so the greeting drops in under it rather than over the search box,
+        // and wraps instead of cutting its message off.
+        '@media (max-width:768px){.hw-hello{top:calc(env(safe-area-inset-top,0px) + 64px);',
+        'width:calc(100vw - 32px);border-radius:18px;padding:8px 6px 8px 12px}',
+        '.hw-hello-text{flex:1;min-width:0;white-space:normal;font-size:12.5px}}',
         '@media (prefers-reduced-motion:reduce){.hw-glow,.hw-hello,.hw-ghost{transition:none}',
         '.hw-ghost,.hw-ghost-glow,.hw-ghost-body.is-popping svg{animation:none}.hw-boo{transition:none}',
         'html.is-halloween #inflight-tactical-ui .lui-brand::after,html.is-halloween #ios-server-pill::after{animation:none}}'
@@ -173,7 +181,7 @@
             '<span class="hw-hello-icon" aria-hidden="true">🎃</span>' +
             '<span class="hw-hello-text">' + (saleForThisPilot() ? 'Happy Halloween! Tap the ghost \uD83D\uDC7B' : 'Happy Halloween!') + '</span>' +
             '<button type="button" class="hw-hello-off">Turn off</button>' +
-            '<button type="button" class="hw-hello-x" aria-label="Dismiss"><i class="fa-solid fa-xmark"></i></button>';
+            '<button type="button" class="hw-hello-x" aria-label="Dismiss">\u00D7</button>';
         document.body.appendChild(el);
         state.hello = el;
 

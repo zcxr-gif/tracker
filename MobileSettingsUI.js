@@ -427,7 +427,12 @@ export const MobileSettingsUI = {
                             <div class="m-settings-list">
                                 ${this.renderToggle('live3DTraffic', '3D Live Traffic', 'fa-cubes')}
                                 ${this.renderToggle('show3DPath', '3D Flown Path', 'fa-cube')}
-                                ${window.InflightHalloween && window.InflightHalloween.available() ? this.renderToggle('halloweenTheme', 'Halloween Theme', 'fa-ghost') : ''}
+                                ${window.InflightHalloween && window.InflightHalloween.available()
+                                    // Drawn already on when it is, so the switch never reads off
+                                    // over a live theme, whichever path opened the sheet.
+                                    ? this.renderToggle('halloweenTheme', 'Halloween Theme', 'fa-ghost')
+                                        .replace('data-setting="halloweenTheme"', `data-setting="halloweenTheme"${window.InflightHalloween.isOn() ? ' checked' : ''}`)
+                                    : ''}
                             </div>
 
                             <div class="mobile-section-header pro-accent"><i class="fa-solid fa-star"></i> <span class="ios-hide">PRO </span>Custom Colors</div>
@@ -2058,6 +2063,8 @@ export const MobileSettingsUI = {
         }
 
         root.querySelectorAll('input[type="checkbox"][data-setting]').forEach(input => {
+            // Not a map filter — halloween.js owns it.
+            if (input.dataset.setting === 'halloweenTheme') return;
             input.checked = !!filters[input.dataset.setting];
         });
         root.querySelectorAll('select[data-setting]').forEach(sel => {
