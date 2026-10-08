@@ -163,13 +163,13 @@
             if(VA.name) document.title = `${VA.name} · Application status — Crew Center`;
         }
 
-        /* THE ENTRANCE TEST, when staff have sent one. The link to sit it
+        /* THE ENTRANCE TEST, once it has gone out. The link to sit it
            while it can be sat — this page is the one place an applicant with
            no email is sure to find it again — and how it went once it has. */
         function testHtml(t){
             if(!t) return '';
             const passed=t.status==='passed', failed=t.status==='failed';
-            const line = passed ? `You passed with ${t.percent}%. The staff will send your crew center invitation.`
+            const line = passed ? `You passed with ${t.percent}%.`
                 : failed ? (t.retryAt ? `Not this time (${t.percent}%). You can try again from ${new Date(t.retryAt).toLocaleString(undefined,{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}.` : `Not this time (${t.percent}%).${t.link?' You can try again now.':''}`)
                 : `Pass with ${t.passMark}% or more. No account needed.`;
             return `<div class="surface hair rounded-xl p-4 mt-5 text-left">
@@ -198,8 +198,8 @@
                 const url=String(d.discordInvite||'');
                 if(!/^https:\/\/(discord\.gg|(canary\.|ptb\.)?discord(app)?\.com\/invite)\//i.test(url)) return '';
                 return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
-                    class="inline-flex items-center gap-1.5 surface hair text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:border-[var(--ink)] transition">
-                    <i data-lucide="message-circle" class="w-4 h-4"></i> Join the crew on Discord</a>`;
+                    class="inline-flex items-center gap-1.5 ${d.status==='accepted'?'surface hair hover:border-[var(--ink)]':'accent-bg text-white hover:opacity-90'} text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 transition">
+                    <i data-lucide="message-circle" class="w-4 h-4"></i> ${d.status==='accepted'?'Join the crew on Discord':'Join our Discord'}</a>`;
             }
 
             // The login they were issued, if it is still waiting to be used.
@@ -211,6 +211,17 @@
             // may never have been sent. The backend stops returning them the
             // moment the pilot signs in, staff discard the invitation, or it
             // lapses — this page simply draws whatever it is given.
+            // Every acceptance now: a link to choose their own password.
+            function loginCard(d){
+                const l=d.login;
+                if(!l || l.kind!=='link' || !/^https:\/\//i.test(String(l.link||''))) return credentials(d);
+                return `<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                    <div class="text-xs uppercase tracking-wider faint mb-2 flex items-center gap-1.5"><i data-lucide="key-round" class="w-3.5 h-3.5"></i> Your crew center login</div>
+                    <div class="text-sm">Username <span class="font-mono font-semibold select-all">${escapeHtml(l.username||'')}</span></div>
+                    <a href="${escapeHtml(l.link)}" class="w-full accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-lg mt-3 hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="key-round" class="w-4 h-4"></i> Choose my password</a>
+                    <div class="text-xs muted mt-2">The link works once${l.expiresAt?`, until ${escapeHtml(fmtDate(l.expiresAt))}`:''}. After that you sign in with your username and the password you chose.</div>
+                </div>`;
+            }
             function credentials(d){
                 const c=d.credentials;
                 if(!c || !c.username || !c.password) return '';
@@ -230,19 +241,22 @@
             }
 
             if(d.status==='accepted'){
-                const creds=credentials(d);
+                const creds=loginCard(d);
+                const joined=d.stage==='joined';
                 body.innerHTML = `<div class="text-center">
                     <div class="w-14 h-14 rounded-full bg-emerald-500 text-white grid place-items-center mx-auto mb-4"><i data-lucide="party-popper" class="w-7 h-7"></i></div>
                     <h2 class="text-xl font-bold tracking-tight">You’re in!</h2>
                     <p class="text-sm muted mt-2">Welcome to <b>${escapeHtml(VA.name||'the crew')}</b>${d.callsign?', flying as':''}</p>
                     ${d.callsign?`<div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign)}</div>`:''}
                     ${msg}
-                    ${creds||`<div class="surface hair rounded-xl p-4 mt-5 text-left text-sm muted"><b class="text-[var(--ink)]">Your crew center sign-in is on its way.</b> The ${escapeHtml(VA.name||'VA')} staff send it to you — it will also appear right here the moment it’s ready.</div>`}
+                    ${creds||(joined
+                        ? `<div class="surface hair rounded-xl p-4 mt-5 text-left text-sm muted"><b class="text-[var(--ink)]">You’re all set.</b> You’ve already signed in to the crew center.</div>`
+                        : `<div class="surface hair rounded-xl p-4 mt-5 text-left text-sm muted"><b class="text-[var(--ink)]">Your crew center login is on its way.</b> It will appear right here the moment it’s ready.</div>`)}
                     ${discordInvite(d)}
-                    <a href="/crew/${escapeHtml(slug)}" class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">${creds?'Sign in to the crew center':'Go to the crew center'} <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
+                    ${creds&&d.login&&d.login.kind==='link'?'':`<a href="/crew/${escapeHtml(slug)}" class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-5 hover:opacity-90 transition">${creds?'Sign in to the crew center':'Go to the crew center'} <i data-lucide="arrow-right" class="w-4 h-4"></i></a>`}
                     ${meta}
                 </div>`;
-                if(creds){
+                if(creds&&d.credentials){
                     const btn=document.getElementById('copyCreds');
                     if(btn) btn.addEventListener('click', async ()=>{
                         const ok=await copyText(d.credentials.message||'');
@@ -261,10 +275,26 @@
                     ${meta}
                 </div>`;
             } else {
+                // Where they are on the road in, and the one thing to do next
+                // (crewRecruit.nextStep on the server): open a Discord ticket
+                // with their code, take the test, or wait for the team.
+                const stage=d.stage||'review', n=d.next||{};
+                const icon={discord:'message-circle',test:'file-pen-line'}[stage]||'clock';
+                const title={discord:'One more step',test:'Your entrance test'}[stage]||'Under review';
+                const lead = stage==='review'
+                    ? `${d.ifcName?('Hang tight, '+escapeHtml(d.ifcName)+'. '):''}${escapeHtml(n.body||`The ${VA.name||'VA'} staff are reviewing your application.`)} This page updates by itself.`
+                    : escapeHtml(n.body||'');
+                const code = stage==='discord' && d.code ? `<div class="surface hair rounded-xl p-4 mt-5">
+                        <div class="text-xs uppercase tracking-wider faint mb-1">Your application code</div>
+                        <div class="font-mono text-2xl font-extrabold tracking-widest select-all">${escapeHtml(d.code)}</div>
+                        <div class="text-xs muted mt-1">Enter it in your ticket when the bot asks.</div>
+                    </div>` : '';
+                const join = stage==='discord' ? discordInvite({ discordInvite: (n.action&&n.action.url)||d.discordInvite }) : '';
                 body.innerHTML = `<div class="text-center">
-                    <div class="w-14 h-14 rounded-full accent-bg text-white grid place-items-center mx-auto mb-4"><i data-lucide="clock" class="w-7 h-7"></i></div>
-                    <h2 class="text-xl font-bold tracking-tight">Under review</h2>
-                    <p class="text-sm muted mt-2">${d.ifcName?('Hang tight, '+escapeHtml(d.ifcName)+'. '):''}The ${escapeHtml(VA.name||'VA')} staff are reviewing your application. Check back here — this page updates when they decide.</p>
+                    <div class="w-14 h-14 rounded-full accent-bg text-white grid place-items-center mx-auto mb-4"><i data-lucide="${icon}" class="w-7 h-7"></i></div>
+                    <h2 class="text-xl font-bold tracking-tight">${escapeHtml(title)}</h2>
+                    <p class="text-sm muted mt-2">${lead}</p>
+                    ${code}${join}
                     ${testHtml(d.test)}
                     ${msg}
                     <button id="refreshBtn" onclick="load(true)" class="inline-flex items-center gap-1.5 text-sm font-semibold accent-text mt-5 hover:underline"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Check now</button>

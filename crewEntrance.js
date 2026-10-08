@@ -9,14 +9,15 @@
    passed, and only then go back to the crew center and accept them. Three tools
    and a spreadsheet for one question — did they pass?
 
-   Now the test is a quiz the airline builds in Recruitment → Quizzes, and this
-   is where it is sent and read:
+   Now the test is a quiz the airline builds in Recruitment → Quizzes and picks
+   as its entrance test in Recruitment → Joining. It goes out BY ITSELF the
+   moment somebody applies (or opens their Discord ticket) — see crewRecruit.js
+   on the server. This is the strip on each APPLICATION card that says how they
+   did, with the overrides: send it now, resend, withdraw, or send a test when
+   the airline does not require one.
 
-     · on an APPLICATION card — send the test, see how they did, accept them
-       (which makes their login and the welcome message) once they pass;
-     · in the ENTRANCE TESTS panel — every test sent, and a form to send one to
-       somebody who never applied (a pilot met on the IFC). A pass there gets
-       "Add & invite", which puts them on the roster and opens their invitation.
+   A test only ever belongs to an application. Somebody met on the IFC is sent
+   the join link; the test follows when they apply.
 
    The taker needs no login — the link is the key (crew-test.html). The server
    marks the paper, enforces the retake wait and hands out the study material;
@@ -30,7 +31,7 @@
 
     const P = window.CrewPanels;
     if (!P) { console.warn('crewEntrance: crewPanels.js must load first'); return; }
-    const { esc, icons, relativeText } = P;
+    const { esc, relativeText } = P;
 
     const S = {
         api: null,
@@ -38,9 +39,7 @@
         quizzes: [],        // the ready quizzes a test can be
         loaded: false,
         error: null,
-        panel: null,
         onChange: null,     // the dashboard redraws its application cards
-        lastSent: null,     // the test just sent from the panel, to copy
     };
 
     const STATE = {
@@ -59,12 +58,8 @@
         .et-title{ font-size:.72rem; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--faint,#A8A296); }
         .et-line{ font-size:.8125rem; color:var(--muted,#736E64); }
         .et-acts{ display:flex; gap:.4rem; flex-wrap:wrap; }
-        .et-row{ border:1px solid var(--line,#e5e5e5); border-radius:.8rem; padding:.7rem .8rem; display:grid; gap:.45rem; }
-        .et-name{ font-weight:700; letter-spacing:-.01em; }
-        .et-form{ display:grid; gap:.5rem; grid-template-columns:1fr 1fr; }
-        .et-form .et-wide{ grid-column:1 / -1; }
-        @media (max-width:34rem){ .et-form{ grid-template-columns:1fr; } }
         .et-pass{ color:#16A34A; font-weight:700; }
+        .et-more summary{ cursor:pointer; font-size:.8125rem; color:var(--muted,#736E64); }
         `);
     }
 
@@ -83,14 +78,12 @@
             S.tests = [];
         }
         S.loaded = true;
-        paint();
         return S.tests;
     }
 
     const byApplication = (id) => S.tests.find((t) => String(t.applicationId || '') === String(id)) || null;
 
     function changed() {
-        paint();
         if (typeof S.onChange === 'function') { try { S.onChange(); } catch { /* the cards redraw next load */ } }
     }
 
@@ -113,31 +106,38 @@
     /**
      * The entrance-test strip for one application. `app.test` is what the
      * applications list carried; a test sent since then is in S.tests.
+     * `rules` is the airline's road (the list's `rules`): whether a test is
+     * required, and which.
      */
-    function cardHtml(app) {
+    function cardHtml(app, rules) {
         styles();
         const id = String(app._id || app.id);
         const t = byApplication(id) || app.test || null;
-        if (!t) {
-            if (!S.quizzes.length) {
-                return S.loaded
-                    ? `<div class="et-box"><div class="et-line">Want them to sit an entrance test first? Build one in <b>Recruitment → Quizzes</b> and it shows up here.</div></div>`
-                    : '';
-            }
+        if (t) return `<div class="et-box" data-et-app="${esc(id)}" data-et-id="${esc(t.id)}">${testBody(t)}</div>`;
+        const required = rules && rules.test;
+        if (!S.quizzes.length && !required) return '';
+        const pick = (selected) => `<select class="cp-select" data-et-quiz style="flex:1;min-width:10rem">${S.quizzes.map((q) => `<option value="${esc(q.id)}"${q.id === selected ? ' selected' : ''}>${esc(q.title)} · ${q.passMark}% to pass</option>`).join('')}</select>`;
+        if (required) {
+            const when = app.stage === 'discord'
+                ? 'It goes out by itself when they open their Discord ticket.'
+                : 'It hasn’t gone out yet.';
             return `<div class="et-box" data-et-app="${esc(id)}">
-                <div class="et-head"><span class="et-title">Entrance test</span></div>
-                <div class="et-acts">
-                    <select class="cp-select" data-et-quiz style="flex:1;min-width:10rem">${S.quizzes.map((q) => `<option value="${esc(q.id)}">${esc(q.title)} · ${q.passMark}% to pass</option>`).join('')}</select>
-                    <button class="cp-btn cp-btn-primary cp-btn-sm" data-et-send><i data-lucide="send"></i> Send test</button>
-                </div>
-                <div class="et-line">They get a link — no account needed. You’ll see their score here before you accept them.</div>
+                <div class="et-head"><span class="et-title">${esc(required.title || 'Entrance test')}</span><span class="cp-chip cp-chip-mute">Not sent yet</span></div>
+                <div class="et-line">${esc(when)} Send it now if you reach them another way.</div>
+                <div class="et-acts"><input type="hidden" data-et-quiz value="${esc(required.id)}">
+                    <button class="cp-btn cp-btn-sm" data-et-send><i data-lucide="send"></i> Send it now</button></div>
             </div>`;
         }
-        return `<div class="et-box" data-et-app="${esc(id)}" data-et-id="${esc(t.id)}">${testBody(t, { onCard: true })}</div>`;
+        // No test required: sending one is an override, so it stays tucked away.
+        return `<details class="et-box et-more" data-et-app="${esc(id)}">
+            <summary>Send an entrance test anyway</summary>
+            <div class="et-acts">${pick('')}<button class="cp-btn cp-btn-sm" data-et-send><i data-lucide="send"></i> Send test</button></div>
+            <div class="et-line">They get a link — no account needed. Their score lands on this card.</div>
+        </details>`;
     }
 
     /** What a test says about itself, and what can be done with it. */
-    function testBody(t, { onCard = false } = {}) {
+    function testBody(t) {
         const [label, cls] = STATE[t.status] || ['', 'cp-chip-mute'];
         const bits = [];
         if (t.total) bits.push(`${t.score}/${t.total} · <span class="${t.status === 'passed' ? 'et-pass' : ''}">${t.percent}%</span> against ${t.passMark}%`);
@@ -146,13 +146,7 @@
         else if (t.submittedAt) bits.push(`handed in ${esc(relativeText(t.submittedAt))}`);
         else if (t.createdAt) bits.push(`sent ${esc(relativeText(t.createdAt))}${t.issuedBy ? ` by ${esc(t.issuedBy)}` : ''}`);
         const passedNext = t.status === 'passed'
-            ? (onCard
-                ? '<div class="et-line et-pass">Passed — accept them below to send their crew center invite.</div>'
-                : (t.applicationId
-                    ? '<div class="et-line">Passed — accept their application to send the invite.</div>'
-                    : (t.onRoster
-                        ? '<div class="et-line">Passed — they’re on the roster now.</div>'
-                        : `<div class="et-acts"><button class="cp-btn cp-btn-primary cp-btn-sm" data-et-add><i data-lucide="user-plus"></i> Add &amp; invite</button></div>`)))
+            ? '<div class="et-line et-pass">Passed.</div>'
             : '';
         return `
             <div class="et-head">
@@ -162,42 +156,13 @@
             ${bits.length ? `<div class="et-line">${bits.join(' · ')}</div>` : ''}
             ${passedNext}
             <div class="et-acts">
-                ${t.message ? `<button class="cp-btn cp-btn-sm" data-et-copy><i data-lucide="clipboard-copy"></i> Copy for IFC</button>
-                    <button class="cp-btn cp-btn-sm" data-et-copy-plain title="The same words with no pictures — for Discord"><i data-lucide="text"></i> Plain text</button>` : ''}
                 ${t.status !== 'passed' ? `<button class="cp-btn cp-btn-sm" data-et-reissue title="A fresh link and a clean slate — the old link stops working"><i data-lucide="refresh-cw"></i> ${t.live ? 'New link' : 'Another go'}</button>` : ''}
                 ${t.live ? '<button class="cp-btn cp-btn-sm" data-et-revoke><i data-lucide="x"></i> Withdraw</button>' : ''}
             </div>`;
     }
 
     /* =====================================================================
-     * UNDER APPLICATIONS — passes from tests handed out by hand
-     *
-     * A VA with no email set up sends the test by pasting its message on the
-     * IFC, to a name typed in. Nothing ties that to an application, so a pass
-     * used to be seen only in the Entrance tests panel. These are people
-     * waiting to be let in exactly as an application is, so they are listed
-     * with the applications, with the one button that lets them in.
-     * =================================================================== */
-
-    /** Passed, never applied, not on the roster. `fallback` is what the applications list carried. */
-    function waiting(fallback) {
-        const list = S.loaded && !S.error ? S.tests : (fallback || []);
-        return list.filter((t) => t.status === 'passed' && !t.applicationId && !t.onRoster);
-    }
-
-    function waitingHtml(fallback) {
-        styles();
-        const list = waiting(fallback);
-        list.forEach((t) => { if (t && t.id && !S.tests.some((x) => String(x.id) === String(t.id))) CARD_TESTS.set(String(t.id), t); });
-        return list.map((t) => `<div class="et-box" data-et-id="${esc(t.id)}">
-                <div class="et-name">${esc(t.pilotName || t.ifcName || 'Somebody')}${t.ifcName && t.ifcName !== t.pilotName ? ` <span class="cp-note">@${esc(t.ifcName)}</span>` : ''}
-                    <span class="cp-chip cp-chip-mute">Sent by hand — no application</span></div>
-                ${testBody(t)}
-            </div>`).join('');
-    }
-
-    /* =====================================================================
-     * ACTIONS — shared by the cards and the panel
+     * ACTIONS
      * =================================================================== */
 
     async function send(body, btn) {
@@ -206,11 +171,10 @@
             const d = await S.api('/entrance-tests', { method: 'POST', body });
             const t = d.test;
             S.tests.unshift(t);
-            S.lastSent = t;
             const copied = t && t.message ? await copy(t.message) : false;
             P.toast(copied
-                ? `Test sent — the welcome message is on your clipboard. Paste it into their IFC message.${d.emailed ? ' It was emailed too.' : ''}`
-                : 'Test sent. Copy the message to send it.', 'ok');
+                ? `Test sent — it’s on their status page${d.emailed ? ', emailed' : ''}, and the message is on your clipboard for the IFC.`
+                : 'Test sent — it’s on their status page.', 'ok');
             changed();
             return t;
         } catch (err) {
@@ -248,32 +212,6 @@
         }
     }
 
-    /* A pass from somebody who never applied: on the roster, with a login and
-       the welcome message to send — the same "Add & invite" the roster form
-       does, so there is one way a pilot gets a login from here. */
-    async function addAndInvite(t, btn) {
-        if (btn) btn.disabled = true;
-        try {
-            const d = await S.api('/roster', { method: 'POST', body: { name: t.pilotName || t.ifcName, ifcName: t.ifcName || '', invite: true } });
-            const inv = d.invite || null;
-            const r = inv && Array.isArray(inv.results) ? inv.results.find((x) => x.message) : null;
-            if (r && await copy(r.message)) P.toast(`${t.pilotName || t.ifcName} is on the roster — their welcome message is on your clipboard.`, 'ok');
-            else P.toast(`${t.pilotName || t.ifcName} is on the roster. Send their invitation from Roster → Logins.`, 'ok');
-            // On the roster now, so off the Applications list: read the tests
-            // again and let the dashboard redraw without them.
-            load().then(changed).catch(() => {});
-            if (typeof window.openLoginSetup === 'function' && inv && Array.isArray(inv.results)) {
-                if (S.panel) S.panel.close();
-                window.openRoster && window.openRoster();
-                window.openLoginSetup(inv);
-            }
-        } catch (err) {
-            P.toast(err.message || 'Could not add them.', 'bad');
-        } finally {
-            if (btn) btn.disabled = false;
-        }
-    }
-
     /** One click handler for wherever a test is drawn. */
     async function onClick(ev) {
         const box = ev.target.closest('[data-et-app], [data-et-id]');
@@ -289,89 +227,15 @@
             return send({ quizId, applicationId: box.getAttribute('data-et-app') }, sendBtn);
         }
         if (!test) return;
-        if (ev.target.closest('[data-et-copy]')) {
-            const ok = await copy(test.message || '');
-            return P.toast(ok ? 'Copied — paste it into their IFC message.' : 'Couldn’t copy that.', ok ? 'ok' : 'bad');
-        }
-        if (ev.target.closest('[data-et-copy-plain]')) {
-            const ok = await copy(test.plainMessage || test.message || '');
-            return P.toast(ok ? 'Copied as plain text.' : 'Couldn’t copy that.', ok ? 'ok' : 'bad');
-        }
         const re = ev.target.closest('[data-et-reissue]');
         if (re) return act(test, 'reissue', re);
         const rv = ev.target.closest('[data-et-revoke]');
         if (rv) return act(test, 'revoke', rv);
-        const add = ev.target.closest('[data-et-add]');
-        if (add) return addAndInvite(test, add);
     }
 
     // A card drawn from the applications list before S.tests had it.
     const CARD_TESTS = new Map();
     function findOnCard(box) { return CARD_TESTS.get(String(box.getAttribute('data-et-id'))) || null; }
-
-    /* =====================================================================
-     * THE PANEL — every test, and one for somebody new
-     * =================================================================== */
-
-    function panelHtml() {
-        if (!S.loaded) return '<div class="cp-empty">Loading…</div>';
-        if (S.error) {
-            if (P.isSchemaGap(S.error)) return P.schemaGapHtml(S.error);
-            return `<div class="cp-empty"><i data-lucide="triangle-alert"></i>${esc(S.error.message || 'Could not load the tests.')}</div>`;
-        }
-        const form = S.quizzes.length
-            ? `<div class="et-box">
-                <div class="et-head"><span class="et-title">Send a test to someone new</span></div>
-                <div class="et-line">Somebody you met on the IFC who hasn’t applied. They sit it with no account; pass, and you add them with one press.</div>
-                <form class="et-form" data-et-new>
-                    <input class="cp-input" name="name" placeholder="Their name" maxlength="80" autocomplete="off">
-                    <input class="cp-input" name="ifcName" placeholder="IFC username" maxlength="60" autocomplete="off" spellcheck="false">
-                    <select class="cp-select et-wide" name="quizId">${S.quizzes.map((q) => `<option value="${esc(q.id)}">${esc(q.title)} · ${q.passMark}% to pass${q.retakeHours ? ` · retake after ${q.retakeHours}h` : ''}</option>`).join('')}</select>
-                    <input class="cp-input et-wide" name="note" placeholder="A line of your own for the message (optional)" maxlength="500">
-                    <button class="cp-btn cp-btn-primary et-wide" type="submit"><i data-lucide="send"></i> Send test &amp; copy the message</button>
-                </form>
-            </div>`
-            : `<div class="et-box"><div class="et-line">There’s no test to send yet. Build one in <b>Recruitment → Quizzes</b> — questions, a pass mark, how long to wait before a retake, and what to study.</div></div>`;
-        const rows = S.tests.length
-            ? S.tests.map((t) => `<div class="et-row" data-et-id="${esc(t.id)}">
-                <div class="et-name">${esc(t.pilotName || t.ifcName || 'Somebody')}${t.ifcName && t.ifcName !== t.pilotName ? ` <span class="cp-note">@${esc(t.ifcName)}</span>` : ''}${t.applicationId ? ' <span class="cp-chip cp-chip-mute">Applied</span>' : ''}</div>
-                ${testBody(t)}
-            </div>`).join('')
-            : '<div class="cp-empty">No entrance tests sent yet.</div>';
-        return `<div style="display:grid;gap:.9rem">${form}<div style="display:grid;gap:.6rem">${rows}</div></div>`;
-    }
-
-    function paint() {
-        if (!S.panel || !S.panel.isOpen()) return;
-        P.keepPlace(S.panel.body, () => { S.panel.body.innerHTML = panelHtml(); });
-        try { icons(); } catch { /* a missing glyph is not worth a blank panel */ }
-    }
-
-    function open() {
-        styles();
-        // Opened from the quiz builder before the applications were ever
-        // looked at: borrow the dashboard's own API binding.
-        if (!S.api && typeof window.crewApi === 'function') S.api = window.crewApi();
-        if (!S.api) return;
-        if (!S.panel) {
-            S.panel = P.sheet({ id: 'crewEntrance', title: 'Entrance tests', icon: 'file-pen-line' });
-            S.panel.body.addEventListener('click', onClick);
-            S.panel.body.addEventListener('submit', async (ev) => {
-                const form = ev.target.closest('[data-et-new]');
-                if (!form) return;
-                ev.preventDefault();
-                const f = new FormData(form);
-                const name = String(f.get('name') || '').trim();
-                const ifcName = String(f.get('ifcName') || '').trim();
-                if (!name && !ifcName) { P.toast('Who is it for? Type their name or IFC username.', 'bad'); return; }
-                const t = await send({ quizId: f.get('quizId'), name, ifcName, note: String(f.get('note') || '').trim() }, form.querySelector('button[type=submit]'));
-                if (t) form.reset();
-            });
-        }
-        S.panel.open();
-        paint();
-        load();
-    }
 
     function mount({ api, onChange } = {}) {
         styles();
@@ -393,8 +257,7 @@
     }
 
     window.CrewEntrance = {
-        mount, open, wire, cardHtml, noteCards, waitingHtml,
-        waitingCount: (fallback) => waiting(fallback).length,
+        mount, wire, cardHtml, noteCards,
         reload: () => load(),
         get quizzes() { return S.quizzes.slice(); },
         get tests() { return S.tests.slice(); },

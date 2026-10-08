@@ -512,7 +512,7 @@
                 if(CFG.minGrade>0 || DATA.grade) rows.push(['Grade', 'Grade '+(DATA.grade||'—')]);
                 body.innerHTML = `<div class="step">
                     <h2 class="text-lg font-bold tracking-tight">Review &amp; ${CFG.mode==='free'?'join':'apply'}</h2>
-                    <p class="text-sm muted mt-1 mb-4">${CFG.mode==='free'?'You’re accepted straight away; staff send your crew center sign-in.':'Staff will review your application.'}</p>
+                    <p class="text-sm muted mt-1 mb-4">${escapeHtml(afterApplyText())}</p>
                     <div class="surface hair rounded-lg divide-y hair-soft">
                         ${rows.map(r=>`<div class="flex items-center justify-between px-4 py-2.5 text-sm"><span class="muted">${escapeHtml(r[0])}</span><span class="font-semibold text-right">${r[2]?r[1]:escapeHtml(r[1])}</span></div>`).join('')}
                     </div>
@@ -690,26 +690,60 @@
                 success(d);
             }catch{ if(note){ note.textContent='Couldn’t reach the server. Please try again.'; note.className='text-sm text-red-500 mt-3'; note.classList.remove('hidden'); } btn.disabled=false; }
         }
+        // What happens after Apply, in one sentence, from the airline's road.
+        function afterApplyText(){
+            const steps=[];
+            if(CFG.viaDiscord) steps.push('join our Discord and open a ticket');
+            if(CFG.entranceTest) steps.push(`take the entrance test (${CFG.entranceTest.title}, ${CFG.entranceTest.passMark}% to pass)`);
+            const end = CFG.mode==='free' ? (CFG.entranceTest ? 'pass, and you’re in' : 'you’re in') : 'then the staff decide';
+            if(!steps.length) return CFG.mode==='free' ? 'You’re in straight away — you’ll choose your crew center password next.' : 'Staff will review your application.';
+            return `Next you’ll ${steps.join(', then ')} — ${end}.`;
+        }
         function success(d){
             document.getElementById('nav').classList.add('hidden');
             document.getElementById('bar').style.width='100%';
             const accepted = d.status==='accepted';
             const slug=getSlug();
-            // Pending applicants get a private status link (no account/email
-            // needed) so they can check back for the staff's accept/decline.
+            const stage=d.stage||(accepted?'invited':'review'), n=d.next||{};
+            const top = EMBED ? 'target="_top"' : '';
+            // Their private link back: the decision, any message from staff,
+            // the test and their login as each becomes ready. The only channel
+            // that reaches somebody with no email, so it is always offered.
             const statusUrl = d.statusToken ? `/crew/${encodeURIComponent(slug)}/status?id=${encodeURIComponent(d.statusToken)}` : '';
+            const safe=(u)=>/^https:\/\//i.test(String(u||''));
+            const discord=(u)=>/^https:\/\/(discord\.gg|(canary\.|ptb\.)?discord(app)?\.com\/invite)\//i.test(String(u||''));
+            let next='';
+            if(accepted && d.login && d.login.kind==='link' && safe(d.login.link)){
+                next = `<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                    <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="key-round" class="w-3.5 h-3.5"></i> Your crew center login</div>
+                    <div class="text-sm">Username <span class="font-mono font-semibold">${escapeHtml(d.login.username||'')}</span></div>
+                    <a href="${escapeHtml(d.login.link)}" ${top} class="w-full accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-lg mt-3 hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="key-round" class="w-4 h-4"></i> Choose my password</a>
+                    <div class="text-xs muted mt-2">It works once. It’s on your status link too, in case you close this.</div>
+                </div>`;
+            } else if(accepted){
+                next = `<div class="surface hair rounded-xl p-4 mt-5 text-left text-sm muted">Your crew center login will appear on your status link the moment it’s ready.</div>`;
+            } else if(stage==='discord'){
+                next = `<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                    <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="message-circle" class="w-3.5 h-3.5"></i> ${escapeHtml(n.title||'Next: open a ticket in our Discord')}</div>
+                    <p class="text-sm muted">${escapeHtml(n.body||'')}</p>
+                    ${d.code?`<div class="font-mono text-2xl font-extrabold tracking-widest mt-3 select-all">${escapeHtml(d.code)}</div>`:''}
+                    ${n.action&&discord(n.action.url)?`<a href="${escapeHtml(n.action.url)}" target="_blank" rel="noopener noreferrer" class="w-full accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-lg mt-3 hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="message-circle" class="w-4 h-4"></i> Join our Discord</a>`:''}
+                </div>`;
+            } else if(stage==='test' && d.test && safe(d.test.link)){
+                next = `<div class="surface hair rounded-xl p-4 mt-5 text-left">
+                    <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="file-pen-line" class="w-3.5 h-3.5"></i> Next: the entrance test</div>
+                    <p class="text-sm muted">${escapeHtml(d.test.title||'Entrance test')}${d.test.passMark?` — ${escapeHtml(String(d.test.passMark))}% to pass`:''}. No account needed.${DATA.email?' We emailed you the link too.':''}</p>
+                    <a href="${escapeHtml(d.test.link)}" ${top} class="w-full accent-bg text-white text-sm font-semibold px-4 py-2.5 rounded-lg mt-3 hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="file-pen-line" class="w-4 h-4"></i> Take the test</a>
+                </div>`;
+            } else {
+                next = `<p class="text-sm muted mt-2">Thanks, <b>${escapeHtml(DATA.ifcName)}</b>. ${escapeHtml(n.body||`The ${VA.name||'VA'} staff will review your application.`)}</p>`;
+            }
             document.getElementById('stepBody').innerHTML = `<div class="step text-center py-4">
-                <div class="w-14 h-14 rounded-full ${accepted?'bg-emerald-500':'accent-bg'} text-white grid place-items-center mx-auto mb-4"><i data-lucide="${accepted?'party-popper':'clock'}" class="w-7 h-7"></i></div>
+                <div class="w-14 h-14 rounded-full ${accepted?'bg-emerald-500':'accent-bg'} text-white grid place-items-center mx-auto mb-4"><i data-lucide="${accepted?'party-popper':stage==='review'?'clock':'arrow-right'}" class="w-7 h-7"></i></div>
                 <h2 class="text-xl font-bold tracking-tight">${accepted?'Welcome aboard!':'Application received'}</h2>
-                ${accepted
-                    ? `<p class="text-sm muted mt-2">You’re now part of <b>${escapeHtml(VA.name||'the crew')}</b>. Your callsign:</p><div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign||fullCallsign())}</div>
-                       <div class="surface hair rounded-xl p-4 mt-5 text-left">
-                          <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="mail" class="w-3.5 h-3.5"></i> Your crew center sign-in</div>
-                          <p class="text-sm muted">The ${escapeHtml(VA.name||'VA')} staff will send it to you${DATA.email?` — by email at <b>${escapeHtml(DATA.email)}</b> or`:''} in an IFC message. It’s also shown on your status link the moment it’s ready.</p>
-                       </div>
-                       ${statusUrl?statusLinkHtml(statusUrl):''}`
-                    : `<p class="text-sm muted mt-2">Thanks, <b>${escapeHtml(DATA.ifcName)}</b>. The ${escapeHtml(VA.name||'VA')} staff will review your application${DATA.email?` and email you at <b>${escapeHtml(DATA.email)}</b> with their decision`:''}.</p>
-                       ${statusUrl?statusLinkHtml(statusUrl):''}`}
+                ${accepted?`<p class="text-sm muted mt-2">You’re now part of <b>${escapeHtml(VA.name||'the crew')}</b>. Your callsign:</p><div class="text-2xl font-extrabold accent-text mt-2">${escapeHtml(d.callsign||fullCallsign())}</div>`:''}
+                ${next}
+                ${statusUrl?statusLinkHtml(statusUrl):''}
             </div>`;
             if(window.lucide) lucide.createIcons();
             postHeight();
@@ -721,7 +755,7 @@
         function statusLinkHtml(statusUrl){
             return `<div class="surface hair rounded-xl p-4 mt-5 text-left">
                           <div class="text-xs uppercase tracking-wider faint mb-1.5 flex items-center gap-1.5"><i data-lucide="bookmark" class="w-3.5 h-3.5"></i> Save your status link</div>
-                          <p class="text-sm muted mb-3">Bookmark this to see the VA’s decision and any message they leave you.</p>
+                          <p class="text-sm muted mb-3">Bookmark it: your next step, the VA’s decision and your login all show up here.</p>
                           <div class="flex items-center gap-2">
                             <input id="statusLink" readonly value="${escapeHtml(location.origin+statusUrl)}" class="field flex-1 text-xs" onclick="this.select()">
                             <button onclick="copyStatus()" id="copyBtn" class="shrink-0 accent-bg text-white text-sm font-semibold px-3.5 py-2.5 rounded-lg hover:opacity-90 transition">Copy</button>
@@ -756,7 +790,9 @@
                             .filter(a=>a.base),
                         reservedMax:(typeof cs.reservedMax==='number'&&cs.reservedMax>=0)?cs.reservedMax:10,
                     },
-                    form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[], emailEnabled:!!b.join.emailEnabled };
+                    form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[], emailEnabled:!!b.join.emailEnabled,
+                    // The road after Apply (crewRecruit.js), so the form can say it.
+                    entranceTest:b.join.entranceTest||null, viaDiscord:!!b.join.viaDiscord };
             }
             // Same safety check as the logo above it: a link the VA pasted is
             // still a link somebody typed, and this page is embedded on other

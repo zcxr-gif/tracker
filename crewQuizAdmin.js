@@ -95,8 +95,6 @@
 
         .qa-link{ font-size:.75rem; word-break:break-all; padding:.5rem .6rem; border-radius:.55rem;
             background:color-mix(in srgb, var(--ink,#1C1A16) 4%, transparent); }
-        .qa-gate{ border:1px solid var(--line,#e5e5e5); border-radius:.9rem; padding:.8rem .85rem;
-            display:grid; gap:.55rem; background:color-mix(in srgb, var(--accent) 5%, transparent); }
         .qa-check{ display:flex; align-items:flex-start; gap:.5rem; font-size:.82rem; }
         .qa-check input{ margin-top:.15rem; flex:none; accent-color:var(--accent); }
         .qa-check b{ display:block; }
@@ -148,7 +146,6 @@
     }
 
     const quizzes = () => (S.data && S.data.quizzes) || [];
-    const gateCfg = () => (S.data && S.data.gateConfig) || { enabled: false, quizId: '', message: '', allowSelfStart: false };
     const banners = () => (S.data && S.data.banners) || { apply: '', quiz: '' };
     const reminders = () => (S.data && S.data.reminders) || {};
 
@@ -258,7 +255,7 @@
             return `<div class="qa-card" data-qa-quiz="${esc(q.id)}">
                 <div class="qa-row">
                     <div class="qa-row-main">
-                        <div class="qa-name">${esc(q.title)}${q.ready ? '' : ' <span class="cp-chip cp-chip-warn">No questions yet</span>'}</div>
+                        <div class="qa-name">${esc(q.title)}${q.ready ? '' : ' <span class="cp-chip cp-chip-warn">No questions yet</span>'}${S.data && S.data.entranceQuizId === q.id ? ' <span class="cp-chip cp-chip-accent">Entrance test</span>' : ''}</div>
                         <div class="qa-sub">${esc(bits.join(' · '))}</div>
                     </div>
                     <div class="qa-acts"><button class="cp-btn cp-btn-sm" data-qa-edit="${esc(q.id)}">Edit</button></div>
@@ -311,25 +308,7 @@
             return `<div class="cp-empty"><i data-lucide="lock"></i>
                 Building quizzes is somebody else's job here. You can still send them out and read what came back.</div>`;
         }
-        const g = gateCfg();
-        const ready = quizzes().filter((q) => q.ready);
-
-        const gate = `<div class="qa-gate">
-            <div class="qa-h">The door</div>
-            <label class="qa-check"><input type="checkbox" data-qa-g="enabled" ${g.enabled ? 'checked' : ''}>
-                <b>Keep the crew centre shut until a pilot passes a quiz<span>Staff are never held at it, and nor is anybody who has already passed.</span></b></label>
-            <label class="cp-label">Which quiz
-                <select class="cp-select" data-qa-g="quizId">
-                    <option value="">— pick one —</option>
-                    ${ready.map((q) => `<option value="${esc(q.id)}" ${g.quizId === q.id ? 'selected' : ''}>${esc(q.title)}</option>`).join('')}
-                </select></label>
-            ${ready.length ? '' : '<p class="cp-note">Add a quiz with at least one question first — the door needs something to open with.</p>'}
-            <label class="cp-label">What they read on the locked screen
-                <textarea class="cp-textarea" rows="2" data-qa-g="message" maxlength="400"
-                    placeholder="Welcome aboard. Your staff will send you the induction quiz shortly.">${esc(g.message || '')}</textarea></label>
-            <label class="qa-check"><input type="checkbox" data-qa-g="allowSelfStart" ${g.allowSelfStart ? 'checked' : ''}>
-                <b>Let pilots start it themselves<span>Off means it only opens when staff send somebody a link — which is what most airlines want.</span></b></label>
-        </div>`;
+        const entranceId = (S.data && S.data.entranceQuizId) || '';
 
         return `<div class="qa-sec">
             <p class="cp-note">A quiz is multiple-choice questions with a pass mark. Nothing here is on until you
@@ -337,10 +316,8 @@
             ${quizzes().map(quizHtml).join('')}
             <div class="qa-acts">
                 <button class="cp-btn" data-qa-newquiz><i data-lucide="plus"></i> New quiz</button>
-                ${window.CrewEntrance ? '<button class="cp-btn" data-qa-entrance title="Send a quiz to somebody who is not crew yet — no login needed to sit it"><i data-lucide="file-pen-line"></i> Send as an entrance test</button>' : ''}
             </div>
-            <p class="cp-note">Any quiz can be an <b>entrance test</b>: send it from an application, or to somebody you met on the IFC. They sit it with no account; you see the score before you accept them.</p>
-            ${gate}
+            <p class="cp-note">Any quiz can be your <b>entrance test</b>${entranceId ? ` — yours is marked` : ''}: pick it under <b>Joining</b>, and every applicant is sent it automatically, with no account needed. You see the score on their application before you accept them.</p>
             <div class="qa-h" style="margin-top:.4rem">Your pictures</div>
             ${bannerHtml('apply', 'Applications', 'Shown over your join form and your jobs board.', banners().apply)}
             ${bannerHtml('quiz', 'Quizzes', 'Shown over any quiz that has not got a picture of its own.', banners().quiz)}
@@ -399,7 +376,6 @@
         if (a.attemptsUsed) sub.push(`${a.attemptsUsed} go${a.attemptsUsed === 1 ? '' : 'es'}${a.maxAttempts ? ` of ${a.maxAttempts}` : ''}`);
         if (a.submittedAt) sub.push(`handed in ${relativeText(a.submittedAt)}`);
         else if (a.createdAt) sub.push(`sent ${relativeText(a.createdAt)}`);
-        if (a.gate) sub.push('this is the door');
 
         const acts = [];
         if (a.link) acts.push(`<button class="cp-btn cp-btn-sm" data-qa-copy="${esc(a.link)}">Copy link</button>`);
@@ -506,17 +482,6 @@
         });
     }
 
-    function readGate(root) {
-        const val = (f) => {
-            const el = root.querySelector(`[data-qa-g="${f}"]`);
-            if (!el) return gateCfg()[f];
-            return el.type === 'checkbox' ? el.checked : el.value;
-        };
-        return {
-            enabled: !!val('enabled'), quizId: val('quizId') || '',
-            message: val('message') || '', allowSelfStart: !!val('allowSelfStart'),
-        };
-    }
 
     // Found by reading the attribute back rather than by selector: a slot is
     // `quiz:<id>`, and a colon inside an attribute selector is one escaping
@@ -590,13 +555,12 @@
             const el = bannerField(root, 'quiz:' + q.id);
             return el ? { ...q, banner: el.value.trim() } : q;
         });
-        const gate = readGate(root);
         const pics = readBanners(root);
         const open = S.open;
         setSaveState('saving');
         AUTO.busy = (async () => {
             try {
-                const d = await S.api('/quizzes', { method: 'POST', body: { quizzes: list, gate, banners: pics } });
+                const d = await S.api('/quizzes', { method: 'POST', body: { quizzes: list, banners: pics } });
                 const kept = new Map((d.quizzes || []).map((q) => [q.id, q]));
                 // The local copy stays as typed — questions still being written
                 // included — with the server's word on how many it kept. Not
@@ -823,7 +787,6 @@
             if (edit) { keepOpenEdits(); S.open = edit.getAttribute('data-qa-edit'); draw(); queueSave(0); return; }
             if (t.closest('[data-qa-collapse]')) { keepOpenEdits(); S.open = ''; draw(); queueSave(0); return; }
 
-            if (t.closest('[data-qa-entrance]')) { if (window.CrewEntrance) window.CrewEntrance.open(); return; }
             if (t.closest('[data-qa-newquiz]')) {
                 keepOpenEdits();
                 const n = quizzes().length + 1;
