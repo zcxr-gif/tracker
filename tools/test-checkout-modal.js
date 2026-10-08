@@ -229,7 +229,7 @@ function fakeSupabase(handler) {
         ok('the chosen plan is the one sent', supabase.calls[0]?.body?.plan === 'yearly',
             JSON.stringify(supabase.calls[0]?.body));
         ok('…and the heading says what it costs',
-            /19\.99\/yr/.test(document.getElementById('ifp-checkout-sub')?.textContent || ''));
+            /19\.90\/yr/.test(document.getElementById('ifp-checkout-sub')?.textContent || ''));
 
         document.getElementById('ifp-checkout-close').dispatch('click');
         await opened;

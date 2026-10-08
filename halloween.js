@@ -227,7 +227,7 @@
                 '<h4>Boo! Halloween sale \uD83C\uDF83</h4>' +
                 '<p>Your first month of InFlight Pro, half price.</p>' +
                 '<div class="hw-boo-price"><b>$0.99</b><s>$1.99</s><span>first month</span></div>' +
-                '<p>Then $1.99/mo. Or go yearly: <strong style="color:#fdba74">15% off</strong>, $16.99 your first year.</p>' +
+                '<p>Then $1.99/mo. Or go yearly: <strong style="color:#fdba74">15% off</strong>, $16.92 your first year.</p>' +
                 '<button type="button" class="hw-boo-cta">Get Pro</button>' +
                 '<small>New subscribers only \u00B7 ends Oct 31</small>';
         } else {

@@ -22,7 +22,7 @@
 //   error      — the session could not be created; `error` explains
 //
 // Before any session exists the modal asks which plan — monthly ($1.99, or the
-// Halloween $0.99 first month) or yearly ($19.99, or the Halloween $16.99 first
+// Halloween $0.99 first month) or yearly ($19.90, or the Halloween $16.92 first
 // year) — and sends it as `plan`.
 // A caller that already knows passes payload.plan and the picker is skipped.
 //
@@ -153,7 +153,7 @@ export const StripeCheckoutModal = {
             payload = Object.assign({}, payload, { plan });
             const sale = !!(window.InflightSale && window.InflightSale.active());
             ui.sub.textContent = plan === 'yearly'
-                ? (sale ? 'New subscribers: $16.99 your first year, then $19.99/yr · cancel anytime' : '$19.99/yr · cancel anytime')
+                ? (sale ? 'New subscribers: $16.92 your first year (15% off), then $19.90/yr · cancel anytime' : '$19.90/yr · cancel anytime')
                 : (window.InflightSale ? window.InflightSale.checkoutLine() : '$1.99/mo · cancel anytime');
         }
 
@@ -247,8 +247,8 @@ export const StripeCheckoutModal = {
                 <button type="button" class="ifp-plan" id="ifp-plan-yearly" data-plan="yearly" role="radio" aria-checked="false">
                     <span class="ifp-plan-tag${sale ? ' ifp-plan-tag-sale' : ''}">${sale ? '15% off \u00B7 Great value' : 'Best value'}</span>
                     <span class="ifp-plan-name">Yearly</span>
-                    <span class="ifp-plan-price">${sale ? '<b>$16.99</b> <s>$19.99</s>' : '<b>$19.99</b><span>/yr</span>'}</span>
-                    <span class="ifp-plan-note">${sale ? 'Your first year, then $19.99/yr. Just $1.42/mo. New subscribers only.' : '$1.67/mo, billed yearly. Save 16%.'}</span>
+                    <span class="ifp-plan-price">${sale ? '<b>$16.92</b> <s>$19.90</s>' : '<b>$19.90</b><span>/yr</span>'}</span>
+                    <span class="ifp-plan-note">${sale ? 'Your first year, then $19.90/yr. Just $1.41/mo. New subscribers only.' : '$1.66/mo, billed yearly. Save 16%.'}</span>
                 </button>
             </div>
             <button type="button" class="ifp-plan-continue" id="ifp-plan-continue">Continue</button>

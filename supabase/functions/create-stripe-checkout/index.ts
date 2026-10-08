@@ -46,21 +46,21 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
 });
 
 const PRICE_ID = Deno.env.get("STRIPE_PRICE_ID") ?? "";
-// Pro yearly ($19.99/yr). Chosen with `plan: "yearly"`; anything else — the
+// Pro yearly ($19.90/yr). Chosen with `plan: "yearly"`; anything else — the
 // iOS app included, which sends no plan — stays on the monthly PRICE_ID.
-const YEARLY_PRICE_ID = Deno.env.get("STRIPE_YEARLY_PRICE_ID") ?? "price_1TRiao6y7GsJq8x0jSqIEaw1";
+const YEARLY_PRICE_ID = Deno.env.get("STRIPE_YEARLY_PRICE_ID") ?? "price_1UO65T6y7GsJq8x0e4QmeCEc";
 
 // ── Sale (Halloween 2026) ─────────────────────────────────────────────────
 // Applied to the first invoice of a FIRST-TIME subscriber's checkout until
 // SALE_ENDS_AT, one live coupon per plan (both duration "once", redeem_by
 // Nov 1 04:00 UTC, each limited to its own product):
 //   HALLOWEEN26   monthly  $1.00 off  → first month $0.99, then $1.99
-//   HALLOWEEN26Y  yearly   $3.00 off  → first year $16.99 (15% off), then $19.99
+//   HALLOWEEN26Y15 yearly  $2.98 off  → first year $16.92 (15% off), then $19.90
 // STRIPE_SALE_COUPON_ID / STRIPE_SALE_YEARLY_COUPON_ID override them; "" stops
 // that plan's sale early. index.html (window.InflightSale) shows the same end
 // time to pilots; this is the copy that actually decides.
 const SALE_COUPON_ID = Deno.env.get("STRIPE_SALE_COUPON_ID") ?? "HALLOWEEN26";
-const SALE_YEARLY_COUPON_ID = Deno.env.get("STRIPE_SALE_YEARLY_COUPON_ID") ?? "HALLOWEEN26Y";
+const SALE_YEARLY_COUPON_ID = Deno.env.get("STRIPE_SALE_YEARLY_COUPON_ID") ?? "HALLOWEEN26Y15";
 const SALE_ENDS_AT = Date.parse(Deno.env.get("SALE_ENDS_AT") ?? "2026-11-01T04:00:00Z"); // Oct 31 23:59 EDT
 
 const corsHeaders = {

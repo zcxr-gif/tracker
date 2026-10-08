@@ -694,7 +694,7 @@ init(supabaseClient) {
             status,
             plan: row.plan_name || 'Pro Access',
             // The row has no interval column; the yearly plan is the one named
-            // or priced like it ($19.99 against $1.99 monthly).
+            // or priced like it ($19.90 against $1.99 monthly).
             price: Number.isFinite(amount)
                 ? `$${(amount / 100).toFixed(2)} / ${(/year|annual/i.test(row.plan_name || '') || amount >= 1000) ? 'year' : 'month'}`
                 : '$1.99 / month',
