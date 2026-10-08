@@ -89,14 +89,15 @@
 
     <script>
         // Halloween. Decided here, before first paint, so the splash is already
-        // dressed when it appears; halloween.js (deferred) adds the bats and the
-        // greeting once the page is up. On by itself from Oct 20 to Nov 1 unless
+        // dressed when it appears; halloween.js (deferred) adds the ghost and the
+        // greeting once the page is up. On by itself from Oct 1 to Nov 1 (the
+        // whole run of the Halloween sale, which the ghost advertises) unless
         // the user switched it off; ?halloween=1 / ?halloween=0 forces it for a
         // look outside the season.
         (function () {
             var KEY = 'inflight-halloween';
             var now = new Date(), m = now.getMonth(), d = now.getDate();
-            var inSeason = (m === 9 && d >= 20) || (m === 10 && d === 1);
+            var inSeason = m === 9 || (m === 10 && d === 1);
             var forced = null;
             try {
                 var q = new URLSearchParams(location.search).get('halloween');
