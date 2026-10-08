@@ -6,9 +6,11 @@
 //     quiz builder, the queue and the reminders are in there with it.
 //   * a quiz saves what the screen says it says — the right answer included,
 //     and only to the server
-//   * a pilot held at the door cannot get past it by reloading, gets the
-//     airline's own words, and is through the moment the server says they
-//     passed
+//   * the quiz "door" is gone: a pilot with a login is never held at a quiz;
+//     the one test is the entrance test, before they are accepted
+//   * Applications is one road: every applicant on one step, one message to
+//     paste for it, the overrides on every card — and no login switch, no
+//     tests floating with nobody's application behind them
 //   * the paper is marked BY THE SERVER: nothing the page received ever
 //     carried a right answer, and what it posts is positional
 //
@@ -40,19 +42,32 @@ const QUIZ = {
 };
 const stripKey = (q) => ({ ...q, questions: q.questions.map(({ correct, ...rest }) => rest) });
 
-// Passed a test that was handed out by hand — sent to a name, no application.
-const SAM = { id: 't9', quizId: 'sop', quizTitle: 'SOP induction', status: 'passed', pilotName: 'Sam', ifcName: 'sam_flies',
-    applicationId: null, onRoster: false, score: 2, total: 2, percent: 100, passMark: 60, attemptsUsed: 1, maxAttempts: 3,
-    submittedAt: new Date().toISOString(), live: false };
-let samAdded = null;    // POST /roster body from "Add & invite"
+// The road in, as the applications list hands it to the dashboard.
+const RULES = { auto: false, test: { id: 'sop', title: 'SOP induction', passMark: 60 }, viaDiscord: true, viaDiscordWanted: true, discordInvite: 'https://discord.gg/tva' };
+const PENDING = [
+    { _id: 'r1', ifcName: 'Ready_Rae', status: 'pending', stage: 'review', answers: [], callsign: 'TVA 101',
+      test: { id: 't1', quizTitle: 'SOP induction', status: 'passed', score: 2, total: 2, percent: 100, passMark: 60, live: false },
+      applicant: { message: 'IFC: with the team', plainMessage: 'with the team' } },
+    { _id: 'd1', ifcName: 'Discord_Dan', status: 'pending', stage: 'discord', code: 'ABCD-1234', answers: [],
+      applicant: { message: 'IFC: join https://discord.gg/tva code ABCD-1234', plainMessage: 'join code ABCD-1234' } },
+    { _id: 't2', ifcName: 'Testing_Tia', status: 'pending', stage: 'test', inTicket: true, answers: [],
+      test: { id: 't3', quizTitle: 'SOP induction', status: 'issued', passMark: 60, live: true, link: 'https://x/test?t=1', message: 'IFC: test link' },
+      applicant: { message: 'IFC: test link', plainMessage: 'test link' } },
+];
+const ACCEPTED = [
+    { _id: 'i1', ifcName: 'Invited_Ivy', status: 'accepted', stage: 'invited', reviewedAt: new Date().toISOString(),
+      invite: { state: 'live', kind: 'link', username: 'invited.ivy', link: 'https://x/crew/tva?setup=abc', expiresAt: new Date(Date.now() + 864e6).toISOString(),
+        message: 'IFC welcome https://x/crew/tva?setup=abc', plainMessage: 'welcome https://x/crew/tva?setup=abc' } },
+];
+let reviews = [];       // PATCH /applications/:id bodies
+let sentMarks = [];     // POST /applications/:id/invite/sent
 
 let saved = [];         // POST /quizzes bodies
 let sent = [];          // POST /quiz-attempts bodies
 let handedIn = [];      // POST /quiz/:token bodies
 let servedToPilot = []; // every payload the pilot's page was given
-let gate = { enabled: true, locked: true, quizId: 'sop', quizTitle: 'SOP induction',
-    message: 'Welcome aboard. Sit the induction and the crew centre opens.',
-    allowSelfStart: false, token: 'tok123', status: 'issued', canStart: true, attemptsLeft: 3 };
+// What the server says about the retired door: always open.
+const gate = { enabled: false, locked: false, quizId: '', quizTitle: '', message: '', allowSelfStart: false, token: '', status: '', canStart: false, attemptsLeft: 0 };
 
 function api(route, { staff }) {
     const url = new URL(route.request().url());
@@ -74,8 +89,9 @@ function api(route, { staff }) {
         return json({
             quizzes: [staff ? QUIZ : stripKey(QUIZ)],
             banners: { apply: '', quiz: '' },
-            gate: staff ? { enabled: true, locked: false } : gate,
-            gateConfig: staff ? { enabled: true, quizId: 'sop', message: '', allowSelfStart: false } : null,
+            gate,
+            gateConfig: staff ? { enabled: false, quizId: '', message: '', allowSelfStart: false } : null,
+            entranceQuizId: staff ? 'sop' : '',
             reminders: staff ? { enabled: false, everyHours: 24, afterHours: 24,
                 applications: true, staffApplications: true, quizzes: true } : null,
             canBuild: staff, canReview: staff, canManage: staff, supported: true, isStaff: staff,
@@ -109,17 +125,22 @@ function api(route, { staff }) {
         const right = (body.answers || []).filter((a, i) => a === QUIZ.questions[i].correct).length;
         const percent = Math.floor((right / QUIZ.questions.length) * 100);
         const passed = percent >= QUIZ.passMark;
-        if (passed) gate = { ...gate, locked: false, status: 'passed', canStart: false };
         return json({ attempt: { id: 'a1', status: passed ? 'passed' : 'failed' },
             score: right, total: QUIZ.questions.length, percent, passed, passMark: QUIZ.passMark,
             attemptsLeft: passed ? 0 : 2, gate });
     }
     if (p.endsWith('/staff-reminders/preview')) return json({ lines: ['**2** membership applications waiting — the oldest for 3 days.'], skipped: '', rules: {} });
-    if (p.endsWith('/applications') && method === 'GET') return json({ applications: [], waitingTests: samAdded ? [] : [SAM] });
-    if (p.endsWith('/entrance-tests') && method === 'GET') {
-        return json({ tests: [{ ...SAM, onRoster: !!samAdded }], quizzes: [{ id: 'sop', title: 'SOP induction', passMark: 60, retakeHours: 0 }] });
+    if (p.endsWith('/applications') && method === 'GET') {
+        return json({ applications: url.searchParams.get('status') === 'accepted' ? ACCEPTED : PENDING, rules: RULES, waitingTests: [] });
     }
-    if (p.endsWith('/roster') && method === 'POST') { samAdded = route.request().postDataJSON() || {}; return json({ member: { id: 'm9' }, invite: null }, 201); }
+    if (/\/applications\/[^/]+\/invite\/sent$/.test(p)) { sentMarks.push(p.split('/')[5]); return json({ invite: { ...ACCEPTED[0].invite, sentAt: new Date().toISOString(), sentBy: 'Owner' } }); }
+    if (/\/applications\/[^/]+$/.test(p) && method === 'PATCH') {
+        reviews.push({ id: p.split('/').pop(), body: route.request().postDataJSON() || {} });
+        return json({ status: 'accepted', stage: 'invited', emailed: false, email: '', invite: { ...ACCEPTED[0].invite, username: 'ready.rae' }, account: { username: 'ready.rae', kind: 'link', created: true } });
+    }
+    if (p.endsWith('/entrance-tests') && method === 'GET') {
+        return json({ tests: [], quizzes: [{ id: 'sop', title: 'SOP induction', passMark: 60, retakeHours: 0 }] });
+    }
     if (p.endsWith('/roster')) return json({ roster: [{ id: 'm1', name: 'Rae Okafor', callsign: 'TVA101' }] });
     if (p.endsWith('/me')) {
         return json(staff
@@ -200,7 +221,9 @@ const head = (s) => console.log(`\n${s}`);
     await page.evaluate(() => window.setRecruitCat('quizzes'));
     await page.waitForTimeout(400);
     ok('the airline’s quiz is listed', (await page.textContent('#quizBuildHost')).includes('SOP induction'));
-    ok('…and so is the door', (await page.textContent('#quizBuildHost')).includes('Keep the crew centre shut'));
+    ok('…marked as the entrance test', (await page.textContent('#quizBuildHost')).includes('Entrance test'));
+    ok('…and there is no door any more', !(await page.textContent('#quizBuildHost')).includes('Keep the crew centre shut'));
+    ok('…nor a way to send a test to somebody who never applied', !(await page.$('#quizBuildHost [data-qa-entrance]')));
 
     await clickIn(page, '[data-qa-edit="sop"]');
     await page.waitForTimeout(250);
@@ -224,7 +247,7 @@ const head = (s) => console.log(`\n${s}`);
     ok('ticking an answer saves the quizzes', Array.isArray(body.quizzes) && body.quizzes.length === 1, String(saved.length));
     ok('…carrying the answer key the screen shows', body.quizzes && body.quizzes[0].questions[0].correct === 1,
         JSON.stringify(body.quizzes && body.quizzes[0].questions[0]));
-    ok('…and the door with it', !!body.gate, JSON.stringify(body.gate || null));
+    ok('…and no door with it', body.gate === undefined, JSON.stringify(body.gate || null));
     ok('…and says so', /All changes saved/.test(await page.textContent('#quizBuildHost [data-qa-status]')));
 
     // Type a question in and walk away. Typing saves after a pause; Done used
@@ -282,40 +305,55 @@ const head = (s) => console.log(`\n${s}`);
         JSON.stringify(sent[0] || null));
 
     // ------------------------------------------------------------------
-    head('A test handed out by hand shows up under Applications');
+    head('Joining says what happens to a new pilot');
+
+    await page.evaluate(() => window.setRecruitCat('joining'));
+    await page.waitForTimeout(700);
+    ok('there is no “create a login” switch', !(await page.$('#joinCreatesLogin')));
+    const opts = await page.$$eval('#joinEntranceQuiz option', (os) => os.map((o) => o.textContent));
+    ok('the entrance test is picked from the airline’s quizzes', opts.some((o) => /SOP induction/.test(o)) && opts[0] === 'No entrance test', opts.join('|'));
+    await page.evaluate(() => {
+        const sel = document.getElementById('joinEntranceQuiz'); sel.value = 'sop'; sel.dispatchEvent(new Event('change'));
+        document.getElementById('joinDiscord').value = 'https://discord.gg/tva';
+        const vd = document.getElementById('joinViaDiscord'); vd.checked = true; vd.dispatchEvent(new Event('change'));
+    });
+    await page.waitForTimeout(200);
+    const road = (await page.textContent('#joinRoad')).replace(/\s+/g, ' ');
+    ok('…and the road is drawn under the settings', /Apply.*Discord ticket.*Entrance test · SOP induction.*You accept.*They choose a password/.test(road), road);
+
+    head('Applications: one road, one step each');
 
     await page.evaluate(() => { window.openRoster && window.openRoster(); window.switchRosterView('apps'); });
     await page.waitForTimeout(1200);
     const apps = (await page.textContent('#appsList')).replace(/\s+/g, ' ');
-    ok('a pass with no application is listed with the applications', /Passed an entrance test/.test(apps) && /Sam/.test(apps), apps.slice(0, 300));
-    ok('…with the button that lets them in', !!(await page.$('#appsList [data-et-add]')));
-    await clickIn(page, '#appsList [data-et-add]');
-    await page.waitForTimeout(1000);
-    ok('Add & invite puts them on the roster', samAdded && samAdded.name === 'Sam' && samAdded.ifcName === 'sam_flies', JSON.stringify(samAdded));
-    ok('…and they leave the list', !/Passed an entrance test/.test(await page.textContent('#appsList')));
+    ok('the road is at the top', /How people join/.test(apps) && /Discord ticket/.test(apps), apps.slice(0, 200));
+    ok('ready ones first, then the ones waiting on themselves, then invited',
+        apps.indexOf('Ready for you') < apps.indexOf('Waiting on them') && apps.indexOf('Waiting on them') < apps.indexOf('Invited'), apps.slice(0, 400));
+    ok('a Discord applicant shows their code', /ABCD-1234/.test(apps));
+    ok('there is no login switch on any card', !(await page.$('#appsList [data-mkacct]')) && !(await page.$('#appsMkacctAll')));
+    ok('nobody is listed without an application', !/Passed an entrance test — not added yet/.test(apps));
+    ok('every waiting card can be accepted now (override)', (await page.$$('#appsList [data-app] [data-accept]')).length === 3);
+    ok('each card has one message for its step', (await page.$$('#appsList [data-app] [data-app-copy]')).length === 3);
+
+    await clickIn(page, '#appsList [data-app="r1"] [data-accept]');
+    await page.waitForTimeout(700);
+    ok('accepting sends no login switch — the login is always made', reviews[0] && reviews[0].body.action === 'accept' && reviews[0].body.createAccount === undefined, JSON.stringify(reviews[0] || null));
+    ok('…and offers the welcome to copy', /Copy welcome for IFC/.test(await page.textContent('#appsList [data-app="r1"]')));
+    ok('an invited pilot’s card offers their link to copy', !!(await page.$('#appsList [data-invite-app="i1"] [data-invite-copy]')));
 
     await sctx.close();
 
     // ------------------------------------------------------------------
-    head('A pilot at the door');
+    head('A pilot is never held at a door');
 
     const { ctx: pctx, page: pilot } = await open('crew-pilot.html', { staff: false });
     await pilot.waitForTimeout(600);
-
-    ok('the crew centre is covered', await pilot.evaluate(() => !!document.querySelector('.qz-lock')));
-    ok('…in the airline’s own words',
-        (await pilot.textContent('.qz-lock')).includes('Sit the induction'));
-    ok('…and the page underneath cannot be scrolled', await pilot.evaluate(() => document.body.style.overflow === 'hidden'));
-
-    // A reload must not get anybody past it: the state comes back from /me.
-    await pilot.reload({ waitUntil: 'domcontentloaded' });
-    await pilot.waitForTimeout(1200);
-    ok('a reload does not open it', await pilot.evaluate(() => !!document.querySelector('.qz-lock')));
+    ok('the crew centre is open', await pilot.evaluate(() => !document.querySelector('.qz-lock')));
 
     // ------------------------------------------------------------------
     head('Sitting the paper');
 
-    await clickIn(pilot, '[data-qz-gate-open]');
+    await pilot.evaluate(() => window.openQuizzes('tok123'));
     await pilot.waitForTimeout(700);
     const paper = await pilot.textContent('#crewQuiz');
     ok('the questions are on screen', paper.includes('Cruise altitude is given in?'));
@@ -339,7 +377,6 @@ const head = (s) => console.log(`\n${s}`);
     ok('what is posted is positional, with -1 for the blank',
         handedIn[0] && JSON.stringify(handedIn[0].answers) === '[-1,0]', JSON.stringify(handedIn[0] || null));
     ok('the pilot is told the score', (await pilot.textContent('#crewQuiz')).includes('50%'));
-    ok('…and is still held, because 50% is not 60%', await pilot.evaluate(() => !!document.querySelector('.qz-lock')));
 
     // Now pass it.
     await clickIn(pilot, '[data-qz-again]');
@@ -350,8 +387,7 @@ const head = (s) => console.log(`\n${s}`);
     await clickIn(pilot, '[data-qz-send]');
     await pilot.waitForTimeout(800);
     ok('a pass is reported', (await pilot.textContent('#crewQuiz')).includes('That’s a pass'));
-    ok('…and the door lifts without a reload', await pilot.evaluate(() => !document.querySelector('.qz-lock')));
-    ok('…and the page scrolls again', await pilot.evaluate(() => document.body.style.overflow !== 'hidden'));
+    ok('…and nothing locks', await pilot.evaluate(() => !document.querySelector('.qz-lock')));
 
     head('Nothing threw on the way');
     ok('no page errors', errors.length === 0, errors.join(' | '));

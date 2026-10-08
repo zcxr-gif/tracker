@@ -1937,7 +1937,7 @@
                             <span class="text-sm font-semibold">Application questions</span>
                             <button onclick="addQuestion()" class="tap-target text-xs accent-text font-semibold hover:opacity-80 inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> Add</button>
                         </div>
-                        <p class="text-xs muted mb-2">Shown to applicants (in Application mode). Free pass skips the review.</p>
+                        <p class="text-xs muted mb-2">Asked on your join page and in the Discord bot’s ticket.</p>
                         <div id="qRows" class="space-y-2"></div>
                     </div>
                     <div class="mt-4">
@@ -1950,15 +1950,24 @@
                     </div>
                     <div class="mt-4">
                         <span class="text-sm font-semibold">Discord invite</span>
-                        <p class="text-xs muted mt-1 mb-2">Offered to every pilot you accept, alongside their sign-in. The accept dialog pre-fills this and you can override it for a one-off invite. Must be a <b>discord.gg</b> or <b>discord.com/invite</b> link.</p>
+                        <p class="text-xs muted mt-1 mb-2">Sent with every welcome — and where applicants go to open a ticket when you recruit through Discord. Must be a <b>discord.gg</b> or <b>discord.com/invite</b> link.</p>
                         <input id="joinDiscord" type="url" placeholder="https://discord.gg/…" autocomplete="off" spellcheck="false"
                             class="w-full surface hair rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--ink)]">
                     </div>
+                    <!-- THE ROAD IN (crewRecruit.js). Two choices besides who
+                         accepts: the test, and whether applicants go through
+                         Discord. Accepting always makes the login. -->
+                    <div class="mt-4">
+                        <label class="text-sm font-semibold" for="joinEntranceQuiz">Entrance test</label>
+                        <p class="text-xs muted mt-1 mb-2">Every applicant sits it before they’re accepted. It goes out by itself the moment they apply — or in their Discord ticket — and needs no account. Build tests under <b>Quizzes</b>.</p>
+                        <select id="joinEntranceQuiz" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm"><option value="">No entrance test</option></select>
+                    </div>
                     <label class="mt-4 flex items-start gap-2.5 cursor-pointer">
-                        <input id="joinCreatesLogin" type="checkbox" checked class="mt-1 accent-[var(--accent)]">
-                        <span><span class="text-sm font-semibold">Create a crew center login when accepting</span>
-                            <span class="block text-xs muted mt-0.5">The starting point for every application. Turn it off if you hand logins out later — from Roster → Logins, or by ticking it on one card.</span></span>
+                        <input id="joinViaDiscord" type="checkbox" class="mt-1 accent-[var(--accent)]">
+                        <span><span class="text-sm font-semibold">Send website applicants to our Discord</span>
+                            <span id="joinViaDiscordHint" class="block text-xs muted mt-0.5">After applying they’re told to join with your invite and open a ticket using their application code. The bot greets newcomers, runs the test in the ticket and hands over the login. Needs the Discord bot linked (Alerts → Discord bot) and the invite above.</span></span>
                     </label>
+                    <div id="joinRoad" class="mt-4"></div>
                     <button onclick="saveRecruitment(this)" class="w-full accent-bg text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition mt-3">Save recruitment</button>
                     <p id="recruitNote" class="hidden text-sm mt-2"></p>
                 </div>
@@ -5517,7 +5526,33 @@
         // keeps for itself: the join form refuses them, staff assign them from
         // the roster. 001 is the founder's, not whoever filled the form in
         // first. 0 opens every number up.
-        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', callsignReservedMax:10, discordInvite:'', createsLogin:true, form:[], reqs:[] };
+        let JOIN={ mode:'application', minGrade:0, callsignPrefix:'', callsignReservedMax:10, discordInvite:'', entranceQuizId:'', entranceTest:null, viaDiscord:false, viaDiscordWanted:false, form:[], reqs:[] };
+        // The quizzes that can be the entrance test, read when Joining opens.
+        let JOIN_QUIZZES=null;
+        async function loadJoinQuizzes(){
+            if(!sessionToken()) return;
+            try{ const d=await crewApi()('/entrance-tests'); JOIN_QUIZZES=Array.isArray(d.quizzes)?d.quizzes:[]; }
+            catch{ JOIN_QUIZZES=JOIN_QUIZZES||[]; }
+            renderJoinRoad();
+        }
+        // The road as these settings make it, drawn under them, so what
+        // happens to a new pilot is never a guess.
+        function renderJoinRoad(){
+            const sel=document.getElementById('joinEntranceQuiz');
+            if(sel){
+                const list=JOIN_QUIZZES||(JOIN.entranceTest?[JOIN.entranceTest]:[]);
+                const want=JOIN.entranceQuizId||'';
+                sel.innerHTML='<option value="">No entrance test</option>'+list.map(q=>`<option value="${escapeHtml(q.id)}">${escapeHtml(q.title)} · ${q.passMark}% to pass</option>`).join('')
+                    +(want&&!list.some(q=>q.id===want)?`<option value="${escapeHtml(want)}">(a quiz that no longer exists)</option>`:'');
+                sel.value=want;
+            }
+            const vd=document.getElementById('joinViaDiscord'); if(vd) vd.checked=!!JOIN.viaDiscordWanted;
+            const road=document.getElementById('joinRoad'); if(!road) return;
+            const test=(JOIN_QUIZZES||[]).find(q=>q.id===JOIN.entranceQuizId)||(JOIN.entranceQuizId?JOIN.entranceTest:null);
+            const invite=((document.getElementById('joinDiscord')||{}).value||JOIN.discordInvite||'').trim();
+            road.innerHTML=roadHtml({ auto: JOIN.mode==='free', test, viaDiscord: !!JOIN.viaDiscordWanted && !!invite, viaDiscordWanted: !!JOIN.viaDiscordWanted && !invite }, { change:false });
+            if(window.lucide) lucide.createIcons();
+        }
         // Extensible join requirements. Numeric types are auto-checked against
         // the applicant's real IF stats; 'agree' is a custom checkbox. (Grade has
         // its own control above, so it's intentionally not offered here.)
@@ -5555,14 +5590,14 @@
               .filter(r=> r.type==='agree' ? r.label : r.value>0);
         }
         function renderJoinMode(){
-            const opts=[{k:'free',name:'Free pass',desc:'Anyone can join instantly'},{k:'application',name:'Application review',desc:'Staff accept or decline'}];
+            const opts=[{k:'application',name:'Staff accept each pilot',desc:'You accept or decline every application — after the test, if you have one'},{k:'free',name:'Accept automatically',desc:'Anyone who meets your requirements is in — on applying, or on passing your test'}];
             document.getElementById('joinModeOpts').innerHTML=opts.map(o=>{
                 const on=JOIN.mode===o.k;
                 return `<button role="radio" aria-checked="${on}" data-join="${o.k}" class="lyt-opt w-full flex items-center gap-3 surface hair rounded-lg px-4 py-3 text-left hover:border-[var(--ink)]">
                     <span class="dot w-4 h-4 rounded-full border-2 hair shrink-0"></span>
                     <span><span class="block text-sm font-semibold">${o.name}</span><span class="block text-xs muted">${o.desc}</span></span></button>`;
             }).join('');
-            document.querySelectorAll('#joinModeOpts [data-join]').forEach(b=>b.addEventListener('click',()=>{ JOIN.mode=b.getAttribute('data-join'); renderJoinMode(); }));
+            document.querySelectorAll('#joinModeOpts [data-join]').forEach(b=>b.addEventListener('click',()=>{ JOIN.mode=b.getAttribute('data-join'); renderJoinMode(); renderJoinRoad(); }));
         }
         function qRowHtml(q,i){
             return `<div class="flex items-center gap-2" data-q="${i}">
@@ -5588,7 +5623,8 @@
                     : 'Nothing is reserved — applicants can pick any number, including 1.';
             }
             const inv=document.getElementById('joinDiscord'); if(inv) inv.value=JOIN.discordInvite||'';
-            const mk=document.getElementById('joinCreatesLogin'); if(mk) mk.checked=JOIN.createsLogin!==false;
+            renderJoinRoad();
+            if(JOIN_QUIZZES===null) loadJoinQuizzes();
             renderQuestions();
             renderRequirements();
             const slug=getSlug();
@@ -5823,6 +5859,12 @@
         function testEmail(){ const to=document.getElementById('emTestTo').value.trim(); postEmail(emailPayload({test:true, testTo:to}), 'Test sent — check that inbox.'); }
 
         function wireRecruitment(){
+            const sel=document.getElementById('joinEntranceQuiz');
+            if(sel) sel.addEventListener('change', ()=>{ JOIN.entranceQuizId=sel.value; renderJoinRoad(); });
+            const vd=document.getElementById('joinViaDiscord');
+            if(vd) vd.addEventListener('change', ()=>{ JOIN.viaDiscordWanted=vd.checked; renderJoinRoad(); });
+            const inv=document.getElementById('joinDiscord');
+            if(inv) inv.addEventListener('input', ()=>renderJoinRoad());
             const host=document.getElementById('qRows');
             host.addEventListener('input', e=>{ const row=e.target.closest('[data-q]'); if(!row) return; const i=+row.getAttribute('data-q'); const f=e.target.getAttribute('data-qf'); if(!f) return; JOIN.form[i][f]= f==='required'? e.target.checked : e.target.value; });
             host.addEventListener('change', e=>{ const row=e.target.closest('[data-q]'); if(!row) return; const i=+row.getAttribute('data-q'); const f=e.target.getAttribute('data-qf'); if(f==='type'||f==='required') JOIN.form[i][f]= f==='required'? e.target.checked : e.target.value; });
@@ -5841,14 +5883,20 @@
                 if(Number.isFinite(n)&&n>=0) JOIN.callsignReservedMax=Math.min(999,n);
             }
             JOIN.discordInvite=(document.getElementById('joinDiscord')||{}).value?.trim()||'';
-            const mk=document.getElementById('joinCreatesLogin'); if(mk) JOIN.createsLogin=!!mk.checked;
-            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, callsignReservedMax:JOIN.callsignReservedMax, discordInvite:JOIN.discordInvite||'', acceptCreatesLogin:JOIN.createsLogin!==false, applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
+            JOIN.entranceQuizId=(document.getElementById('joinEntranceQuiz')||{}).value||'';
+            JOIN.viaDiscordWanted=!!(document.getElementById('joinViaDiscord')||{}).checked;
+            const payload={ joinMode:JOIN.mode, minGrade:JOIN.minGrade, callsignPrefix:JOIN.callsignPrefix, callsignReservedMax:JOIN.callsignReservedMax, discordInvite:JOIN.discordInvite||'', entranceQuizId:JOIN.entranceQuizId, joinViaDiscord:JOIN.viaDiscordWanted, applicationForm:JOIN.form.filter(q=>String(q.label||'').trim()), joinRequirements:cleanReqs() };
             const token=sessionToken(), slug=getSlug();
             if(!slug||!token){ note.textContent='Applied on this device. Sign in to save for your crew.'; note.className='text-sm muted'; note.classList.remove('hidden'); say('Applied on this device. Sign in to save it for your crew.','info'); return; }
             const stop=busy(btn,'Saving…');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify(payload) });
                 if(res.ok){
+                    // The applications list draws the road from what it was
+                    // last told; until it is told again, from these settings.
+                    APP_RULES=null;
+                    JOIN.entranceTest=(JOIN_QUIZZES||[]).find(q=>q.id===JOIN.entranceQuizId)||null;
+                    JOIN.viaDiscord=JOIN.viaDiscordWanted && !!JOIN.discordInvite;
                     note.textContent='Recruitment saved.'; note.className='text-sm text-emerald-600 dark:text-emerald-400';
                     say(JOIN.mode==='closed'?'Recruitment saved — applications are closed.':'Recruitment saved — your join page is live.','ok');
                     // No changed() here either: what these settings drive is the
@@ -8794,7 +8842,7 @@
         });
 
         // ---- Applications (staff review: accept / decline + message) ----
-        let ROSTER_VIEW='roster', APPS=[], WAITING_TESTS=[];
+        let ROSTER_VIEW='roster', APPS=[], APP_RULES=null;
         function updateRosterTabs(){
             document.querySelectorAll('#rosterViewTabs [data-view]').forEach(b=>{
                 const on=b.getAttribute('data-view')===ROSTER_VIEW;
@@ -8811,15 +8859,13 @@
             // Add-pilot and the CSV tools only make sense on the roster tab.
             document.getElementById('addPilotBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
             document.getElementById('rosterCsvBtn').classList.toggle('hidden', !onRoster || !ROSTER_CANMANAGE);
-            if(v==='apps'){ closePilotForm(); renderApps(); Promise.all([fetchApps(), mountEntrance()]).then(renderApps); }
+            if(v==='apps'){ closePilotForm(); renderApps(); Promise.all([fetchApps(), fetchInvites(), mountEntrance()]).then(renderApps); }
             if(v==='invites'){ closePilotForm(); renderInvites(); Promise.all([fetchInvites(),fetchResets(),fetchLoginSetup()]).then(renderInvites); }
             showListTop(onRoster?'rosterList':v==='apps'?'appsList':'invitesList');
         }
-        // Applications, plus anybody who passed an entrance test handed out by
-        // hand and has not been let in yet — they are waiting just the same.
+        // Everybody who has applied and is not in yet.
         function appBadgeCount(){
-            const tests = window.CrewEntrance ? CrewEntrance.waitingCount(WAITING_TESTS) : WAITING_TESTS.length;
-            return APPS.filter(a=>a.status==='pending').length + tests;
+            return APPS.filter(a=>a.status==='pending').length;
         }
         // Split out so the figures panel can raise the badge on load. The
         // applications list itself is only fetched when the roster is opened,
@@ -8838,7 +8884,7 @@
                 if(res.ok){
                     const d=await res.json();
                     APPS=Array.isArray(d.applications)?d.applications:[];
-                    WAITING_TESTS=Array.isArray(d.waitingTests)?d.waitingTests:[];
+                    APP_RULES=d.rules||null;
                 }
             }catch{}
         }
@@ -8881,8 +8927,7 @@
            one. A pilot sitting at a sign-in page they cannot get through is
            the more urgent of the two, which is why they are drawn first. */
         const waitingCount=()=>
-            INVITES.filter(x=>x.invite&&x.invite.state==='live').length
-            + RESETS.filter(r=>!r.password).length
+            RESETS.filter(r=>!r.password).length
             + (typeof unsentInviteCount==='function'?unsentInviteCount():0);
         async function fetchInvites(){
             const slug=getSlug(), token=sessionToken();
@@ -8891,33 +8936,39 @@
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications?status=accepted`,{ headers:{Accept:'application/json',Authorization:'Bearer '+token} });
                 if(!res.ok) return;
                 const d=await res.json();
-                // Everything still waiting, plus anything settled recently — so
-                // a staff member sees "signed in on the 4th" instead of a card
-                // that vanished, without the tab silting up with every pilot the
-                // VA has ever accepted.
+                // Everybody accepted who has not signed in, plus anybody who
+                // did recently — so a staff member sees "signed in on the 4th"
+                // instead of a card that vanished, without the list silting up
+                // with every pilot the VA has ever accepted.
                 const SETTLED_WINDOW_MS=14*24*60*60*1000, now=Date.now();
                 const recent=(t)=>{ const v=t?Date.parse(t):NaN; return Number.isFinite(v) && (now-v)<SETTLED_WINDOW_MS; };
                 INVITES=(Array.isArray(d.applications)?d.applications:[]).filter(a=>{
-                    const i=a.invite; if(!i||!i.state||i.state==='none') return false;
-                    if(i.state==='live') return true;
-                    return recent(i.claimedAt||i.revokedAt||i.expiresAt||i.issuedAt);
+                    const i=a.invite||{};
+                    if(i.state==='claimed') return recent(i.claimedAt||a.reviewedAt);
+                    if(i.state==='live'||i.state==='expired') return true;
+                    return recent(a.reviewedAt);
                 });
             }catch{}
         }
-        const inviteBadge=(s)=>({
-            live:   ['Waiting to be used','bg-amber-500'],
-            claimed:['Signed in','bg-emerald-600'],
-            revoked:['Discarded','bg-[var(--muted)]'],
-            expired:['Expired','bg-[var(--muted)]'],
-        }[s]||['','']);
+        const inviteBadge=(inv)=>{
+            const s=inv.state;
+            if(s==='live') return inv.sentAt?['Sent','bg-sky-600']:['Ready to send','bg-amber-500'];
+            return ({ claimed:['Signed in','bg-emerald-600'], revoked:['Discarded','bg-[var(--muted)]'],
+                expired:['Link expired','bg-[var(--muted)]'], none:['No login yet','bg-amber-500'] }[s]||['','']);
+        };
+        // One accepted applicant and their invitation: a link to choose a
+        // password (every acceptance now), or on an older database the
+        // temporary password. Drawn under Applications → Invited.
         function inviteCardHtml(a){
-            const id=a._id||a.id, inv=a.invite||{}, live=inv.state==='live';
-            const [label,colour]=inviteBadge(inv.state);
+            const id=a._id||a.id, inv=a.invite||{}, live=inv.state==='live', link=inv.kind!=='password';
+            const [label,colour]=inviteBadge(inv);
             const when=(d)=>{ try{ return new Date(d).toLocaleDateString(undefined,{day:'numeric',month:'short'}); }catch{ return ''; } };
-            const trail = inv.state==='claimed' ? `Signed in ${when(inv.claimedAt)} — nothing left to hand over.`
-                : inv.state==='revoked' ? `Discarded ${when(inv.revokedAt)}. Their login still works; reissue below if they need a new password.`
-                : inv.state==='expired' ? `Issued ${when(inv.issuedAt)} and never used, so it has lapsed. Reissue to give them a fresh one.`
-                : `Issued ${when(inv.issuedAt)}${inv.expiresAt?`, lapses ${when(inv.expiresAt)}`:''}.`;
+            const trail = inv.state==='claimed' ? `Signed in ${when(inv.claimedAt||a.reviewedAt)} — all set.`
+                : inv.state==='revoked' ? 'Thrown away. Make a new one if they still need it.'
+                : inv.state==='expired' ? `Accepted ${when(a.reviewedAt)}, but the link ran out before they used it.`
+                : inv.state==='none' ? 'Accepted without a login. Make one now and send it to them.'
+                : `Accepted ${when(a.reviewedAt)}. ${link?'Their link':'The temporary password'} works until ${when(inv.expiresAt)}.${inv.sentAt?` Copied${inv.sentBy?` by ${inv.sentBy}`:''} ${ago(inv.sentAt)}.`:''}`;
+            const regenLabel = link ? (live?'New link':'Make a new link') : (live?'New password':'Issue a new password');
             return `<div class="surface rounded-xl p-4" data-invite-app="${escapeHtml(String(id))}">
                 <div class="flex items-start gap-3">
                     <div class="accent-bg w-10 h-10 rounded-full text-white grid place-items-center text-sm font-bold shrink-0">${escapeHtml(initials(a.ifcName||'?',''))}</div>
@@ -8925,27 +8976,24 @@
                         <div class="flex items-center gap-2 flex-wrap">
                             <span class="font-semibold truncate">${escapeHtml(a.ifcName||'Unnamed')}</span>
                             ${label?`<span class="text-[10px] font-bold uppercase tracking-wide text-white ${colour} rounded-full px-1.5 py-0.5">${escapeHtml(label)}</span>`:''}
+                            ${a.inTicket?'<span class="text-[10px] font-semibold muted surface hair rounded-full px-1.5 py-0.5">In a Discord ticket</span>':''}
                         </div>
                         <div class="text-xs muted mt-1">${escapeHtml(trail)}</div>
+                        ${inv.username&&inv.state!=='claimed'?`<div class="text-xs muted mt-1">Username <span class="font-mono">${escapeHtml(inv.username)}</span></div>`:''}
                     </div>
-                    <button data-invite-trash title="Throw this invitation away" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                    ${live?`<button data-invite-trash title="Throw this invitation away — the ${link?'link':'password'} stops working" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-red-500 shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
                 </div>
-                ${live?`<div class="mt-3 rounded-lg border hair p-3">
-                    <div class="text-[11px] uppercase tracking-wide faint">Their login</div>
-                    <div class="font-mono text-sm mt-1 select-all">${escapeHtml(inv.username||'')}</div>
-                    <div class="flex items-center gap-2 mt-0.5">
+                ${live&&!link?`<div class="flex items-center gap-2 mt-2">
+                        <span class="text-[11px] uppercase tracking-wide faint">Password</span>
                         <span class="font-mono text-sm select-all" data-pw data-shown="0">${'•'.repeat(Math.max(8,(inv.password||'').length))}</span>
                         <button data-invite-reveal class="text-xs accent-text font-semibold hover:underline">Show</button>
-                    </div>
-                    <div class="flex flex-wrap gap-2 mt-3">
-                        <button data-invite-copy class="flex-1 accent-bg text-white rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy for IFC</button>
-                        <button data-invite-copy-plain title="The same words with no pictures — for Discord" class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="text" class="w-3.5 h-3.5"></i> Plain text</button>
-                        <button data-invite-regen class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> New password</button>
-                    </div>
-                    <div class="text-[11px] faint mt-2">The IFC copy opens with your banner and ends with a welcome strip — paste it into their IFC message. Plain text is the same words for Discord. It disappears from here the moment they sign in.</div>
-                </div>`:`<div class="mt-3">
-                    <button data-invite-regen class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Issue a new password</button>
-                </div>`}
+                    </div>`:''}
+                ${inv.state==='claimed'?'':`<div class="flex flex-wrap gap-2 mt-3">
+                    ${live?`<button data-invite-copy class="flex-1 ${inv.sentAt?'surface hair':'accent-bg text-white'} rounded-lg px-3 py-2 text-xs font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> ${inv.sentAt?'Copy again':'Copy for IFC'}</button>
+                    <button data-invite-copy-plain title="The same words with no pictures — for Discord" class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="text" class="w-3.5 h-3.5"></i> Plain text</button>`:''}
+                    <button data-invite-regen class="${live?'surface hair':'accent-bg text-white'} rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> ${regenLabel}</button>
+                </div>
+                ${live?`<div class="text-[11px] faint mt-2">It’s on their status page${a.email?', was emailed to them':''}${a.inTicket?' and in their Discord ticket':''}. Copy it only if you reach them another way — the IFC copy opens with your banner.</div>`:''}`}
                 <p data-invite-note class="hidden text-sm mt-2"></p>
             </div>`;
         }
@@ -8954,16 +9002,13 @@
             const list=document.getElementById('invitesList');
             if(!list) return;
             if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to see invitations.</p>'; return; }
-            // Waiting first — those are the ones with something still to do.
-            const order={live:0,expired:1,revoked:2,claimed:3};
-            const sorted=[...INVITES].sort((x,y)=>(order[x.invite.state]??9)-(order[y.invite.state]??9));
-            // Somebody standing at a sign-in page they cannot get through beats
-            // an invitation that has been sitting unused for a fortnight.
+            // Somebody standing at a sign-in page they cannot get through comes
+            // first. Applicants' invitations live under Applications → Invited.
             const resets=[...RESETS].sort((x,y)=>(x.password?1:0)-(y.password?1:0));
             keepPlace(list,()=>{
-                const html = resets.map(resetCardHtml).join('') + sorted.map(inviteCardHtml).join('');
+                const html = resets.map(resetCardHtml).join('');
                 list.innerHTML = loginSetupHtml() + (html
-                    || '<p class="text-sm faint text-center py-10">Nothing waiting. Accepting an application with a login puts it here, and so does a pilot who asks for a new password from the sign-in page.</p>');
+                    || '<p class="text-sm faint text-center py-10">Nothing waiting. A pilot who asks for a new password from the sign-in page shows up here. Applicants you accept are under Applications → Invited.</p>');
                 if(window.lucide) lucide.createIcons();
             });
         }
@@ -9141,10 +9186,10 @@
                 if(!can('settings.recruitment')) return gNo('You don’t have permission to change recruitment.');
                 const m=JOIN.mode||'application';
                 const opt=(v,t,d)=>`<button data-guide-join="${v}" class="text-left rounded-lg p-2.5 hair" style="${m===v?'border-color:var(--accent);background:color-mix(in srgb, var(--accent) 8%, transparent)':''}"><div class="text-sm font-semibold">${t}</div><div class="text-[11px] muted mt-0.5">${d}</div></button>`;
-                return `<div class="grid grid-cols-2 gap-2 mt-3">${opt('application','Applications','Pilots apply; staff accept them.')}${opt('free','Open joining','Anyone who meets your requirements is in straight away.')}</div>
+                return `<div class="grid grid-cols-2 gap-2 mt-3">${opt('application','Staff accept each pilot','Pilots apply; you accept them — after the test, if you set one.')}${opt('free','Accept automatically','Anyone who meets your requirements is in — on applying, or on passing your test.')}</div>
                     <label class="block text-xs font-semibold mt-3" for="guideInvite">Discord invite for new pilots</label>
                     <input id="guideInvite" type="url" placeholder="https://discord.gg/…" value="${escapeHtml(JOIN.discordInvite||'')}" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-[var(--ink)]">
-                    ${gRow(gBtn('join-save','Save','check',true), gBtn('join-more','Questions, requirements & callsigns','sliders-horizontal'))}`;
+                    ${gRow(gBtn('join-save','Save','check',true), gBtn('join-more','Entrance test, Discord, questions & callsigns','sliders-horizontal'))}`;
             }
             case 'team':
                 return `<p class="text-xs muted mt-3">Staff sign in with their own accounts, made in the VA portal under Team. Then give each one a role here with only the permissions they need.</p>
@@ -9765,71 +9810,127 @@
             n.className='text-sm mt-2 '+(kind==='error'?'text-red-500':kind==='ok'?'text-emerald-600 dark:text-emerald-400':'muted');
             n.classList.remove('hidden');
         }
-        // One helper for all three invitation actions: they differ only in verb,
-        // URL and confirmation, and all three replace the card with whatever the
-        // backend says the invitation now is.
-        async function inviteAction(id, card, {method, path, check, working}){
+        // One call for every invitation action; each replaces the card with
+        // whatever the server says the invitation now is.
+        async function inviteAction(id, card, {method, path, check, working, body}){
             const token=sessionToken(), slug=getSlug();
-            if(!slug||!token) return;
+            if(!slug||!token) return null;
             // Buttons down before the question, so a double-press on a card
             // cannot stack two of them — see removePilot.
-            card.querySelectorAll('button').forEach(b=>b.disabled=true);
-            if(check && !(await ask(check))){ card.querySelectorAll('button').forEach(b=>b.disabled=false); return; }
-            inviteNote(card, working, 'muted');
+            if(card) card.querySelectorAll('button').forEach(b=>b.disabled=true);
+            if(check && !(await ask(check))){ if(card) card.querySelectorAll('button').forEach(b=>b.disabled=false); return null; }
+            if(card && working) inviteNote(card, working, 'muted');
             try{
                 const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/applications/${encodeURIComponent(id)}/invite${path||''}`,{
-                    method, headers:{Accept:'application/json',Authorization:'Bearer '+token} });
+                    method, headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:'Bearer '+token},
+                    body: body?JSON.stringify(body):undefined });
                 const d=await res.json().catch(()=>({}));
-                if(!res.ok){ inviteNote(card, d.error||'That didn’t work.', 'error'); card.querySelectorAll('button').forEach(b=>b.disabled=false); return; }
+                if(!res.ok){ if(card){ inviteNote(card, d.error||'That didn’t work.', 'error'); card.querySelectorAll('button').forEach(b=>b.disabled=false); } return null; }
                 const i=INVITES.findIndex(a=>String(a._id||a.id)===String(id));
                 if(i>=0) INVITES[i]={...INVITES[i], invite:d.invite};
-                renderInvites();
+                if(ROSTER_VIEW==='apps') renderApps();
                 changed('invites');
+                return d.invite;
             }catch{
-                inviteNote(card,'Server unreachable.','error');
-                card.querySelectorAll('button').forEach(b=>b.disabled=false);
+                if(card){ inviteNote(card,'Server unreachable.','error'); card.querySelectorAll('button').forEach(b=>b.disabled=false); }
+                return null;
             }
         }
-        document.addEventListener('click', e=>{
+        // Copied to send: recorded on the server so the next staff member sees
+        // who sent it and when, rather than sending it twice.
+        const markAppInviteSent=(id)=>inviteAction(id, null, { method:'POST', path:'/sent', body:{ sent:true } });
+        document.addEventListener('click', async e=>{
             const card=e.target.closest('[data-invite-app]');
             if(!card) return;
             const id=card.getAttribute('data-invite-app');
             const a=INVITES.find(x=>String(x._id||x.id)===String(id));
+            const inv=(a&&a.invite)||{};
             if(e.target.closest('[data-invite-reveal]')){
                 const pw=card.querySelector('[data-pw]'), btn=e.target.closest('[data-invite-reveal]');
                 const shown=pw.getAttribute('data-shown')==='1';
-                const real=(a&&a.invite&&a.invite.password)||'';
+                const real=inv.password||'';
                 pw.textContent = shown ? '•'.repeat(Math.max(8,real.length)) : real;
                 pw.setAttribute('data-shown', shown?'0':'1');
                 btn.textContent = shown ? 'Show' : 'Hide';
                 return;
             }
-            if(e.target.closest('[data-invite-copy-plain]')){
-                const msg=(a&&a.invite&&(a.invite.plainMessage||a.invite.message))||'';
+            const plain=e.target.closest('[data-invite-copy-plain]');
+            if(plain || e.target.closest('[data-invite-copy]')){
+                const msg=(plain?(inv.plainMessage||inv.message):inv.message)||'';
                 if(!msg) return;
-                copyText(msg).then(ok=>inviteNote(card, ok?'Copied as plain text — paste it to them.':'Couldn’t copy. Select the text instead.', ok?'ok':'error'));
-                return;
-            }
-            if(e.target.closest('[data-invite-copy]')){
-                const msg=(a&&a.invite&&a.invite.message)||'';
-                if(!msg) return;
-                copyText(msg).then(ok=>inviteNote(card, ok?'Copied — paste it to them.':'Couldn’t copy. Select the text instead.', ok?'ok':'error'));
+                if(inv.sentAt && !confirm(`${a.ifcName||'Their'} invitation was already copied${inv.sentBy?` by ${inv.sentBy}`:''} ${ago(inv.sentAt)}. Copy it again?`)) return;
+                const ok=await copyText(msg);
+                inviteNote(card, ok?'Copied — paste it to them.':'Couldn’t copy. Select the text instead.', ok?'ok':'error');
+                if(ok) markAppInviteSent(id);
                 return;
             }
             if(e.target.closest('[data-invite-regen]')){
-                inviteAction(id, card, { method:'POST', path:'/regenerate', working:'Issuing…',
-                    check:{ title:'Issue a new temporary password?', confirm:'Issue a new one',
-                        body:'This replaces their current one — anything you have already sent them will stop working.' } });
+                const link=inv.kind!=='password';
+                inviteAction(id, card, { method:'POST', path:'/regenerate', working:'Making it…',
+                    check: inv.state==='live' ? { title: link?'Make a new link?':'Issue a new temporary password?', confirm: link?'New link':'Issue a new one',
+                        body:'The one they have now stops working — including anything already sent to them.' } : null });
                 return;
             }
             if(e.target.closest('[data-invite-trash]')){
                 inviteAction(id, card, { method:'DELETE', working:'Discarding…', check:{
                     title:'Throw this invitation away?', confirm:'Throw it away', danger:true,
-                    body:'The password stops being shown here. Their account is not touched — they keep it, and you can issue a new password later.' } });
+                    body:'What they were sent stops working. Their login stays — you can make a new link later.' } });
             }
         });
+
+        /* =====================================================================
+           APPLICATIONS — one road in
+
+           The server works out which step every applicant is on (crewRecruit.js)
+           and the cards are grouped by it:
+
+             Ready for you      no test, a pass, or no goes left: accept/decline
+             Waiting on them    open a Discord ticket / take the entrance test —
+                                they move on by themselves
+             Invited            accepted: their login is a link to choose a
+                                password, waiting for them to use it
+
+           Every card has ONE message to paste on the IFC — for the step it is
+           on — and the overrides staff always have: accept now, send a test,
+           decline. Accepting always makes the login; there is no switch.
+           =================================================================== */
+        const STAGE_INFO={
+            review: ['Ready for you','bg-emerald-600'],
+            test:   ['Taking the entrance test','accent-bg'],
+            discord:['Needs to open a Discord ticket','bg-amber-500'],
+        };
+        const COPY_HINT={
+            review: 'Lets them know it’s with you, with their status link.',
+            test:   'Their test link and what it takes to pass.',
+            discord:'Your Discord invite and their application code — the bot takes it from there.',
+        };
+        function recruitRules(){
+            if(APP_RULES) return APP_RULES;
+            return { auto: JOIN.mode==='free', test: JOIN.entranceTest||null, viaDiscord: !!JOIN.viaDiscord, viaDiscordWanted: !!JOIN.viaDiscordWanted, discordInvite: JOIN.discordInvite||'' };
+        }
+        function roadSteps(r){
+            const steps=['Apply'];
+            if(r.viaDiscord) steps.push('Discord ticket');
+            if(r.test) steps.push(`Entrance test · ${r.test.title}`);
+            steps.push(r.auto ? 'Accepted automatically' : 'You accept');
+            steps.push('They choose a password');
+            return steps;
+        }
+        function roadHtml(r, { change=true }={}){
+            const steps=roadSteps(r);
+            return `<div class="surface hair rounded-xl px-3.5 py-2.5">
+                <div class="flex items-center gap-2">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider faint">How people join</span>
+                    ${change&&can('settings.recruitment')?'<button onclick="openRecruit(\'joining\')" class="ml-auto text-xs accent-text font-semibold hover:underline">Change</button>':''}
+                </div>
+                <div class="flex items-center gap-1 flex-wrap mt-1.5 text-xs">${steps.map((x,i)=>`${i?'<i data-lucide="chevron-right" class="w-3 h-3 faint"></i>':''}<span class="surface hair rounded-full px-2 py-0.5 font-semibold">${escapeHtml(x)}</span>`).join('')}</div>
+                ${r.viaDiscordWanted&&!r.viaDiscord?'<div class="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5">Sending applicants to Discord is switched on, but it needs the Discord bot linked with a ticket channel, and a Discord invite — until then they skip that step.</div>':''}
+                <div class="text-[11px] faint mt-1.5">You can step in at any point: accept without the test, send a test, or decline.</div>
+            </div>`;
+        }
         function appCardHtml(a){
-            const id=a._id||a.id;
+            const id=a._id||a.id, stage=a.stage||'review';
+            const [label,colour]=STAGE_INFO[stage]||['',''];
             const verified=a.ifVerified
                 ? `<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold"><i data-lucide="badge-check" class="w-3.5 h-3.5"></i>verified</span>`
                 : `<span class="inline-flex items-center gap-1 faint text-[11px] font-semibold" title="Our IF lookup couldn’t confirm this account">unverified</span>`;
@@ -9840,39 +9941,30 @@
                     <div class="accent-bg w-10 h-10 rounded-full text-white grid place-items-center text-sm font-bold shrink-0">${escapeHtml(initials(a.ifcName||'?',''))}</div>
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 flex-wrap"><span class="font-semibold truncate">${escapeHtml(a.ifcName||'Unnamed')}</span>${verified}</div>
-                        <div class="flex items-center gap-1.5 flex-wrap mt-1">${a.callsign?`<span class="text-xs faint">${escapeHtml(a.callsign)}</span>`:((a.callsignPrefix||a.callsignNumber)?`<span class="text-xs faint">${escapeHtml((a.callsignPrefix||'')+(a.callsignNumber||''))}</span>`:'')}${grade}</div>
+                        <div class="flex items-center gap-1.5 flex-wrap mt-1">${a.callsign?`<span class="text-xs faint">${escapeHtml(a.callsign)}</span>`:''}${grade}
+                            ${label?`<span class="text-[10px] font-bold uppercase tracking-wide text-white ${colour} rounded-full px-1.5 py-0.5">${escapeHtml(label)}</span>`:''}
+                            ${a.inTicket?'<span class="text-[10px] font-semibold muted surface hair rounded-full px-1.5 py-0.5">In a Discord ticket</span>':''}</div>
                         ${a.email?`<div class="text-xs muted mt-1 inline-flex items-center gap-1"><i data-lucide="mail" class="w-3.5 h-3.5"></i>${escapeHtml(a.email)}</div>`:''}
+                        ${stage==='discord'&&a.code?`<div class="text-xs muted mt-1">Application code <span class="font-mono font-semibold text-[var(--ink)]">${escapeHtml(a.code)}</span> — they enter it in their Discord ticket.</div>`:''}
                     </div>
                 </div>
                 ${answers?`<div class="mt-2 pl-1">${answers}</div>`:''}
-                ${window.CrewEntrance?`<div class="mt-3">${CrewEntrance.cardHtml(a)}</div>`:''}
-                <textarea data-msg rows="2" placeholder="${a.email?'Message emailed to the applicant + shown on their status page…':'Message shown on their status page…'}" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-3 focus:outline-none focus:border-[var(--ink)]"></textarea>
-
-                <!-- What they get on acceptance. Ignored entirely on decline. -->
-                <div class="mt-2.5 rounded-lg border hair p-3 space-y-2.5">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">On acceptance</div>
-                    <label class="flex items-start gap-2 text-sm cursor-pointer">
-                        <input data-mkacct type="checkbox"${JOIN.createsLogin!==false?' checked':''} class="mt-0.5 accent-[var(--accent)]">
-                        <span>Create a crew center login
-                            <span class="block text-xs muted">A temporary password is generated and they’re asked to replace it on first sign-in. ${a.email?'It is emailed to them with a sign-in link.':'They gave no email — add an address below and we’ll send it, or hand it over yourself.'} It also waits under <b>Invitations</b>, and on their own status link, until they sign in.</span>
-                        </span>
-                    </label>
-                    ${a.email?'':`<div>
-                        <input data-email type="email" placeholder="Their email — optional, so we can send the sign-in details"
-                            class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                        <div class="text-xs muted mt-1">Left blank, you pass it on yourself — copy it from Invitations whenever you get round to them.</div>
-                    </div>`}
-                    <div>
-                        <input data-invite type="url" value="${escapeHtml(JOIN.discordInvite||'')}" placeholder="https://discord.gg/…"
-                            class="w-full surface hair rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--ink)]">
-                        <div class="text-xs muted mt-1">Discord invite sent with the welcome. ${JOIN.discordInvite?'Pre-filled from your settings — override for a one-off invite.':'Set a default in Recruitment → Joining.'}</div>
+                ${window.CrewEntrance?`<div class="mt-3">${CrewEntrance.cardHtml(a, recruitRules())}</div>`:''}
+                ${a.applicant&&a.applicant.message?`<div class="mt-3">
+                    <div class="flex flex-wrap gap-2">
+                        <button data-app-copy class="flex-1 surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center justify-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy their next step for IFC</button>
+                        <button data-app-copy-plain title="The same words with no pictures — for Discord" class="surface hair rounded-lg px-3 py-2 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="text" class="w-3.5 h-3.5"></i> Plain text</button>
                     </div>
-                </div>
-
+                    <div class="text-[11px] faint mt-1">${escapeHtml(COPY_HINT[stage]||'')}${a.email?' It was emailed to them too.':''}</div>
+                </div>`:''}
+                <textarea data-msg rows="2" placeholder="${a.email?'A message for them — emailed and shown on their status page…':'A message for them — shown on their status page…'}" class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-3 focus:outline-none focus:border-[var(--ink)]"></textarea>
+                ${a.email?'':`<input data-email type="email" placeholder="Their email — optional; their login link is emailed to it when you accept"
+                    class="w-full surface hair rounded-lg px-3 py-2 text-sm mt-2 focus:outline-none focus:border-[var(--ink)]">`}
                 <div class="flex gap-2 mt-2">
-                    <button data-accept class="flex-1 bg-emerald-600 text-white rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="check" class="w-4 h-4"></i> Accept</button>
+                    <button data-accept class="flex-1 ${stage==='review'?'bg-emerald-600 text-white':'surface hair text-emerald-700 dark:text-emerald-400'} rounded-lg py-2 text-sm font-semibold hover:opacity-90 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="check" class="w-4 h-4"></i> ${stage==='review'?'Accept':'Accept now'}</button>
                     <button data-decline class="flex-1 surface hair rounded-lg py-2 text-sm font-semibold hover:text-red-500 transition inline-flex items-center justify-center gap-1.5"><i data-lucide="x" class="w-4 h-4"></i> Decline</button>
                 </div>
+                <div class="text-[11px] faint mt-1.5">Accepting puts them on the roster and makes their login — they choose their own password from the link they get.</div>
                 <p data-note class="hidden text-sm mt-2"></p>
             </div>`;
         }
@@ -9883,10 +9975,15 @@
         function mountEntrance(){
             if(!window.CrewEntrance || !sessionToken()) return Promise.resolve();
             if(!ENTRANCE_MOUNTED){
-                ENTRANCE_MOUNTED=CrewEntrance.mount({ api: crewApi(), onChange: ()=>renderApps() }).catch(()=>{});
+                ENTRANCE_MOUNTED=CrewEntrance.mount({ api: crewApi(), onChange: ()=>{ fetchApps().then(renderApps); } }).catch(()=>{});
                 CrewEntrance.wire(document.getElementById('appsList'));
             }
             return ENTRANCE_MOUNTED;
+        }
+        function appGroupHtml(title, hint, cards){
+            if(!cards) return '';
+            return `<section class="space-y-3"><div><div class="text-[11px] font-semibold uppercase tracking-wider faint">${escapeHtml(title)}</div>
+                ${hint?`<div class="text-xs muted mt-0.5">${escapeHtml(hint)}</div>`:''}</div>${cards}</section>`;
         }
         function renderApps(){
             refreshAppsBadge();
@@ -9894,53 +9991,19 @@
             if(!sessionToken()){ list.innerHTML='<p class="text-sm faint text-center py-10">Sign in as owner or staff to review applications.</p>'; return; }
             const pending=APPS.filter(a=>a.status==='pending');
             if(window.CrewEntrance) CrewEntrance.noteCards(pending);
-            // The way to every test, and to sending one to somebody who never
-            // applied — a pilot met on the IFC.
-            const tests = window.CrewEntrance ? `<div class="flex items-center gap-2 flex-wrap surface hair rounded-xl px-3.5 py-2.5">
-                    <i data-lucide="file-pen-line" class="w-4 h-4 muted"></i>
-                    <span class="text-sm flex-1 min-w-[10rem]"><b>Entrance tests</b> <span class="muted">— send one before you accept. No login needed to sit it.</span></span>
-                    <button onclick="CrewEntrance.open()" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition">All tests &amp; send to someone new</button>
-                </div>` : '';
-            // One switch for every card, so a VA that hands logins out later
-            // does not have to untick it on each application in turn.
-            const logins = `<label class="flex items-center gap-2.5 flex-wrap surface hair rounded-xl px-3.5 py-2.5 cursor-pointer">
-                    <input id="appsMkacctAll" type="checkbox"${JOIN.createsLogin!==false?' checked':''} onchange="setAcceptLogins(this.checked)" class="accent-[var(--accent)]">
-                    <span class="text-sm flex-1 min-w-[10rem]"><b>Create a crew center login when I accept</b>
-                        <span class="muted">— for every application. You can still change it on one card.</span></span>
-                </label>`;
-            // Passed a test sent by hand (no email, so the link went over the
-            // IFC) — never applied, so there is no card above for them.
-            const passed = window.CrewEntrance ? CrewEntrance.waitingHtml(WAITING_TESTS) : '';
-            const passedBlock = passed ? `<div class="surface rounded-xl p-4 space-y-2.5">
-                    <div class="text-[11px] font-semibold uppercase tracking-wider faint">Passed an entrance test — not added yet</div>
-                    ${passed}
-                </div>` : '';
+            const ready=pending.filter(a=>(a.stage||'review')==='review');
+            const waiting=pending.filter(a=>a.stage==='test'||a.stage==='discord');
+            const invited=INVITES.filter(a=>a.invite&&a.invite.state!=='claimed');
+            const joined=INVITES.filter(a=>a.invite&&a.invite.state==='claimed');
             keepPlace(list,()=>{
-                list.innerHTML = tests + logins + passedBlock + (pending.length ? pending.map(appCardHtml).join('')
-                    : (passed ? '' : '<p class="text-sm faint text-center py-10">No applications waiting. New ones land here.</p>'));
+                const groups = appGroupHtml('Ready for you', 'Accept or decline.', ready.map(appCardHtml).join(''))
+                    + appGroupHtml('Waiting on them', 'Nothing to do — they move on by themselves. Step in if you want to.', waiting.map(appCardHtml).join(''))
+                    + appGroupHtml('Invited — not signed in yet', 'Accepted. They choose their password from their link.', invited.map(inviteCardHtml).join(''))
+                    + appGroupHtml('Joined recently', '', joined.map(inviteCardHtml).join(''));
+                list.innerHTML = roadHtml(recruitRules()) + (groups
+                    || '<p class="text-sm faint text-center py-10">No applications right now. New ones land here.</p>');
                 if(window.lucide) lucide.createIcons();
             });
-        }
-        /**
-         * The crew-wide default for "Create a crew center login" on accept.
-         *
-         * Flips every card that is waiting, and is saved for the crew so the
-         * next reviewer — and tomorrow's applications — start the same way.
-         * Somebody without the recruitment settings permission still gets it
-         * for this session; the cards are theirs to tick either way.
-         */
-        async function setAcceptLogins(on){
-            JOIN.createsLogin=!!on;
-            document.querySelectorAll('#appsList [data-mkacct]').forEach(b=>{ b.checked=!!on; });
-            const mirror=document.getElementById('joinCreatesLogin'); if(mirror) mirror.checked=!!on;
-            const token=sessionToken(), slug=getSlug();
-            if(!slug||!token) return;
-            if(!can('settings.recruitment')){ say(on?'Logins on for every card — for this session.':'Logins off for every card — for this session.','info'); return; }
-            try{
-                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/settings`,{ method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({ acceptCreatesLogin:!!on }) });
-                if(res.ok) say(on?'Accepting now creates a login — for every application.':'Accepting no longer creates a login. Tick it on a card when you want one.','ok');
-                else { const d=await res.json().catch(()=>({})); say(d.error||'Could not save that for the crew — it applies on this screen only.','bad'); }
-            }catch{ say('Server unreachable — it applies on this screen only.','bad'); }
         }
         // The VA's name as the page is currently showing it, for text a staff
         // member is about to send a pilot.
@@ -9948,47 +10011,27 @@
             const n=(document.getElementById('idName')||{}).textContent||'';
             return n.trim()||'crew center';
         }
-        // Replace a reviewed card with the handover panel.
-        //
-        // This used to be the point of no return: the password existed only in
-        // the response that drew this panel, so dismissing it lost it for good.
-        // It no longer is — the same credentials are waiting under Invitations
-        // until the pilot signs in — which means this panel can stop shouting
-        // and simply say where to find it again.
+        // Replace an accepted card with what happened, and the login ready to
+        // hand over if they cannot be reached any other way. Nothing here is
+        // the only copy: the same invitation waits under Invited, on their
+        // status page, and in their Discord ticket.
         function renderHandover(card, name, d){
-            const acct=d.account||null;
-            const inv=d.invite||null;
+            const inv=d.invite||{};
             const rows=[];
-            if(acct && acct.password){
-                // Prefer the server-built message: it is the same text the
-                // applicant's status page shows and the same one the
-                // Invitations tab copies, so a pilot cannot be told two
-                // different stories about their own login.
-                const message=(inv&&inv.message) || [
-                    `Your ${vaDisplayName()} sign-in`,
-                    d.signInUrl?`Sign in: ${d.signInUrl}`:'',
-                    `Username: ${acct.username}`,
-                    `Temporary password: ${acct.password}`,
-                    'You’ll be asked to choose your own password when you first sign in.',
-                ].filter(Boolean).join('\n');
+            if(inv.state==='live'){
+                const where=[d.emailed?`emailed to ${d.email||'them'}`:'', 'on their status page'].filter(Boolean).join(' and ');
                 rows.push(`<div class="mt-2">
-                    <div class="text-[11px] uppercase tracking-wide faint">Crew center login</div>
-                    <div class="font-mono text-sm mt-1 select-all">${escapeHtml(acct.username)}</div>
-                    <div class="font-mono text-sm select-all">${escapeHtml(acct.password)}</div>
-                    ${d.signInUrl?`<div class="text-xs muted mt-1 break-all">Sign in at <span class="font-mono">${escapeHtml(d.signInUrl)}</span></div>`:''}
+                    <div class="text-xs muted">Their username is <span class="font-mono">${escapeHtml(inv.username||'')}</span>. ${inv.kind==='password'?'A temporary password':'A link to choose their password'} is ${escapeHtml(where)}.</div>
                     <div class="flex flex-wrap gap-2 mt-2">
-                        <button data-copy-cred data-cred="${escapeHtml(message)}" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy for IFC</button>
-                        ${inv&&inv.plainMessage?`<button data-copy-cred data-cred="${escapeHtml(inv.plainMessage)}" title="The same words with no pictures — for Discord" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="text" class="w-3.5 h-3.5"></i> Plain text</button>`:''}
+                        <button data-copy-cred data-cred="${escapeHtml(inv.message||'')}" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i> Copy welcome for IFC</button>
+                        ${inv.plainMessage?`<button data-copy-cred data-cred="${escapeHtml(inv.plainMessage)}" title="The same words with no pictures — for Discord" class="surface hair rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="text" class="w-3.5 h-3.5"></i> Plain text</button>`:''}
                     </div>
-                    <div class="text-xs mt-2 muted">They’ll be asked to replace this password when they first sign in. ${d.emailed?`It has been emailed to ${escapeHtml(d.email||'them')} with a sign-in link, and it’s`:'It’s'} on their status link and under <b>Invitations</b> until they use it — so you can close this.</div>
+                    <div class="text-[11px] faint mt-2">It waits under <b>Invited</b> until they use it, so you can close this.</div>
                 </div>`);
-            } else if(acct && acct.error){
-                rows.push(`<div class="mt-2 text-sm text-amber-600 dark:text-amber-400">${escapeHtml(acct.error)}</div>`);
-            } else if(acct && !acct.created){
-                rows.push(`<div class="mt-2 text-sm muted">They already had a login (<span class="font-mono">${escapeHtml(acct.username)}</span>) — left as it was.</div>`);
-            }
-            if(d.discordInvite){
-                rows.push(`<div class="mt-2 text-sm muted">Discord invite sent: <span class="font-mono break-all">${escapeHtml(d.discordInvite)}</span></div>`);
+            } else if(d.account && d.account.error){
+                rows.push(`<div class="mt-2 text-sm text-amber-600 dark:text-amber-400">${escapeHtml(d.account.error)}</div>`);
+            } else if(inv.state==='claimed'){
+                rows.push('<div class="mt-2 text-sm muted">They already had a login and have signed in with it.</div>');
             }
             card.innerHTML=`<div class="flex items-start gap-2">
                     <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5"></i>
@@ -9998,6 +10041,7 @@
                     </div>
                     <button data-dismiss title="Dismiss" class="w-8 h-8 grid place-items-center rounded-md muted hover:text-[var(--ink)]"><i data-lucide="x" class="w-4 h-4"></i></button>
                 </div>`;
+            card.setAttribute('data-accepted', String(card.getAttribute('data-app')||''));
             if(window.lucide) lucide.createIcons();
         }
 
@@ -10006,18 +10050,10 @@
             if(!slug||!token) return;
             const note=card.querySelector('[data-note]');
             const message=(card.querySelector('[data-msg]')||{}).value||'';
-            // Out of the record, not out of the card. This used to read the
-            // first `.font-semibold` in the DOM, which happens to be the name
-            // and would stop being the name the first time anything bold is
-            // added above it — a selector that cannot fail loudly. It matters
-            // more now than it did: the name goes into what the reader is told
-            // happened, and "Unnamed accepted" is worse than a note nobody saw.
             const rec=APPS.find(a=>String(a._id||a.id)===String(id))||{};
-            const name=(rec.ifcName||rec.name||(card.querySelector('.font-semibold')||{}).textContent||'The pilot').trim();
+            const name=(rec.ifcName||rec.name||'The pilot').trim();
             const body={ action, message };
             if(action==='accept'){
-                body.createAccount = !!(card.querySelector('[data-mkacct]')||{}).checked;
-                body.discordInvite = ((card.querySelector('[data-invite]')||{}).value||'').trim();
                 // Only present when the applicant left no address; the backend
                 // refuses to overwrite one they gave themselves.
                 const typed=((card.querySelector('[data-email]')||{}).value||'').trim();
@@ -10038,12 +10074,10 @@
                 if(action==='accept'){
                     renderHandover(card, name, d);
                     refreshAppsBadge();
-                    say(`${name} accepted — they are on the roster.`,'ok');
-                    // Accepting adds a pilot — refresh the roster so it shows up.
+                    say(`${name} accepted — they’re on the roster with a login.`,'ok');
                     fetchRoster().then(()=>{ changed('roster'); });
-                    // …and mints an invitation, so the tab that holds it until
-                    // the pilot signs in should say so straight away.
-                    Promise.all([fetchInvites(),fetchResets()]).then(()=>{ if(ROSTER_VIEW==='invites') renderInvites(); changed('invites'); });
+                    // The Invited group picks them up on the next draw.
+                    fetchInvites().then(()=>{ changed('invites'); });
                     changed('applications');
                 }else{
                     card.style.transition='opacity .25s'; card.style.opacity='0';
@@ -10053,20 +10087,28 @@
                 }
             }catch{ fail('Server unreachable.'); }
         }
-        document.addEventListener('click', e=>{
+        document.addEventListener('click', async e=>{
             const card=e.target.closest('#appsList [data-app]'); if(!card) return;
-            if(e.target.closest('[data-accept]')) reviewApp(card.getAttribute('data-app'),'accept',card);
-            else if(e.target.closest('[data-decline]')) reviewApp(card.getAttribute('data-app'),'decline',card);
+            const id=card.getAttribute('data-app');
+            if(e.target.closest('[data-accept]')) reviewApp(id,'accept',card);
+            else if(e.target.closest('[data-decline]')) reviewApp(id,'decline',card);
             else if(e.target.closest('[data-dismiss]')) renderApps();
+            else if(e.target.closest('[data-app-copy]')||e.target.closest('[data-app-copy-plain]')){
+                const a=APPS.find(x=>String(x._id||x.id)===String(id));
+                const m=(a&&a.applicant)||{};
+                const msg=e.target.closest('[data-app-copy-plain]')?(m.plainMessage||m.message):m.message;
+                const ok=msg?await copyText(msg):false;
+                say(ok?'Copied — paste it into their IFC message.':'Couldn’t copy that.', ok?'ok':'bad');
+            }
             else if(e.target.closest('[data-copy-cred]')){
-                // Copy a message the staff member can paste straight into a DM,
-                // not just the two values: where to sign in and the fact that
-                // the password is about to be replaced are part of what the
-                // pilot needs, and a username on its own is no use to anyone.
+                // The whole welcome, not just the two values: where to sign in
+                // and that the link works once are part of what they need.
                 const btn=e.target.closest('[data-copy-cred]');
-                navigator.clipboard.writeText(btn.getAttribute('data-cred')||'').then(
-                    ()=>{ btn.innerHTML='<i data-lucide="check" class="w-3.5 h-3.5"></i> Copied'; if(window.lucide) lucide.createIcons(); },
-                    ()=>{ btn.innerHTML='<i data-lucide="x" class="w-3.5 h-3.5"></i> Select it manually'; if(window.lucide) lucide.createIcons(); });
+                const ok=await copyText(btn.getAttribute('data-cred')||'');
+                btn.innerHTML = ok ? '<i data-lucide="check" class="w-3.5 h-3.5"></i> Copied' : '<i data-lucide="x" class="w-3.5 h-3.5"></i> Select it manually';
+                if(window.lucide) lucide.createIcons();
+                const accepted=card.getAttribute('data-accepted');
+                if(ok && accepted) markAppInviteSent(accepted);
             }
         });
 
@@ -12166,8 +12208,8 @@
                 // place rather than reading as "reserve nothing".
                 callsignReservedMax:(typeof b.join.callsignReservedMax==='number'&&b.join.callsignReservedMax>=0)?b.join.callsignReservedMax:10,
                 discordInvite:b.join.discordInvite||'',
-                // Absent from an older backend: the old behaviour, which was yes.
-                createsLogin:b.join.createsLogin!==false,
+                entranceQuizId:b.join.entranceQuizId||'', entranceTest:b.join.entranceTest||null,
+                viaDiscord:!!b.join.viaDiscord, viaDiscordWanted:!!b.join.viaDiscordWanted,
                 form:Array.isArray(b.join.form)?b.join.form:[], reqs:Array.isArray(b.join.requirements)?b.join.requirements:[] };
             const name=b.name||b.code||'';
             CREW_NAME=name;

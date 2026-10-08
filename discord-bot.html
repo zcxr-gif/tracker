@@ -97,11 +97,11 @@
             <h2 id="what"><i data-lucide="bot" class="text-indigo-500"></i> What the bot does</h2>
             <p>One Inflight bot serves every crew center. Once it is linked to yours, it runs your recruitment and your airline's everyday questions from inside your own server:</p>
             <ul>
-                <li><b>Recruitment tickets.</b> An <b>Apply</b> button opens a private thread for the applicant and your staff. The application is filled in there and lands in your crew center exactly as if it came through your join page — same requirements, same callsign checks, same Infinite Flight verification.</li>
-                <li><b>Entrance tests.</b> Staff send the test from the ticket with one button. The score comes back to the same ticket the moment it is submitted.</li>
-                <li><b>Crew center logins.</b> Accepting from the ticket creates the pilot's login and gives them your pilot role. The pilot reads their temporary password from a button only they can see — it is never posted in the thread.</li>
+                <li><b>Recruitment tickets.</b> An <b>Apply</b> button opens a private thread for the applicant and your staff. The application is filled in there — or, for somebody who already applied on your website, linked with their <b>application code</b> — and lands in your crew center exactly as if it came through your join page: same requirements, same callsign checks, same Infinite Flight verification.</li>
+                <li><b>Entrance tests.</b> When your crew center has an entrance test (<b>Recruitment → Joining</b>), it is posted in the ticket by itself. The score comes back to the same ticket the moment it is submitted. Staff can resend it, or send one anyway when you don't require it.</li>
+                <li><b>Crew center logins.</b> Accepting — by staff, or automatically on a pass — creates the pilot's login and gives them your pilot role. The pilot opens a <b>Choose my password</b> link from a button only they can see; nothing is ever posted in the thread.</li>
                 <li><b>Help tickets for anything.</b> A <b>Contact staff</b> button (or <code>/crew ticket</code>) asks what it's about, then opens a private thread with your staff — for a question, a problem, a leave request, anything. Tickets can be closed with a reason and reopened.</li>
-                <li><b>A warm welcome.</b> Newcomers are greeted in your welcome channel with your own message and Apply / Contact staff buttons. A pilot who rejoins gets their pilot role back automatically.</li>
+                <li><b>A warm welcome.</b> Newcomers are greeted in your welcome channel with your own message and Apply / Contact staff buttons — and when you send website applicants to Discord, they're greeted where tickets open even before you set a welcome channel. A pilot who rejoins gets their pilot role back automatically.</li>
                 <li><b>Inactivity, handled kindly.</b> Pilots who stop flying move to an inactive role and are told — nicely — how to stay. The moment they fly again their pilot role comes back. Removal after a month is optional and always comes with a reminder first.</li>
                 <li><b>Discord linked to the crew center.</b> Pilots accepted through a ticket are linked automatically. Everyone else runs <code>/crew link</code> — one button, and they can sign in with Discord from then on.</li>
                 <li><b>Your airline on demand.</b> <code>/crew links</code>, <code>/crew stats</code>, <code>/crew events</code> and <code>/crew pilot</code> answer from your crew center.</li>
@@ -116,7 +116,8 @@
                 <li>You are the <b>owner</b> of the crew center (or a staff member with the "Connect Infinite Flight &amp; the data store" permission). Only they see the Discord bot card.</li>
                 <li>Your crew center's <b>database is connected</b>. Applications are stored in it.</li>
                 <li>You have <b>Manage Server</b> in the Discord server you want to use.</li>
-                <li>Optional: an <b>entrance test</b> built under <b>Recruitment → Quizzes</b>, if you want staff to send one from tickets.</li>
+                <li>Optional: an <b>entrance test</b> built under <b>Recruitment → Quizzes</b> and picked under <b>Recruitment → Joining</b>. Every applicant is sent it automatically.</li>
+                <li>Optional: under <b>Recruitment → Joining</b>, tick <b>Send website applicants to our Discord</b> (and set your Discord invite) to have people who apply on your website come to your server and open a ticket.</li>
                 <li>Optional: a role for your <b>staff</b> and a role for your <b>pilots</b>. You can create them now or use ones you already have.</li>
             </ul>
 
@@ -152,7 +153,6 @@
                     <tr><td><code>pilot_role</code></td><td>Given to a pilot when they are accepted.</td><td>Recommended</td></tr>
                     <tr><td><code>log_channel</code></td><td>A staff-only channel where the bot notes every ticket opened, accepted, declined and closed.</td><td>Recommended</td></tr>
                     <tr><td><code>events_channel</code></td><td>Where published events are posted, each with its own thread.</td><td>Optional</td></tr>
-                    <tr><td><code>auto_invite</code></td><td><b>True</b>: the moment an applicant passes the entrance test, they are accepted and their login is issued without waiting for staff. <b>False</b> (the default): staff press <b>Accept</b>.</td><td>Optional</td></tr>
                 </tbody>
             </table></div>
 
@@ -228,36 +228,37 @@
             </ul>
 
             <h2 id="recruitment"><i data-lucide="user-plus" class="text-indigo-500"></i> How recruitment works</h2>
+            <p>It's the same road as your website, set in one place — <b>Recruitment → Joining</b> in the crew center: <b>Apply → (entrance test) → accepted → they choose a password</b>. Whether accepting is done by staff or automatically, and which test, are set there; the bot follows.</p>
             <h3>What the applicant does</h3>
             <ol>
                 <li>Presses <b>Apply</b>. A private thread opens that only they and your staff can see.</li>
-                <li>Presses <b>Start application</b> and fills in their Infinite Flight Community name, the callsign number they'd like and, if they want emails, their email address. If your airline has more than one callsign, they pick which.</li>
-                <li>Answers your join form questions, up to five per screen. For a multiple-choice question they type one of the options shown.</li>
-                <li>Checks their answers, then presses <b>Submit</b> — or <b>I agree &amp; submit</b> if you have agreements, which are listed right above the button.</li>
+                <li><b>Already applied on your website?</b> They press <b>I applied on the website</b> and enter the application code from their email or status page (it looks like <code>ABCD-1234</code>; pasting their whole status link works too). The application is linked to the ticket — they don't fill anything in again.</li>
+                <li><b>New?</b> They press <b>Start application</b> and fill in their Infinite Flight Community name, the callsign number they'd like and, if they want emails, their email address. If your airline has more than one callsign, they pick which. Then your join form questions, up to five per screen, and <b>Submit</b> — or <b>I agree &amp; submit</b> if you have agreements.</li>
+                <li>If you have an entrance test, its <b>Take the test</b> link is posted in the ticket straight away. No account is needed to sit it.</li>
             </ol>
             <p>If the crew center refuses the application — requirements not met, callsign taken, IFC name not found — they see the exact reason with a button to fix it. Nothing is sent until it passes.</p>
             <h3>What your staff do</h3>
-            <p>Your staff role is pinged in the ticket with the application summary and these buttons:</p>
+            <p>The ticket shows the application summary with these buttons. Your staff role is pinged when there's something to decide — no test, or a pass that's waiting for you — not while the applicant is still taking the test:</p>
             <div class="table-wrap"><table>
                 <thead><tr><th>Button</th><th>What happens</th></tr></thead>
                 <tbody>
-                    <tr><td><b>Send entrance test</b></td><td>Posts a <b>Take the test</b> link for the applicant. With more than one test built, staff pick which. The result is posted back to the ticket automatically. After a fail, pressing it again re-posts the same link while they have attempts left, or sends a fresh test once they've used them all.</td></tr>
-                    <tr><td><b>Accept &amp; send login</b></td><td>Accepts the application, adds them to your roster, creates their crew center login, <b>links their Discord to that login</b> and gives the pilot role (and takes away the welcome role). The applicant gets a <b>Show my login</b> button.</td></tr>
+                    <tr><td><b>Send test</b></td><td>Re-posts their test link, or sends one when you don't require a test. With more than one test built, staff pick which. The result is posted back to the ticket automatically.</td></tr>
+                    <tr><td><b>Accept</b></td><td>Accepts the application — with or without the test — adds them to your roster, creates their crew center login, <b>links their Discord to that login</b> and gives the pilot role (and takes away the welcome role). The applicant gets a <b>Set up my login</b> button.</td></tr>
                     <tr><td><b>Decline</b></td><td>Asks for an optional message to the applicant, then tells them in the ticket.</td></tr>
                     <tr><td><b>Close</b></td><td>Locks and archives the thread. The applicant can close their own ticket too.</td></tr>
                 </tbody>
             </table></div>
             <h3>Their Discord is linked the moment they're accepted</h3>
-            <p>When an applicant passes the entrance test, the result in the ticket tells them their Discord will be linked automatically. Whether you accept from the ticket, by auto-invite, or from <b>Roster → Applications</b> in the crew center, the ticket follows through: their Discord is linked to the new login, they get the pilot role, and the welcome with <b>Show my login</b> appears in the ticket. If the link can't be made for them (for example, that Discord is already linked to another login), the welcome gives them a <b>Link my account</b> button and your log channel says why.</p>
+            <p>Whether they're accepted from the ticket, automatically on a pass (when your crew center accepts automatically), or from <b>Roster → Applications</b> in the crew center, the ticket follows through: their Discord is linked to the new login, they get the pilot role, and the welcome with <b>Set up my login</b> appears in the ticket. If the link can't be made for them (for example, that Discord is already linked to another login), the welcome gives them a <b>Link my account</b> button and your log channel says why.</p>
             <p>Everything staff do in Discord is the same action as in the crew center, and where the crew center notes who did something (who sent a test, who made a login) it shows the staff member's Discord name. You can also finish any application from <b>Roster → Applications</b> — the ticket still gets the test result.</p>
             <h3>The login</h3>
             <ul>
-                <li><b>Show my login</b> answers only the applicant, with a reply nobody else can see: their username, a temporary password and the sign-in link.</li>
-                <li>They choose their own password the first time they sign in, and the temporary one stops working.</li>
-                <li>An unused temporary password expires after 30 days. To issue a new one, use <b>Roster → Applications</b> in the crew center.</li>
+                <li><b>Set up my login</b> answers only the applicant, with a reply nobody else can see: their username and a <b>Choose my password</b> button.</li>
+                <li>The link works once. Nobody — your staff included — ever sees their password.</li>
+                <li>An unused link expires after 14 days. To make a new one, use <b>New link</b> on their card under <b>Roster → Applications → Invited</b> in the crew center.</li>
             </ul>
             <h3>Open joining</h3>
-            <p>If your airline lets anyone who meets the requirements straight in, a submitted application puts the pilot on the roster immediately. Staff then press <b>Accept &amp; send login</b> to issue their login.</p>
+            <p>If your crew center accepts automatically, a submitted application — or a pass, when you have a test — puts the pilot on the roster with their login straight away, and the welcome with <b>Set up my login</b> appears in the ticket.</p>
             <h3>Limits that keep things tidy</h3>
             <ul>
                 <li>One open application ticket and one support ticket per person. Pressing Apply again links to the one they have.</li>
@@ -303,7 +304,7 @@
             <div class="table-wrap"><table>
                 <tbody>
                     <tr><td><code>/crew-admin setup code:</code></td><td>Links this server to your crew center.</td></tr>
-                    <tr><td><code>/crew-admin settings</code></td><td>Roles, channels and auto-invite. Shows the current settings when run on its own.</td></tr>
+                    <tr><td><code>/crew-admin settings</code></td><td>Roles and channels. Shows the current settings — and how your crew center recruits — when run on its own.</td></tr>
                     <tr><td><code>/crew-admin panel</code></td><td>Posts the recruitment panel, or the help panel with <code>type:Help</code>.</td></tr>
                     <tr><td><code>/crew-admin welcome</code></td><td>Welcome channel, role, message and DM.</td></tr>
                     <tr><td><code>/crew-admin inactivity</code></td><td>Inactive role, channel, days, and optional removal.</td></tr>
@@ -326,12 +327,14 @@
                     <tr><td>Staff can't see a ticket</td><td>Give the staff role <b>Manage Threads</b> in the ticket channel (<a href="#permissions" class="text-indigo-600 dark:text-indigo-400 font-semibold">Permissions</a>).</td></tr>
                     <tr><td><i>"I could not give them the pilot role"</i></td><td>Drag the bot's role above the pilot role in <b>Server Settings → Roles</b>. The pilot is still accepted.</td></tr>
                     <tr><td><i>"This airline has no entrance test ready."</i></td><td>Build one under <b>Recruitment → Quizzes</b> in the crew center, with at least one question.</td></tr>
+                    <tr><td><i>"We couldn’t find an application with that code."</i></td><td>The code is on the applicant's status page and in their "application received" email. A declined application can't be linked; they can press <b>Start application</b> to apply again.</td></tr>
+                    <tr><td><i>"That application is already linked to a different Discord account."</i></td><td>Each application belongs to one Discord account. If it's genuinely theirs, accept them from <b>Roster → Applications</b> and have them run <code>/crew link</code>.</td></tr>
                     <tr><td><i>"Only staff can …"</i></td><td>The person pressing needs your staff role or Manage Server. Check <code>staff_role</code> in <code>/crew-admin settings</code>.</td></tr>
-                    <tr><td><i>"There is no login waiting for you right now"</i></td><td>The temporary password expired or was withdrawn. Reissue it from <b>Roster → Applications</b>.</td></tr>
+                    <tr><td><i>"There is no login waiting for you right now"</i></td><td>Their link expired or was thrown away. Make a new one with <b>New link</b> under <b>Roster → Applications → Invited</b>.</td></tr>
                     <tr><td><i>"The crew center is busy right now."</i> or <i>"Still working on the last press"</i></td><td>Many requests at once. Wait a few seconds and press again — nothing was done twice.</td></tr>
                     <tr><td>A pilot wasn't moved to inactive</td><td>Their Discord isn't linked (ask them to run <code>/crew link</code>), they're on leave or staff, or their latest flight report is still waiting to be approved.</td></tr>
                     <tr><td><i>"I could not remove …"</i></td><td>Give the bot <b>Kick Members</b> and drag its role above theirs — or set <code>kick_after_days:0</code>.</td></tr>
-                    <tr><td><i>"Already accepted."</i></td><td>Someone (or auto-invite) accepted first. The welcome with <b>Show my login</b> is already in the ticket.</td></tr>
+                    <tr><td><i>"Already accepted."</i></td><td>Someone (or an automatic acceptance) got there first. The welcome with <b>Set up my login</b> is already in the ticket.</td></tr>
                 </tbody>
             </table></div>
             <p>Still stuck? Open a ticket in the Inflight Discord and include what <code>/crew-admin check</code> says.</p>
@@ -341,7 +344,7 @@
                 <li><b>Inflight keeps:</b> which server is linked to your crew center, its name, who linked it, the role, channel and welcome choices above, which ticket thread belongs to which application, and — for inactivity — who is in the inactive role and when they'd be reminded or removed.</li>
                 <li><b>Discord links</b> live on the pilot's login in your own database, like the Link button on their pilot page. Pilots can unlink from that page any time.</li>
                 <li><b>While an application is being filled in,</b> its answers are held so the applicant can go back and edit. They are cleared the moment it is submitted — from then on the application lives in your own database, like every other.</li>
-                <li><b>Passwords are never posted.</b> The temporary password is read from your crew center each time the applicant presses <b>Show my login</b>, and stops being readable once they sign in.</li>
+                <li><b>Nothing to sign in with is ever posted.</b> The choose-your-password link is read from your crew center each time the applicant presses <b>Set up my login</b>, shown only to them, and stops working once they've used it.</li>
                 <li><b>To unlink:</b> press <b>Unlink</b> next to the server on the Discord bot card, or run <code>/crew-admin unlink</code>. Open tickets stay where they are; nothing new is posted. Removing the bot from your server unlinks it too.</li>
             </ul>
         </main>

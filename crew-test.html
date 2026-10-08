@@ -182,8 +182,14 @@
                 <h2 class="text-xl font-bold tracking-tight">${passed?'You passed!':(opts.justFailed?'Not this time':(d.retryAt?'Come back soon':'This test isn’t open'))}</h2>
                 ${score}
                 <p class="text-sm muted mt-3">${passed
-                    ? `Well done${a.name?`, ${escapeHtml(a.name)}`:''}. The ${escapeHtml(VA.name||'VA')} staff have your result and will send you your crew center invitation.`
+                    ? (d.login
+                        ? `Well done${a.name?`, ${escapeHtml(a.name)}`:''} — you’re in! Choose your password to sign in to the crew center.`
+                        : `Well done${a.name?`, ${escapeHtml(a.name)}`:''}. The ${escapeHtml(VA.name||'VA')} staff have your result and will accept you shortly — your login follows.`)
                     : escapeHtml(d.refusal || 'Ask the staff who sent it about your next step.')}</p>
+                ${passed && d.login && d.login.kind==='link' && /^https:\/\//i.test(String(d.login.link||''))
+                    ? `<div class="text-sm mt-3">Username <span class="font-mono font-semibold">${escapeHtml(d.login.username||'')}</span></div>
+                       <a href="${escapeHtml(d.login.link)}" class="inline-flex items-center gap-1.5 accent-bg text-white text-sm font-semibold px-5 py-2.5 rounded-lg mt-3 hover:opacity-90 transition"><i data-lucide="key-round" class="w-4 h-4"></i> Choose my password</a>`
+                    : ''}
                 ${!passed && d.retryAt ? `<p class="text-sm mt-2"><b>Next attempt:</b> ${escapeHtml(when(d.retryAt))}</p>` : ''}
                 ${!passed ? studyHtml(d.study) : ''}
             </div>`;
