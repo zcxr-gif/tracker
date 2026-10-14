@@ -27898,6 +27898,21 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             #aircraft-info-window .tx-dim { color: #9a9aa2; font-size: 12px; }
             #aircraft-info-window .tx-stats { margin-top: 14px; grid-template-columns: repeat(4, 1fr); gap: 10px 8px; }
             #aircraft-info-window .tx-map { position: relative; cursor: zoom-in; }
+            #aircraft-info-window .tx-modes { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 8px; border-radius: 10px; background: rgba(var(--tx-ink),0.06); }
+            #aircraft-info-window .tx-mode { border: 0; background: transparent; color: rgba(var(--tx-ink),0.62); font: inherit; font-size: 11.5px; font-weight: 600; padding: 4px 12px; border-radius: 8px; cursor: pointer; }
+            #aircraft-info-window .tx-mode.on { color: rgba(var(--tx-ink),0.95); background: rgba(var(--tx-ink),0.12); }
+            #aircraft-info-window .tx-map-3d { cursor: default; }
+            #aircraft-info-window .tx-gl { width: 100%; height: 300px; }
+            #aircraft-info-window .tx-gl-msg { padding: 40px 16px; text-align: center; font-size: 12px; color: rgba(var(--tx-ink),0.6); }
+            #aircraft-info-window .tv-sat .tv-veil { fill: rgba(0,0,0,0.16); }
+            #aircraft-info-window .tv-sat .tv-apron { display: none; }
+            #aircraft-info-window .tv-sat .tv-twy { stroke: rgba(250,204,21,0.35); stroke-width: 1.2; }
+            #aircraft-info-window .tv-sat .tv-twy-used { stroke: rgba(250,204,21,0.85); stroke-width: 2; }
+            #aircraft-info-window .tv-sat .tv-rwy { stroke: rgba(255,255,255,0.05); }
+            #aircraft-info-window .tv-sat .tv-rwy-used { stroke: rgba(56,189,248,0.16); }
+            #aircraft-info-window .tv-sat .tv-rwy-cl { stroke: rgba(255,255,255,0.3); }
+            #aircraft-info-window .tv-sat .tv-tick { stroke: #fff; }
+            #aircraft-info-window .tv-sat .tv-rwy-id, #aircraft-info-window .tv-sat .tv-tick-l { fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,0.8); stroke-width: 2.5px; }
             #aircraft-info-window .tx-map.tall { cursor: zoom-out; }
             #aircraft-info-window .tx-zoom { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font: 600 15px/1 system-ui, sans-serif; color: rgba(var(--tx-ink),0.85); background: rgba(0,0,0,0.35); pointer-events: none; }
             #aircraft-info-window .tv-tick { stroke: rgba(var(--tx-ink),0.9); stroke-width: 1.6; stroke-linecap: round; }
@@ -29583,8 +29598,152 @@ function computeDetailedFlightPhase(baseProps, plan, sortedRoutePoints, progress
  * changes. Runways and the OSM taxiway layout arrive lazily; each repaints the
  * card when it lands.
  */
+// Satellite imagery for the taxi map (keyless; the free map engine's own
+// satellite source).
+const TAXI_SAT_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const TAXI_VIEW_KEY = 'inflight.taxiView';   // 'sat' | 'map' — 3D is never remembered
+
+/*
+ * The taxi card's optional 3D view: a small, tilted satellite map with
+ * terrain and (on Mapbox) 3D buildings, the route drawn on the ground.
+ * Only ever built when the user taps 3D — every map instance is a billed
+ * Mapbox map load — and only one exists at a time. It survives the card's
+ * live repaints (the element is carried into the new markup and its data
+ * updated) and is removed as soon as it's switched off, the flight changes or
+ * the window goes away.
+ */
+let _taxi3d = null;   // { host, key, map, el, timer }
+
+function dropTaxi3D() {
+    if (!_taxi3d) return;
+    clearInterval(_taxi3d.timer);
+    try { _taxi3d.map.remove(); } catch (_) { /* already gone */ }
+    _taxi3d = null;
+}
+
+function taxi3DGeoJSON(seg, analysis, taxiways) {
+    const ll = (p) => [p.lon, p.lat];
+    const feats = [{ type: 'Feature', properties: { kind: 'path' }, geometry: { type: 'LineString', coordinates: seg.path.map(ll) } }];
+    if (seg.roll && seg.roll.length) {
+        const roll = seg.kind === 'out' ? [seg.path[seg.path.length - 1], ...seg.roll] : [...seg.roll, seg.path[0]];
+        feats.push({ type: 'Feature', properties: { kind: 'roll' }, geometry: { type: 'LineString', coordinates: roll.map(ll) } });
+    }
+    const gate = seg.kind === 'out' ? seg.path[0] : seg.path[seg.path.length - 1];
+    feats.push({ type: 'Feature', properties: { kind: 'gate' }, geometry: { type: 'Point', coordinates: ll(gate) } });
+    analysis.stops.forEach((st) => feats.push({ type: 'Feature',
+        properties: { kind: 'stop', hold: st.holdShort ? 1 : 0, label: window.TaxiView.fmtDur(st.ms) },
+        geometry: { type: 'Point', coordinates: [st.lon, st.lat] } }));
+    taxiways.forEach((t) => feats.push({ type: 'Feature', properties: { kind: 'twy', label: t.ref },
+        geometry: { type: 'Point', coordinates: [t.at.lon, t.at.lat] } }));
+    return { type: 'FeatureCollection', features: feats };
+}
+
+function mountTaxi3D(host, slot, key, seg, data) {
+    if (_taxi3d && _taxi3d.host === host && _taxi3d.key === key) {
+        slot.appendChild(_taxi3d.el);
+        _taxi3d.map.resize();
+        const src = _taxi3d.map.getSource && _taxi3d.map.getSource('taxi-route');
+        if (src) src.setData(data); else _taxi3d.pending = data;
+        return;
+    }
+    dropTaxi3D();
+    const gl = window.mapboxgl;
+    if (!gl || (!isFreeMap() && !gl.accessToken)) {
+        slot.innerHTML = '<div class="tx-gl-msg">3D view isn\'t available right now.</div>';
+        return;
+    }
+    const el = document.createElement('div');
+    el.className = 'tx-gl';
+    slot.appendChild(el);
+
+    const pts = seg.path.concat(seg.roll || []);
+    const lons = pts.map((p) => p.lon), lats = pts.map((p) => p.lat);
+    const bounds = [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]];
+    // Look along the route: from where it started towards where it went.
+    const a = seg.path[0], b = seg.kind === 'out' && seg.roll.length ? seg.roll[0] : seg.path[seg.path.length - 1];
+    const bearing = AirportLayoutManager.getBearing([a.lon, a.lat], [b.lon, b.lat]);
+
+    let map;
+    try {
+        map = new gl.Map({
+            container: el,
+            style: isFreeMap() ? freeStyleFor('satellite') : MAP_STYLE_SATELLITE,
+            bounds,
+            fitBoundsOptions: { padding: 36 },
+            attributionControl: false,
+            // One finger scrolls the window; two move the map.
+            cooperativeGestures: true,
+            antialias: true,
+        });
+    } catch (e) {
+        el.remove();
+        slot.innerHTML = '<div class="tx-gl-msg">3D view isn\'t available right now.</div>';
+        return;
+    }
+    if (gl.AttributionControl) map.addControl(new gl.AttributionControl({ compact: true }));
+    _taxi3d = { host, key, map, el, pending: null,
+        // Gone with its window (closed, or rebuilt for another flight).
+        timer: setInterval(() => { if (!el.isConnected) dropTaxi3D(); }, 5000) };
+
+    map.on('load', () => {
+        if (!_taxi3d || _taxi3d.map !== map) return;
+        try {
+            // Terrain: keyless Terrarium tiles on the free engine, Mapbox DEM otherwise.
+            map.addSource('taxi-dem', isFreeMap() ? {
+                type: 'raster-dem', tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+                encoding: 'terrarium', tileSize: 256, maxzoom: 15,
+            } : { type: 'raster-dem', url: 'mapbox://mapbox.mapbox-terrain-dem-v1', tileSize: 512, maxzoom: 14 });
+            map.setTerrain({ source: 'taxi-dem', exaggeration: 1 });
+        } catch (_) { /* flat is fine */ }
+        try {
+            // Buildings, where the style carries them (Mapbox satellite-streets).
+            if (!isFreeMap() && map.getSource('composite')) {
+                map.addLayer({
+                    id: 'taxi-buildings', type: 'fill-extrusion', source: 'composite', 'source-layer': 'building',
+                    filter: ['==', 'extrude', 'true'], minzoom: 13,
+                    paint: {
+                        'fill-extrusion-color': '#d4d4d8',
+                        'fill-extrusion-height': ['coalesce', ['get', 'height'], 8],
+                        'fill-extrusion-base': ['coalesce', ['get', 'min_height'], 0],
+                        'fill-extrusion-opacity': 0.75,
+                    },
+                });
+            }
+        } catch (_) { /* no buildings */ }
+
+        map.addSource('taxi-route', { type: 'geojson', data: _taxi3d.pending || data });
+        const kind = (k) => ['==', ['get', 'kind'], k];
+        const font = mapTextFont(['DIN Pro Medium', 'Arial Unicode MS Regular']);
+        map.addLayer({ id: 'taxi-roll', type: 'line', source: 'taxi-route', filter: kind('roll'),
+            paint: { 'line-color': '#38bdf8', 'line-width': 3, 'line-dasharray': [1.5, 1.5], 'line-opacity': 0.85 } });
+        map.addLayer({ id: 'taxi-halo', type: 'line', source: 'taxi-route', filter: kind('path'),
+            layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#000', 'line-width': 9, 'line-opacity': 0.35 } });
+        map.addLayer({ id: 'taxi-path', type: 'line', source: 'taxi-route', filter: kind('path'),
+            layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#38bdf8', 'line-width': 5 } });
+        map.addLayer({ id: 'taxi-gate', type: 'circle', source: 'taxi-route', filter: kind('gate'),
+            paint: { 'circle-radius': 6, 'circle-color': 'rgba(0,0,0,0.5)', 'circle-stroke-color': '#38bdf8', 'circle-stroke-width': 2.5 } });
+        map.addLayer({ id: 'taxi-stops', type: 'circle', source: 'taxi-route', filter: kind('stop'),
+            paint: { 'circle-radius': 7, 'circle-color': ['case', ['==', ['get', 'hold'], 1], '#ef4444', '#f97316'],
+                'circle-stroke-color': '#000', 'circle-stroke-width': 1.5 } });
+        map.addLayer({ id: 'taxi-labels', type: 'symbol', source: 'taxi-route',
+            filter: ['any', kind('stop'), kind('twy')],
+            layout: { 'text-field': ['get', 'label'], 'text-font': font, 'text-size': 13,
+                'text-offset': ['case', ['==', ['get', 'kind'], 'stop'], ['literal', [0, -1.5]], ['literal', [0, 0]]],
+                'text-allow-overlap': true },
+            paint: {
+                'text-color': ['case', ['==', ['get', 'kind'], 'twy'], '#111111', '#ffffff'],
+                'text-halo-color': ['case', ['==', ['get', 'kind'], 'twy'], '#facc15', 'rgba(0,0,0,0.8)'],
+                'text-halo-width': ['case', ['==', ['get', 'kind'], 'twy'], 4, 2],
+            } });
+        // Tilt into 3D, looking down the route.
+        map.easeTo({ pitch: 60, bearing, duration: 1400 });
+    });
+}
+
 function renderTaxiCard(windowEl, points) {
     const host = windowEl && windowEl.querySelector('#ac-taxi-host');
+    // A 3D view from a window that has since been rebuilt or closed.
+    if (_taxi3d && _taxi3d.host !== host) dropTaxi3D();
     if (!host || !window.TaxiView || !window.FlightLegs) return;
     const sec = windowEl.querySelector('#ac-taxi-sec');
     host._points = points;
@@ -29598,7 +29757,12 @@ function renderTaxiCard(windowEl, points) {
         host.style.display = on ? '' : 'none';
         if (sec) sec.style.display = (on || windowEl.querySelector('#legacy-dest-card')) ? '' : 'none';
     };
-    if (!avail.length) { host._sig = ''; host.innerHTML = ''; show(false); return; }
+    if (!avail.length) { host._sig = ''; dropTaxi3D(); host.innerHTML = ''; show(false); return; }
+    if (!host._mode) {
+        let saved = null;
+        try { saved = localStorage.getItem(TAXI_VIEW_KEY); } catch (_) { /* private mode */ }
+        host._mode = saved === 'map' ? 'map' : 'sat';
+    }
 
     // The field each segment happened at: nearest to its gate end.
     const airportOf = (seg) => {
@@ -29617,7 +29781,7 @@ function renderTaxiCard(windowEl, points) {
     const layout = (icao && AirportLayoutManager.layoutCache.get(icao)) || null;
 
     const sig = avail.map((s) => `${s.kind}:${s.icao}:${s.path.length}:${s.roll.length}:${s.ongoing}`).join('|')
-        + `|${host._view}|${runways ? runways.length : '-'}|${layout ? 1 : 0}|${host._osm || ''}|${host._tall ? 1 : 0}`;
+        + `|${host._view}|${runways ? runways.length : '-'}|${layout ? 1 : 0}|${host._osm || ''}|${host._tall ? 1 : 0}|${host._mode}`;
     if (host._sig === sig) return;
     host._sig = sig;
 
@@ -29654,7 +29818,9 @@ function renderTaxiCard(windowEl, points) {
     const TV = window.TaxiView;
     const analysis = TV.analyse(seg, layout);
     const taxiways = layout ? TV.taxiwaysUsed(seg, layout, analysis) : [];
-    const svg = TV.renderSVG(seg, { runways: runways || [], used, layout, taxiways, analysis, tall: !!host._tall });
+    const mode = host._mode;
+    const svg = mode === '3d' ? '' : TV.renderSVG(seg, { runways: runways || [], used, layout, taxiways, analysis,
+        tall: !!host._tall, tileUrl: mode === 'sat' ? TAXI_SAT_TILES : null });
 
     const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const tabs = avail.length > 1 ? `<div class="tx-tabs" role="tablist">${avail.map((s) =>
@@ -29707,10 +29873,14 @@ function renderTaxiCard(windowEl, points) {
             </div>
             ${tabs}
         </div>
-        <div class="tx-map${host._tall ? ' tall' : ''}" data-tx-zoom role="button" tabindex="0" aria-label="${host._tall ? 'Shrink' : 'Enlarge'} the taxi map">
+        <div class="tx-modes" role="tablist" aria-label="Taxi map view">${[['sat', 'Satellite'], ['map', 'Map'], ['3d', '3D']].map(([m, l]) =>
+            `<button type="button" class="tx-mode${m === mode ? ' on' : ''}" data-tx-mode="${m}" role="tab" aria-selected="${m === mode}">${l}</button>`).join('')}</div>
+        ${mode === '3d'
+            ? `<div class="tx-map tx-map-3d"><div class="tx-gl-slot"></div></div>`
+            : `<div class="tx-map${host._tall ? ' tall' : ''}" data-tx-zoom role="button" tabindex="0" aria-label="${host._tall ? 'Shrink' : 'Enlarge'} the taxi map">
             ${svg}
             <span class="tx-zoom" aria-hidden="true">${host._tall ? '−' : '+'}</span>
-        </div>
+        </div>`}
         <div class="acx-grid tx-stats">
             <div class="acx-cell"><span class="acx-l">${seg.kind === 'out' ? 'Runway' : 'Landed'}</span><span class="acx-v">${rwy || '---'}</span></div>
             <div class="acx-cell"><span class="acx-l">Taxi time</span><span class="acx-v">${taxiMs != null ? TV.fmtDur(taxiMs) : '--'}</span></div>
@@ -29720,12 +29890,26 @@ function renderTaxiCard(windowEl, points) {
         <ol class="tx-steps">${rows.join('')}</ol>`;
     show(true);
 
+    if (mode === '3d') {
+        mountTaxi3D(host, host.querySelector('.tx-gl-slot'), `${icao}|${seg.kind}`, seg, taxi3DGeoJSON(seg, analysis, taxiways));
+    } else if (_taxi3d && _taxi3d.host === host) {
+        dropTaxi3D();
+    }
+
     if (!host._wired) {
         host._wired = true;
         host.addEventListener('click', (e) => {
             if (e.target.closest('.ac-icao-link')) return;
             const b = e.target.closest('[data-tx-view]');
             if (b && b.dataset.txView !== host._view) { host._view = b.dataset.txView; repaint(); return; }
+            const m = e.target.closest('[data-tx-mode]');
+            if (m) {
+                if (m.dataset.txMode === host._mode) return;
+                host._mode = m.dataset.txMode;
+                if (host._mode !== '3d') { try { localStorage.setItem(TAXI_VIEW_KEY, host._mode); } catch (_) { /* private mode */ } }
+                repaint();
+                return;
+            }
             if (e.target.closest('[data-tx-zoom]')) { host._tall = !host._tall; repaint(); }
         });
         host.addEventListener('keydown', (e) => {

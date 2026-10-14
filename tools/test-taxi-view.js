@@ -129,6 +129,12 @@ head('Timing, stops and ticks');
     ok('ticks are drawn', (svg.match(/class="tv-tick"/g) || []).length >= 5);
     ok('stops are drawn with their time', svg.includes('tv-stop') && svg.includes('>2m<'));
     ok('the tall drawing is taller', /viewBox="0 0 320 300"/.test(TV.renderSVG(r.out, { tall: true })));
+    const satSvg = TV.renderSVG(r.out, { runways: JFK, analysis: a, tileUrl: 'https://tiles.test/{z}/{y}/{x}' });
+    const tiles = [...satSvg.matchAll(/<image href="https:\/\/tiles\.test\/(\d+)\/(\d+)\/(\d+)"/g)];
+    ok('satellite draws imagery tiles under the route', satSvg.includes('tv-sat') && tiles.length > 0 && satSvg.indexOf('<image') < satSvg.indexOf('tv-path'));
+    ok('at a sharp enough zoom, in a bounded number', tiles.every((m) => +m[1] >= 14 && +m[1] <= 19) && tiles.length <= 48, `${tiles.length} @ z${tiles[0] && tiles[0][1]}`);
+    ok('the tiles cover JFK', tiles.some((m) => +m[3] === Math.floor((-73.79 + 180) / 360 * 2 ** +m[1])));
+    ok('no tiles without imagery', !TV.renderSVG(r.out, { runways: JFK }).includes('<image'));
     ok('durations read naturally', TV.fmtDur(45000) === '45s' && TV.fmtDur(130000) === '2m 10s' && TV.fmtDur(3900000) === '1h 05m');
 }
 

@@ -138,8 +138,21 @@
     // Local flat projection in metres around a reference latitude.
     function projector(lat0, lon0) {
         const kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110540;
-        return (lat, lon) => ({ x: (lon - lon0) * kx, y: -(lat - lat0) * ky });
+        const fwd = (lat, lon) => ({ x: (lon - lon0) * kx, y: -(lat - lat0) * ky });
+        fwd.inv = (x, y) => ({ lat: lat0 - y / ky, lon: lon0 + x / kx });
+        return fwd;
     }
+
+    // Slippy-map tile maths (Web Mercator, as every imagery server uses).
+    const lon2tile = (lon, z) => Math.floor((lon + 180) / 360 * 2 ** z);
+    const lat2tile = (lat, z) => {
+        const r = lat * Math.PI / 180;
+        return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z);
+    };
+    const tile2lon = (x, z) => x / 2 ** z * 360 - 180;
+    const tile2lat = (y, z) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / 2 ** z))) * 180 / Math.PI;
+    // Most tiles one drawing will ask for.
+    const MAX_TILES = 48;
 
     /**
      * The runway a takeoff or landing roll was on, and which end.
@@ -392,6 +405,11 @@
      * @param {Array}  [opts.taxiways] - taxiwaysUsed() result, highlighted and labelled.
      * @param {object} [opts.analysis] - analyse() result: minute ticks and stops.
      * @param {boolean} [opts.tall] - the enlarged, taller drawing.
+     * @param {string} [opts.tileUrl] - imagery tile template ({z}/{x}/{y});
+     *   when given the drawing sits on satellite imagery instead of a plain
+     *   background. Tiles are placed through the same projection as the
+     *   path; at the size of an airport the difference from Web Mercator is
+     *   well under a pixel.
      */
     /** A duration the way a person says it: "45s", "2m 10s", "1h 05m". */
     function fmtDur(ms) {
@@ -431,6 +449,30 @@
         const line = (pts) => pts.map((s) => px(s.lat, s.lon).join(',')).join(' ');
 
         const parts = [];
+
+        // Satellite imagery underneath everything, sharp enough for a
+        // high-density screen.
+        const sat = !!opts.tileUrl;
+        if (sat) {
+            const inv = (sx, sy) => P.inv((sx - ox) / scale, (sy - oy) / scale);
+            const nw = inv(0, 0), se = inv(W, H);
+            // Zoom where a drawing unit gets ~3 tile pixels (phone screens are 2–3×).
+            let z = Math.ceil(Math.log2(156543.03 * Math.cos(lat0 * Math.PI / 180) * scale * 3));
+            z = Math.max(12, Math.min(19, z));
+            const count = (zz) => (lon2tile(se.lon, zz) - lon2tile(nw.lon, zz) + 1) * (lat2tile(se.lat, zz) - lat2tile(nw.lat, zz) + 1);
+            while (z > 12 && count(z) > MAX_TILES) z--;
+            for (let ty = lat2tile(nw.lat, z); ty <= lat2tile(se.lat, z); ty++) {
+                for (let tx = lon2tile(nw.lon, z); tx <= lon2tile(se.lon, z); tx++) {
+                    const [ax, ay] = px(tile2lat(ty, z), tile2lon(tx, z));
+                    const [bx, by] = px(tile2lat(ty + 1, z), tile2lon(tx + 1, z));
+                    const href = opts.tileUrl.replace('{z}', z).replace('{x}', tx).replace('{y}', ty);
+                    // A hair of overlap so no seam shows between tiles.
+                    parts.push(`<image href="${esc(href)}" x="${(ax - 0.3).toFixed(1)}" y="${(ay - 0.3).toFixed(1)}" width="${(bx - ax + 0.6).toFixed(1)}" height="${(by - ay + 0.6).toFixed(1)}" preserveAspectRatio="none"/>`);
+                }
+            }
+            // A light veil so the path and labels read over any imagery.
+            parts.push(`<rect class="tv-veil" x="0" y="0" width="${W}" height="${H}"/>`);
+        }
         const usedRefs = new Set((opts.taxiways || []).map((t) => t.ref));
 
         // Taxiway network and aprons, faint, when the OSM layout is to hand.
@@ -567,7 +609,7 @@
                 `<text class="tv-tick-l" x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="middle">${txt}</text>`);
         }
 
-        return `<svg class="tv-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Taxi route">${parts.join('')}${labels.join('')}</svg>`;
+        return `<svg class="tv-svg${sat ? ' tv-sat' : ''}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Taxi route">${parts.join('')}${labels.join('')}</svg>`;
     }
 
     global.TaxiView = { extract, runwayFor, analyse, taxiwaysUsed, renderSVG, fmtDur };
