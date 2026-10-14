@@ -25148,9 +25148,8 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} #pfd-container [fill="#C477C6"] { fill: #c7a3d9; }
         ${S} #nav-display-frame { filter: saturate(0.7) brightness(0.97); }
 
-        /* Pilot status + timers: moved out from beside the PFD into one
-           card under the glance row (arrangeHorizonWindow adds .sr-status).
-           Status on top, the two timers in a row beneath a hairline. */
+        /* Pilot status: moved out from beside the PFD into its own card
+           under the glance row (arrangeHorizonWindow adds .sr-status). */
         ${S} .pfd-and-location-grid { grid-template-columns: 1fr !important; }
         ${S} .sr-status {
             height: auto !important; overflow: visible !important; gap: 0 !important;
@@ -25184,28 +25183,6 @@ const HORIZON_WINDOW_CSS = (() => {
         }
         ${S} .modern-status-card > div > div:last-child > span:nth-child(2)::first-letter { text-transform: uppercase; }
         ${S} .modern-status-card > div > div:last-child > span:nth-child(3) { color: var(--sr-faint) !important; font-size: 11px !important; }
-        ${S} .modern-timer-stack {
-            display: grid !important; grid-template-columns: repeat(2, 1fr); gap: 0 !important;
-            margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--sr-line);
-        }
-        ${S} .timer-node, ${S} .timer-node:last-child {
-            display: flex !important; flex-direction: column !important; align-items: flex-start !important;
-            justify-content: flex-start !important; gap: 3px;
-            background: transparent !important; border: 0 !important; border-radius: 0 !important;
-            padding: 0 12px !important; min-width: 0;
-        }
-        ${S} .timer-node:first-child { padding-left: 0 !important; }
-        ${S} .timer-node + .timer-node { border-left: 1px solid var(--sr-line) !important; }
-        ${S} .timer-node > div { margin: 0 !important; }
-        ${S} .timer-node > div > span, ${S} .timer-node:last-child > span:first-child {
-            font-size: 11px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
-            text-transform: none !important; letter-spacing: 0 !important;
-        }
-        ${S} .timer-node i { color: var(--sr-faint) !important; font-size: 9px !important; }
-        ${S} #ac-sensor-elapsed, ${S} #ac-sensor-total {
-            font-family: var(--font-ui) !important; font-size: 17px !important; font-weight: 500 !important;
-            color: var(--sr-text) !important; font-variant-numeric: tabular-nums;
-        }
         ${S} .sr-hidden { display: none !important; }
         /* The glance row already shows vertical speed. */
         ${S} .nav-card .nav-vs { display: none !important; }
@@ -25254,7 +25231,6 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} .acx-hero-num { font-family: var(--font-ui); font-size: 30px; font-weight: 300; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
         ${S} .acx-row, ${S} .acx-rows .acx-row:first-child, ${S} .acx-group-label, ${S} .acx-foot { border-color: var(--sr-line); }
         ${S} .acx-group-label { color: var(--sr-faint); font-weight: 500; }
-        ${S} .fuel-card, ${S} .cabin-card { border-radius: 20px !important; padding: 18px !important; }
 
         /* ---- Destination dropdown ---- */
         ${S} .dest-card { background: var(--sr-surface); border-color: var(--sr-line); border-radius: 20px; }
@@ -25323,7 +25299,6 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S}.sr-bgimg .ac-route-bar-backdrop { border-bottom-color: rgba(var(--sr-ink-rgb),0.1); }
         /* Surfaces become frosted glass so they read over any image. */
         ${S}.sr-bgimg .acx-card, ${S}.sr-bgimg .sr-glance, ${S}.sr-bgimg .sr-status, ${S}.sr-bgimg .dest-card,
-        ${S}.sr-bgimg .fuel-card, ${S}.sr-bgimg .cabin-card,
         ${S}.sr-bgimg #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile),
         ${S}.sr-bgimg .nd-full-width-section .modern-view-switcher {
             background: rgba(var(--sr-bg-rgb), 0.55) !important;
@@ -25355,14 +25330,12 @@ const HORIZON_WINDOW_CSS = (() => {
         /* Card material: a faint top-lit gradient, an inner highlight on the
            top edge and a soft drop, so cards sit on the window rather than
            being cut into it. A small lift on hover (mouse only). */
-        ${S} .acx-card, ${S} .sr-glance, ${S} .sr-status, ${S} .dest-card,
-        ${S} .fuel-card, ${S} .cabin-card {
+        ${S} .acx-card, ${S} .sr-glance, ${S} .sr-status, ${S} .dest-card {
             background: linear-gradient(180deg, rgba(var(--sr-ink-rgb),0.055), rgba(var(--sr-ink-rgb),0.025)) !important;
             box-shadow: inset 0 1px 0 rgba(var(--sr-ink-rgb),0.06), 0 10px 26px rgba(0,0,0,0.14) !important;
             transition: transform .25s ease, box-shadow .25s ease;
         }
-        ${S}.sr-light .acx-card, ${S}.sr-light .sr-glance, ${S}.sr-light .sr-status, ${S}.sr-light .dest-card,
-        ${S}.sr-light .fuel-card, ${S}.sr-light .cabin-card {
+        ${S}.sr-light .acx-card, ${S}.sr-light .sr-glance, ${S}.sr-light .sr-status, ${S}.sr-light .dest-card {
             background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,255,255,0.45)) !important;
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.8), 0 8px 22px rgba(0,0,0,0.06) !important;
         }
@@ -25413,8 +25386,7 @@ const HORIZON_WINDOW_CSS = (() => {
         /* Status colours (times, on-time badge, V/S arrow) are pale tints
            made for a dark window; deepen them on a light one. */
         ${S}.sr-light .route-node .time-small, ${S}.sr-light .route-node .time-source-label,
-        ${S}.sr-light #ac-flight-status-badge, ${S}.sr-light .sr-g-v span:not([style*="font-size"]),
-        ${S}.sr-light .timer-node:nth-child(2) { filter: brightness(0.62) saturate(1.3); }
+        ${S}.sr-light #ac-flight-status-badge, ${S}.sr-light .sr-g-v span:not([style*="font-size"]) { filter: brightness(0.62) saturate(1.3); }
         ${S}.sr-light .sr-eyebrow, ${S}.sr-light h1.sr-callsign { text-shadow: none !important; }
         ${S}.sr-light .hero-photo-dots span { filter: invert(1); }
         ${S}.sr-light .ac-pilot-avatar { background: #d9dce2; color: #1b1e24; border-color: rgba(0,0,0,0.12); }
@@ -26097,7 +26069,7 @@ function injectLegacyWindowBackgroundStyle() {
         }
         ${W} .ac-info-window-tabs, ${W} .unified-display-main-content { background: transparent !important; }
         ${W} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { background: rgba(34,34,37,0.6) !important; }
-        ${W} .acx-card, ${W} .dest-card, ${W} .modern-status-card, ${W} .timer-node, ${W} .fuel-card, ${W} .cabin-card {
+        ${W} .acx-card, ${W} .dest-card, ${W} .modern-status-card {
             background: rgba(34,34,37,0.6) !important;
             -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
         }
@@ -27136,6 +27108,7 @@ const SR_ICON = (() => {
         gauge: svg('<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 14.5l4-4.5"/><circle cx="12" cy="15" r="1.2"/>'),
         chart: svg('<path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/>'),
         compass: svg('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>'),
+        clock: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>'),
         taxi: svg('<circle cx="6" cy="18" r="2"/><path d="M8 18h4a4 4 0 0 0 4-4V9"/><path d="M13 9l3-4 3 4"/>'),
         plane: svg('<path d="M12 2c.8 0 1.3 1 1.3 2.2V9l7.7 4.6v2l-7.7-2.3V18l2.2 1.7V21L12 20l-3.5 1v-1.3L10.7 18v-4.7L3 15.6v-2L10.7 9V4.2C10.7 3 11.2 2 12 2z"/>', true),
         up: svg('<path d="M12 19V5"/><path d="M6.5 10.5L12 5l5.5 5.5"/>'),
@@ -27148,8 +27121,9 @@ const SR_ICON = (() => {
 const HORIZON_SECTION_ICONS = {
     'Instruments': 'gauge',
     'Speed & altitude': 'chart',
-    'Navigation': 'compass',
-    'Taxi': 'taxi',
+    'Position & weather': 'compass',
+    'Airports': 'taxi',
+    'This flight': 'clock',
     'Aircraft': 'plane',
 };
 
@@ -27231,7 +27205,6 @@ function arrangeHorizonWindow(html) {
     const order = [
         glance,
         status,
-        q('#legacy-dest-card'),
         make('h2', 'acx-sec', 'Instruments'),
         q('.pfd-and-location-grid'),
         q('.nd-full-width-section'),
@@ -27239,7 +27212,7 @@ function arrangeHorizonWindow(html) {
         ...withHeading(q('.graph-card')),
         q('#ac-legs-host'),
         ...withHeading(q('.stats-card')),
-        q('#ac-taxi-sec'), q('#ac-taxi-host'),
+        q('#ac-taxi-sec'), q('#ac-taxi-host'), q('#legacy-dest-card'),
         ...withHeading(q('.nav-card')),
         ...withHeading(q('.aircraft-card')),
     ].filter(Boolean);
@@ -27916,6 +27889,16 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             #aircraft-info-window .tv-gate { fill: rgba(0,0,0,0.5); stroke: var(--tx-accent); stroke-width: 2; }
             #aircraft-info-window .tv-tip { fill: var(--tx-accent); }
             #aircraft-info-window .tv-now { fill: #fff; stroke: var(--tx-accent); stroke-width: 3; }
+            #aircraft-info-window .tx-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            #aircraft-info-window .tx-kicker { font-size: 11px; font-weight: 600; color: #9a9aa2; }
+            #aircraft-info-window .tv-twy-used { stroke: rgba(var(--tx-ink),0.38); stroke-width: 3; }
+            #aircraft-info-window .tv-twy-tag rect { fill: #facc15; }
+            #aircraft-info-window .tv-twy-tag text { fill: #111; font: 700 9px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tx-via { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; min-width: 0; }
+            #aircraft-info-window .tx-via-list { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+            #aircraft-info-window .tx-twy { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #111; background: #facc15; border-radius: 4px; padding: 1px 6px; }
+            #aircraft-info-window .tx-arrow { font-style: normal; color: #9a9aa2; font-size: 13px; }
+            #aircraft-info-window .tx-dim { color: #9a9aa2; font-size: 12px; }
             #aircraft-info-window .tx-stats { margin-top: 14px; }
             #aircraft-info-window .tx-note { margin-top: 10px; font-size: 11.5px; color: #9a9aa2; }
 
@@ -28134,7 +28117,7 @@ let totalDistanceNM = 0;
     let psTitle = "ACTIVE";
     let psIcon = "fa-user-check";
     let psColor = "#4ade80";
-    let psDesc = "Pilot is active";
+    let psDesc = "";
     switch (pilotStateValue) {
         case 1: psTitle = "AWAY"; psIcon = "fa-plane-slash"; psColor = "#facc15"; psDesc = "Online (No Input)"; break;
         case 2: psTitle = "PARKED"; psIcon = "fa-square-parking"; psColor = "#94a3b8"; psDesc = "Away (On Ground)"; break;
@@ -28197,7 +28180,7 @@ let totalDistanceNM = 0;
                             <i class="fa-solid fa-plane-arrival dest-toggle-ic"></i>
                             <span class="dest-toggle-txt">
                                 <span class="dest-toggle-code" data-ap-code="${destValidIcao}">${displayAirportCode(destValidIcao)}</span>
-                                <span class="dest-toggle-sub">Arriving at · tap for info</span>
+                                <span class="dest-toggle-sub">Arrival · weather &amp; airport info</span>
                             </span>
                         </span>
                         <i class="fa-solid fa-chevron-down dest-chev"></i>
@@ -28481,25 +28464,11 @@ let totalDistanceNM = 0;
             <div>
                 <span style="display: block; font-size: 8px; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1px;">Pilot Status</span>
                 <span style="display: block; font-size: 14px; color: #fff; font-weight: 800; letter-spacing: 0.5px;">${psTitle}</span>
-                <span style="display: block; font-size: 9px; color: #64748b; font-weight: 500; margin-top: 1px;">${psDesc}</span>
+                ${psDesc ? `<span style="display: block; font-size: 9px; color: #64748b; font-weight: 500; margin-top: 1px;">${psDesc}</span>` : ''}
             </div>
         </div>
     </div>
 
-    <div class="modern-timer-stack" style="display: flex; flex-direction: column; gap: 4px;">
-        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4); border-left: 3px solid #64748b; padding: 8px 10px; border-radius: 4px 10px 10px 4px; border-top: 1px solid rgba(255,255,255,0.03);">
-            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
-                <i class="fa-solid fa-stopwatch" style="color: #64748b; font-size: 8px;"></i>
-                <span style="display: block; font-size: 7px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Elapsed</span>
-            </div>
-            <span id="ac-sensor-elapsed" style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #fff; font-weight: 500;">--:--</span>
-        </div>
-
-        <div class="timer-node" style="background: transparent; padding: 4px 10px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05);">
-            <span style="font-size: 7px; color: #475569; text-transform: uppercase; font-weight: 700;">Total</span>
-            <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #475569; font-weight: 600;">--:--</span>
-        </div>
-    </div>
 </div>
                 </div>
 
@@ -28573,34 +28542,35 @@ let totalDistanceNM = 0;
                         <div style="text-align: right;"><div id="ac-dist" class="acx-hero-num">----<span class="unit">NM</span></div><div class="acx-hero-l">Remaining</div></div>
                     </div>
                     <div class="acx-rows">
+                        <div class="acx-row"><span class="l">Time since departure</span><span id="ac-sensor-elapsed" class="v">--:--</span></div>
+                        <div class="acx-row"><span class="l">Total trip time</span><span id="ac-sensor-total" class="v">--:--</span></div>
+                        ${cruiseAltFt ? `<div class="acx-row"><span class="l">Planned cruise</span><span class="v"><span id="ac-cruise-tgt">${cruiseAltText}</span> · <span id="ac-alt-delta">---</span></span></div>` : ''}
                         <div class="acx-row"><span class="l">Average ground speed</span><span id="ac-avg-gs" class="v">---<span class="unit">kt</span></span></div>
                         <div class="acx-row"><span class="l">Max ground speed</span><span id="ac-max-gs" class="v">---<span class="unit">kt</span></span></div>
                         <div class="acx-row"><span class="l">Max altitude</span><span id="ac-max-alt" class="v">---<span class="unit">ft</span></span></div>
                     </div>
                 </div>
 
-                <!-- ════════════ TAXI (see taxiView.js / renderTaxiCard) ════════════ -->
-                <!-- Hidden until the trail has ground movement to show. -->
-                <h2 class="acx-sec" id="ac-taxi-sec" style="display: none;">Taxi</h2>
+                <!-- ════════════ AIRPORTS: how it taxied (renderTaxiCard) + where it's going ════════════ -->
+                <h2 class="acx-sec" id="ac-taxi-sec" style="display: ${destCardHtml ? 'block' : 'none'};">Airports</h2>
                 <div id="ac-taxi-host" class="acx-card taxi-card" style="display: none;"></div>
+                ${destCardHtml}
 
                 <!-- ════════════ NAVIGATION ════════════ -->
-                <h2 class="acx-sec">Navigation</h2>
+                <h2 class="acx-sec">Position &amp; weather</h2>
                 <div class="ac-info-card-bar acx-card nav-card">
                     <div class="acx-group-label">Position</div>
                     <div class="acx-grid">
                         <div class="acx-cell"><span class="acx-l">Latitude</span><span id="ac-lat" class="acx-v">---</span></div>
                         <div class="acx-cell"><span class="acx-l">Longitude</span><span id="ac-lon" class="acx-v">---</span></div>
+                        <div class="acx-cell"><span class="acx-l">True airspeed</span><span id="ac-tas" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">kt</span></span></div>
                         <div class="acx-cell nav-vs"><span class="acx-l">Vertical speed</span><span id="ac-vs" class="acx-v">---</span></div>
                     </div>
 
-                    <div class="acx-group-label">Atmosphere &amp; plan</div>
+                    <div class="acx-group-label">Weather at the aircraft</div>
                     <div class="acx-grid">
                         <div class="acx-cell"><span class="acx-l">Wind</span><span id="ac-env-wind" class="acx-v">---/--</span></div>
                         <div class="acx-cell"><span class="acx-l">Outside air</span><span id="ac-env-oat" class="acx-v">--°C</span></div>
-                        <div class="acx-cell"><span class="acx-l">True airspeed</span><span id="ac-tas" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">kt</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">Cruise</span><span id="ac-cruise-tgt" class="acx-v">${cruiseAltText}</span></div>
-                        <div class="acx-cell"><span class="acx-l">Off cruise</span><span id="ac-alt-delta" class="acx-v">---</span></div>
                     </div>
 
                     <div class="acx-rows">
@@ -28623,8 +28593,6 @@ let totalDistanceNM = 0;
                     ${photographerName && photographerName !== 'IF Community' && techCardPhotos.length <= 1 ? `
                     <div class="acx-row"><span class="l">Photo</span><span class="v" style="font-family: inherit;">${photographerName}</span></div>` : ''}
                 </div>
-
-                ${destCardHtml}
             </div>
  
             <div id="ac-tab-pilot-report" class="ac-tab-pane ${pilotReportActiveClass}" style="display: ${pilotReportDisplay}; padding: 12px;">
@@ -29605,9 +29573,11 @@ function renderTaxiCard(windowEl, points) {
     const segs = memoOverTrail('taxi', [currentFlightInWindow], points, 10000,
         () => window.TaxiView.extract(window.FlightLegs.normalize(points || [])));
     const avail = [segs.out, segs.in].filter(Boolean);
+    // The Airports heading also covers the arrival card, so it stays while
+    // that card is there even when there is no taxi to show.
     const show = (on) => {
         host.style.display = on ? '' : 'none';
-        if (sec) sec.style.display = on ? '' : 'none';
+        if (sec) sec.style.display = (on || windowEl.querySelector('#legacy-dest-card')) ? '' : 'none';
     };
     if (!avail.length) { host._sig = ''; host.innerHTML = ''; show(false); return; }
 
@@ -29628,7 +29598,7 @@ function renderTaxiCard(windowEl, points) {
     const layout = (icao && AirportLayoutManager.layoutCache.get(icao)) || null;
 
     const sig = avail.map((s) => `${s.kind}:${s.icao}:${s.path.length}:${s.roll.length}:${s.ongoing}`).join('|')
-        + `|${host._view}|${runways ? runways.length : '-'}|${layout ? 1 : 0}`;
+        + `|${host._view}|${runways ? runways.length : '-'}|${layout ? 1 : 0}|${host._osm || ''}`;
     if (host._sig === sig) return;
     host._sig = sig;
 
@@ -29643,7 +29613,11 @@ function renderTaxiCard(windowEl, points) {
         host._asked.add('osm:' + icao);
         // Only once the card is actually on screen — Overpass is slow and
         // shared, and most windows are closed before anyone scrolls this far.
-        const fetchLayout = () => AirportLayoutManager.getLayout(icao, apt.lat, apt.lon).then((g) => { if (g) repaint(); });
+        host._osm = 'loading';
+        const fetchLayout = () => AirportLayoutManager.getLayout(icao, apt.lat, apt.lon).then((g) => {
+            host._osm = g ? 'ready' : 'failed';
+            repaint();
+        });
         if (typeof IntersectionObserver === 'function') {
             const io = new IntersectionObserver((entries) => {
                 if (!entries.some((e) => e.isIntersecting)) return;
@@ -29658,7 +29632,8 @@ function renderTaxiCard(windowEl, points) {
 
     const lead = seg.kind === 'out' ? seg.path[seg.path.length - 1] : null;
     const used = runways ? window.TaxiView.runwayFor(runways, seg.roll, lead) : null;
-    const svg = window.TaxiView.renderSVG(seg, { runways: runways || [], used, layout });
+    const taxiways = layout ? window.TaxiView.taxiwaysUsed(seg, layout) : [];
+    const svg = window.TaxiView.renderSVG(seg, { runways: runways || [], used, layout, taxiways });
 
     const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const tabs = avail.length > 1 ? `<div class="tx-tabs" role="tablist">${avail.map((s) =>
@@ -29674,13 +29649,27 @@ function renderTaxiCard(windowEl, points) {
     const note = seg.ongoing
         ? (seg.kind === 'out' ? 'Taxiing out now.' : 'Taxiing in now.')
         : '';
+    // Which taxiways, in order. Needs the OSM layout, which loads once the
+    // card is on screen; fields with no named taxiways in OSM get no row.
+    let viaHtml = '';
+    if (taxiways.length) {
+        viaHtml = `<div class="tx-via"><span class="acx-l">Via</span><span class="tx-via-list">${
+            taxiways.map((t) => `<b class="tx-twy">${esc(t.ref)}</b>`).join('<i class="tx-arrow">›</i>')
+        }</span></div>`;
+    } else if (!layout && host._osm !== 'failed' && apt) {
+        viaHtml = `<div class="tx-via"><span class="acx-l">Via</span><span class="tx-via-list tx-dim">Loading taxiways…</span></div>`;
+    }
 
     host.innerHTML = `
         <div class="tx-head">
-            <div class="tx-apt">${aptHtml}</div>
+            <div class="tx-title">
+                <span class="tx-kicker">${seg.kind === 'out' ? 'Taxi out' : 'Taxi in'}</span>
+                <div class="tx-apt">${aptHtml}</div>
+            </div>
             ${tabs}
         </div>
         <div class="tx-map">${svg}</div>
+        ${viaHtml}
         <div class="acx-grid tx-stats">
             <div class="acx-cell"><span class="acx-l">${rwyLabel}</span><span class="acx-v">${rwyText}</span></div>
             <div class="acx-cell"><span class="acx-l">Taxi time</span><span class="acx-v">${mins != null ? mins : '--'}<span class="unit">min</span></span></div>

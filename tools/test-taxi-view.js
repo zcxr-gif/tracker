@@ -60,6 +60,36 @@ head('Taxi-out');
     ok('and the runway designator', svg.includes('>04L<'));
 }
 
+head('Taxiways used');
+{
+    t = t0;
+    const r = TV.extract(taxiOut.concat(roll, climb));
+    const line = (ref, coords, aeroway = 'taxiway') => ({
+        type: 'Feature', properties: { aeroway, ref },
+        geometry: { type: 'LineString', coordinates: coords.map(([la, lo]) => [lo, la]) },
+    });
+    // A, then B, then K along the path; Z crosses it at right angles; one
+    // taxiway has no name; an apron sits under the gate.
+    const layout = { type: 'FeatureCollection', features: [
+        line('A', [[40.6441, -73.7822], [40.6420, -73.7840], [40.6395, -73.7870], [40.6370, -73.7900]]),
+        line('B', [[40.6370, -73.7900], [40.6330, -73.7930], [40.6290, -73.7900]]),
+        line('K', [[40.6290, -73.7900], [40.6250, -73.7870], [40.6222, -73.7858]]),
+        line('Z', [[40.6395, -73.7900], [40.6395, -73.7840]]),
+        line('', [[40.6300, -73.7950], [40.6250, -73.7950]]),
+        { type: 'Feature', properties: { aeroway: 'apron' }, geometry: { type: 'Polygon', coordinates: [[[-73.783, 40.644], [-73.781, 40.644], [-73.781, 40.645], [-73.783, 40.644]]] } },
+    ] };
+    const used = TV.taxiwaysUsed(r.out, layout);
+    const refs = used.map((u) => u.ref).join(' ');
+    ok('names them in order', refs === 'A B K', refs);
+    ok('a taxiway only crossed is not listed', !used.some((u) => u.ref === 'Z'));
+    ok('each comes with a label point', used.every((u) => isFinite(u.at.lat) && isFinite(u.at.lon)));
+    ok('no layout, no names', TV.taxiwaysUsed(r.out, null).length === 0);
+
+    const svg = TV.renderSVG(r.out, { runways: JFK, layout, taxiways: used });
+    ok('the used taxiways are highlighted', (svg.match(/tv-twy tv-twy-used/g) || []).length === 3);
+    ok('and labelled', svg.includes('>A<') && svg.includes('>B<') && svg.includes('>K<'));
+}
+
 head('Still taxiing');
 {
     const r = TV.extract(taxiOut.slice(0, 5));

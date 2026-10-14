@@ -10,13 +10,14 @@
  *     roll to wherever it is now (or where it parked).
  *
  * Then draws it as a small airport diagram: the field's runways from the
- * runway database, the taxiway network when the OSM layout is already to hand
- * (airportLayout.js), and the path itself on top.
+ * runway database, the taxiway network once the OSM layout is to hand
+ * (airportLayout.js), and the path itself on top — and names the taxiways
+ * the path ran along ("A → B → K").
  *
  * Pure and dependency-free so it runs (and is tested) in Node; flight.js owns
  * the airport and runway lookups and the card around the drawing.
  *
- * Exposes window.TaxiView = { extract, runwayFor, renderSVG }.
+ * Exposes window.TaxiView = { extract, runwayFor, taxiwaysUsed, renderSVG }.
  */
 (function (global) {
     'use strict';
@@ -179,6 +180,92 @@
         return { ident: String(ident), runway: best.r };
     }
 
+    // --- Taxiways ------------------------------------------------------------
+
+    // The path is sampled every few hundred metres, so it is walked at this
+    // spacing (straight between fixes) and each step matched to the nearest
+    // named taxiway centreline.
+    const STEP_M = 12;
+    // Further than this from every centreline and the step is on an apron,
+    // a stand or a runway — not on a named taxiway.
+    const TWY_MATCH_M = 40;
+    // A run on one taxiway shorter than this is the path cutting across it
+    // at a junction, not taxiing along it.
+    const TWY_MIN_RUN_M = 90;
+
+    /**
+     * The named taxiways a ground path used, in the order it used them.
+     * @param {object} seg - an extract() result's out or in.
+     * @param {object} layout - airportLayout.js GeoJSON; taxiway/taxilane
+     *   LineStrings carry their OSM `ref` ("A", "K3", …).
+     * @returns {Array<{ref: string, at: {lat: number, lon: number}}>} each
+     *   taxiway once per stretch, with the middle of that stretch for its label.
+     */
+    function taxiwaysUsed(seg, layout) {
+        const feats = (layout && layout.features) || [];
+        const path = seg && seg.path;
+        if (!feats.length || !path || path.length < 2) return [];
+
+        const P = projector(path[0].lat, path[0].lon);
+        const pts = path.map((s) => ({ ...P(s.lat, s.lon), lat: s.lat, lon: s.lon }));
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        pts.forEach((p) => { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); });
+        const pad = TWY_MATCH_M * 2;
+
+        // Named centreline segments near the path, projected once.
+        const segs = [];
+        for (const f of feats) {
+            const g = f && f.geometry, p = (f && f.properties) || {};
+            if (!g || g.type !== 'LineString' || (p.aeroway !== 'taxiway' && p.aeroway !== 'taxilane')) continue;
+            const ref = String(p.ref || '').trim();
+            if (!ref) continue;
+            const c = g.coordinates.map(([lo, la]) => P(la, lo));
+            for (let i = 1; i < c.length; i++) {
+                const a = c[i - 1], b = c[i];
+                if (Math.max(a.x, b.x) < x0 - pad || Math.min(a.x, b.x) > x1 + pad ||
+                    Math.max(a.y, b.y) < y0 - pad || Math.min(a.y, b.y) > y1 + pad) continue;
+                segs.push({ ref, a, b });
+            }
+        }
+        if (!segs.length) return [];
+
+        const nearestRef = (x, y) => {
+            let best = null, bestD = TWY_MATCH_M;
+            for (const s of segs) {
+                const dx = s.b.x - s.a.x, dy = s.b.y - s.a.y, len2 = dx * dx + dy * dy;
+                const t = len2 ? Math.max(0, Math.min(1, ((x - s.a.x) * dx + (y - s.a.y) * dy) / len2)) : 0;
+                const d = Math.hypot(x - (s.a.x + t * dx), y - (s.a.y + t * dy));
+                if (d < bestD) { bestD = d; best = s.ref; }
+            }
+            return best;
+        };
+
+        // Walk the path; collect runs of the same taxiway.
+        const runs = [];
+        for (let i = 1; i < pts.length; i++) {
+            const a = pts[i - 1], b = pts[i];
+            const len = Math.hypot(b.x - a.x, b.y - a.y);
+            const n = Math.max(1, Math.ceil(len / STEP_M));
+            for (let k = (i === 1 ? 0 : 1); k <= n; k++) {
+                const t = k / n;
+                const ref = nearestRef(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+                const here = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
+                const step = len / n;
+                const last = runs[runs.length - 1];
+                if (last && last.ref === ref) { last.m += step; last.pts.push(here); continue; }
+                runs.push({ ref, m: step, pts: [here] });
+            }
+        }
+
+        const out = [];
+        for (const r of runs) {
+            if (!r.ref || r.m < TWY_MIN_RUN_M) continue;
+            if (out.length && out[out.length - 1].ref === r.ref) continue;   // rejoined after a blip
+            out.push({ ref: r.ref, at: r.pts[Math.floor(r.pts.length / 2)] });
+        }
+        return out;
+    }
+
     // --- Drawing -------------------------------------------------------------
 
     const W = 320, H = 200;
@@ -192,6 +279,7 @@
      * @param {Array}  [opts.runways] - runway records for the field.
      * @param {object} [opts.used] - runwayFor() result, highlighted.
      * @param {object} [opts.layout] - airportLayout.js GeoJSON (taxiways, aprons).
+     * @param {Array}  [opts.taxiways] - taxiwaysUsed() result, highlighted and labelled.
      */
     function renderSVG(seg, opts = {}) {
         if (!seg || !seg.path || !seg.path.length) return '';
@@ -221,6 +309,7 @@
         const line = (pts) => pts.map((s) => px(s.lat, s.lon).join(',')).join(' ');
 
         const parts = [];
+        const usedRefs = new Set((opts.taxiways || []).map((t) => t.ref));
 
         // Taxiway network and aprons, faint, when the OSM layout is to hand.
         const feats = (opts.layout && opts.layout.features) || [];
@@ -232,7 +321,8 @@
             if (g.type === 'Polygon' && g.coordinates[0] && inView(g.coordinates[0])) {
                 parts.push(`<polygon class="tv-apron" points="${ring(g.coordinates[0])}"/>`);
             } else if (g.type === 'LineString' && (kind === 'taxiway' || kind === 'taxilane') && inView(g.coordinates)) {
-                parts.push(`<polyline class="tv-twy" points="${ring(g.coordinates)}"/>`);
+                const used = usedRefs.has(String(f.properties.ref || '').trim());
+                parts.push(`<polyline class="tv-twy${used ? ' tv-twy-used' : ''}" points="${ring(g.coordinates)}"/>`);
             }
         }
 
@@ -283,8 +373,16 @@
             parts.push(`<circle class="tv-tip" cx="${tx}" cy="${ty}" r="3.5"/>`);
         }
 
+        // Taxiway letters where the path ran along them, on a small tag.
+        for (const t of (opts.taxiways || [])) {
+            const [x, y] = px(t.at.lat, t.at.lon);
+            if (x < 6 || x > W - 6 || y < 6 || y > H - 6) continue;
+            const w = 8 + String(t.ref).length * 6;
+            labels.push(`<g class="tv-twy-tag" transform="translate(${x},${y})"><rect x="${-w / 2}" y="-7" width="${w}" height="14" rx="3"/><text y="3.5" text-anchor="middle">${esc(t.ref)}</text></g>`);
+        }
+
         return `<svg class="tv-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Taxi route">${parts.join('')}${labels.join('')}</svg>`;
     }
 
-    global.TaxiView = { extract, runwayFor, renderSVG };
+    global.TaxiView = { extract, runwayFor, taxiwaysUsed, renderSVG };
 })(typeof window !== 'undefined' ? window : this);
