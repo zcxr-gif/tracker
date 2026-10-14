@@ -90,6 +90,48 @@ head('Taxiways used');
     ok('and labelled', svg.includes('>A<') && svg.includes('>B<') && svg.includes('>K<'));
 }
 
+head('Timing, stops and ticks');
+{
+    const T = (min) => t0 + min * 60000;
+    const s = (min, lat, lon, gs, alt = 13) => ({ t: T(min), lat, lon, alt, gs });
+    const path = [
+        s(0, 40.6441, -73.7822, 0), s(2, 40.6441, -73.7822, 0),          // at the gate 2 min
+        s(3, 40.6420, -73.7840, 15), s(4, 40.6395, -73.7870, 16), s(5, 40.6370, -73.7900, 15),
+        s(6, 40.6330, -73.7930, 0), s(7.5, 40.6330, -73.7930, 0),         // stopped on B 2 min
+        s(8, 40.6290, -73.7900, 14), s(9, 40.6250, -73.7870, 12),
+        s(10, 40.6222, -73.7858, 0), s(11, 40.6222, -73.7858, 0),         // holding short 04L
+        s(11.3, 40.6260, -73.7826, 90), s(11.5, 40.6320, -73.7778, 150, 40), s(12, 40.6500, -73.7600, 180, 1500),
+        s(13, 40.7500, -73.6000, 300, 9000),
+    ];
+    const r = TV.extract(path);
+    const line = (ref, coords) => ({ type: 'Feature', properties: { aeroway: 'taxiway', ref },
+        geometry: { type: 'LineString', coordinates: coords.map(([la, lo]) => [lo, la]) } });
+    const layout = { features: [
+        line('A', [[40.6441, -73.7822], [40.6420, -73.7840], [40.6395, -73.7870], [40.6370, -73.7900]]),
+        line('B', [[40.6370, -73.7900], [40.6330, -73.7930], [40.6290, -73.7900]]),
+        line('K', [[40.6290, -73.7900], [40.6250, -73.7870], [40.6222, -73.7858]]),
+    ] };
+    const a = TV.analyse(r.out, layout);
+    ok('legs in order', a.legs.map((l) => l.ref).join(' ') === 'A B K', a.legs.map((l) => l.ref).join(' '));
+    ok('timed from leaving the gate', a.startT === T(2), (a.startT - t0) / 60000);
+    ok('leg times add up to the whole taxi', a.legs.reduce((m, l) => m + (l.t1 - l.t0), 0) === a.endT - a.startT);
+    ok('two stops found', a.stops.length === 2, a.stops.length);
+    ok('the first is on B, for two minutes', a.stops[0] && a.stops[0].ref === 'B' && a.stops[0].ms === 120000,
+        a.stops[0] && `${a.stops[0].ref} ${a.stops[0].ms}`);
+    ok('it is filed under taxiway B', a.legs[1].stops.includes(a.stops[0]));
+    ok('the last is holding short', a.stops[1] && a.stops[1].holdShort && !a.stops[0].holdShort);
+    ok('total stopped time', a.stoppedMs === 120000 + 78000, a.stoppedMs);
+    ok('a tick per minute on the move', a.ticks.length === Math.floor((a.endT - a.startT) / 60000), a.ticks.length);
+    ok('ticks are numbered in order', a.ticks.every((tk, i) => tk.minute === i + 1));
+    ok('without a layout the timing still works', TV.analyse(r.out, null).stops.length === 2);
+
+    const svg = TV.renderSVG(r.out, { runways: JFK, layout, analysis: a, taxiways: TV.taxiwaysUsed(r.out, layout, a) });
+    ok('ticks are drawn', (svg.match(/class="tv-tick"/g) || []).length >= 5);
+    ok('stops are drawn with their time', svg.includes('tv-stop') && svg.includes('>2m<'));
+    ok('the tall drawing is taller', /viewBox="0 0 320 300"/.test(TV.renderSVG(r.out, { tall: true })));
+    ok('durations read naturally', TV.fmtDur(45000) === '45s' && TV.fmtDur(130000) === '2m 10s' && TV.fmtDur(3900000) === '1h 05m');
+}
+
 head('Still taxiing');
 {
     const r = TV.extract(taxiOut.slice(0, 5));

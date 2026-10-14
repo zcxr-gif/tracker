@@ -27894,13 +27894,32 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             #aircraft-info-window .tv-twy-used { stroke: rgba(var(--tx-ink),0.38); stroke-width: 3; }
             #aircraft-info-window .tv-twy-tag rect { fill: #facc15; }
             #aircraft-info-window .tv-twy-tag text { fill: #111; font: 700 9px 'JetBrains Mono', monospace; }
-            #aircraft-info-window .tx-via { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; min-width: 0; }
-            #aircraft-info-window .tx-via-list { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
             #aircraft-info-window .tx-twy { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #111; background: #facc15; border-radius: 4px; padding: 1px 6px; }
-            #aircraft-info-window .tx-arrow { font-style: normal; color: #9a9aa2; font-size: 13px; }
             #aircraft-info-window .tx-dim { color: #9a9aa2; font-size: 12px; }
-            #aircraft-info-window .tx-stats { margin-top: 14px; }
-            #aircraft-info-window .tx-note { margin-top: 10px; font-size: 11.5px; color: #9a9aa2; }
+            #aircraft-info-window .tx-stats { margin-top: 14px; grid-template-columns: repeat(4, 1fr); gap: 10px 8px; }
+            #aircraft-info-window .tx-map { position: relative; cursor: zoom-in; }
+            #aircraft-info-window .tx-map.tall { cursor: zoom-out; }
+            #aircraft-info-window .tx-zoom { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font: 600 15px/1 system-ui, sans-serif; color: rgba(var(--tx-ink),0.85); background: rgba(0,0,0,0.35); pointer-events: none; }
+            #aircraft-info-window .tv-tick { stroke: rgba(var(--tx-ink),0.9); stroke-width: 1.6; stroke-linecap: round; }
+            #aircraft-info-window .tv-tick-l { fill: rgba(var(--tx-ink),0.7); font: 600 7.5px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tv-stop { fill: #f97316; stroke: rgba(0,0,0,0.55); stroke-width: 1.5; }
+            #aircraft-info-window .tv-stop-hold { fill: #ef4444; }
+            #aircraft-info-window .tv-stop-tag rect { fill: rgba(0,0,0,0.72); }
+            #aircraft-info-window .tv-stop-tag text { fill: #fff; font: 600 8px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tx-steps { list-style: none; margin: 14px 0 0; padding: 12px 0 0; border-top: 1px solid rgba(var(--tx-ink),0.07); display: flex; flex-direction: column; }
+            #aircraft-info-window .tx-step { position: relative; display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 10px; padding: 6px 0; min-width: 0; }
+            /* the thread joining the marks */
+            #aircraft-info-window .tx-step:not(:last-child)::after { content: ''; position: absolute; left: 10.5px; top: 24px; bottom: -8px; width: 1px; background: rgba(var(--tx-ink),0.14); }
+            #aircraft-info-window .tx-mark { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; line-height: 1; position: relative; z-index: 1; }
+            #aircraft-info-window .tx-step.done .tx-mark { color: #0b1220; background: var(--tx-accent); }
+            #aircraft-info-window .tx-step.now .tx-mark { background: rgba(var(--tx-ink),0.08); }
+            #aircraft-info-window .tx-step.stop .tx-mark { background: rgba(249,115,22,0.16); }
+            #aircraft-info-window .tx-live { width: 9px; height: 9px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px var(--tx-accent); animation: pulse 2s infinite; }
+            #aircraft-info-window .tx-stopic { width: 9px; height: 9px; border-radius: 2px; background: #f97316; }
+            #aircraft-info-window .tx-step-name { font-size: 13px; color: rgba(var(--tx-ink),0.92); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            #aircraft-info-window .tx-step.stop .tx-step-name { color: rgba(var(--tx-ink),0.7); }
+            #aircraft-info-window .tx-step-meta { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: rgba(var(--tx-ink),0.62); white-space: nowrap; }
+            #aircraft-info-window .tx-step.stop .tx-step-meta { color: #fdba74; }
 
             #aircraft-info-window .acx-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
             #aircraft-info-window .acx-foot .acx-l { margin-bottom: 3px; }
@@ -29598,7 +29617,7 @@ function renderTaxiCard(windowEl, points) {
     const layout = (icao && AirportLayoutManager.layoutCache.get(icao)) || null;
 
     const sig = avail.map((s) => `${s.kind}:${s.icao}:${s.path.length}:${s.roll.length}:${s.ongoing}`).join('|')
-        + `|${host._view}|${runways ? runways.length : '-'}|${layout ? 1 : 0}|${host._osm || ''}`;
+        + `|${host._view}|${runways ? runways.length : '-'}|${layout ? 1 : 0}|${host._osm || ''}|${host._tall ? 1 : 0}`;
     if (host._sig === sig) return;
     host._sig = sig;
 
@@ -29632,8 +29651,10 @@ function renderTaxiCard(windowEl, points) {
 
     const lead = seg.kind === 'out' ? seg.path[seg.path.length - 1] : null;
     const used = runways ? window.TaxiView.runwayFor(runways, seg.roll, lead) : null;
-    const taxiways = layout ? window.TaxiView.taxiwaysUsed(seg, layout) : [];
-    const svg = window.TaxiView.renderSVG(seg, { runways: runways || [], used, layout, taxiways });
+    const TV = window.TaxiView;
+    const analysis = TV.analyse(seg, layout);
+    const taxiways = layout ? TV.taxiwaysUsed(seg, layout, analysis) : [];
+    const svg = TV.renderSVG(seg, { runways: runways || [], used, layout, taxiways, analysis, tall: !!host._tall });
 
     const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const tabs = avail.length > 1 ? `<div class="tx-tabs" role="tablist">${avail.map((s) =>
@@ -29642,49 +29663,75 @@ function renderTaxiCard(windowEl, points) {
     const aptHtml = icao
         ? `<span class="tx-apt-code ac-icao-link" data-icao="${esc(icao)}" role="button" tabindex="0" title="View ${esc(icao)} airport">${esc(displayAirportCode(icao))}</span><span class="tx-apt-name">${esc((apt && apt.name) || '')}</span>`
         : `<span class="tx-apt-name">Unknown airport</span>`;
-    const mins = seg.minutes != null ? Math.max(1, Math.round(seg.minutes)) : null;
-    const nm = seg.distanceKm / 1.852;
-    const rwyLabel = seg.kind === 'out' ? 'Departed' : 'Landed';
-    const rwyText = used ? `${esc(used.ident)}` : (seg.kind === 'out' && seg.ongoing ? '—' : '---');
-    const note = seg.ongoing
-        ? (seg.kind === 'out' ? 'Taxiing out now.' : 'Taxiing in now.')
-        : '';
-    // Which taxiways, in order. Needs the OSM layout, which loads once the
-    // card is on screen; fields with no named taxiways in OSM get no row.
-    let viaHtml = '';
-    if (taxiways.length) {
-        viaHtml = `<div class="tx-via"><span class="acx-l">Via</span><span class="tx-via-list">${
-            taxiways.map((t) => `<b class="tx-twy">${esc(t.ref)}</b>`).join('<i class="tx-arrow">›</i>')
-        }</span></div>`;
-    } else if (!layout && host._osm !== 'failed' && apt) {
-        viaHtml = `<div class="tx-via"><span class="acx-l">Via</span><span class="tx-via-list tx-dim">Loading taxiways…</span></div>`;
+    const nm = (m) => { const v = m / 1852; return v < 10 ? v.toFixed(1) : String(Math.round(v)); };
+    const rwy = used ? esc(used.ident) : '';
+
+    // The route, step by step: each taxiway ticked off once it is behind the
+    // aircraft, with how long it took and every stop along it.
+    const loading = !layout && host._osm !== 'failed' && apt;
+    const legName = (l, i, n) => {
+        if (l.ref) return `<b class="tx-twy">${esc(l.ref)}</b>`;
+        if (loading) return `<span class="tx-dim">Taxiways loading…</span>`;
+        if (!layout) return 'Taxi';
+        const atRamp = (seg.kind === 'out' && i === 0) || (seg.kind === 'in' && i === n - 1);
+        return atRamp ? 'Ramp' : 'Unnamed taxiway';
+    };
+    const row = (mark, name, meta, cls = '') =>
+        `<li class="tx-step${cls}"><span class="tx-mark">${mark}</span><span class="tx-step-name">${name}</span><span class="tx-step-meta">${meta}</span></li>`;
+    const TICK = '✓';
+    const rows = [];
+    if (seg.kind === 'in') rows.push(row(TICK, rwy ? `Landed on ${rwy}` : 'Landed', '', ' done'));
+    else rows.push(row(TICK, 'Left the gate', '', ' done'));
+    analysis.legs.forEach((l, i, all) => {
+        const current = seg.ongoing && i === all.length - 1;
+        rows.push(row(current ? '<i class="tx-live"></i>' : TICK, legName(l, i, all.length),
+            `${TV.fmtDur(l.t1 - l.t0)} · ${nm(l.m)} NM`, current ? ' now' : ' done'));
+        l.stops.forEach((st) => {
+            const where = st.holdShort ? (rwy ? `Held short of ${rwy}` : 'Held short')
+                : (st.ref ? `Stopped on ${esc(st.ref)}` : 'Stopped');
+            rows.push(row('<i class="tx-stopic"></i>', where, TV.fmtDur(st.ms), ' stop'));
+        });
+    });
+    if (!seg.ongoing) {
+        rows.push(seg.kind === 'out'
+            ? row(TICK, rwy ? `Took off from ${rwy}` : 'Took off', '', ' done')
+            : row(TICK, 'Parked', '', ' done'));
     }
+    const taxiMs = seg.minutes != null ? seg.minutes * 60000 : null;
 
     host.innerHTML = `
         <div class="tx-head">
             <div class="tx-title">
-                <span class="tx-kicker">${seg.kind === 'out' ? 'Taxi out' : 'Taxi in'}</span>
+                <span class="tx-kicker">${seg.kind === 'out' ? 'Taxi out' : 'Taxi in'}${seg.ongoing ? ' · now' : ''}</span>
                 <div class="tx-apt">${aptHtml}</div>
             </div>
             ${tabs}
         </div>
-        <div class="tx-map">${svg}</div>
-        ${viaHtml}
-        <div class="acx-grid tx-stats">
-            <div class="acx-cell"><span class="acx-l">${rwyLabel}</span><span class="acx-v">${rwyText}</span></div>
-            <div class="acx-cell"><span class="acx-l">Taxi time</span><span class="acx-v">${mins != null ? mins : '--'}<span class="unit">min</span></span></div>
-            <div class="acx-cell"><span class="acx-l">Distance</span><span class="acx-v">${nm < 10 ? nm.toFixed(1) : Math.round(nm)}<span class="unit">NM</span></span></div>
+        <div class="tx-map${host._tall ? ' tall' : ''}" data-tx-zoom role="button" tabindex="0" aria-label="${host._tall ? 'Shrink' : 'Enlarge'} the taxi map">
+            ${svg}
+            <span class="tx-zoom" aria-hidden="true">${host._tall ? '−' : '+'}</span>
         </div>
-        ${note ? `<div class="tx-note">${note}</div>` : ''}`;
+        <div class="acx-grid tx-stats">
+            <div class="acx-cell"><span class="acx-l">${seg.kind === 'out' ? 'Runway' : 'Landed'}</span><span class="acx-v">${rwy || '---'}</span></div>
+            <div class="acx-cell"><span class="acx-l">Taxi time</span><span class="acx-v">${taxiMs != null ? TV.fmtDur(taxiMs) : '--'}</span></div>
+            <div class="acx-cell"><span class="acx-l">Stopped</span><span class="acx-v">${analysis.stoppedMs ? TV.fmtDur(analysis.stoppedMs) : 'None'}</span></div>
+            <div class="acx-cell"><span class="acx-l">Distance</span><span class="acx-v">${nm(seg.distanceKm * 1000)}<span class="unit">NM</span></span></div>
+        </div>
+        <ol class="tx-steps">${rows.join('')}</ol>`;
     show(true);
 
     if (!host._wired) {
         host._wired = true;
         host.addEventListener('click', (e) => {
+            if (e.target.closest('.ac-icao-link')) return;
             const b = e.target.closest('[data-tx-view]');
-            if (!b || b.dataset.txView === host._view) return;
-            host._view = b.dataset.txView;
-            repaint();
+            if (b && b.dataset.txView !== host._view) { host._view = b.dataset.txView; repaint(); return; }
+            if (e.target.closest('[data-tx-zoom]')) { host._tall = !host._tall; repaint(); }
+        });
+        host.addEventListener('keydown', (e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-tx-zoom]')) {
+                e.preventDefault(); host._tall = !host._tall; repaint();
+            }
         });
     }
 }

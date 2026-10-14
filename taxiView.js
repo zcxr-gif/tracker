@@ -17,7 +17,7 @@
  * Pure and dependency-free so it runs (and is tested) in Node; flight.js owns
  * the airport and runway lookups and the card around the drawing.
  *
- * Exposes window.TaxiView = { extract, runwayFor, taxiwaysUsed, renderSVG }.
+ * Exposes window.TaxiView = { extract, runwayFor, analyse, taxiwaysUsed, renderSVG, fmtDur }.
  */
 (function (global) {
     'use strict';
@@ -180,41 +180,64 @@
         return { ident: String(ident), runway: best.r };
     }
 
-    // --- Taxiways ------------------------------------------------------------
+    // --- Taxiways, stops and timing -------------------------------------------
 
     // The path is sampled every few hundred metres, so it is walked at this
-    // spacing (straight between fixes) and each step matched to the nearest
-    // named taxiway centreline.
+    // spacing (straight between fixes, time interpolated) and each step
+    // matched to the nearest named taxiway centreline.
     const STEP_M = 12;
     // Further than this from every centreline and the step is on an apron,
     // a stand or a runway — not on a named taxiway.
     const TWY_MATCH_M = 40;
-    // A run on one taxiway shorter than this is the path cutting across it
-    // at a junction, not taxiing along it.
+    // A stretch on one taxiway shorter than this is the path cutting across
+    // it at a junction, not taxiing along it; it is folded into its neighbour.
     const TWY_MIN_RUN_M = 90;
+    // Sitting still for at least this long counts as a stop (a hold, a
+    // give-way, a wait for clearance).
+    const STOP_MIN_MS = 15 * 1000;
+    // A stop this close to where the roll began is holding short / lining up.
+    const HOLD_SHORT_M = 250;
 
     /**
-     * The named taxiways a ground path used, in the order it used them.
+     * Everything the card says about a ground path, in one pass.
      * @param {object} seg - an extract() result's out or in.
-     * @param {object} layout - airportLayout.js GeoJSON; taxiway/taxilane
-     *   LineStrings carry their OSM `ref` ("A", "K3", …).
-     * @returns {Array<{ref: string, at: {lat: number, lon: number}}>} each
-     *   taxiway once per stretch, with the middle of that stretch for its label.
+     * @param {object} [layout] - airportLayout.js GeoJSON; taxiway/taxilane
+     *   LineStrings carry their OSM `ref` ("A", "K3", …). Without it the
+     *   legs are unnamed but the timing, stops and ticks still work.
+     * @returns {{ legs: Array, stops: Array, ticks: Array, startT: number|null,
+     *   endT: number|null, stoppedMs: number }}
+     *   legs  — the route in order: { ref|null, t0, t1, m, at, stops: [] };
+     *   stops — { lat, lon, t0, t1, ms, ref, holdShort };
+     *   ticks — one per elapsed minute: { lat, lon, dx, dy, minute }.
      */
-    function taxiwaysUsed(seg, layout) {
-        const feats = (layout && layout.features) || [];
+    function analyse(seg, layout) {
+        const empty = { legs: [], stops: [], ticks: [], startT: null, endT: null, stoppedMs: 0 };
         const path = seg && seg.path;
-        if (!feats.length || !path || path.length < 2) return [];
+        if (!path || path.length < 2) return empty;
 
-        const P = projector(path[0].lat, path[0].lon);
-        const pts = path.map((s) => ({ ...P(s.lat, s.lon), lat: s.lat, lon: s.lon }));
-        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-        pts.forEach((p) => { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); });
-        const pad = TWY_MATCH_M * 2;
+        // Only the moving part: from the last fix at the gate to the first
+        // fix parked at the other end.
+        const moving = (s) => s.gs != null && s.gs >= MOVING_GS_KT;
+        let i0 = 0, i1 = path.length - 1;
+        const first = path.findIndex(moving);
+        if (first < 0) return empty;
+        if (seg.kind === 'out') i0 = Math.max(0, first - 1);
+        if (seg.kind === 'in' && !seg.ongoing) {
+            while (i1 > 0 && !moving(path[i1])) i1--;
+            i1 = Math.min(path.length - 1, i1 + 1);
+        }
+        const pts = path.slice(i0, i1 + 1);
+        if (pts.length < 2) return empty;
+
+        const P = projector(pts[0].lat, pts[0].lon);
+        const xy = pts.map((s) => ({ ...P(s.lat, s.lon), lat: s.lat, lon: s.lon, t: s.t, gs: s.gs }));
 
         // Named centreline segments near the path, projected once.
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        xy.forEach((p) => { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); });
+        const pad = TWY_MATCH_M * 2;
         const segs = [];
-        for (const f of feats) {
+        for (const f of ((layout && layout.features) || [])) {
             const g = f && f.geometry, p = (f && f.properties) || {};
             if (!g || g.type !== 'LineString' || (p.aeroway !== 'taxiway' && p.aeroway !== 'taxilane')) continue;
             const ref = String(p.ref || '').trim();
@@ -227,8 +250,6 @@
                 segs.push({ ref, a, b });
             }
         }
-        if (!segs.length) return [];
-
         const nearestRef = (x, y) => {
             let best = null, bestD = TWY_MATCH_M;
             for (const s of segs) {
@@ -240,35 +261,124 @@
             return best;
         };
 
-        // Walk the path; collect runs of the same taxiway.
-        const runs = [];
-        for (let i = 1; i < pts.length; i++) {
-            const a = pts[i - 1], b = pts[i];
+        // Walk it in short steps, each with a position, a time and a taxiway.
+        const steps = [];
+        for (let i = 1; i < xy.length; i++) {
+            const a = xy[i - 1], b = xy[i];
             const len = Math.hypot(b.x - a.x, b.y - a.y);
             const n = Math.max(1, Math.ceil(len / STEP_M));
             for (let k = (i === 1 ? 0 : 1); k <= n; k++) {
-                const t = k / n;
-                const ref = nearestRef(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-                const here = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
-                const step = len / n;
-                const last = runs[runs.length - 1];
-                if (last && last.ref === ref) { last.m += step; last.pts.push(here); continue; }
-                runs.push({ ref, m: step, pts: [here] });
+                const f = k / n;
+                const x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f;
+                steps.push({
+                    x, y, m: k ? len / n : 0,
+                    lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f,
+                    t: a.t + (b.t - a.t) * f, ref: nearestRef(x, y),
+                });
             }
         }
 
-        const out = [];
+        // Runs of one taxiway, then fold junction blips into their neighbour.
+        const runs = [];
+        for (const s of steps) {
+            const last = runs[runs.length - 1];
+            if (last && last.ref === s.ref) { last.m += s.m; last.pts.push(s); continue; }
+            runs.push({ ref: s.ref, m: s.m, pts: [s] });
+        }
+        const legs = [];
         for (const r of runs) {
-            if (!r.ref || r.m < TWY_MIN_RUN_M) continue;
-            if (out.length && out[out.length - 1].ref === r.ref) continue;   // rejoined after a blip
-            out.push({ ref: r.ref, at: r.pts[Math.floor(r.pts.length / 2)] });
+            const prev = legs[legs.length - 1];
+            if (prev && (r.m < TWY_MIN_RUN_M || prev.ref === r.ref)) { prev.m += r.m; prev.pts.push(...r.pts); continue; }
+            legs.push({ ref: r.ref, m: r.m, pts: r.pts.slice() });
+        }
+        // A short first stretch has nothing to fold into; give it to the next.
+        if (legs.length > 1 && legs[0].m < TWY_MIN_RUN_M) {
+            legs[1].m += legs[0].m; legs[1].pts.unshift(...legs[0].pts); legs.shift();
+        }
+        legs.forEach((l, i) => {
+            l.t0 = l.pts[0].t;
+            l.t1 = i + 1 < legs.length ? legs[i + 1].pts[0].t : l.pts[l.pts.length - 1].t;
+            l.at = l.pts[Math.floor(l.pts.length / 2)];
+            l.at = { lat: l.at.lat, lon: l.at.lon };
+            l.stops = [];
+            delete l.pts;
+        });
+
+        // Stops: fixes standing still for a while, between the first and last move.
+        const stops = [];
+        const firstMove = xy.findIndex(moving);
+        for (let i = firstMove + 1; i < xy.length; i++) {
+            if (moving(xy[i]) || xy[i].gs == null) continue;
+            let j = i;
+            while (j + 1 < xy.length && !moving(xy[j + 1]) && xy[j + 1].gs != null) j++;
+            // Standing still at the end of the path: on a taxi-out that is
+            // holding short, until the roll begins (or until now, if it hasn't
+            // yet); on a taxi-in it is parked, which is not a stop.
+            const atEnd = j + 1 >= xy.length;
+            if (atEnd && seg.kind === 'in') break;
+            const endT = !atEnd ? xy[j + 1].t
+                : (seg.roll && seg.roll.length ? seg.roll[0].t : xy[j].t);
+            const ms = endT - xy[i].t;
+            if (ms >= STOP_MIN_MS) {
+                const at = xy.slice(i, j + 1);
+                const lat = at.reduce((s, p) => s + p.lat, 0) / at.length;
+                const lon = at.reduce((s, p) => s + p.lon, 0) / at.length;
+                const q = P(lat, lon);
+                stops.push({ lat, lon, t0: xy[i].t, t1: endT, ms, ref: nearestRef(q.x, q.y), holdShort: false });
+            }
+            i = j;
+        }
+        // The last stop before the roll, close to it, is holding short.
+        if (seg.kind === 'out' && stops.length && seg.roll && seg.roll.length) {
+            const s = stops[stops.length - 1], r = P(seg.roll[0].lat, seg.roll[0].lon), q = P(s.lat, s.lon);
+            const lastFix = xy[xy.length - 1];
+            if (Math.hypot(r.x - q.x, r.y - q.y) <= HOLD_SHORT_M + Math.hypot(lastFix.x - r.x, lastFix.y - r.y)) s.holdShort = true;
+        }
+        stops.forEach((s) => {
+            const leg = legs.find((l) => s.t0 >= l.t0 && s.t0 <= l.t1) || legs[legs.length - 1];
+            if (leg) leg.stops.push(s);
+        });
+
+        // A tick for every minute on the move, square to the path.
+        const startT = steps[0].t, endT = steps[steps.length - 1].t;
+        const ticks = [];
+        for (let minute = 1, i = 1; i < steps.length; i++) {
+            const tm = startT + minute * 60000;
+            if (steps[i].t < tm) continue;
+            const a = steps[i - 1], b = steps[i];
+            const f = b.t > a.t ? (tm - a.t) / (b.t - a.t) : 1;
+            // Direction from the nearest pair of steps that actually moved.
+            let u = i, v = i - 1;
+            while (v > 0 && steps[u].x === steps[v].x && steps[u].y === steps[v].y) v--;
+            while (u < steps.length - 1 && steps[u].x === steps[v].x && steps[u].y === steps[v].y) u++;
+            ticks.push({
+                lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f,
+                dx: steps[u].lon - steps[v].lon, dy: steps[u].lat - steps[v].lat, minute,
+            });
+            minute++;
+            i--;   // a long step can span several minutes
+        }
+
+        return { legs, stops, ticks, startT, endT, stoppedMs: stops.reduce((s, p) => s + p.ms, 0) };
+    }
+
+    /**
+     * The named taxiways a ground path used, in the order it used them.
+     * @returns {Array<{ref: string, at: {lat: number, lon: number}}>} each
+     *   taxiway once per stretch, with the middle of that stretch for its label.
+     */
+    function taxiwaysUsed(seg, layout, analysis) {
+        const a = analysis || analyse(seg, layout);
+        const out = [];
+        for (const l of a.legs) {
+            if (!l.ref || (out.length && out[out.length - 1].ref === l.ref)) continue;
+            out.push({ ref: l.ref, at: l.at });
         }
         return out;
     }
 
     // --- Drawing -------------------------------------------------------------
 
-    const W = 320, H = 200;
     const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
     /**
@@ -280,27 +390,39 @@
      * @param {object} [opts.used] - runwayFor() result, highlighted.
      * @param {object} [opts.layout] - airportLayout.js GeoJSON (taxiways, aprons).
      * @param {Array}  [opts.taxiways] - taxiwaysUsed() result, highlighted and labelled.
+     * @param {object} [opts.analysis] - analyse() result: minute ticks and stops.
+     * @param {boolean} [opts.tall] - the enlarged, taller drawing.
      */
+    /** A duration the way a person says it: "45s", "2m 10s", "1h 05m". */
+    function fmtDur(ms) {
+        const sec = Math.max(0, Math.round(ms / 1000));
+        if (sec < 60) return `${sec}s`;
+        const m = Math.floor(sec / 60), sc = sec % 60;
+        if (m < 60) return sc ? `${m}m ${String(sc).padStart(2, '0')}s` : `${m}m`;
+        return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+    }
+
     function renderSVG(seg, opts = {}) {
         if (!seg || !seg.path || !seg.path.length) return '';
+        const W = 320, H = opts.tall ? 300 : 200;
         const ground = seg.path, roll = seg.roll || [];
         const all = ground.concat(roll);
         const lat0 = all.reduce((m, s) => m + s.lat, 0) / all.length;
         const lon0 = all.reduce((m, s) => m + s.lon, 0) / all.length;
         const P = projector(lat0, lon0);
 
-        // Frame the path and the runway it used; everything else is context
-        // and may run off the edge.
-        const frame = all.map((s) => P(s.lat, s.lon));
-        const usedEnds = opts.used && rwyEnds(opts.used.runway);
-        if (usedEnds) frame.push(P(usedEnds.le.lat, usedEnds.le.lon), P(usedEnds.he.lat, usedEnds.he.lon));
+        // Frame the taxi path and the runway end it met — the whole route,
+        // as large as it fits. The runways and other taxiways are context and
+        // run off the edge.
+        const rollEnd = roll.length ? [seg.kind === 'out' ? roll[0] : roll[roll.length - 1]] : [];
+        const frame = ground.concat(rollEnd).map((s) => P(s.lat, s.lon));
         let x0 = Math.min(...frame.map((p) => p.x)), x1 = Math.max(...frame.map((p) => p.x));
         let y0 = Math.min(...frame.map((p) => p.y)), y1 = Math.max(...frame.map((p) => p.y));
-        // At least ~500 m across, padded, and in the drawing's aspect.
-        const MIN = 500;
+        // At least ~350 m across, padded, and in the drawing's aspect.
+        const MIN = 350;
         if (x1 - x0 < MIN) { const c = (x0 + x1) / 2; x0 = c - MIN / 2; x1 = c + MIN / 2; }
         if (y1 - y0 < MIN * H / W) { const c = (y0 + y1) / 2; y0 = c - MIN * H / W / 2; y1 = c + MIN * H / W / 2; }
-        const padX = (x1 - x0) * 0.12, padY = (y1 - y0) * 0.14;
+        const padX = (x1 - x0) * 0.14, padY = (y1 - y0) * 0.16;
         x0 -= padX; x1 += padX; y0 -= padY; y1 += padY;
         const scale = Math.min(W / (x1 - x0), H / (y1 - y0));
         const ox = (W - (x1 - x0) * scale) / 2 - x0 * scale;
@@ -326,8 +448,26 @@
             }
         }
 
-        // Runways at their real width (never thinner than a few px).
+        // Labels are placed last, most important first, each at the first of
+        // its candidate spots that is on the drawing and clear of the others.
         const labels = [];
+        const placed = [];
+        const box = (x, y, w, h) => ({ x0: x - w / 2, x1: x + w / 2, y0: y - h / 2, y1: y + h / 2 });
+        const clear = (b) => b.x0 >= 1 && b.x1 <= W - 1 && b.y0 >= 1 && b.y1 <= H - 1 &&
+            !placed.some((q) => !(b.x1 < q.x0 || b.x0 > q.x1 || b.y1 < q.y0 || b.y0 > q.y1));
+        const place = (spots, w, h, draw) => {
+            for (const [x, y] of spots) {
+                const b = box(x, y, w, h);
+                if (!clear(b)) continue;
+                placed.push(b);
+                labels.push(draw(x, y));
+                return true;
+            }
+            return false;
+        };
+        const rwyIds = [];
+
+        // Runways at their real width (never thinner than a few px).
         for (const r of (opts.runways || [])) {
             const e = rwyEnds(r);
             if (!e) continue;
@@ -339,10 +479,7 @@
             // Designators just beyond each end, when that end is on screen.
             const len = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / len, uy = (by - ay) / len;
             [[ax, ay, -1, r.le_ident], [bx, by, 1, r.he_ident]].forEach(([x, y, d, id]) => {
-                if (!id) return;
-                const lx = x + ux * d * 11, ly = y + uy * d * 11 + 3;
-                if (lx < 8 || lx > W - 8 || ly < 8 || ly > H - 4) return;
-                labels.push(`<text class="tv-rwy-id${used ? ' tv-rwy-id-used' : ''}" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle">${esc(id)}</text>`);
+                if (id) rwyIds.push({ x: x + ux * d * 11, y: y + uy * d * 11, id: String(id), used });
             });
         }
 
@@ -373,16 +510,65 @@
             parts.push(`<circle class="tv-tip" cx="${tx}" cy="${ty}" r="3.5"/>`);
         }
 
-        // Taxiway letters where the path ran along them, on a small tag.
+        // A tick across the path for every minute on the move, numbered
+        // sparsely enough to stay legible; ticks piled up at a stop are drawn once.
+        const ticks = (opts.analysis && opts.analysis.ticks) || [];
+        const every = ticks.length <= 8 ? 1 : ticks.length <= 16 ? 2 : 5;
+        let lastTick = null;
+        const tickLabels = [];
+        for (const t of ticks) {
+            const [x, y] = px(t.lat, t.lon);
+            if (lastTick && Math.hypot(x - lastTick[0], y - lastTick[1]) < 5) continue;
+            const [bx, by] = px(t.lat + t.dy, t.lon + t.dx);
+            const len = Math.hypot(bx - x, by - y);
+            if (!len) continue;
+            const nx = -(by - y) / len, ny = (bx - x) / len;
+            parts.push(`<line class="tv-tick" x1="${(x - nx * 4.5).toFixed(1)}" y1="${(y - ny * 4.5).toFixed(1)}" x2="${(x + nx * 4.5).toFixed(1)}" y2="${(y + ny * 4.5).toFixed(1)}"/>`);
+            if (t.minute % every === 0) tickLabels.push({ x, y, nx, ny, minute: t.minute });
+            lastTick = [x, y];
+        }
+
+        // Where it stopped (the markers keep their own space clear).
+        const stops = (opts.analysis && opts.analysis.stops) || [];
+        const stopAt = stops.map((st) => {
+            const [x, y] = px(st.lat, st.lon);
+            parts.push(`<circle class="tv-stop${st.holdShort ? ' tv-stop-hold' : ''}" cx="${x}" cy="${y}" r="5.5"/>`);
+            placed.push(box(x, y, 11, 11));
+            return { x, y, st };
+        });
+        placed.push(box(gx, gy, 10, 10));
+
+        // 1. How long each stop lasted, beside it.
+        for (const { x, y, st } of stopAt) {
+            const txt = fmtDur(st.ms), w = 8 + txt.length * 5.4, h = 13;
+            const g = w / 2 + 8;
+            place([[x, y - 13], [x, y + 13], [x + g, y], [x - g, y], [x + g, y - 12], [x - g, y + 12]], w, h, (lx, ly) =>
+                `<g class="tv-stop-tag" transform="translate(${lx.toFixed(1)},${ly.toFixed(1)})"><rect x="${(-w / 2).toFixed(1)}" y="-6.5" width="${w.toFixed(1)}" height="13" rx="6.5"/><text y="3.2" text-anchor="middle">${esc(txt)}</text></g>`);
+        }
+        // 2. Taxiway letters where the path ran along them.
         for (const t of (opts.taxiways || [])) {
             const [x, y] = px(t.at.lat, t.at.lon);
-            if (x < 6 || x > W - 6 || y < 6 || y > H - 6) continue;
-            const w = 8 + String(t.ref).length * 6;
-            labels.push(`<g class="tv-twy-tag" transform="translate(${x},${y})"><rect x="${-w / 2}" y="-7" width="${w}" height="14" rx="3"/><text y="3.5" text-anchor="middle">${esc(t.ref)}</text></g>`);
+            const w = 8 + String(t.ref).length * 6, h = 14;
+            const d = w / 2 + 6;
+            place([[x, y], [x + d, y], [x - d, y], [x, y - 12], [x, y + 12],
+                [x + d + 8, y], [x - d - 8, y], [x + d, y - 12], [x - d, y + 12], [x + d, y + 12], [x - d, y - 12]], w, h, (lx, ly) =>
+                `<g class="tv-twy-tag" transform="translate(${lx.toFixed(1)},${ly.toFixed(1)})"><rect x="${-w / 2}" y="-7" width="${w}" height="14" rx="3"/><text y="3.5" text-anchor="middle">${esc(t.ref)}</text></g>`);
+        }
+        // 3. Runway designators, the one used first.
+        rwyIds.sort((a, b) => b.used - a.used).forEach((r) => {
+            const w = r.id.length * 5.6 + 2;
+            place([[r.x, r.y]], w, 10, (lx, ly) =>
+                `<text class="tv-rwy-id${r.used ? ' tv-rwy-id-used' : ''}" x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="middle">${esc(r.id)}</text>`);
+        });
+        // 4. Minute numbers on the ticks, either side of the path.
+        for (const t of tickLabels) {
+            const txt = `${t.minute}′`, w = txt.length * 5 + 2;
+            place([[t.x + t.nx * 11, t.y + t.ny * 11], [t.x - t.nx * 11, t.y - t.ny * 11]], w, 9, (lx, ly) =>
+                `<text class="tv-tick-l" x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="middle">${txt}</text>`);
         }
 
         return `<svg class="tv-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Taxi route">${parts.join('')}${labels.join('')}</svg>`;
     }
 
-    global.TaxiView = { extract, runwayFor, taxiwaysUsed, renderSVG };
+    global.TaxiView = { extract, runwayFor, analyse, taxiwaysUsed, renderSVG, fmtDur };
 })(typeof window !== 'undefined' ? window : this);
