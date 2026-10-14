@@ -2147,6 +2147,32 @@
                 <button type="button" onclick="openMultipliers()" title="Make a route or an event count double for a while" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5"></i> Multipliers</button>
                 <button type="button" onclick="openHubs()" title="The airports your airline is based at" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i> Hubs</button>
                 <button type="button" id="routeSelectBtn" onclick="toggleRouteSelect()" title="Tick routes to export just those" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="list-checks" class="w-3.5 h-3.5"></i> <span>Select</span></button>
+                <button type="button" onclick="openBulkRank()" title="Lock every route of an airline to one rank at once" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5"><i data-lucide="lock" class="w-3.5 h-3.5"></i> Lock by rank</button>
+            </div>
+            <!-- BULK RANK LOCK. Gating a route used to mean opening each leg and
+                 picking the rank on it — fine for five, hopeless for an airline
+                 that imported four hundred. Pick the airline (own metal or a
+                 codeshare partner), pick the rank, and the whole slice moves in
+                 one write. The count is live so nobody locks more than they meant to. -->
+            <div id="bulkRankForm" class="hidden p-5 border-b hair">
+                <div class="text-sm font-semibold mb-2.5">Lock routes to a rank</div>
+                <div class="grid grid-cols-2 gap-2.5">
+                    <label class="text-[11px] font-semibold muted col-span-2 sm:col-span-1">Airline
+                        <select id="br_airline" onchange="paintBulkRank()" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]"></select>
+                    </label>
+                    <label class="text-[11px] font-semibold muted col-span-2 sm:col-span-1">Minimum rank
+                        <select id="br_rank" onchange="paintBulkRank()" class="w-full surface hair rounded-lg px-2.5 py-2 text-sm mt-1 text-[var(--ink)]"></select>
+                    </label>
+                    <label class="col-span-2 inline-flex items-center gap-2 text-xs muted">
+                        <input id="br_onlyOpen" type="checkbox" onchange="paintBulkRank()" class="w-4 h-4" style="accent-color:var(--accent)">
+                        Leave routes that already have a rank alone
+                    </label>
+                </div>
+                <p id="br_count" class="text-xs muted mt-2.5"></p>
+                <div class="flex justify-end gap-2 mt-3">
+                    <button type="button" onclick="closeBulkRank()" class="surface hair text-xs font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition">Cancel</button>
+                    <button type="button" id="br_apply" onclick="applyBulkRank(this)" class="accent-bg text-white text-xs font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1.5 disabled:opacity-50"><i data-lucide="lock" class="w-3.5 h-3.5"></i> <span>Apply</span></button>
+                </div>
             </div>
             <div id="addRouteForm" class="hidden p-5 border-b hair">
                 <div id="routeFormTitle" class="text-sm font-semibold mb-2.5">Add route</div>
@@ -2274,6 +2300,7 @@
                 <button type="button" onclick="selectShownRoutes()" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition">Tick all shown</button>
                 <button type="button" onclick="clearRouteSelect()" class="surface hair text-xs font-semibold px-2.5 py-1.5 rounded-md hover:border-[var(--ink)] transition">Clear</button>
                 <button type="button" id="routeSelectExport" onclick="exportSelectedRoutes(this)" class="accent-bg text-white text-xs font-semibold px-3 py-1.5 rounded-md hover:opacity-90 transition inline-flex items-center gap-1.5"><i data-lucide="download" class="w-3.5 h-3.5"></i> Export selected</button>
+                <button type="button" id="routeSelectRank" onclick="openBulkRank(true)" class="surface hair text-xs font-semibold px-3 py-1.5 rounded-md hover:border-[var(--ink)] transition inline-flex items-center gap-1.5 disabled:opacity-50"><i data-lucide="lock" class="w-3.5 h-3.5"></i> Set rank</button>
             </div>
         </div>
     </div>
@@ -6286,6 +6313,99 @@
             const n=ROUTE_SELECTED.size;
             document.getElementById('routeSelectCount').textContent=`${n} selected`;
             document.getElementById('routeSelectExport').disabled=!n;
+            const rk=document.getElementById('routeSelectRank'); if(rk) rk.disabled=!n;
+            // The ticks are what a "Selected routes" lock acts on, so its count
+            // follows them while the form is open.
+            if(!document.getElementById('bulkRankForm')?.classList.contains('hidden')) paintBulkRank();
+        }
+        /* ---- Lock by rank ----------------------------------------------
+         * One rank onto a whole slice of the network: everything, own metal,
+         * one partner's codeshares, or the routes ticked in the list. The
+         * server re-picks the slice from its own copy of the network, so what
+         * this counts and what it changes are the same rule (crewRanks.
+         * bulkGateTargets) — the count here is a preview of it. */
+        function bulkRankTargets(){
+            const airline=document.getElementById('br_airline').value;
+            const onlyOpen=document.getElementById('br_onlyOpen').checked;
+            const rank=document.getElementById('br_rank').value;
+            return ROUTES.filter(r=>{
+                if(!r.id) return false;
+                if(airline==='selected'){ if(!ROUTE_SELECTED.has(String(r.id))) return false; }
+                else if(airline==='own'){ if(r.kind==='codeshare') return false; }
+                else if(airline!=='all'){ if(r.kind!=='codeshare' || String(r.partnerName||'').trim().toLowerCase()!==airline.toLowerCase()) return false; }
+                if(onlyOpen && r.minRank) return false;
+                return String(r.minRank||'')!==rank;
+            });
+        }
+        function openBulkRank(fromSelection){
+            if(!ROUTES_CANMANAGE) return;
+            const own=ROUTES.filter(r=>r.kind!=='codeshare').length;
+            // Partners as the network actually holds them, so a tile and an
+            // option can never disagree about an airline's name.
+            const partners=new Map();
+            ROUTES.forEach(r=>{ if(r.kind==='codeshare' && r.partnerName){ const k=r.partnerName.trim(); partners.set(k,(partners.get(k)||0)+1); } });
+            const brand=(CREW_BRANDING && CREW_BRANDING.name) || 'Your airline';
+            const opts=[];
+            if(ROUTE_SELECTED.size) opts.push(`<option value="selected">Selected routes (${ROUTE_SELECTED.size})</option>`);
+            opts.push(`<option value="all">All routes (${ROUTES.length})</option>`);
+            opts.push(`<option value="own">${escapeHtml(brand)} — own metal (${own})</option>`);
+            [...partners].sort((a,b)=>a[0].localeCompare(b[0])).forEach(([name,n])=>opts.push(`<option value="${escapeHtml(name)}">${escapeHtml(name)} — codeshare (${n})</option>`));
+            const air=document.getElementById('br_airline');
+            air.innerHTML=opts.join('');
+            // Start where the VA already is: on the ticks they just made, or on
+            // the partner the list is filtered to.
+            air.value = fromSelection && ROUTE_SELECTED.size ? 'selected'
+                : ROUTE_PARTNER && partners.has(ROUTE_PARTNER) ? ROUTE_PARTNER
+                : ROUTE_KIND_VIEW==='own' ? 'own' : 'all';
+            const ladder = ROUTE_RANKS.length ? ROUTE_RANKS : (RANKS||[]).map(r=>({name:r.name,minHours:r.minHours}));
+            document.getElementById('br_rank').innerHTML='<option value="">Open to everyone (remove the lock)</option>'+ladder
+                .filter(r=>r.name)
+                .map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}${r.minHours?` · ${r.minHours}h+`:''}</option>`).join('');
+            const sel=document.getElementById('br_rank');
+            if(ladder.length>1) sel.value=ladder[1].name;
+            document.getElementById('addRouteForm').classList.add('hidden');
+            document.getElementById('bulkRankForm').classList.remove('hidden');
+            paintBulkRank();
+            if(window.lucide) lucide.createIcons();
+            document.getElementById('bulkRankForm').scrollIntoView({block:'nearest',behavior:'smooth'});
+        }
+        function closeBulkRank(){ document.getElementById('bulkRankForm').classList.add('hidden'); }
+        function paintBulkRank(){
+            const n=bulkRankTargets().length, rank=document.getElementById('br_rank').value;
+            document.getElementById('br_count').textContent = !n ? 'Nothing to change — every route in that slice is already there.'
+                : rank ? `${n} route${n===1?'':'s'} will open from ${rank} up. Pilots below it still see them, locked, with the hours to go.`
+                : `${n} route${n===1?'':'s'} will be opened to every pilot.`;
+            const btn=document.getElementById('br_apply');
+            btn.disabled=!n;
+            btn.querySelector('span').textContent = !n ? 'Apply' : rank ? `Lock ${n} to ${rank}` : `Open ${n}`;
+        }
+        async function applyBulkRank(btn){
+            const token=sessionToken(), slug=getSlug();
+            if(!token) return;
+            const airline=document.getElementById('br_airline').value;
+            const body={
+                minRank: document.getElementById('br_rank').value,
+                onlyOpen: document.getElementById('br_onlyOpen').checked,
+                airline: airline==='selected' ? 'all' : airline,
+            };
+            if(airline==='selected') body.ids=[...ROUTE_SELECTED];
+            const done=busy(btn,'Saving…');
+            try{
+                const res=await fetch(`${BACKEND}/api/crew/${encodeURIComponent(slug)}/routes/bulk-rank`,{
+                    method:'POST', headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+                    body:JSON.stringify(body) });
+                const d=await res.json().catch(()=>({}));
+                if(!res.ok){
+                    if(d.code==='store_schema_outdated') noteStoreDrift(d.error||'');
+                    say(d.error||'Could not update those routes.','bad'); return;
+                }
+                if(d.warning) noteStoreDrift(d.warning);
+                const n=d.updated||0;
+                say(n ? (d.minRank ? `${n} route${n===1?'':'s'} locked to ${d.minRank}.` : `${n} route${n===1?'':'s'} opened to everyone.`) : 'Nothing needed changing.','ok');
+                closeBulkRank();
+                await fetchRoutes(); renderRoutes();
+            }catch{ say('Server unreachable.','bad'); }
+            finally{ done(); }
         }
         function selectShownRoutes(){ ROUTES_SHOWN.forEach(r=>r.id&&ROUTE_SELECTED.add(String(r.id))); renderRoutes(); }
         function clearRouteSelect(){ ROUTE_SELECTED.clear(); renderRoutes(); }
