@@ -556,7 +556,7 @@ export const LandingUI = {
             // Resolved live at paint time — a flight remembered ten minutes ago
             // may well have landed since, and the row says which it is so the
             // tap is never a surprise.
-            const live = R.isLive(f.id);
+            const live = R.isLive(f.id, f);
             const title = f.callsign || f.username || 'Flight';
             const route = (f.dep && f.arr) ? `${f.dep} → ${f.arr}` : (f.aircraft || '');
             return `
@@ -603,12 +603,16 @@ export const LandingUI = {
     openRecentFlight(flightId) {
         const R = window.RecentItems;
         if (!R) return;
-        const meta = R.flights().find(f => String(f.id) === String(flightId)) || {};
+        const entry = R.flights().find(f => String(f.id) === String(flightId)) || {};
+        const name = entry.callsign || entry.username || 'That flight';
+        const notFound = () => {
+            if (typeof window.showNotification === 'function') {
+                window.showNotification(`${name} isn't flying now and has no replay saved.`, 'info');
+            }
+        };
         this._closeBladeSearch();
-        const how = R.openFlight(flightId, meta);
-        if (how === 'none' && typeof window.showNotification === 'function') {
-            window.showNotification('That flight has ended and has no replay saved.', 'info');
-        }
+        const how = R.openFlight(flightId, { ...entry, onReplayFailed: notFound });
+        if (how === 'none') notFound();
     },
 
     openRecentAirport(icao) {

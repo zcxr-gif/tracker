@@ -31,7 +31,7 @@
  *
  * Every failure path is silent and total: no network, a bad response, a
  * missing level — the caller gets null and falls back to whatever it did
- * before. A fuel estimate is never worth breaking a flight window over.
+ * before. An upper-air reading is never worth breaking a flight window over.
  *
  * Exposes window.WindsAloft = { get, buildField, PRESSURE_LEVELS_HPA, pressureAltitudeFt }.
  */
@@ -45,8 +45,7 @@
     // is doing the work between them.
     const PRESSURE_LEVELS_HPA = [925, 850, 700, 600, 500, 400, 300, 250, 200, 150];
 
-    // Standard-atmosphere constants, matching fuelEstimator.js exactly so the
-    // two modules never disagree about what altitude a pressure corresponds to.
+    // ISA standard-atmosphere constants (pressure ↔ altitude).
     const P0 = 101325, T0 = 288.15, LAPSE = 0.0065, G0 = 9.80665, R_AIR = 287.053;
     const TROPO_M = 11000, T_TROPO = 216.65, P_TROPO = 22632.06;
     const FT_TO_M = 0.3048;

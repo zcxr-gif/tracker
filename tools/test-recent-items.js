@@ -129,6 +129,37 @@ window.localStorage = globalThis.localStorage;
         ok('with no replay available it reports that plainly', R.openFlight('gone1') === 'none');
     }
 
+    head('The same pilot back under a new id');
+    {
+        // Respawning, or seeing the flight on another server, gives it a new
+        // id. Searching the callsign again found it; the row has to as well.
+        const respawned = { geometry: { coordinates: [-1, 51] }, properties: { flightId: 'new1', callsign: 'BAW117', username: 'ant' } };
+        const stranger = { geometry: { coordinates: [5, 5] }, properties: { flightId: 'x9', callsign: 'BAW117', username: 'someone' } };
+        window.getLiveFlightById = () => null;
+        window.getLiveFlightData = () => [stranger, respawned];
+        let opened = null;
+        window.onSearchResultClick = (id) => { opened = id; };
+        const meta = { callsign: 'baw117', username: 'Ant' };
+        ok('it reports as live', R.isLive('old1', meta));
+        ok('it opens the live flight by its new id',
+            R.openFlight('old1', meta) === 'live' && opened === 'new1', String(opened));
+        ok('another pilot on the same callsign is not taken for it',
+            !R.isLive('old1', { callsign: 'BAW117', username: 'nobody' }));
+        window.getLiveFlightData = undefined;
+    }
+
+    head('A replay that fails to load is reported');
+    {
+        window.getLiveFlightById = () => null;
+        let failed = false;
+        window.openFlightReplayById = () => Promise.resolve(false);
+        ok('it still asks for the replay',
+            R.openFlight('gone1', { callsign: 'EZY42', onReplayFailed: () => { failed = true; } }) === 'replay');
+        await new Promise((r) => setTimeout(r, 0));
+        ok('and the caller hears that it did not open', failed);
+        window.openFlightReplayById = undefined;
+    }
+
     head('Opening an airport');
     {
         let asked = null;
