@@ -88,6 +88,9 @@ head('Taxiways used');
     const svg = TV.renderSVG(r.out, { runways: JFK, layout, taxiways: used });
     ok('the used taxiways are highlighted', (svg.match(/tv-twy tv-twy-used/g) || []).length === 3);
     ok('and labelled', svg.includes('>A<') && svg.includes('>B<') && svg.includes('>K<'));
+    ok('taxiways it did not use are lettered too', /class="tv-twy-letter"[^>]*>.*?>Z</.test(svg));
+    ok('a used taxiway is lettered once, not twice', ['A', 'B', 'K'].every((r) => (svg.match(new RegExp('>' + r + '<', 'g')) || []).length === 1),
+        ['A', 'B', 'K'].map((r) => (svg.match(new RegExp('>' + r + '<', 'g')) || []).length).join(','));
 }
 
 head('Timing, stops and ticks');

@@ -588,8 +588,10 @@
                 `<g class="tv-stop-tag" transform="translate(${lx.toFixed(1)},${ly.toFixed(1)})"><rect x="${(-w / 2).toFixed(1)}" y="-6.5" width="${w.toFixed(1)}" height="13" rx="6.5"/><text y="3.2" text-anchor="middle">${esc(txt)}</text></g>`);
         }
         // 2. Taxiway letters where the path ran along them.
+        const lettered = [];
         for (const t of (opts.taxiways || [])) {
             const [x, y] = px(t.at.lat, t.at.lon);
+            lettered.push({ ref: t.ref, x, y });
             const w = 8 + String(t.ref).length * 6, h = 14;
             const d = w / 2 + 6;
             place([[x, y], [x + d, y], [x - d, y], [x, y - 12], [x, y + 12],
@@ -602,7 +604,42 @@
             place([[r.x, r.y]], w, 10, (lx, ly) =>
                 `<text class="tv-rwy-id${r.used ? ' tv-rwy-id-used' : ''}" x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="middle">${esc(r.id)}</text>`);
         });
-        // 4. Minute numbers on the ticks, either side of the path.
+        // 4. Every other taxiway's letter, like an airport chart: yellow on
+        //    black (a location sign), on its line where the line is on screen,
+        //    repeated along long taxiways but never crowded.
+        for (const f of feats) {
+            const g = f && f.geometry, p = (f && f.properties) || {};
+            if (!g || g.type !== 'LineString' || (p.aeroway !== 'taxiway' && p.aeroway !== 'taxilane')) continue;
+            const ref = String(p.ref || '').trim();
+            if (!ref) continue;
+            const c = g.coordinates.map(([lo, la]) => px(la, lo));
+            // Spots along the on-screen pieces — middle first, then sliding
+            // towards the ends — longest pieces first.
+            const spots = [];
+            for (let i = 1; i < c.length; i++) {
+                const [ax, ay] = c[i - 1], [bx, by] = c[i];
+                const len = Math.hypot(bx - ax, by - ay);
+                if (len < 14) continue;
+                for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+                    const x = ax + (bx - ax) * f, y = ay + (by - ay) * f;
+                    if (x < 8 || x > W - 8 || y < 8 || y > H - 8) continue;
+                    spots.push([x, y, len - Math.abs(f - 0.5)]);
+                }
+            }
+            spots.sort((a, b) => b[2] - a[2]);
+            const used = usedRefs.has(ref);
+            const w = 6 + ref.length * 5.4, h = 11;
+            for (const [x, y] of spots) {
+                // One letter per stretch of taxiway on screen (the route's own
+                // tags count).
+                if (lettered.some((q) => q.ref === ref && Math.hypot(q.x - x, q.y - y) < 90)) continue;
+                if (place([[x, y]], w, h, (lx, ly) =>
+                    `<g class="tv-twy-letter${used ? ' tv-twy-letter-used' : ''}" transform="translate(${lx.toFixed(1)},${ly.toFixed(1)})"><rect x="${(-w / 2).toFixed(1)}" y="-5.5" width="${w.toFixed(1)}" height="11" rx="2"/><text y="3" text-anchor="middle">${esc(ref)}</text></g>`)) {
+                    lettered.push({ ref, x, y });
+                }
+            }
+        }
+        // 5. Minute numbers on the ticks, either side of the path.
         for (const t of tickLabels) {
             const txt = `${t.minute}′`, w = txt.length * 5 + 2;
             place([[t.x + t.nx * 11, t.y + t.ny * 11], [t.x - t.nx * 11, t.y - t.ny * 11]], w, 9, (lx, ly) =>
