@@ -13859,6 +13859,7 @@ function handleSocketFlightUpdate(data) {
                     if (source) {
                         const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
                         source.setData(newRouteData);
+                        updateTaxiOverlay(flightId, localTrail);
                         // Progress fractions shift as the line grows — re-apply
                         // the altitude gradient against the new geometry.
                         applyFlownPathGradient(layerId, newRouteData);
@@ -22224,6 +22225,7 @@ function onAtcDataReceived(newAtcData) {
     // NEW: Helper to clear the live flight trail from the map
     function clearLiveFlightPath(flightId) {
         if (!sectorOpsMap || !flightId) return;
+        if (flightId === _taxiOverlayFlight) removeTaxiOverlay();
 
         // Get all layers associated with this flight
         const layersObj = sectorOpsLiveFlightPathLayers[flightId];
@@ -22352,6 +22354,8 @@ if (flightProps) {
                 }
             }, getUnderAircraftAnchor());
     applyFlownPathGradient(`flown-path-${flightId}`, routeFeature);
+    // The style change took the taxi overlay with it; put it back.
+    if (_taxiOverlayFlight === flightId) { _taxiOverlayFlight = null; updateTaxiOverlay(flightId, localTrail); }
 
     sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
 }
@@ -23369,6 +23373,168 @@ function buildFlownPathGradient(points) {
     return expr.length >= 7 ? expr : null;
 }
 
+/*
+ * Taxi parts of a flight's trail, drawn along the taxiways on the main map —
+ * exactly what the flight window's taxi card draws (TaxiView.analyse): the
+ * taxi snapped onto each leg's own taxiway centreline with its turns rounded,
+ * the pushback and the takeoff/landing rolls as flown.
+ *
+ * Memoised per trail array. Only the ends of a trail can be taxi, so while a
+ * flight is airborne nothing is recomputed at all; on the ground it is redone
+ * as the trail grows. The airport layouts (OSM, airportLayout.js) load in the
+ * background; until a field's layout is in, that part stays as flown, and
+ * once it lands the trail is redrawn (redrawFlownPath).
+ *
+ * @returns {{ sig: string, ranges: Array<{t0, t1, pts, alt}>, segs: Array }}
+ */
+const _taxiSnapCache = new WeakMap();
+const _taxiLayoutAsked = new Set();
+function taxiSnapForTrail(trailPoints) {
+    const none = { sig: '', ranges: [], segs: [] };
+    if (!Array.isArray(trailPoints) || trailPoints.length < 3 || !window.TaxiView || !window.FlightLegs) return none;
+    let c = _taxiSnapCache.get(trailPoints);
+    const n = trailPoints.length;
+    const last = trailPoints[n - 1] || {};
+    const lastGs = last.groundSpeed != null ? last.groundSpeed : (last.gs != null ? last.gs : null);
+    const airborne = lastGs != null && lastGs > 40;
+    // Re-extract only when it can have changed: something new on the ground.
+    if (!c || c.first !== trailPoints[0].date || (c.n !== n && !(airborne && c.wasAirborne))) {
+        const segs = window.TaxiView.extract(window.FlightLegs.normalize(trailPoints));
+        c = { first: trailPoints[0].date, n, wasAirborne: airborne, segs: [segs.out, segs.in].filter(Boolean), byKey: {} };
+        _taxiSnapCache.set(trailPoints, c);
+    } else {
+        c.n = n; c.wasAirborne = airborne;
+    }
+    if (!c.segs.length) return none;
+
+    const ranges = [], sigs = [];
+    for (const seg of c.segs) {
+        const g = seg.kind === 'out' ? seg.path[0] : seg.path[seg.path.length - 1];
+        const near = nearestAirportWithin2Deg(g.lat, g.lon);
+        const icao = near && near.km <= 8 ? near.icao : null;
+        const layout = icao ? AirportLayoutManager.layoutCache.get(icao) : null;
+        if (icao && !layout && !_taxiLayoutAsked.has(icao) && airportsData[icao]) {
+            _taxiLayoutAsked.add(icao);
+            AirportLayoutManager.getLayout(icao, airportsData[icao].lat, airportsData[icao].lon)
+                .then((geo) => { if (geo) redrawAllFlownPaths(); });
+        }
+        const key = `${seg.kind}|${seg.path.length}|${seg.roll.length}|${seg.ongoing}|${layout ? 1 : 0}`;
+        const memo = c.byKey[seg.kind];
+        const a = memo && memo.key === key ? memo.a : window.TaxiView.analyse(seg, layout);
+        c.byKey[seg.kind] = { key, a };
+        seg.icao = icao;
+        seg.analysis = a;
+        sigs.push(key);
+        const route = a.route;
+        if (!layout || !route || !route.taxi || route.taxi.length < 2) continue;
+        const pts = (route.push && route.push.length > 1 ? route.push.slice(0, -1) : []).concat(route.taxi);
+        const alt = seg.path.reduce((m, s) => (s.alt != null && s.alt < m ? s.alt : m), Infinity);
+        ranges.push({ t0: seg.path[0].t, t1: seg.path[seg.path.length - 1].t, pts, alt: Number.isFinite(alt) ? alt : 0 });
+    }
+    return { sig: sigs.join(';'), ranges, segs: c.segs };
+}
+
+/*
+ * The open flight's taxi details on the main map, as on the taxi card: the
+ * pushback tail, every stop with how long it lasted, the pushback / taxi /
+ * takeoff (landing / parking) clock times and the letters of the taxiways
+ * used. Only drawn close in (from zoom 12.5), where they mean something.
+ */
+const TAXI_OVL = 'taxi-overlay';
+let _taxiOverlayFlight = null;
+
+function removeTaxiOverlay() {
+    _taxiOverlayFlight = null;
+    if (!sectorOpsMap) return;
+    ['taxi-overlay-push', 'taxi-overlay-stops', 'taxi-overlay-labels'].forEach((id) => {
+        if (sectorOpsMap.getLayer(id)) sectorOpsMap.removeLayer(id);
+    });
+    if (sectorOpsMap.getSource(TAXI_OVL)) sectorOpsMap.removeSource(TAXI_OVL);
+}
+
+function updateTaxiOverlay(flightId, trail) {
+    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded || !window.TaxiView) return;
+    const snap = taxiSnapForTrail(trail);
+    const feats = [];
+    const pt = (lat, lon, props) => ({ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [lon, lat] } });
+    const clock = (ms) => _formatUtcHHMM(new Date(ms)) || '';
+    for (const seg of snap.segs) {
+        const a = seg.analysis;
+        if (!a) continue;
+        const route = a.route || {};
+        const taxi = route.taxi && route.taxi.length ? route.taxi : seg.path;
+        if (route.push && route.push.length > 1) {
+            feats.push({ type: 'Feature', properties: { kind: 'push' },
+                geometry: { type: 'LineString', coordinates: route.push.map((q) => [q.lon, q.lat]) } });
+        }
+        a.stops.forEach((st) => feats.push(pt(st.lat, st.lon,
+            { kind: 'stop', hold: st.holdShort ? 1 : 0, label: window.TaxiView.fmtDur(st.ms) })));
+        a.legs.forEach((l) => { if (l.ref) feats.push(pt(l.at.lat, l.at.lon, { kind: 'twy', label: l.ref })); });
+        const t = a.times || {};
+        const marks = seg.kind === 'out'
+            ? [['Push', t.pushback, route.push && route.push[0]], ['Taxi', t.taxi, taxi[0]],
+               ['T/O', t.takeoff, seg.roll && seg.roll[0]]]
+            : [['Land', t.landed, seg.roll && seg.roll[0]], ['Park', t.parked, taxi[taxi.length - 1]]];
+        marks.forEach(([what, ms, at]) => {
+            if (ms != null && at) feats.push(pt(at.lat, at.lon, { kind: 'time', label: `${what} ${clock(ms)}` }));
+        });
+    }
+    const data = { type: 'FeatureCollection', features: feats };
+
+    if (_taxiOverlayFlight !== flightId) removeTaxiOverlay();
+    _taxiOverlayFlight = flightId;
+    const src = sectorOpsMap.getSource(TAXI_OVL);
+    if (src) { src.setData(data); return; }
+    if (!feats.length) return;
+    try {
+        const under = getUnderAircraftAnchor();
+        const anchor = sectorOpsMap.getLayer(under) ? under : undefined;
+        const kind = (k) => ['==', ['get', 'kind'], k];
+        sectorOpsMap.addSource(TAXI_OVL, { type: 'geojson', data });
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-push', type: 'line', source: TAXI_OVL, minzoom: 12.5, filter: kind('push'),
+            layout: { 'line-cap': 'round' },
+            paint: { 'line-color': '#ffffff', 'line-width': 2.5, 'line-dasharray': [1, 1.4], 'line-opacity': 0.9 } }, anchor);
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-stops', type: 'circle', source: TAXI_OVL, minzoom: 12.5, filter: kind('stop'),
+            paint: { 'circle-radius': 6, 'circle-color': ['case', ['==', ['get', 'hold'], 1], '#ef4444', '#f97316'],
+                'circle-stroke-color': '#000', 'circle-stroke-width': 1.5 } }, anchor);
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-labels', type: 'symbol', source: TAXI_OVL, minzoom: 12.5,
+            filter: ['any', kind('stop'), kind('twy'), kind('time')],
+            layout: {
+                'text-field': ['get', 'label'],
+                'text-font': mapTextFont(['DIN Pro Medium', 'Arial Unicode MS Regular']),
+                'text-size': ['case', ['==', ['get', 'kind'], 'twy'], 13, 11.5],
+                'text-anchor': ['case', ['==', ['get', 'kind'], 'time'], 'left', 'center'],
+                'text-offset': ['case', ['==', ['get', 'kind'], 'stop'], ['literal', [0, -1.4]],
+                    ['==', ['get', 'kind'], 'time'], ['literal', [0.9, 0]], ['literal', [0, 0]]],
+                'text-allow-overlap': false,
+            },
+            paint: {
+                'text-color': ['case', ['==', ['get', 'kind'], 'twy'], '#111111', '#ffffff'],
+                'text-halo-color': ['case', ['==', ['get', 'kind'], 'twy'], '#facc15', 'rgba(0,0,0,0.85)'],
+                'text-halo-width': ['case', ['==', ['get', 'kind'], 'twy'], 3.5, 1.8],
+            } }, anchor);
+    } catch (_) { /* the overlay is a nicety; the trail itself already drew */ }
+}
+
+// Rebuild every flown trail on the map (a taxiway layout just arrived).
+function redrawAllFlownPaths() {
+    if (!sectorOpsMap || typeof sectorOpsLiveFlightPathLayers === 'undefined') return;
+    for (const flightId of Object.keys(sectorOpsLiveFlightPathLayers)) {
+        const layerId = sectorOpsLiveFlightPathLayers[flightId] && sectorOpsLiveFlightPathLayers[flightId].flown;
+        const src = layerId && sectorOpsMap.getSource(layerId);
+        const trail = liveTrailCache.get(flightId);
+        const f = currentMapFeatures[flightId];
+        if (!src || !trail || !f) continue;
+        const pos = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], alt_ft: f.properties && f.properties.altitude };
+        const plan = flightId === currentFlightInWindow && typeof cachedFlightDataForStatsView !== 'undefined' && cachedFlightDataForStatsView
+            ? cachedFlightDataForStatsView.plan : null;
+        const data = generateAltitudeColoredRoute(trail, pos, plan);
+        src.setData(data);
+        applyFlownPathGradient(layerId, data);
+        if (flightId === currentFlightInWindow) updateTaxiOverlay(flightId, trail);
+    }
+}
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const allPoints = [...(trailPoints || [])];
 
@@ -23404,11 +23570,31 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     }
 
     // Normalise field names once ({lat, lon, alt}).
-    const raw = allPoints.map(p => ({
+    let raw = allPoints.map(p => ({
         lat: (p.latitude != null) ? p.latitude : p.lat,
         lon: (p.longitude != null) ? p.longitude : p.lon,
         alt: (p.altitude != null) ? p.altitude : (p.alt || 0)
     }));
+
+    // Taxiing: drawn along the taxiways, the same way as the flight window's
+    // taxi card (rolls and pushback as flown). See taxiSnapForTrail.
+    const snap = taxiSnapForTrail(trailPoints);
+    if (snap.ranges.length) {
+        const times = allPoints.map(p => (p.date ? Date.parse(p.date) : NaN));
+        // From the end backwards, so earlier indices stay put.
+        for (const r of snap.ranges.slice().sort((a, b) => b.t0 - a.t0)) {
+            let i0 = -1, i1 = -1;
+            for (let i = 0; i < times.length; i++) {
+                if (!Number.isFinite(times[i])) continue;
+                if (i0 < 0 && times[i] >= r.t0) i0 = i;
+                if (times[i] <= r.t1) i1 = i;
+            }
+            if (i0 < 0 || i1 < i0) continue;
+            const pts = r.pts.map(q => ({ lat: q.lat, lon: q.lon, alt: r.alt }));
+            raw = raw.slice(0, i0).concat(pts, raw.slice(i1 + 1));
+            times.splice(i0, i1 - i0 + 1, ...pts.map(() => NaN));
+        }
+    }
 
     // --- Great-circle densification (polar routes / sparse gaps) ---
     // Rendered vertices are joined by STRAIGHT lines in lon/lat (mercator)
@@ -23423,7 +23609,7 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     // correctly runs up to the polar cap and back down the far side).
     // Densify (great-circle), unwrap longitudes and Catmull-Rom smooth —
     // incrementally for long trails, see smoothTrailIncremental.
-    const smoothedPoints = smoothTrailIncremental(raw, trailPoints);
+    const smoothedPoints = smoothTrailIncremental(raw, trailPoints, snap.sig);
 
     // ONE continuous LineString, coloured along its length by a line-gradient
     // (see buildFlownPathGradient). The old approach — a distinct 2-point
@@ -23523,11 +23709,13 @@ const TRAIL_BODY_REBUILD_AFTER = 400; // tail length that triggers a new body
 const TRAIL_INCREMENTAL_MIN = 800;   // below this a full pass is cheap enough
 const _trailBodies = new WeakMap();
 
-function smoothTrailIncremental(raw, src) {
+function smoothTrailIncremental(raw, src, sig = '') {
     const n = raw.length;
     if (!src || typeof src !== 'object' || n < TRAIL_INCREMENTAL_MIN) return smoothTrailFull(raw).smoothed;
 
-    const first = (src[0] && src[0].date) || '';
+    // `sig` changes when the taxi parts of the trail are redrawn along the
+    // taxiways (taxiSnapForTrail), which rewrites the start of `raw`.
+    const first = ((src[0] && src[0].date) || '') + '|' + sig;
     let body = _trailBodies.get(src);
     const same = (a, b) => a && b && a.lat === b.lat && a.lon === b.lon && a.alt === b.alt;
     const valid = body && body.first === first && body.R + 3 <= n
@@ -24066,6 +24254,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 }
             }, getUnderAircraftAnchor());
             applyFlownPathGradient(flownLayerId, initialRouteData);
+            updateTaxiOverlay(flightProps.flightId, trailUpToMarker);
 
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
                 if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
