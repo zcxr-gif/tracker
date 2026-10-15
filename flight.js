@@ -23454,12 +23454,12 @@ function taxiSnapForTrail(trailPoints) {
  *  • on the ground, close in (zoom 12.5+) — the pushback tail, every stop
  *    with how long it lasted, the pushback / taxi / takeoff (landing /
  *    parking) times and the letters of the taxiways used, as on the taxi card.
- * Labels are small rounded pills (stretchable images, so they work on both
- * map engines). The whole overlay can be switched off with the path-info
+ * Labels are fixed-size callouts (see PATH_PILLS) that never grow with
+ * their text. The whole overlay can be switched off with the path-info
  * button in the flight window; the trail itself stays.
  */
 const TAXI_OVL = 'taxi-overlay';
-const TAXI_OVL_LAYERS = ['taxi-overlay-push', 'taxi-overlay-dots', 'taxi-overlay-labels', 'taxi-overlay-marks-dots', 'taxi-overlay-marks'];
+const TAXI_OVL_LAYERS = ['taxi-overlay-push', 'taxi-overlay-dots', 'taxi-overlay-labels', 'taxi-overlay-twy', 'taxi-overlay-marks-dots', 'taxi-overlay-marks'];
 const PATH_INFO_KEY = 'inflight.pathInfo';    // '0' = hidden
 let _taxiOverlayFlight = null;
 
@@ -23481,34 +23481,43 @@ function setPathInfo(on) {
     });
 }
 
-// Rounded label backgrounds, drawn once per style (a style change drops them).
+// Path labels are fixed-size callouts — they never grow with their text: a
+// short code on top ("TOC FL360", "HOLD") and the time or duration under it,
+// with a little tail pointing at the dot. Sizes are in CSS px; the images are
+// drawn once per style (a style change drops them).
+const PATH_PILLS = {
+    //           width, height, fill,                     border,                    tail
+    'pp-mark': [76, 30, 'rgba(12,74,110,0.94)', 'rgba(125,211,252,0.7)', true],
+    'pp-time': [58, 30, 'rgba(15,23,42,0.92)', 'rgba(255,255,255,0.32)', true],
+    'pp-stop': [58, 30, '#c2410c', 'rgba(0,0,0,0.35)', true],
+    'pp-hold': [58, 30, '#b91c1c', 'rgba(0,0,0,0.35)', true],
+    'pp-twy': [26, 18, '#facc15', 'rgba(0,0,0,0.55)', false],
+};
+const PATH_PILL_TAIL = 5;
+
 function ensurePathPills(map) {
-    const pills = {
-        'pill-dark': ['rgba(15,23,42,0.88)', 'rgba(255,255,255,0.28)'],
-        'pill-stop': ['#c2410c', 'rgba(0,0,0,0.35)'],
-        'pill-hold': ['#b91c1c', 'rgba(0,0,0,0.35)'],
-        'pill-twy': ['#facc15', 'rgba(0,0,0,0.55)'],
-        'pill-mark': ['rgba(12,74,110,0.92)', 'rgba(125,211,252,0.65)'],
-    };
-    const R = 2, W = 24, H = 20, rad = 8;
-    for (const [name, [fill, stroke]] of Object.entries(pills)) {
+    const R = 2;
+    for (const [name, [w, h, fill, stroke, tail]] of Object.entries(PATH_PILLS)) {
         if (map.hasImage && map.hasImage(name)) continue;
+        const H = h + (tail ? PATH_PILL_TAIL : 0);
         const c = document.createElement('canvas');
-        c.width = W * R; c.height = H * R;
+        c.width = w * R; c.height = H * R;
         const g = c.getContext('2d');
         g.scale(R, R);
+        const r = Math.min(7, h / 2 - 1), x0 = 0.75, y0 = 0.75, x1 = w - 0.75, y1 = h - 0.75, mid = w / 2;
         g.beginPath();
-        g.moveTo(rad + 1, 1); g.arcTo(W - 1, 1, W - 1, H - 1, rad); g.arcTo(W - 1, H - 1, 1, H - 1, rad);
-        g.arcTo(1, H - 1, 1, 1, rad); g.arcTo(1, 1, W - 1, 1, rad); g.closePath();
+        g.moveTo(x0 + r, y0);
+        g.arcTo(x1, y0, x1, y1, r);
+        g.arcTo(x1, y1, x0, y1, r);
+        if (tail) {                      // the tail, centred under the body
+            g.lineTo(mid + 5, y1); g.lineTo(mid, y1 + PATH_PILL_TAIL); g.lineTo(mid - 5, y1);
+        }
+        g.arcTo(x0, y1, x0, y0, r);
+        g.arcTo(x0, y0, x1, y0, r);
+        g.closePath();
         g.fillStyle = fill; g.fill();
         g.lineWidth = 1; g.strokeStyle = stroke; g.stroke();
-        try {
-            map.addImage(name, g.getImageData(0, 0, W * R, H * R), {
-                pixelRatio: R,
-                stretchX: [[rad * R, (W - rad) * R]], stretchY: [[rad * R, (H - rad) * R]],
-                content: [rad * R * 0.75, 4 * R, (W - rad * 0.75) * R, (H - 4) * R],
-            });
-        } catch (_) { /* labels fall back to a text halo */ }
+        try { map.addImage(name, g.getImageData(0, 0, w * R, H * R), { pixelRatio: R }); } catch (_) { /* text-only fallback */ }
     }
 }
 
@@ -23526,7 +23535,9 @@ function updateTaxiOverlay(flightId, trail) {
     const feats = [];
     const pt = (lat, lon, props) => ({ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [lon, lat] } });
     const clock = (ms) => _formatUtcHHMM(new Date(ms)) || '';
-    const flText = (fl) => (fl >= 180 ? `FL${String(fl).padStart(3, '0')}` : `${(fl * 100).toLocaleString()} ft`);
+    const fl = (n) => (n >= 180 ? `FL${String(n).padStart(3, '0')}` : `${n * 100}ft`);
+    // Two short lines: a code on top, the time or duration below.
+    const label = (kind, pill, l1, l2, extra) => ({ kind, pill, l1, l2: l2 || '', ...extra });
 
     // On the ground: the taxi details.
     for (const seg of snap.segs) {
@@ -23538,26 +23549,23 @@ function updateTaxiOverlay(flightId, trail) {
             feats.push({ type: 'Feature', properties: { kind: 'push' },
                 geometry: { type: 'LineString', coordinates: route.push.map((q) => [q.lon, q.lat]) } });
         }
-        a.stops.forEach((st) => feats.push(pt(st.lat, st.lon, {
-            kind: 'stop', pill: st.holdShort ? 'pill-hold' : 'pill-stop', dot: st.holdShort ? '#ef4444' : '#f97316',
-            label: `${st.holdShort ? 'Hold' : 'Stop'} ${TV.fmtDur(st.ms)}` })));
-        a.legs.forEach((l) => { if (l.ref) feats.push(pt(l.at.lat, l.at.lon, { kind: 'twy', pill: 'pill-twy', label: l.ref })); });
+        a.stops.forEach((st) => feats.push(pt(st.lat, st.lon, label('stop', st.holdShort ? 'pp-hold' : 'pp-stop',
+            st.holdShort ? 'HOLD' : 'STOP', TV.fmtDur(st.ms), { dot: st.holdShort ? '#ef4444' : '#f97316' }))));
+        a.legs.forEach((l) => { if (l.ref) feats.push(pt(l.at.lat, l.at.lon, label('twy', 'pp-twy', l.ref))); });
         const t = a.times || {};
         const marks = seg.kind === 'out'
-            ? [['Push', t.pushback, route.push && route.push[0]], ['Taxi', t.taxi, taxi[0]]]
-            : [['Park', t.parked, taxi[taxi.length - 1]]];
+            ? [['PUSH', t.pushback, route.push && route.push[0]], ['TAXI', t.taxi, taxi[0]]]
+            : [['PARK', t.parked, taxi[taxi.length - 1]]];
         marks.forEach(([what, ms, at]) => {
-            if (ms != null && at) feats.push(pt(at.lat, at.lon, { kind: 'time', pill: 'pill-dark', dot: '#ffffff', label: `${what} ${clock(ms)}` }));
+            if (ms != null && at) feats.push(pt(at.lat, at.lon, label('time', 'pp-time', what, clock(ms), { dot: '#ffffff' })));
         });
         // Takeoff and landing belong to the flight as much as to the taxi:
         // shown from any zoom with the in-flight milestones.
         if (seg.kind === 'out' && t.takeoff != null && seg.roll && seg.roll.length) {
-            const r = seg.roll[0];
-            feats.push(pt(r.lat, r.lon, { kind: 'mark', pill: 'pill-mark', label: `Takeoff ${clock(t.takeoff)}` }));
+            feats.push(pt(seg.roll[0].lat, seg.roll[0].lon, label('mark', 'pp-mark', 'T/O', clock(t.takeoff))));
         }
         if (seg.kind === 'in' && t.landed != null && seg.roll && seg.roll.length) {
-            const r = seg.roll[0];
-            feats.push(pt(r.lat, r.lon, { kind: 'mark', pill: 'pill-mark', label: `Landed ${clock(t.landed)}` }));
+            feats.push(pt(seg.roll[0].lat, seg.roll[0].lon, label('mark', 'pp-mark', 'LDG', clock(t.landed))));
         }
     }
 
@@ -23566,10 +23574,8 @@ function updateTaxiOverlay(flightId, trail) {
     const ms = memoOverTrail('milestones', [flightId], trail, 30000,
         () => TV.milestones(window.FlightLegs ? window.FlightLegs.normalize(trail || []) : []));
     for (const m of ms) {
-        const label = m.kind === 'toc' ? `Top of climb · ${flText(m.fl)} · ${clock(m.t)}`
-            : m.kind === 'tod' ? `Top of descent · ${clock(m.t)}`
-            : `${m.dir > 0 ? 'Climb' : 'Descend'} to ${flText(m.fl)} · ${clock(m.t)}`;
-        feats.push(pt(m.lat, m.lon, { kind: 'mark', pill: 'pill-mark', label }));
+        const code = m.kind === 'toc' ? `TOC ${fl(m.fl)}` : m.kind === 'tod' ? 'TOD' : `${m.dir > 0 ? 'CLB' : 'DES'} ${fl(m.fl)}`;
+        feats.push(pt(m.lat, m.lon, label('mark', 'pp-mark', code, clock(m.t))));
     }
 
     const data = { type: 'FeatureCollection', features: feats };
@@ -23586,39 +23592,40 @@ function updateTaxiOverlay(flightId, trail) {
         const vis = pathInfoOn() ? 'visible' : 'none';
         const font = mapTextFont(['DIN Pro Medium', 'Arial Unicode MS Regular']);
         const GROUND_Z = 12.5;
+        // Callouts sit above their dot (tail down); the text is centred in the
+        // body: body height / 2 + tail + dot gap, in px → ems of the text size.
+        const SIZE = 10;
+        const lift = (h) => -(h / 2 + PATH_PILL_TAIL + 4);
+        const textFor = ['case', ['==', ['get', 'l2'], ''], ['get', 'l1'], ['concat', ['get', 'l1'], '\n', ['get', 'l2']]];
+        const callout = (id, filter, minzoom, pillH) => ({
+            id, type: 'symbol', source: TAXI_OVL, filter, ...(minzoom ? { minzoom } : {}),
+            layout: {
+                visibility: vis,
+                'icon-image': ['get', 'pill'], 'icon-size': 1, 'icon-anchor': 'bottom', 'icon-offset': [0, -4],
+                'text-field': textFor, 'text-font': font, 'text-size': SIZE, 'text-line-height': 1.15,
+                'text-anchor': 'center', 'text-offset': [0, lift(pillH) / SIZE], 'text-max-width': 30,
+                'text-allow-overlap': false, 'icon-allow-overlap': false, 'text-optional': false,
+            },
+            paint: { 'text-color': '#ffffff' },
+        });
         sectorOpsMap.addSource(TAXI_OVL, { type: 'geojson', data });
         sectorOpsMap.addLayer({ id: 'taxi-overlay-push', type: 'line', source: TAXI_OVL, minzoom: GROUND_Z, filter: kind('push'),
             layout: { 'line-cap': 'round', visibility: vis },
             paint: { 'line-color': '#ffffff', 'line-width': 2.5, 'line-dasharray': [1, 1.4], 'line-opacity': 0.9 } }, anchor);
         sectorOpsMap.addLayer({ id: 'taxi-overlay-dots', type: 'circle', source: TAXI_OVL, minzoom: GROUND_Z,
             filter: ['any', kind('stop'), kind('time')], layout: { visibility: vis },
-            paint: { 'circle-radius': ['case', kind('stop'), 6, 4], 'circle-color': ['get', 'dot'],
+            paint: { 'circle-radius': ['case', kind('stop'), 5, 3.5], 'circle-color': ['get', 'dot'],
                 'circle-stroke-color': ['case', kind('stop'), '#ffffff', 'rgba(15,23,42,0.9)'], 'circle-stroke-width': 2 } }, anchor);
-        sectorOpsMap.addLayer({ id: 'taxi-overlay-labels', type: 'symbol', source: TAXI_OVL, minzoom: GROUND_Z,
-            filter: ['any', kind('stop'), kind('twy'), kind('time')],
-            layout: {
-                visibility: vis,
-                'text-field': ['get', 'label'], 'text-font': font,
-                'text-size': ['case', kind('twy'), 12.5, 11],
-                'text-anchor': ['case', kind('time'), 'left', kind('stop'), 'bottom', 'center'],
-                'text-offset': ['case', kind('stop'), ['literal', [0, -1.1]], kind('time'), ['literal', [1.1, 0]], ['literal', [0, 0]]],
-                'icon-image': ['get', 'pill'], 'icon-text-fit': 'both', 'icon-text-fit-padding': [3, 7, 3, 7],
-                'symbol-sort-key': ['case', kind('stop'), 0, kind('time'), 1, 2],
-                'text-allow-overlap': false, 'icon-allow-overlap': false,
-            },
-            paint: { 'text-color': ['case', kind('twy'), '#111111', '#ffffff'] } }, anchor);
+        // Ground callouts (all 30 px bodies) and the taxiway squares.
+        sectorOpsMap.addLayer(callout('taxi-overlay-labels', ['any', kind('stop'), kind('time')], GROUND_Z, 30), anchor);
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-twy', type: 'symbol', source: TAXI_OVL, minzoom: GROUND_Z, filter: kind('twy'),
+            layout: { visibility: vis, 'icon-image': 'pp-twy', 'icon-size': 1, 'text-field': ['get', 'l1'], 'text-font': font,
+                'text-size': 11, 'text-max-width': 30, 'text-allow-overlap': false, 'icon-allow-overlap': false },
+            paint: { 'text-color': '#111111' } }, anchor);
         sectorOpsMap.addLayer({ id: 'taxi-overlay-marks-dots', type: 'circle', source: TAXI_OVL, filter: kind('mark'),
             layout: { visibility: vis },
-            paint: { 'circle-radius': 4.5, 'circle-color': '#0ea5e9', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } }, anchor);
-        sectorOpsMap.addLayer({ id: 'taxi-overlay-marks', type: 'symbol', source: TAXI_OVL, filter: kind('mark'),
-            layout: {
-                visibility: vis,
-                'text-field': ['get', 'label'], 'text-font': font, 'text-size': 11.5,
-                'text-anchor': 'bottom', 'text-offset': [0, -1],
-                'icon-image': ['get', 'pill'], 'icon-text-fit': 'both', 'icon-text-fit-padding': [3, 8, 3, 8],
-                'text-allow-overlap': false, 'icon-allow-overlap': false,
-            },
-            paint: { 'text-color': '#ffffff' } }, anchor);
+            paint: { 'circle-radius': 4, 'circle-color': '#0ea5e9', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } }, anchor);
+        sectorOpsMap.addLayer(callout('taxi-overlay-marks', kind('mark'), 0, 30), anchor);
     } catch (_) { /* the overlay is a nicety; the trail itself already drew */ }
 }
 

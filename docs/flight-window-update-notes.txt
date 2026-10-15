@@ -101,11 +101,13 @@ Notes:
     the taxi card), for the open flight and pinned flights. Pushback, rolls and
     the flight itself are untouched; the line still ends at the plane.
   - Costs nothing extra while airborne (only recalculated on the ground).
-  - Path info along the flown path, with rounded label "pills":
-      In flight, any zoom: Takeoff, Top of climb (FL + time), every step climb
-      or descent to a new level, Top of descent, Landed.
-      On the ground, zoomed in: pushback tail, stops with durations, Push /
-      Taxi / Park times, taxiway letters used.
+  - Path info along the flown path, as small fixed-size callouts (they never
+    grow with their text): a short code on top, the time/duration below, and a
+    little tail pointing at the dot.
+      In flight, any zoom: T/O, TOC FL360, CLB/DES FL370 (each step to a new
+      level), TOD, LDG — each with its time.
+      On the ground, zoomed in: pushback tail, STOP / HOLD with durations,
+      PUSH / TAXI / PARK times, taxiway letters (small yellow squares).
   - "Path info" button in the flight window's photo button row turns all of
     this off/on (the trail itself stays). Remembered.
       Phone: icon button next to replay / camera — reachable in peek.
