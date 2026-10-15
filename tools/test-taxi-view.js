@@ -226,6 +226,26 @@ head('Pushback, snapping to the taxiways, clock times');
     ok('powering straight out is not a pushback', noPush.pushback === null && noPush.times.taxi >= T(60));
 }
 
+head('In flight: top of climb, steps, top of descent');
+{
+    const T = (min) => t0 + min * 60000;
+    const s = (min, alt) => ({ t: T(min), lat: 40 + min * 0.01, lon: -73 + min * 0.05, alt, gs: alt > 100 ? 300 : 0 });
+    const prof = [];
+    for (let m = 0; m <= 20; m++) prof.push(s(m, m * 1750));                     // climb to 35,000
+    for (let m = 21; m <= 80; m++) prof.push(s(m, 35000 + (m % 3) * 60));       // FL350 (with wobble)
+    for (let m = 81; m <= 84; m++) prof.push(s(m, 35000 + (m - 80) * 500));      // step climb
+    for (let m = 85; m <= 140; m++) prof.push(s(m, 37000));                      // FL370
+    for (let m = 141; m <= 170; m++) prof.push(s(m, 37000 - (m - 140) * 1200));  // descent
+    const ms = TV.milestones(prof);
+    ok('top of climb at FL350', ms[0] && ms[0].kind === 'toc' && ms[0].fl === 350, JSON.stringify(ms[0]));
+    ok('when it got there', ms[0] && ms[0].t <= T(21) && ms[0].t >= T(19));
+    ok('a step climb to FL370', ms[1] && ms[1].kind === 'step' && ms[1].fl === 370 && ms[1].dir === 1, JSON.stringify(ms[1]));
+    ok('top of descent last', ms[2] && ms[2].kind === 'tod' && ms[2].t >= T(139) && ms[2].t <= T(141), JSON.stringify(ms[2]));
+    ok('nothing else', ms.length === 3, ms.map((m) => m.kind).join(','));
+    ok('still climbing: no milestones yet', TV.milestones(prof.slice(0, 15)).length === 0);
+    ok('in cruise: top of climb, no top of descent', TV.milestones(prof.slice(0, 60)).map((m) => m.kind).join(',') === 'toc');
+}
+
 head('Still taxiing');
 {
     const r = TV.extract(taxiOut.slice(0, 5));

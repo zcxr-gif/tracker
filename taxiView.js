@@ -17,7 +17,10 @@
  * Pure and dependency-free so it runs (and is tested) in Node; flight.js owns
  * the airport and runway lookups and the card around the drawing.
  *
- * Exposes window.TaxiView = { extract, runwayFor, analyse, taxiwaysUsed, renderSVG, fmtDur }.
+ * Also marks the flight's own milestones (top of climb, step climbs and
+ * descents, top of descent) for the main map.
+ *
+ * Exposes window.TaxiView = { extract, runwayFor, analyse, taxiwaysUsed, renderSVG, fmtDur, milestones }.
  */
 (function (global) {
     'use strict';
@@ -828,5 +831,55 @@
         return `<svg class="tv-svg${sat ? ' tv-sat' : ''}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Taxi route">${parts.join('')}${labels.join('')}</svg>`;
     }
 
-    global.TaxiView = { extract, runwayFor, analyse, taxiwaysUsed, renderSVG, fmtDur };
+    // --- In flight --------------------------------------------------------------
+
+    // Level flight: altitude holding within this band…
+    const LEVEL_BAND_FT = 300;
+    // …for at least this long, at or above this altitude, is a cruise level.
+    const LEVEL_MIN_MS = 4 * 60 * 1000;
+    const LEVEL_MIN_FT = 8000;
+    // Descending this far below the last level after it ends is a real
+    // descent (top of descent), not a wobble.
+    const TOD_DROP_FT = 2000;
+
+    /**
+     * The milestones of the airborne part of a trail: top of climb, every
+     * step climb or descent to a new level, and top of descent.
+     * @param {Array} samples - normalised trail (FlightLegs.normalize()).
+     * @returns {Array<{kind: 'toc'|'step'|'tod', fl: number|null, dir: 1|-1|0,
+     *   t: number, lat: number, lon: number}>} in time order.
+     */
+    function milestones(samples) {
+        const air = (samples || []).filter((s) => s.alt != null);
+        const levels = [];
+        for (let i = 0; i < air.length;) {
+            if (air[i].alt < LEVEL_MIN_FT) { i++; continue; }
+            let j = i;
+            while (j + 1 < air.length && Math.abs(air[j + 1].alt - air[i].alt) <= LEVEL_BAND_FT) j++;
+            if (air[j].t - air[i].t >= LEVEL_MIN_MS) {
+                const alts = air.slice(i, j + 1).map((s) => s.alt).sort((a, b) => a - b);
+                const fl = Math.round(alts[Math.floor(alts.length / 2)] / 1000) * 10;
+                const prev = levels[levels.length - 1];
+                if (prev && prev.fl === fl) prev.j = j;       // same level, after a wobble
+                else levels.push({ i, j, fl });
+                i = j + 1;
+            } else {
+                i++;
+            }
+        }
+        if (!levels.length) return [];
+        const at = (k, extra) => ({ t: air[k].t, lat: air[k].lat, lon: air[k].lon, ...extra });
+        const out = [at(levels[0].i, { kind: 'toc', fl: levels[0].fl, dir: 1 })];
+        for (let k = 1; k < levels.length; k++) {
+            out.push(at(levels[k].i, { kind: 'step', fl: levels[k].fl, dir: levels[k].fl > levels[k - 1].fl ? 1 : -1 }));
+        }
+        const last = levels[levels.length - 1];
+        const lastAlt = air[last.j].alt;
+        if (air.slice(last.j + 1).some((s) => s.alt < lastAlt - TOD_DROP_FT)) {
+            out.push(at(last.j, { kind: 'tod', fl: null, dir: -1 }));
+        }
+        return out;
+    }
+
+    global.TaxiView = { extract, runwayFor, analyse, taxiwaysUsed, renderSVG, fmtDur, milestones };
 })(typeof window !== 'undefined' ? window : this);

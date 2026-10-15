@@ -17174,6 +17174,15 @@ function setupAircraftWindowEvents() {
             const planBtn = e.target.closest('#plan-this-flight-btn');
             const profileToggleBtn = e.target.closest('.profile-toggle-btn');
             const icaoLink = e.target.closest('.ac-icao-link');
+            const pathInfoBtn = e.target.closest('.aircraft-window-pathinfo-btn');
+
+            if (pathInfoBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                setPathInfo(!pathInfoOn());
+                try { window.InflightHaptics?.select?.(); } catch (_) { /* optional */ }
+                return;
+            }
 
             if (icaoLink) {
                 e.preventDefault();
@@ -23435,29 +23444,87 @@ function taxiSnapForTrail(trailPoints) {
 }
 
 /*
- * The open flight's taxi details on the main map, as on the taxi card: the
- * pushback tail, every stop with how long it lasted, the pushback / taxi /
- * takeoff (landing / parking) clock times and the letters of the taxiways
- * used. Only drawn close in (from zoom 12.5), where they mean something.
+ * The open flight's story along its flown path on the main map:
+ *  • in the air, from any zoom — takeoff, top of climb, each step climb or
+ *    descent, top of descent, landing, each with its flight level and time;
+ *  • on the ground, close in (zoom 12.5+) — the pushback tail, every stop
+ *    with how long it lasted, the pushback / taxi / takeoff (landing /
+ *    parking) times and the letters of the taxiways used, as on the taxi card.
+ * Labels are small rounded pills (stretchable images, so they work on both
+ * map engines). The whole overlay can be switched off with the path-info
+ * button in the flight window; the trail itself stays.
  */
 const TAXI_OVL = 'taxi-overlay';
+const TAXI_OVL_LAYERS = ['taxi-overlay-push', 'taxi-overlay-dots', 'taxi-overlay-labels', 'taxi-overlay-marks-dots', 'taxi-overlay-marks'];
+const PATH_INFO_KEY = 'inflight.pathInfo';    // '0' = hidden
 let _taxiOverlayFlight = null;
+
+function pathInfoOn() {
+    try { return localStorage.getItem(PATH_INFO_KEY) !== '0'; } catch (_) { return true; }
+}
+
+function setPathInfo(on) {
+    try { localStorage.setItem(PATH_INFO_KEY, on ? '1' : '0'); } catch (_) { /* private mode */ }
+    if (sectorOpsMap) {
+        TAXI_OVL_LAYERS.forEach((id) => {
+            if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+        });
+    }
+    document.querySelectorAll('.aircraft-window-pathinfo-btn').forEach((b) => {
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.title = on ? 'Hide path info' : 'Show path info';
+    });
+}
+
+// Rounded label backgrounds, drawn once per style (a style change drops them).
+function ensurePathPills(map) {
+    const pills = {
+        'pill-dark': ['rgba(15,23,42,0.88)', 'rgba(255,255,255,0.28)'],
+        'pill-stop': ['#c2410c', 'rgba(0,0,0,0.35)'],
+        'pill-hold': ['#b91c1c', 'rgba(0,0,0,0.35)'],
+        'pill-twy': ['#facc15', 'rgba(0,0,0,0.55)'],
+        'pill-mark': ['rgba(12,74,110,0.92)', 'rgba(125,211,252,0.65)'],
+    };
+    const R = 2, W = 24, H = 20, rad = 8;
+    for (const [name, [fill, stroke]] of Object.entries(pills)) {
+        if (map.hasImage && map.hasImage(name)) continue;
+        const c = document.createElement('canvas');
+        c.width = W * R; c.height = H * R;
+        const g = c.getContext('2d');
+        g.scale(R, R);
+        g.beginPath();
+        g.moveTo(rad + 1, 1); g.arcTo(W - 1, 1, W - 1, H - 1, rad); g.arcTo(W - 1, H - 1, 1, H - 1, rad);
+        g.arcTo(1, H - 1, 1, 1, rad); g.arcTo(1, 1, W - 1, 1, rad); g.closePath();
+        g.fillStyle = fill; g.fill();
+        g.lineWidth = 1; g.strokeStyle = stroke; g.stroke();
+        try {
+            map.addImage(name, g.getImageData(0, 0, W * R, H * R), {
+                pixelRatio: R,
+                stretchX: [[rad * R, (W - rad) * R]], stretchY: [[rad * R, (H - rad) * R]],
+                content: [rad * R * 0.75, 4 * R, (W - rad * 0.75) * R, (H - 4) * R],
+            });
+        } catch (_) { /* labels fall back to a text halo */ }
+    }
+}
 
 function removeTaxiOverlay() {
     _taxiOverlayFlight = null;
     if (!sectorOpsMap) return;
-    ['taxi-overlay-push', 'taxi-overlay-stops', 'taxi-overlay-labels'].forEach((id) => {
-        if (sectorOpsMap.getLayer(id)) sectorOpsMap.removeLayer(id);
-    });
+    TAXI_OVL_LAYERS.forEach((id) => { if (sectorOpsMap.getLayer(id)) sectorOpsMap.removeLayer(id); });
     if (sectorOpsMap.getSource(TAXI_OVL)) sectorOpsMap.removeSource(TAXI_OVL);
 }
 
 function updateTaxiOverlay(flightId, trail) {
     if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded || !window.TaxiView) return;
+    const TV = window.TaxiView;
     const snap = taxiSnapForTrail(trail);
     const feats = [];
     const pt = (lat, lon, props) => ({ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [lon, lat] } });
     const clock = (ms) => _formatUtcHHMM(new Date(ms)) || '';
+    const flText = (fl) => (fl >= 180 ? `FL${String(fl).padStart(3, '0')}` : `${(fl * 100).toLocaleString()} ft`);
+
+    // On the ground: the taxi details.
     for (const seg of snap.segs) {
         const a = seg.analysis;
         if (!a) continue;
@@ -23467,52 +23534,87 @@ function updateTaxiOverlay(flightId, trail) {
             feats.push({ type: 'Feature', properties: { kind: 'push' },
                 geometry: { type: 'LineString', coordinates: route.push.map((q) => [q.lon, q.lat]) } });
         }
-        a.stops.forEach((st) => feats.push(pt(st.lat, st.lon,
-            { kind: 'stop', hold: st.holdShort ? 1 : 0, label: window.TaxiView.fmtDur(st.ms) })));
-        a.legs.forEach((l) => { if (l.ref) feats.push(pt(l.at.lat, l.at.lon, { kind: 'twy', label: l.ref })); });
+        a.stops.forEach((st) => feats.push(pt(st.lat, st.lon, {
+            kind: 'stop', pill: st.holdShort ? 'pill-hold' : 'pill-stop', dot: st.holdShort ? '#ef4444' : '#f97316',
+            label: `${st.holdShort ? 'Hold' : 'Stop'} ${TV.fmtDur(st.ms)}` })));
+        a.legs.forEach((l) => { if (l.ref) feats.push(pt(l.at.lat, l.at.lon, { kind: 'twy', pill: 'pill-twy', label: l.ref })); });
         const t = a.times || {};
         const marks = seg.kind === 'out'
-            ? [['Push', t.pushback, route.push && route.push[0]], ['Taxi', t.taxi, taxi[0]],
-               ['T/O', t.takeoff, seg.roll && seg.roll[0]]]
-            : [['Land', t.landed, seg.roll && seg.roll[0]], ['Park', t.parked, taxi[taxi.length - 1]]];
+            ? [['Push', t.pushback, route.push && route.push[0]], ['Taxi', t.taxi, taxi[0]]]
+            : [['Park', t.parked, taxi[taxi.length - 1]]];
         marks.forEach(([what, ms, at]) => {
-            if (ms != null && at) feats.push(pt(at.lat, at.lon, { kind: 'time', label: `${what} ${clock(ms)}` }));
+            if (ms != null && at) feats.push(pt(at.lat, at.lon, { kind: 'time', pill: 'pill-dark', dot: '#ffffff', label: `${what} ${clock(ms)}` }));
         });
+        // Takeoff and landing belong to the flight as much as to the taxi:
+        // shown from any zoom with the in-flight milestones.
+        if (seg.kind === 'out' && t.takeoff != null && seg.roll && seg.roll.length) {
+            const r = seg.roll[0];
+            feats.push(pt(r.lat, r.lon, { kind: 'mark', pill: 'pill-mark', label: `Takeoff ${clock(t.takeoff)}` }));
+        }
+        if (seg.kind === 'in' && t.landed != null && seg.roll && seg.roll.length) {
+            const r = seg.roll[0];
+            feats.push(pt(r.lat, r.lon, { kind: 'mark', pill: 'pill-mark', label: `Landed ${clock(t.landed)}` }));
+        }
     }
-    const data = { type: 'FeatureCollection', features: feats };
 
+    // In the air: top of climb, steps, top of descent (recomputed at most
+    // every half minute — they move slowly).
+    const ms = memoOverTrail('milestones', [flightId], trail, 30000,
+        () => TV.milestones(window.FlightLegs ? window.FlightLegs.normalize(trail || []) : []));
+    for (const m of ms) {
+        const label = m.kind === 'toc' ? `Top of climb · ${flText(m.fl)} · ${clock(m.t)}`
+            : m.kind === 'tod' ? `Top of descent · ${clock(m.t)}`
+            : `${m.dir > 0 ? 'Climb' : 'Descend'} to ${flText(m.fl)} · ${clock(m.t)}`;
+        feats.push(pt(m.lat, m.lon, { kind: 'mark', pill: 'pill-mark', label }));
+    }
+
+    const data = { type: 'FeatureCollection', features: feats };
     if (_taxiOverlayFlight !== flightId) removeTaxiOverlay();
     _taxiOverlayFlight = flightId;
     const src = sectorOpsMap.getSource(TAXI_OVL);
     if (src) { src.setData(data); return; }
     if (!feats.length) return;
     try {
+        ensurePathPills(sectorOpsMap);
         const under = getUnderAircraftAnchor();
         const anchor = sectorOpsMap.getLayer(under) ? under : undefined;
         const kind = (k) => ['==', ['get', 'kind'], k];
+        const vis = pathInfoOn() ? 'visible' : 'none';
+        const font = mapTextFont(['DIN Pro Medium', 'Arial Unicode MS Regular']);
+        const GROUND_Z = 12.5;
         sectorOpsMap.addSource(TAXI_OVL, { type: 'geojson', data });
-        sectorOpsMap.addLayer({ id: 'taxi-overlay-push', type: 'line', source: TAXI_OVL, minzoom: 12.5, filter: kind('push'),
-            layout: { 'line-cap': 'round' },
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-push', type: 'line', source: TAXI_OVL, minzoom: GROUND_Z, filter: kind('push'),
+            layout: { 'line-cap': 'round', visibility: vis },
             paint: { 'line-color': '#ffffff', 'line-width': 2.5, 'line-dasharray': [1, 1.4], 'line-opacity': 0.9 } }, anchor);
-        sectorOpsMap.addLayer({ id: 'taxi-overlay-stops', type: 'circle', source: TAXI_OVL, minzoom: 12.5, filter: kind('stop'),
-            paint: { 'circle-radius': 6, 'circle-color': ['case', ['==', ['get', 'hold'], 1], '#ef4444', '#f97316'],
-                'circle-stroke-color': '#000', 'circle-stroke-width': 1.5 } }, anchor);
-        sectorOpsMap.addLayer({ id: 'taxi-overlay-labels', type: 'symbol', source: TAXI_OVL, minzoom: 12.5,
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-dots', type: 'circle', source: TAXI_OVL, minzoom: GROUND_Z,
+            filter: ['any', kind('stop'), kind('time')], layout: { visibility: vis },
+            paint: { 'circle-radius': ['case', kind('stop'), 6, 4], 'circle-color': ['get', 'dot'],
+                'circle-stroke-color': ['case', kind('stop'), '#ffffff', 'rgba(15,23,42,0.9)'], 'circle-stroke-width': 2 } }, anchor);
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-labels', type: 'symbol', source: TAXI_OVL, minzoom: GROUND_Z,
             filter: ['any', kind('stop'), kind('twy'), kind('time')],
             layout: {
-                'text-field': ['get', 'label'],
-                'text-font': mapTextFont(['DIN Pro Medium', 'Arial Unicode MS Regular']),
-                'text-size': ['case', ['==', ['get', 'kind'], 'twy'], 13, 11.5],
-                'text-anchor': ['case', ['==', ['get', 'kind'], 'time'], 'left', 'center'],
-                'text-offset': ['case', ['==', ['get', 'kind'], 'stop'], ['literal', [0, -1.4]],
-                    ['==', ['get', 'kind'], 'time'], ['literal', [0.9, 0]], ['literal', [0, 0]]],
-                'text-allow-overlap': false,
+                visibility: vis,
+                'text-field': ['get', 'label'], 'text-font': font,
+                'text-size': ['case', kind('twy'), 12.5, 11],
+                'text-anchor': ['case', kind('time'), 'left', kind('stop'), 'bottom', 'center'],
+                'text-offset': ['case', kind('stop'), ['literal', [0, -1.1]], kind('time'), ['literal', [1.1, 0]], ['literal', [0, 0]]],
+                'icon-image': ['get', 'pill'], 'icon-text-fit': 'both', 'icon-text-fit-padding': [3, 7, 3, 7],
+                'symbol-sort-key': ['case', kind('stop'), 0, kind('time'), 1, 2],
+                'text-allow-overlap': false, 'icon-allow-overlap': false,
             },
-            paint: {
-                'text-color': ['case', ['==', ['get', 'kind'], 'twy'], '#111111', '#ffffff'],
-                'text-halo-color': ['case', ['==', ['get', 'kind'], 'twy'], '#facc15', 'rgba(0,0,0,0.85)'],
-                'text-halo-width': ['case', ['==', ['get', 'kind'], 'twy'], 3.5, 1.8],
-            } }, anchor);
+            paint: { 'text-color': ['case', kind('twy'), '#111111', '#ffffff'] } }, anchor);
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-marks-dots', type: 'circle', source: TAXI_OVL, filter: kind('mark'),
+            layout: { visibility: vis },
+            paint: { 'circle-radius': 4.5, 'circle-color': '#0ea5e9', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } }, anchor);
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-marks', type: 'symbol', source: TAXI_OVL, filter: kind('mark'),
+            layout: {
+                visibility: vis,
+                'text-field': ['get', 'label'], 'text-font': font, 'text-size': 11.5,
+                'text-anchor': 'bottom', 'text-offset': [0, -1],
+                'icon-image': ['get', 'pill'], 'icon-text-fit': 'both', 'icon-text-fit-padding': [3, 8, 3, 8],
+                'text-allow-overlap': false, 'icon-allow-overlap': false,
+            },
+            paint: { 'text-color': '#ffffff' } }, anchor);
     } catch (_) { /* the overlay is a nicety; the trail itself already drew */ }
 }
 
@@ -28054,6 +28156,35 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             #aircraft-info-window .acx-row .v { font-size: 13.5px; color: #fff; font-weight: 600; font-family: 'JetBrains Mono', monospace; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             #aircraft-info-window .acx-row .v .unit { font-size: 10px; color: #9a9aa2; font-weight: 500; margin-left: 2px; }
 
+            /* Path-info toggle (hero row). Phones: an icon button like its
+               neighbours, struck through when off. Desktop: a labelled pill
+               with an on/off light, so its state reads at a glance. */
+            #aircraft-info-window .aircraft-window-pathinfo-btn { position: relative; }
+            #aircraft-info-window .aircraft-window-pathinfo-btn .pi-label,
+            #aircraft-info-window .aircraft-window-pathinfo-btn .pi-state { display: none; }
+            #aircraft-info-window .aircraft-window-pathinfo-btn.on { color: #7dd3fc !important; }
+            #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on) { opacity: 0.7; }
+            #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on)::after {
+                content: ''; position: absolute; left: 25%; right: 25%; top: 50%; height: 2px; border-radius: 1px;
+                background: currentColor; transform: rotate(-35deg); pointer-events: none;
+            }
+            @media (min-width: 769px) {
+                #aircraft-info-window .aircraft-window-pathinfo-btn {
+                    width: auto !important; padding: 0 12px 0 11px !important; border-radius: 999px !important;
+                    display: inline-flex !important; align-items: center; gap: 7px;
+                    font: 600 11.5px/1 var(--font-ui, system-ui), system-ui, sans-serif; letter-spacing: 0.01em;
+                }
+                #aircraft-info-window .aircraft-window-pathinfo-btn .pi-label { display: inline; color: #fff; }
+                #aircraft-info-window .aircraft-window-pathinfo-btn .pi-state {
+                    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+                    background: rgba(255,255,255,0.35); box-shadow: 0 0 0 2px rgba(0,0,0,0.25);
+                }
+                #aircraft-info-window .aircraft-window-pathinfo-btn.on .pi-state { background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.8); }
+                #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on) { opacity: 1; }
+                #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on)::after { content: none; }
+                #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on) .pi-label { color: rgba(255,255,255,0.7); }
+            }
+
             /* Taxi card (renderTaxiCard / taxiView.js) */
             #aircraft-info-window .taxi-card { --tx-ink: 255,255,255; --tx-accent: #38bdf8; }
             #aircraft-info-window .tx-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; min-width: 0; }
@@ -28455,6 +28586,13 @@ let totalDistanceNM = 0;
     <button class="hero-btn aircraft-window-trackme-btn" id="trackme-btn-${baseProps.flightId}" data-flight-id="${baseProps.flightId}" title="This is my flight">
         <i class="fa-solid ${window.InflightLiveActivity.isTrackingFlight(baseProps.flightId) ? 'fa-bell-slash' : 'fa-bell'}"></i>
     </button>` : ''}
+
+    <!-- Path info on the map (milestones, stops, times, taxiways) — on/off.
+         Icon-only on phones (it sits in the peek), labelled on desktop. -->
+    <button class="hero-btn aircraft-window-pathinfo-btn${pathInfoOn() ? ' on' : ''}" type="button"
+            aria-pressed="${pathInfoOn() ? 'true' : 'false'}" title="${pathInfoOn() ? 'Hide' : 'Show'} path info">
+        <i class="fa-solid fa-route"></i><span class="pi-label">Path info</span><span class="pi-state" aria-hidden="true"></span>
+    </button>
 
     <button class="hero-btn aircraft-window-replay-btn" title="Replay Flight">
         <i class="fa-solid fa-circle-play"></i>
