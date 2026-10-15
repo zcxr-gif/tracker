@@ -211,20 +211,43 @@
     // A stop this close to where the roll began is holding short / lining up.
     const HOLD_SHORT_M = 250;
 
+    // Pushback: slow (a tug, not engines), short, straight off the gate, and
+    // ending in a stop or a change of direction as the aircraft turns to taxi
+    // forwards.
+    const PUSH_MAX_GS_KT = 8;
+    const PUSH_MIN_M = 8, PUSH_MAX_M = 250;
+    // The taxi heads off at least this far from the push direction — less if
+    // the push ended in a stop (the tug disconnecting), more if it didn't.
+    const PUSH_TURN_STOPPED_DEG = 60, PUSH_TURN_DEG = 100;
+    // Snapping: a step is moved onto its taxiway only if the centreline is
+    // this close, and never if that would make it jump further than it moved.
+    const SNAP_MAX_M = TWY_MATCH_M * 1.5;
+    const SNAP_JUMP_M = 25;
+    // Rounding: a turn sharper than this over a stretch shorter than
+    // SPIKE_M is a snapping artefact, not a manoeuvre an aircraft can make.
+    const SPIKE_DEG = 120, SPIKE_M = 40;
+    const KT = 1852 / 3600;   // m/s per knot
+
     /**
      * Everything the card says about a ground path, in one pass.
      * @param {object} seg - an extract() result's out or in.
      * @param {object} [layout] - airportLayout.js GeoJSON; taxiway/taxilane
      *   LineStrings carry their OSM `ref` ("A", "K3", …). Without it the
-     *   legs are unnamed but the timing, stops and ticks still work.
-     * @returns {{ legs: Array, stops: Array, ticks: Array, startT: number|null,
-     *   endT: number|null, stoppedMs: number }}
-     *   legs  — the route in order: { ref|null, t0, t1, m, at, stops: [] };
-     *   stops — { lat, lon, t0, t1, ms, ref, holdShort };
-     *   ticks — one per elapsed minute: { lat, lon, dx, dy, minute }.
+     *   legs are unnamed and the path is drawn as flown, but the timing,
+     *   stops and ticks still work.
+     * @returns {object}
+     *   legs     — the route in order: { ref|null, t0, t1, m, at, stops: [] };
+     *   stops    — { lat, lon, t0, t1, ms, ref, holdShort };
+     *   ticks    — one per elapsed minute: { lat, lon, dx, dy, minute };
+     *   pushback — { t0, t1, m, at } or null;
+     *   times    — { pushback, taxi, takeoff, landed, parked } (ms, or null);
+     *   route    — what to draw: { push: [{lat, lon}], taxi: [{lat, lon}] },
+     *              the taxi part following the taxiway centrelines, its turns
+     *              rounded. The rolls are never snapped.
      */
     function analyse(seg, layout) {
-        const empty = { legs: [], stops: [], ticks: [], startT: null, endT: null, stoppedMs: 0 };
+        const empty = { legs: [], stops: [], ticks: [], startT: null, endT: null, stoppedMs: 0,
+            pushback: null, times: {}, route: null };
         const path = seg && seg.path;
         if (!path || path.length < 2) return empty;
 
@@ -244,6 +267,40 @@
 
         const P = projector(pts[0].lat, pts[0].lon);
         const xy = pts.map((s) => ({ ...P(s.lat, s.lon), lat: s.lat, lon: s.lon, t: s.t, gs: s.gs }));
+        const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+        // When it started moving towards fix b from a: b's time less the time
+        // to cover the distance at b's speed, never before a.
+        const departedAt = (a, b) => {
+            const v = Math.max(MOVING_GS_KT, b.gs || 0) * KT;
+            return Math.max(a.t, b.t - dist(a, b) / v);
+        };
+
+        // --- Pushback (taxi-out only) ---
+        let push = null;
+        if (seg.kind === 'out' && xy.length > 2 && !moving(xy[0])) {
+            let j = 1;
+            while (j < xy.length && moving(xy[j]) && xy[j].gs <= PUSH_MAX_GS_KT) j++;
+            if (j > 1) {
+                const stopped = j < xy.length && xy[j].gs != null && !moving(xy[j]);
+                const endIdx = stopped ? j : j - 1;
+                const end = xy[endIdx], len = dist(xy[0], end);
+                let k = endIdx + 1;
+                while (k < xy.length && dist(end, xy[k]) < 20) k++;
+                let turn = 180;
+                if (k < xy.length) {
+                    const ux = end.x - xy[0].x, uy = end.y - xy[0].y, vx = xy[k].x - end.x, vy = xy[k].y - end.y;
+                    const c = (ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy) || 1);
+                    turn = Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI;
+                }
+                if (len >= PUSH_MIN_M && len <= PUSH_MAX_M && turn >= (stopped ? PUSH_TURN_STOPPED_DEG : PUSH_TURN_DEG)) {
+                    // The first fix that is really taxiing (moving on from the push end).
+                    let m = endIdx + 1;
+                    while (m < xy.length && !moving(xy[m])) m++;
+                    push = { endIdx, end, m: len, t0: departedAt(xy[0], xy[1]), t1: end.t,
+                        taxiT: m < xy.length ? departedAt(xy[m - 1], xy[m]) : null };
+                }
+            }
+        }
 
         // Named centreline segments near the path, projected once.
         let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -263,37 +320,41 @@
                 segs.push({ ref, a, b });
             }
         }
-        const nearestRef = (x, y) => {
-            let best = null, bestD = TWY_MATCH_M;
+        // Nearest point on the centreline(s) — any, or one taxiway's.
+        const nearest = (x, y, ref) => {
+            let best = null;
             for (const s of segs) {
+                if (ref && s.ref !== ref) continue;
                 const dx = s.b.x - s.a.x, dy = s.b.y - s.a.y, len2 = dx * dx + dy * dy;
                 const t = len2 ? Math.max(0, Math.min(1, ((x - s.a.x) * dx + (y - s.a.y) * dy) / len2)) : 0;
-                const d = Math.hypot(x - (s.a.x + t * dx), y - (s.a.y + t * dy));
-                if (d < bestD) { bestD = d; best = s.ref; }
+                const px = s.a.x + t * dx, py = s.a.y + t * dy, d = Math.hypot(x - px, y - py);
+                if (!best || d < best.d) best = { x: px, y: py, d, ref: s.ref };
             }
             return best;
         };
+        const nearestRef = (x, y) => { const n = nearest(x, y); return n && n.d < TWY_MATCH_M ? n.ref : null; };
 
         // Walk it in short steps, each with a position, a time and a taxiway.
         const steps = [];
         for (let i = 1; i < xy.length; i++) {
             const a = xy[i - 1], b = xy[i];
-            const len = Math.hypot(b.x - a.x, b.y - a.y);
+            const len = dist(a, b);
             const n = Math.max(1, Math.ceil(len / STEP_M));
             for (let k = (i === 1 ? 0 : 1); k <= n; k++) {
                 const f = k / n;
                 const x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f;
-                steps.push({
-                    x, y, m: k ? len / n : 0,
-                    lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f,
-                    t: a.t + (b.t - a.t) * f, ref: nearestRef(x, y),
-                });
+                const t = a.t + (b.t - a.t) * f;
+                const isPush = !!push && t <= push.t1;
+                steps.push({ x, y, m: k ? len / n : 0, t, push: isPush, ref: isPush ? null : nearestRef(x, y) });
             }
         }
+        const pushSteps = steps.filter((s) => s.push);
+        const taxiSteps = steps.filter((s) => !s.push);
+        if (!taxiSteps.length) taxiSteps.push(steps[steps.length - 1]);
 
         // Runs of one taxiway, then fold junction blips into their neighbour.
         const runs = [];
-        for (const s of steps) {
+        for (const s of taxiSteps) {
             const last = runs[runs.length - 1];
             if (last && last.ref === s.ref) { last.m += s.m; last.pts.push(s); continue; }
             runs.push({ ref: s.ref, m: s.m, pts: [s] });
@@ -308,16 +369,42 @@
         if (legs.length > 1 && legs[0].m < TWY_MIN_RUN_M) {
             legs[1].m += legs[0].m; legs[1].pts.unshift(...legs[0].pts); legs.shift();
         }
+
+        // Snap each leg's steps onto that leg's own taxiway — not merely the
+        // nearest one, which flips at every junction and between close
+        // parallel taxiways. A step stays where it was flown when the
+        // centreline is far, or when snapping would make it jump.
+        let prevRaw = null, prevOut = null;
+        for (const l of legs) {
+            for (const s of l.pts) {
+                s.sx = s.x; s.sy = s.y;
+                if (l.ref) {
+                    const n = nearest(s.x, s.y, l.ref);
+                    if (n && n.d <= SNAP_MAX_M && !(prevOut && Math.hypot(n.x - prevOut.x, n.y - prevOut.y) > dist(prevRaw, s) + SNAP_JUMP_M)) {
+                        s.sx = n.x; s.sy = n.y;
+                    }
+                }
+                prevRaw = s; prevOut = { x: s.sx, y: s.sy };
+            }
+        }
+        const ll = (x, y) => P.inv(x, y);
+        steps.forEach((s) => {
+            const q = ll(s.sx != null ? s.sx : s.x, s.sy != null ? s.sy : s.y);
+            s.lat = q.lat; s.lon = q.lon;
+        });
+
         legs.forEach((l, i) => {
             l.t0 = l.pts[0].t;
             l.t1 = i + 1 < legs.length ? legs[i + 1].pts[0].t : l.pts[l.pts.length - 1].t;
-            l.at = l.pts[Math.floor(l.pts.length / 2)];
-            l.at = { lat: l.at.lat, lon: l.at.lon };
+            const mid = l.pts[Math.floor(l.pts.length / 2)];
+            l.at = { lat: mid.lat, lon: mid.lon };
             l.stops = [];
             delete l.pts;
         });
 
-        // Stops: fixes standing still for a while, between the first and last move.
+        // Stops: fixes standing still for a while, between the first and last
+        // move. The wait at the end of the pushback (engine start) belongs to
+        // the pushback, not to the taxi.
         const stops = [];
         const firstMove = xy.findIndex(moving);
         for (let i = firstMove + 1; i < xy.length; i++) {
@@ -332,12 +419,16 @@
             const endT = !atEnd ? xy[j + 1].t
                 : (seg.roll && seg.roll.length ? seg.roll[0].t : xy[j].t);
             const ms = endT - xy[i].t;
-            if (ms >= STOP_MIN_MS) {
+            if (ms >= STOP_MIN_MS && !(push && xy[i].t <= push.t1)) {
                 const at = xy.slice(i, j + 1);
-                const lat = at.reduce((s, p) => s + p.lat, 0) / at.length;
-                const lon = at.reduce((s, p) => s + p.lon, 0) / at.length;
-                const q = P(lat, lon);
-                stops.push({ lat, lon, t0: xy[i].t, t1: endT, ms, ref: nearestRef(q.x, q.y), holdShort: false });
+                let x = at.reduce((s, p) => s + p.x, 0) / at.length;
+                let y = at.reduce((s, p) => s + p.y, 0) / at.length;
+                const ref = nearestRef(x, y);
+                // On the drawn (snapped) line, like the path through it.
+                const n = ref && nearest(x, y, ref);
+                if (n && n.d <= SNAP_MAX_M) { x = n.x; y = n.y; }
+                const q = ll(x, y);
+                stops.push({ lat: q.lat, lon: q.lon, t0: xy[i].t, t1: endT, ms, ref, holdShort: false });
             }
             i = j;
         }
@@ -362,8 +453,9 @@
             const f = b.t > a.t ? (tm - a.t) / (b.t - a.t) : 1;
             // Direction from the nearest pair of steps that actually moved.
             let u = i, v = i - 1;
-            while (v > 0 && steps[u].x === steps[v].x && steps[u].y === steps[v].y) v--;
-            while (u < steps.length - 1 && steps[u].x === steps[v].x && steps[u].y === steps[v].y) u++;
+            const same = () => steps[u].lat === steps[v].lat && steps[u].lon === steps[v].lon;
+            while (v > 0 && same()) v--;
+            while (u < steps.length - 1 && same()) u++;
             ticks.push({
                 lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f,
                 dx: steps[u].lon - steps[v].lon, dy: steps[u].lat - steps[v].lat, minute,
@@ -372,7 +464,64 @@
             i--;   // a long step can span several minutes
         }
 
-        return { legs, stops, ticks, startT, endT, stoppedMs: stops.reduce((s, p) => s + p.ms, 0) };
+        // What to draw: the push as flown; the taxi on its snapped steps,
+        // cleared of spikes and with its corners rounded the way a nose-wheel
+        // turn rounds them.
+        const taxiXY = smoothPath(taxiSteps.map((s) => ({ x: s.sx != null ? s.sx : s.x, y: s.sy != null ? s.sy : s.y })));
+        const pushXY = pushSteps.map((s) => ({ x: s.x, y: s.y }));
+        if (pushXY.length && taxiXY.length) pushXY.push(taxiXY[0]);
+        const route = {
+            push: pushXY.map((p) => ll(p.x, p.y)),
+            taxi: taxiXY.map((p) => ll(p.x, p.y)),
+        };
+
+        const times = {
+            pushback: push ? push.t0 : null,
+            // Without a pushback (powered out, or one too short to see), taxiing
+            // starts when it first moves off the gate.
+            taxi: push ? push.taxiT : (seg.kind === 'out' ? departedAt(xy[0], xy[1]) : steps[0].t),
+            takeoff: seg.kind === 'out' && !seg.ongoing && seg.roll && seg.roll.length ? seg.roll[seg.roll.length - 1].t : null,
+            landed: seg.kind === 'in' && seg.roll && seg.roll.length ? seg.roll[0].t : null,
+            parked: seg.kind === 'in' && !seg.ongoing ? endT : null,
+        };
+        const pushback = push ? { t0: push.t0, t1: push.t1, m: push.m, at: { lat: push.end.lat, lon: push.end.lon } } : null;
+
+        return { legs, stops, ticks, startT, endT, stoppedMs: stops.reduce((s, p) => s + p.ms, 0),
+            pushback, times, route };
+    }
+
+    // Duplicate fixes out, spikes out, corners rounded (Chaikin), ends kept.
+    function smoothPath(pts) {
+        let p = [];
+        for (const q of pts) {
+            const l = p[p.length - 1];
+            if (!l || Math.hypot(q.x - l.x, q.y - l.y) > 1) p.push(q);
+        }
+        const angle = (a, b, c) => {
+            const ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y;
+            const cos = (ux * vx + uy * vy) / ((Math.hypot(ux, uy) * Math.hypot(vx, vy)) || 1);
+            return Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI;
+        };
+        for (let changed = true; changed && p.length > 2;) {
+            changed = false;
+            for (let i = 1; i < p.length - 1; i++) {
+                const a = p[i - 1], b = p[i], c = p[i + 1];
+                if (angle(a, b, c) > SPIKE_DEG && Math.min(Math.hypot(b.x - a.x, b.y - a.y), Math.hypot(c.x - b.x, c.y - b.y)) < SPIKE_M) {
+                    p.splice(i, 1); changed = true; break;
+                }
+            }
+        }
+        for (let it = 0; it < 3 && p.length > 2; it++) {
+            const q = [p[0]];
+            for (let i = 0; i < p.length - 1; i++) {
+                const a = p[i], b = p[i + 1];
+                q.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 },
+                    { x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
+            }
+            q.push(p[p.length - 1]);
+            p = q;
+        }
+        return p;
     }
 
     /**
@@ -405,6 +554,8 @@
      * @param {Array}  [opts.taxiways] - taxiwaysUsed() result, highlighted and labelled.
      * @param {object} [opts.analysis] - analyse() result: minute ticks and stops.
      * @param {boolean} [opts.tall] - the enlarged, taller drawing.
+     * @param {function} [opts.clock] - ms → clock text; when given, the
+     *   pushback / taxi / takeoff (or landing / parking) times are tagged.
      * @param {string} [opts.tileUrl] - imagery tile template ({z}/{x}/{y});
      *   when given the drawing sits on satellite imagery instead of a plain
      *   background. Tiles are placed through the same projection as the
@@ -525,16 +676,23 @@
             });
         }
 
-        // The roll (dashed, along the runway), then the taxi path over it.
+        // The path: the taxi along the taxiways (analyse()'s route, snapped
+        // and rounded) or as flown when there is no layout; the pushback as a
+        // dashed tail off the gate; the roll dashed along the runway — the
+        // rolls and the push are never snapped.
+        const route = opts.analysis && opts.analysis.route;
+        const taxi = route && route.taxi && route.taxi.length > 1 ? route.taxi : ground;
+        const pushTail = route && route.push && route.push.length > 1 ? route.push : null;
         const rollLine = seg.kind === 'out'
-            ? [ground[ground.length - 1]].concat(roll)
-            : roll.concat([ground[0]]);
+            ? [taxi[taxi.length - 1]].concat(roll)
+            : roll.concat([taxi[0]]);
         if (roll.length) parts.push(`<polyline class="tv-roll" points="${line(rollLine)}"/>`);
-        parts.push(`<polyline class="tv-path-halo" points="${line(ground)}"/>`);
-        parts.push(`<polyline class="tv-path" points="${line(ground)}"/>`);
+        if (pushTail) parts.push(`<polyline class="tv-push" points="${line(pushTail)}"/>`);
+        parts.push(`<polyline class="tv-path-halo" points="${line(taxi)}"/>`);
+        parts.push(`<polyline class="tv-path" points="${line(taxi)}"/>`);
 
         // Gate end: a hollow ring. Runway end / current position: a filled dot.
-        const gate = seg.kind === 'out' ? ground[0] : ground[ground.length - 1];
+        const gate = seg.kind === 'out' ? (pushTail || taxi)[0] : taxi[taxi.length - 1];
         const [gx, gy] = px(gate.lat, gate.lon);
         const tip = seg.kind === 'out'
             ? (roll.length ? roll[roll.length - 1] : ground[ground.length - 1])
@@ -546,7 +704,7 @@
             parts.push(`<circle class="tv-gate" cx="${gx}" cy="${gy}" r="4.5"/>`);
         }
         if (seg.kind === 'out' && seg.ongoing) {
-            const [nx, ny] = px(ground[ground.length - 1].lat, ground[ground.length - 1].lon);
+            const [nx, ny] = px(taxi[taxi.length - 1].lat, taxi[taxi.length - 1].lon);
             parts.push(`<circle class="tv-now" cx="${nx}" cy="${ny}" r="5"/>`);
         } else {
             parts.push(`<circle class="tv-tip" cx="${tx}" cy="${ty}" r="3.5"/>`);
@@ -586,6 +744,27 @@
             const g = w / 2 + 8;
             place([[x, y - 13], [x, y + 13], [x + g, y], [x - g, y], [x + g, y - 12], [x - g, y + 12]], w, h, (lx, ly) =>
                 `<g class="tv-stop-tag" transform="translate(${lx.toFixed(1)},${ly.toFixed(1)})"><rect x="${(-w / 2).toFixed(1)}" y="-6.5" width="${w.toFixed(1)}" height="13" rx="6.5"/><text y="3.2" text-anchor="middle">${esc(txt)}</text></g>`);
+        }
+        // 1b. The clock at each milestone: pushed back, started taxiing, took
+        //     off (or landed and parked), where each happened.
+        const times = (opts.analysis && opts.analysis.times) || {};
+        if (typeof opts.clock === 'function') {
+            const marks = seg.kind === 'out' ? [
+                ['Push', times.pushback, pushTail ? pushTail[0] : null],
+                ['Taxi', times.taxi, taxi[0]],
+                // Tagged where the roll began: liftoff itself is off the drawing.
+                ['T/O', times.takeoff, roll.length ? roll[0] : null],
+            ] : [
+                ['Land', times.landed, roll.length ? roll[0] : null],
+                ['Park', times.parked, taxi[taxi.length - 1]],
+            ];
+            for (const [what, t, at] of marks) {
+                if (t == null || !at) continue;
+                const txt = `${what} ${opts.clock(t)}`, w = 8 + txt.length * 4.9, h = 12;
+                const [x, y] = px(at.lat, at.lon), g = w / 2 + 8;
+                place([[x + g, y], [x - g, y], [x, y - 13], [x, y + 13], [x + g, y - 12], [x - g, y + 12], [x + g, y + 12], [x - g, y - 12]], w, h, (lx, ly) =>
+                    `<g class="tv-time-tag" transform="translate(${lx.toFixed(1)},${ly.toFixed(1)})"><rect x="${(-w / 2).toFixed(1)}" y="-6" width="${w.toFixed(1)}" height="12" rx="3"/><text y="3" text-anchor="middle">${esc(txt)}</text></g>`);
+            }
         }
         // 2. Taxiway letters where the path ran along them.
         const lettered = [];

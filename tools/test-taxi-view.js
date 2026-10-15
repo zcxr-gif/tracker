@@ -141,6 +141,91 @@ head('Timing, stops and ticks');
     ok('durations read naturally', TV.fmtDur(45000) === '45s' && TV.fmtDur(130000) === '2m 10s' && TV.fmtDur(3900000) === '1h 05m');
 }
 
+head('Pushback, snapping to the taxiways, clock times');
+{
+    // A local grid in metres around a point: m(east, north) → {lat, lon}.
+    const LAT0 = 40.64, LON0 = -73.78;
+    const m = (e, n) => ({ lat: LAT0 + n / 110540, lon: LON0 + e / (111320 * Math.cos(LAT0 * Math.PI / 180)) });
+    const T = (sec) => t0 + sec * 1000;
+    const fix = (sec, e, n, gs, alt = 13) => ({ t: T(sec), ...m(e, n), alt, gs });
+    // Gate at (0,0). Pushed back 45 m south at 4 kt, waits a minute (engines),
+    // then taxis east along A (centreline at n = -60), turns north onto B
+    // (centreline at e = 600), holds short, rolls north. The fixes wander
+    // ~10–15 m off the centrelines, as reported positions do.
+    const path = [
+        fix(0, 0, 0, 0), fix(60, 0, 0, 0),
+        fix(80, 2, -45, 4), fix(100, 1, -46, 0), fix(160, 1, -46, 0),        // push, engine start
+        fix(190, 90, -72, 14), fix(220, 260, -48, 16), fix(250, 430, -73, 15),
+        fix(280, 590, -50, 12),                                               // the turn
+        fix(310, 612, 120, 15), fix(340, 588, 300, 14), fix(370, 611, 470, 6),
+        fix(400, 600, 520, 0), fix(460, 600, 520, 0),                        // holding short
+        fix(475, 600, 700, 90), fix(485, 600, 1100, 150, 60), fix(500, 600, 2200, 170, 900),
+    ];
+    const line = (ref, pts) => ({ type: 'Feature', properties: { aeroway: 'taxiway', ref },
+        geometry: { type: 'LineString', coordinates: pts.map(([e, n]) => { const q = m(e, n); return [q.lon, q.lat]; }) } });
+    const layout = { features: [
+        line('A', [[-200, -60], [300, -60], [700, -60]]),
+        line('B', [[600, -200], [600, 200], [600, 560]]),
+        line('C', [[300, -300], [300, 300]]),                                 // crossed, not used
+    ] };
+    const r = TV.extract(path);
+    const a = TV.analyse(r.out, layout);
+    ok('a pushback is found', !!a.pushback, JSON.stringify(a.pushback && { m: Math.round(a.pushback.m) }));
+    ok('about 45 m of it', a.pushback && Math.abs(a.pushback.m - 45) < 6, a.pushback && a.pushback.m);
+    ok('pushed back, then started taxiing, then took off — in that order',
+        a.times.pushback < a.times.taxi && a.times.taxi < a.times.takeoff, JSON.stringify(a.times));
+    ok('push started after the last fix at the gate', a.times.pushback >= T(60) && a.times.pushback <= T(80));
+    ok('taxi started after the engine-start wait', a.times.taxi >= T(160) && a.times.taxi <= T(190));
+    ok('the engine-start wait is not counted as a taxi stop', a.stops.length === 1 && a.stops[0].holdShort,
+        a.stops.map((s) => s.ms / 1000 + 's').join(','));
+    ok('took off at the end of the roll', a.times.takeoff === r.out.roll[r.out.roll.length - 1].t);
+    ok('legs are A then B', a.legs.map((l) => l.ref).join(' ') === 'A B', a.legs.map((l) => l.ref).join(' '));
+
+    // Distance (m) from a point to the nearest of the used centrelines.
+    const toLine = (q) => {
+        const e = (q.lon - LON0) * 111320 * Math.cos(LAT0 * Math.PI / 180), n = (q.lat - LAT0) * 110540;
+        return Math.min(Math.abs(n + 60) + (e < -200 || e > 700 ? 999 : 0), Math.abs(e - 600) + (n < -200 || n > 560 ? 999 : 0));
+    };
+    const taxi = a.route.taxi;
+    const rawOff = Math.max(...r.out.path.slice(5).map(toLine));
+    ok('the reported fixes are well off the centrelines', rawOff > 10, rawOff.toFixed(1));
+    // Away from the corner (where rounding cuts inside), the drawn path is on the line.
+    const straight = taxi.filter((q) => { const e = (q.lon - LON0) * 84470, n = (q.lat - LAT0) * 110540; return Math.hypot(e - 600, n + 60) > 60; });
+    const drawnOff = Math.max(...straight.map(toLine));
+    ok('the drawn taxi follows the centrelines', drawnOff < 3, drawnOff.toFixed(1));
+    // No reversals or kinks: heading change between points ~10 m apart stays gentle.
+    const hd = [];
+    for (let i = 0, last = taxi[0]; i < taxi.length; i++) {
+        const q = taxi[i];
+        if (Math.hypot((q.lon - last.lon) * 84470, (q.lat - last.lat) * 110540) < 10) continue;
+        hd.push(Math.atan2((q.lat - last.lat) * 110540, (q.lon - last.lon) * 84470) * 180 / Math.PI);
+        last = q;
+    }
+    const worst = Math.max(...hd.slice(1).map((h, i) => { const d = Math.abs(h - hd[i]) % 360; return d > 180 ? 360 - d : d; }));
+    ok('no sharp kinks or reversals in the drawn taxi', worst < 60, worst.toFixed(0) + '°');
+    ok('the pushback is drawn as flown, ending where the taxi begins',
+        a.route.push.length >= 2 && Math.abs(a.route.push[a.route.push.length - 1].lat - taxi[0].lat) < 1e-9
+        && Math.abs(a.route.push[a.route.push.length - 1].lon - taxi[0].lon) < 1e-9);
+    ok('the roll is not snapped', r.out.roll.every((s) => !taxi.includes(s)));
+
+    // The stop marker sits on the drawn line.
+    ok('the hold-short marker is on the centreline', toLine(a.stops[0]) < 3, toLine(a.stops[0]).toFixed(1));
+
+    const svg = TV.renderSVG(r.out, { layout, analysis: a, clock: (ms) => new Date(ms).toISOString().slice(11, 16) });
+    ok('the push tail is drawn', svg.includes('class="tv-push"'));
+    ok('push, taxi and take-off times are tagged', /Push \d\d:\d\d/.test(svg) && /Taxi \d\d:\d\d/.test(svg) && /T\/O \d\d:\d\d/.test(svg),
+        (svg.match(/(Push|Taxi|T\/O) \d\d:\d\d/g) || []).join(','));
+
+    // Without a layout nothing is snapped, and nothing breaks.
+    const plain = TV.analyse(r.out, null);
+    ok('without a layout the path is drawn as flown', plain.route.taxi.length > 2 && !!plain.pushback);
+
+    // No pushback when it powers straight out at taxi speed.
+    const noPush = TV.analyse(TV.extract([fix(0, 0, 0, 0), fix(60, 0, 0, 0), fix(90, 150, -50, 15), fix(120, 400, -60, 15),
+        fix(150, 600, -60, 15), fix(160, 600, 300, 120), fix(170, 600, 900, 160, 400)]).out, layout);
+    ok('powering straight out is not a pushback', noPush.pushback === null && noPush.times.taxi >= T(60));
+}
+
 head('Still taxiing');
 {
     const r = TV.extract(taxiOut.slice(0, 5));

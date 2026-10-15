@@ -27921,6 +27921,10 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             #aircraft-info-window .tx-zoom { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font: 600 15px/1 system-ui, sans-serif; color: rgba(var(--tx-ink),0.85); background: rgba(0,0,0,0.35); pointer-events: none; }
             #aircraft-info-window .tv-tick { stroke: rgba(var(--tx-ink),0.9); stroke-width: 1.6; stroke-linecap: round; }
             #aircraft-info-window .tv-tick-l { fill: rgba(var(--tx-ink),0.7); font: 600 7.5px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tv-push { fill: none; stroke: #fff; stroke-width: 2; stroke-dasharray: 3 3; stroke-linecap: round; opacity: 0.9; }
+            #aircraft-info-window .tv-time-tag rect { fill: rgba(15,23,42,0.85); stroke: rgba(var(--tx-ink),0.35); stroke-width: 0.6; }
+            #aircraft-info-window .tv-time-tag text { fill: #fff; font: 600 7.5px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tx-step.push .tx-mark { background: #fff; }
             #aircraft-info-window .tv-stop { fill: #f97316; stroke: rgba(0,0,0,0.55); stroke-width: 1.5; }
             #aircraft-info-window .tv-stop-hold { fill: #ef4444; }
             #aircraft-info-window .tv-stop-tag rect { fill: rgba(0,0,0,0.72); }
@@ -29629,12 +29633,17 @@ function dropTaxi3D() {
 
 function taxi3DGeoJSON(seg, analysis) {
     const ll = (p) => [p.lon, p.lat];
-    const feats = [{ type: 'Feature', properties: { kind: 'path' }, geometry: { type: 'LineString', coordinates: seg.path.map(ll) } }];
+    // Same geometry as the 2D map: taxi along the taxiways, push and rolls as flown.
+    const route = analysis.route || {};
+    const taxi = route.taxi && route.taxi.length > 1 ? route.taxi : seg.path;
+    const push = route.push && route.push.length > 1 ? route.push : null;
+    const feats = [{ type: 'Feature', properties: { kind: 'path' }, geometry: { type: 'LineString', coordinates: taxi.map(ll) } }];
+    if (push) feats.push({ type: 'Feature', properties: { kind: 'push' }, geometry: { type: 'LineString', coordinates: push.map(ll) } });
     if (seg.roll && seg.roll.length) {
-        const roll = seg.kind === 'out' ? [seg.path[seg.path.length - 1], ...seg.roll] : [...seg.roll, seg.path[0]];
+        const roll = seg.kind === 'out' ? [taxi[taxi.length - 1], ...seg.roll] : [...seg.roll, taxi[0]];
         feats.push({ type: 'Feature', properties: { kind: 'roll' }, geometry: { type: 'LineString', coordinates: roll.map(ll) } });
     }
-    const gate = seg.kind === 'out' ? seg.path[0] : seg.path[seg.path.length - 1];
+    const gate = seg.kind === 'out' ? (push || taxi)[0] : taxi[taxi.length - 1];
     feats.push({ type: 'Feature', properties: { kind: 'gate' }, geometry: { type: 'Point', coordinates: ll(gate) } });
     analysis.stops.forEach((st) => feats.push({ type: 'Feature',
         properties: { kind: 'stop', hold: st.holdShort ? 1 : 0, label: window.TaxiView.fmtDur(st.ms) },
@@ -29747,6 +29756,8 @@ function mountTaxi3D(host, slot, key, seg, data, twyData) {
             const kind = (k) => ['==', ['get', 'kind'], k];
             map.addLayer({ id: 'taxi-roll', type: 'line', source: 'taxi-route', filter: kind('roll'),
                 paint: { 'line-color': '#38bdf8', 'line-width': 3, 'line-dasharray': [1.5, 1.5], 'line-opacity': 0.85 } });
+            map.addLayer({ id: 'taxi-push', type: 'line', source: 'taxi-route', filter: kind('push'),
+                paint: { 'line-color': '#ffffff', 'line-width': 3, 'line-dasharray': [1, 1.2], 'line-opacity': 0.9 } });
             map.addLayer({ id: 'taxi-halo', type: 'line', source: 'taxi-route', filter: kind('path'),
                 layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#000', 'line-width': 9, 'line-opacity': 0.35 } });
             map.addLayer({ id: 'taxi-path', type: 'line', source: 'taxi-route', filter: kind('path'),
@@ -29844,10 +29855,13 @@ function renderTaxiCard(windowEl, points) {
     const used = runways ? window.TaxiView.runwayFor(runways, seg.roll, lead) : null;
     const TV = window.TaxiView;
     const analysis = TV.analyse(seg, layout);
+    // Clock times in the same zone and 12/24 h format as the rest of the window.
+    const clock = (ms) => _formatUtcHHMM(new Date(ms)) || '--:--';
+    const clockZ = (ms) => `${clock(ms)} ${getFlightTimeSuffix()}`;
     const taxiways = layout ? TV.taxiwaysUsed(seg, layout, analysis) : [];
     const mode = host._mode;
     const svg = mode === '3d' ? '' : TV.renderSVG(seg, { runways: runways || [], used, layout, taxiways, analysis,
-        tall: !!host._tall, tileUrl: mode === 'sat' ? TAXI_SAT_TILES : null });
+        tall: !!host._tall, tileUrl: mode === 'sat' ? TAXI_SAT_TILES : null, clock });
 
     const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const tabs = avail.length > 1 ? `<div class="tx-tabs" role="tablist">${avail.map((s) =>
@@ -29873,8 +29887,16 @@ function renderTaxiCard(windowEl, points) {
         `<li class="tx-step${cls}"><span class="tx-mark">${mark}</span><span class="tx-step-name">${name}</span><span class="tx-step-meta">${meta}</span></li>`;
     const TICK = '✓';
     const rows = [];
-    if (seg.kind === 'in') rows.push(row(TICK, rwy ? `Landed on ${rwy}` : 'Landed', '', ' done'));
-    else rows.push(row(TICK, 'Left the gate', '', ' done'));
+    const tm = analysis.times || {};
+    const at = (t) => (t != null ? clockZ(t) : '');
+    if (seg.kind === 'in') {
+        rows.push(row(TICK, rwy ? `Landed on ${rwy}` : 'Landed', at(tm.landed), ' done'));
+    } else {
+        if (analysis.pushback) {
+            rows.push(row(TICK, 'Pushed back', `${at(tm.pushback)} · ${Math.round(analysis.pushback.m)} m`, ' done push'));
+        }
+        rows.push(row(TICK, analysis.pushback ? 'Started taxiing' : 'Left the gate, taxiing', at(tm.taxi), ' done'));
+    }
     analysis.legs.forEach((l, i, all) => {
         const current = seg.ongoing && i === all.length - 1;
         rows.push(row(current ? '<i class="tx-live"></i>' : TICK, legName(l, i, all.length),
@@ -29887,8 +29909,8 @@ function renderTaxiCard(windowEl, points) {
     });
     if (!seg.ongoing) {
         rows.push(seg.kind === 'out'
-            ? row(TICK, rwy ? `Took off from ${rwy}` : 'Took off', '', ' done')
-            : row(TICK, 'Parked', '', ' done'));
+            ? row(TICK, rwy ? `Took off from ${rwy}` : 'Took off', at(tm.takeoff), ' done')
+            : row(TICK, 'Parked', at(tm.parked), ' done'));
     }
     const taxiMs = seg.minutes != null ? seg.minutes * 60000 : null;
 
