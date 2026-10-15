@@ -5063,17 +5063,21 @@ function injectCustomStyles() {
             background-color: #1a1a1a; 
             overflow: hidden; 
             border-radius: 0;
-            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
+            /* No CSS filter here (it used to brighten and glow the PFD): on
+               iOS Safari a filtered element inside the scrolling window only
+               paints what was on screen when it was drawn, so scrolling left
+               the PFD's top or bottom missing, or the whole display blank. */
         }
         
+        /* Fills the square screen exactly. It was 787:800 — taller than the
+           1:1 screen — so the bottom of the ND was always cut off. */
         #nd-container { 
             width: 100%;
-            aspect-ratio: 787 / 800; 
+            height: 100%;
             background: transparent; 
             overflow: hidden; 
             display: flex; 
             justify-content: center; 
-            height: auto;
         }
         
         #nav-display-frame {
@@ -25425,7 +25429,9 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} .pfd-main-panel .display-bezel { background: #0e1013 !important; }
         ${S} .crt-container { border: 0 !important; border-radius: calc(var(--sr-radius) - 1px) !important; box-shadow: none !important; background: #0e1013 !important; }
         ${S} .scanlines::before { display: none !important; }
-        ${S} #pfd-container svg { background-color: #0e1013 !important; filter: saturate(0.82) contrast(0.97) !important; }
+        /* No CSS filters on the PFD or ND (see #pfd-container svg): the colours
+           are set directly instead. */
+        ${S} #pfd-container svg { background-color: #0e1013 !important; filter: none !important; }
         ${S} #pfd-container #Sky { fill: #4f8fc4; }
         ${S} #pfd-container #Ground { fill: #7b563b; }
         ${S} #pfd-container [fill="#030309"] { fill: #0e1013; }
@@ -25437,7 +25443,6 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} #pfd-container [stroke="#FDFD03"], ${S} #pfd-container [stroke="#FEFE03"],
         ${S} #pfd-container [stroke="#ECED06"], ${S} #pfd-container [stroke="#DDDF07"] { stroke: #f0d37a; }
         ${S} #pfd-container [fill="#C477C6"] { fill: #c7a3d9; }
-        ${S} #nav-display-frame { filter: saturate(0.7) brightness(0.97); }
 
         /* Pilot status: moved out from beside the PFD into its own card
            under the glance row (arrangeHorizonWindow adds .sr-status). */

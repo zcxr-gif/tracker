@@ -1,0 +1,133 @@
+FLIGHT WINDOW + MAP UPDATE — NOTES
+Pull request #235 (branch: claude/flight-window-taxi-cleanup)
+==================================================================
+
+
+1. FLIGHT INFO WINDOW — CLEANED UP (Legacy + Horizon)
+------------------------------------------------------------------
+Nothing is shown twice any more. Each piece of data lives in one place:
+
+  - Header / route bar: airports, times, total distance, phase, ETE.
+  - Top glance row (Horizon) / PFD (Legacy): live altitude, ground speed,
+    vertical speed, heading.
+  - Pilot status: just the status. No more "Active" + "Pilot is active".
+  - This flight: flown / remaining distance, time since departure, total trip
+    time, planned cruise (only if the flight plan has one), average and max
+    ground speed, max altitude.
+  - Airports: the taxi card and the arrival-airport card, together.
+  - Position & weather (was "Navigation", which clashed with the Navigation /
+    Flight Plan switch): latitude, longitude, true airspeed, wind, outside air
+    temperature, next waypoint, nearest airport, "currently over".
+
+Removed because they repeated something else:
+  - The timer card's "Remaining" (same as ETE in the header).
+  - The second progress bar and "Time airborne" in This flight.
+  - The Flight Plan footer's total distance and estimated time.
+  - Altitude, heading and ground speed in Navigation (already on the PFD and
+    the top row).
+
+
+2. FUEL AND PASSENGERS — REMOVED
+------------------------------------------------------------------
+  - Fuel and Cabin sections removed from every flight window (Legacy, Horizon,
+    Simple and Card), plus the Passengers and Block fuel rows and their toggles.
+  - fuelEstimator.js and cabinMap.js deleted.
+
+
+3. HORIZON — GAP ABOVE THE PHOTO FIXED
+------------------------------------------------------------------
+  - Some photos (especially the 2nd/3rd photo in the carousel) sat a few pixels
+    down from the top, leaving a strip of window colour above them. The photo
+    now always starts at the very top, and re-fits when the width changes.
+
+
+4. RECENT FLIGHTS IN SEARCH — FIXED
+------------------------------------------------------------------
+  - Tapping a recent flight now opens it even if the pilot respawned or you
+    switched servers (it finds the same pilot under the same callsign) — the
+    same thing searching the callsign again used to do by hand.
+  - If a landed flight has no replay, you now get a message instead of the
+    search just closing.
+
+
+5. NEW: TAXI CARD (flight window, under "Airports")
+------------------------------------------------------------------
+Shows how the flight taxied out, and after landing, how it taxied in.
+
+Map views (switch above the map):
+  - Satellite (default) — satellite imagery under the drawing.
+  - Map — plain diagram. Satellite/Map choice is remembered.
+  - 3D — tilted satellite view with terrain and buildings, only when tapped.
+  - None of these use Mapbox map loads (Esri imagery, free terrain tiles,
+    OpenFreeMap buildings, MapLibre for 3D).
+  - Tap the map to enlarge it.
+
+On the drawing:
+  - The taxi path follows the taxiway centre lines, with rounded, realistic
+    turns. The takeoff roll, landing roll and pushback are drawn as flown
+    (never snapped).
+  - Pushback shown as a white dashed "tail" from the gate.
+  - Every taxiway is lettered like an airport chart: taxiways used = black on
+    yellow, the rest = yellow on black.
+  - A tick mark across the path for every minute on the move.
+  - Orange marker where it stopped, red where it held short, with how long.
+  - "Push", "Taxi" and "T/O" time tags.
+
+Checklist under the map (each step ticked off, in order), e.g.:
+  ✓ Pushed back · 17:05 Z · 45 m
+  ✓ Started taxiing · 17:08 Z
+  ✓ A · 3m 01s · 0.6 NM
+  ✓ B · 3m · 0.6 NM
+  ■ Stopped on B · 2m
+  ✓ K · 2m 59s · 0.5 NM
+  ■ Held short of 04L · 1m 18s
+  ✓ Took off from 04L · 17:16 Z
+  (after landing: "Landed on 04R · time" … "Parked · time")
+  While still taxiing, the current taxiway is marked live.
+
+Totals: runway, taxi time, total time stopped, distance.
+Out / In tabs when both exist. Tap the airport code to open the airport.
+
+Notes:
+  - Taxiway names/lines come from OpenStreetMap; they load when the card
+    scrolls into view. Airports with no taxiway letters in OSM show no letters.
+  - Pushback and short stops are only as accurate as Infinite Flight's position
+    reports; a very quick one between two reports won't show.
+
+
+6. MAIN MAP — THE SAME, ON THE FLOWN PATH
+------------------------------------------------------------------
+  - The flown trail's taxi-out and taxi-in follow the taxiways (same logic as
+    the taxi card), for the open flight and pinned flights. Pushback, rolls and
+    the flight itself are untouched; the line still ends at the plane.
+  - Costs nothing extra while airborne (only recalculated on the ground).
+  - Path info along the flown path, with rounded label "pills":
+      In flight, any zoom: Takeoff, Top of climb (FL + time), every step climb
+      or descent to a new level, Top of descent, Landed.
+      On the ground, zoomed in: pushback tail, stops with durations, Push /
+      Taxi / Park times, taxiway letters used.
+  - "Path info" button in the flight window's photo button row turns all of
+    this off/on (the trail itself stays). Remembered.
+      Phone: icon button next to replay / camera — reachable in peek.
+      Desktop: labelled "Path info" pill with a green on-light.
+    (Horizon and Legacy windows; Simple/Card don't have the button yet.)
+
+
+7. PFD / ND CUT OFF OR DISAPPEARING — FIXED
+------------------------------------------------------------------
+  - The PFD and ND had CSS colour filters. On iPhone Safari, a filtered element
+    inside the scrolling window only paints what was on screen when it was
+    drawn, so after scrolling the top/bottom went missing or the display
+    vanished. Filters removed (colours are set directly instead).
+  - The ND was also sized slightly taller than its square screen, so its bottom
+    was always cut off by a few pixels. It now fits exactly.
+
+
+TESTS
+------------------------------------------------------------------
+  - tools/test-taxi-view.js (new): 77 checks — taxi out/in, runway, taxiway
+    order and letters, snapping onto centre lines, no sharp kinks, pushback,
+    stops/holding short, clock times, minute ticks, satellite tiles, and
+    top of climb / step climbs / top of descent.
+  - tools/test-recent-items.js: 37 checks (new: respawned pilot, failed replay).
+  - test-js-parses, test-flight-load-order, test-route-search: pass.
