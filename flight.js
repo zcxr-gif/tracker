@@ -5063,17 +5063,21 @@ function injectCustomStyles() {
             background-color: #1a1a1a; 
             overflow: hidden; 
             border-radius: 0;
-            filter: brightness(1.3) contrast(1.2) drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
+            /* No CSS filter here (it used to brighten and glow the PFD): on
+               iOS Safari a filtered element inside the scrolling window only
+               paints what was on screen when it was drawn, so scrolling left
+               the PFD's top or bottom missing, or the whole display blank. */
         }
         
+        /* Fills the square screen exactly. It was 787:800 — taller than the
+           1:1 screen — so the bottom of the ND was always cut off. */
         #nd-container { 
             width: 100%;
-            aspect-ratio: 787 / 800; 
+            height: 100%;
             background: transparent; 
             overflow: hidden; 
             display: flex; 
             justify-content: center; 
-            height: auto;
         }
         
         #nav-display-frame {
@@ -13859,6 +13863,7 @@ function handleSocketFlightUpdate(data) {
                     if (source) {
                         const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
                         source.setData(newRouteData);
+                        updateTaxiOverlay(flightId, localTrail);
                         // Progress fractions shift as the line grows — re-apply
                         // the altitude gradient against the new geometry.
                         applyFlownPathGradient(layerId, newRouteData);
@@ -17173,6 +17178,15 @@ function setupAircraftWindowEvents() {
             const planBtn = e.target.closest('#plan-this-flight-btn');
             const profileToggleBtn = e.target.closest('.profile-toggle-btn');
             const icaoLink = e.target.closest('.ac-icao-link');
+            const pathInfoBtn = e.target.closest('.aircraft-window-pathinfo-btn');
+
+            if (pathInfoBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                setPathInfo(!pathInfoOn());
+                try { window.InflightHaptics?.select?.(); } catch (_) { /* optional */ }
+                return;
+            }
 
             if (icaoLink) {
                 e.preventDefault();
@@ -17847,96 +17861,12 @@ function triggerSimpleWindowReplay() {
     btn.click();
 }
 
-/**
- * Build the hypothetical fuel picture for a flight (see fuelEstimator.js).
- *
- * Infinite Flight never reports fuel — not the load at pushback, not what's
- * left — so this models it from the airframe's drag polar and engine deck
- * against the profile the aircraft actually flew. Every flight-info window
- * calls through here so the legacy, simple and card windows can never disagree
- * about how much fuel a flight has burned.
- *
- * Returns null (and the windows hide the panel) when the estimator isn't
- * loaded or the flight has nothing to work from.
- */
-// Upper-air field for the flight currently in the window, plus the route it
-// was fetched for. Populated asynchronously by ensureWindsAloft(); the fuel
-// panel simply gets more accurate on the tick after it lands.
-let _fuelWindField = null;
-let _fuelWindKey = null;      // route the field in hand belongs to
-let _fuelWindPending = null;  // route currently being fetched
-let _fuelWindFailedAt = 0;    // backoff clock after a failed fetch
-const FUEL_WIND_RETRY_MS = 2 * 60 * 1000;
-
-/**
- * Kick off (or reuse) the winds-aloft fetch for a route and return the field
- * for *that* route, or null. Fire-and-forget by design: the fuel panel
- * refreshes every few seconds anyway, so there is nothing to wait for.
- *
- * Returning null unless the cached field belongs to this exact route matters —
- * opening a second flight must not have it modelled against the first one's
- * weather, halfway around the world.
- */
-function ensureWindsAloft(depIcao, arrIcao, pos, spanHours) {
-    if (typeof window === 'undefined' || !window.WindsAloft) return null;
-    const key = (depIcao || '?') + '>' + (arrIcao || '?');
-    const ready = (_fuelWindKey === key) ? _fuelWindField : null;
-    if (ready) return ready;
-    if (_fuelWindPending === key) return null;                       // in flight
-    if (Date.now() - _fuelWindFailedAt < FUEL_WIND_RETRY_MS) return null;  // backing off
-
-    const apt = (icao) => (icao && typeof airportsData !== 'undefined' && airportsData[icao]) || null;
-    const route = [];
-    const dep = apt(depIcao); if (dep) route.push({ lat: dep.lat, lon: dep.lon });
-    if (pos && isFinite(pos.lat) && isFinite(pos.lon)) route.push({ lat: pos.lat, lon: pos.lon });
-    const arr = apt(arrIcao); if (arr) route.push({ lat: arr.lat, lon: arr.lon });
-    if (!route.length) return null;
-
-    _fuelWindPending = key;
-    window.WindsAloft.get(route, { spanHours })
-        .then((field) => {
-            if (_fuelWindPending !== key) return;   // a different flight was opened
-            _fuelWindPending = null;
-            if (!field) {
-                // Don't hammer a failing endpoint; try again in a couple of
-                // minutes, by which time the flight has moved on anyway.
-                _fuelWindFailedAt = Date.now();
-                return;
-            }
-            _fuelWindField = field;
-            _fuelWindKey = key;
-            _fuelWindFailedAt = 0;
-            // Repaint the legacy card immediately rather than waiting for the
-            // next telemetry tick; the iframes get it on their next update.
-            const el = document.getElementById('ac-fuel-host');
-            if (el && el.__repaintFuel) el.__repaintFuel();
-        })
-        .catch(() => {
-            if (_fuelWindPending === key) _fuelWindPending = null;
-            _fuelWindFailedAt = Date.now();
-        });
-
-    return null;
-}
-
-/**
- * Build the hypothetical fuel picture for a flight (see fuelEstimator.js).
- *
- * Infinite Flight never reports fuel — not the load at pushback, not what's
- * left — so this models it from the airframe's drag polar and engine deck
- * against the profile the aircraft actually flew. Every flight-info window
- * calls through here so the legacy, simple and card windows can never disagree
- * about how much fuel a flight has burned.
- *
- * Returns null (and the windows hide the panel) when the estimator isn't
- * loaded or the flight has nothing to work from.
- */
-// Trail-wide computations (fuel model, leg detection) walk the whole flown
+// Trail-wide computations (leg detection) walk the whole flown
 // trail — thousands of points on a long-haul — and ran on every packet while
 // a flight window was open: ~12 ms a packet at 6,000 points, for results that
 // move slowly. They are reused for a short while unless an input that changes
-// the answer outright (another flight, a new plan or wind field, a different
-// trail) says otherwise.
+// the answer outright (another flight, a new plan, a different trail) says
+// otherwise.
 const _trailMemo = new Map();
 
 function memoOverTrail(name, deps, routePoints, maxAgeMs, compute) {
@@ -17960,159 +17890,6 @@ function detectLegsCached(routePoints) {
         () => FlightLegs.detect(routePoints, apts));
 }
 
-function buildFuelEstimate(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData) {
-    if (typeof window === 'undefined' || !window.FuelEstimator || !flightProps) return null;
-    // The wind field arrives asynchronously; it is part of the key so the
-    // estimate is redone the moment it lands.
-    const windKey = (typeof _fuelWindField !== 'undefined') ? _fuelWindField : null;
-    return memoOverTrail('fuel', [flightProps.flightId, plan, filedPlanData, windKey], routePoints, 10000,
-        () => buildFuelEstimateNow(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData));
-}
-
-function buildFuelEstimateNow(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData) {
-    try {
-        const pos = (typeof flightProps.position === 'string')
-            ? JSON.parse(flightProps.position) : (flightProps.position || {});
-        const aircraft = (typeof flightProps.aircraft === 'string')
-            ? JSON.parse(flightProps.aircraft) : (flightProps.aircraft || {});
-
-        // Route endpoints: the plan names them, the airport database places
-        // them, and the plan carries their field elevations. Elevation matters
-        // more than it looks — it is the difference between "taxiing at Bogotá"
-        // and "cruising at 8,000 ft".
-        const items = (plan && Array.isArray(plan.flightPlanItems)) ? plan.flightPlanItems : [];
-        const depIcao = (plan && plan.origin && plan.origin.icao)
-            || (items[0] && items[0].identifier) || null;
-        const arrIcao = (plan && plan.destination && plan.destination.icao)
-            || (items.length > 1 && items[items.length - 1].identifier) || null;
-        const apt = (icao) => (icao && typeof airportsData !== 'undefined' && airportsData[icao]) || null;
-        const depApt = apt(depIcao), arrApt = apt(arrIcao);
-
-        // How long the flight has been running, so the weather request covers
-        // the hours the trail actually spans.
-        let spanHours = 0;
-        if (routePoints && routePoints.length && routePoints[0] && routePoints[0].date) {
-            const t0 = Date.parse(routePoints[0].date);
-            if (!isNaN(t0)) spanHours = Math.max(0, (Date.now() - t0) / 3600000);
-        }
-        const windField = ensureWindsAloft(depIcao, arrIcao, pos, spanHours);
-
-        // Surface sample the map already keeps, used only as a fallback near
-        // the ground — see the weather section of fuelEstimator.estimate().
-        const geo = (typeof currentAircraftPositionForGeocode !== 'undefined')
-            ? currentAircraftPositionForGeocode : null;
-
-        return window.FuelEstimator.estimate({
-            aircraftName: aircraft.aircraftName || flightProps.aircraftName || '',
-            liveryName: aircraft.liveryName || '',
-            trail: routePoints || [],
-            position: pos,
-            distFlownNm, distRemainingNm,
-            windField,
-            depLat: depApt ? depApt.lat : undefined,
-            depLon: depApt ? depApt.lon : undefined,
-            destLat: arrApt ? arrApt.lat : undefined,
-            destLon: arrApt ? arrApt.lon : undefined,
-            depElevFt: plan && plan.origin && plan.origin.elevation_ft != null
-                ? Number(plan.origin.elevation_ft) : undefined,
-            arrElevFt: plan && plan.destination && plan.destination.elevation_ft != null
-                ? Number(plan.destination.elevation_ft) : undefined,
-            filedFuelKg: filedPlanData && filedPlanData.fuel_used != null
-                ? Number(filedPlanData.fuel_used) : undefined,
-            paxFiled: filedPlanData && filedPlanData.passengers != null
-                ? Number(filedPlanData.passengers) : undefined,
-            oatC: geo && geo.oat_c != null ? geo.oat_c : undefined,
-            windDirDeg: geo && geo.wind_dir != null ? geo.wind_dir
-                : (flightProps.wind_dir != null ? flightProps.wind_dir : undefined),
-            windSpdKt: geo && geo.wind_spd_kts != null ? geo.wind_spd_kts
-                : (flightProps.wind_spd_kts != null ? flightProps.wind_spd_kts : undefined)
-        });
-    } catch (e) {
-        // A fuel estimate is a nice-to-have; it must never take a window down.
-        return null;
-    }
-}
-
-/**
- * Paint (or repaint) the legacy avionics window's fuel card.
- *
- * Called on first render and again on every live tick. `filedPlanData` is
- * optional: the live-update path doesn't receive it, so we fall back to the
- * copy populateAircraftInfoWindow stashed on the window element.
- */
-function renderLegacyFuelCard(windowEl, baseProps, plan, sortedRoutePoints, distFlownNm, distRemainingNm, filedPlanData) {
-    if (!windowEl || typeof window === 'undefined' || !window.FuelEstimator) return;
-    const host = windowEl.querySelector('#ac-fuel-host');
-    const sec = windowEl.querySelector('#ac-fuel-sec');
-    if (!host) return;
-
-    const filed = filedPlanData || ((windowEl.dataset.filedFuel || windowEl.dataset.filedPax) ? {
-        fuel_used: windowEl.dataset.filedFuel ? parseFloat(windowEl.dataset.filedFuel) : null,
-        passengers: windowEl.dataset.filedPax ? parseFloat(windowEl.dataset.filedPax) : null
-    } : null);
-
-    const est = buildFuelEstimate(baseProps, plan, sortedRoutePoints, distFlownNm, distRemainingNm, filed);
-    const html = est ? window.FuelEstimator.renderHTML(est, { unit: window.FuelEstimator.readUnit() }) : '';
-    host.innerHTML = html;
-    if (sec) sec.style.display = html ? '' : 'none';
-
-    // Lets ensureWindsAloft() redraw the card the moment the upper-air data
-    // lands, instead of leaving a standard-atmosphere estimate on screen until
-    // the next telemetry tick.
-    host.__repaintFuel = () => renderLegacyFuelCard(
-        windowEl, baseProps, plan, sortedRoutePoints, distFlownNm, distRemainingNm, filedPlanData);
-
-    // The cabin plan is built from the same estimate (its passenger count is
-    // the payload the fuel figures assume), so paint it from here.
-    renderLegacyCabinCard(windowEl, baseProps, est);
-
-    // Keep the last estimate so the kg/lb toggle can repaint immediately
-    // rather than waiting for the next three-second telemetry tick.
-    host.__lastFuelEstimate = est;
-    window.FuelEstimator.bindUnitToggle(document, (unit) => {
-        const h = document.getElementById('ac-fuel-host');
-        if (h && h.__lastFuelEstimate) {
-            h.innerHTML = window.FuelEstimator.renderHTML(h.__lastFuelEstimate, { unit });
-        }
-    });
-}
-
-/**
- * Paint the legacy window's cabin card.
- *
- * A pure function of the aircraft type and the passenger count the fuel model
- * settled on, so it only needs repainting when one of those changes — which in
- * practice means once per flight, not once per telemetry tick.
- */
-function renderLegacyCabinCard(windowEl, baseProps, fuelEstimate) {
-    if (!windowEl || typeof window === 'undefined' || !window.CabinMap) return;
-    const host = windowEl.querySelector('#ac-cabin-host');
-    const sec = windowEl.querySelector('#ac-cabin-sec');
-    if (!host) return;
-
-    let html = '';
-    try {
-        const aircraft = (typeof baseProps.aircraft === 'string')
-            ? JSON.parse(baseProps.aircraft) : (baseProps.aircraft || {});
-        const name = aircraft.aircraftName || baseProps.aircraftName || '';
-        // Skip the rebuild when nothing that shapes the cabin has moved.
-        const sig = name + '|' + (fuelEstimate && fuelEstimate.environment ? fuelEstimate.environment.paxCount : '')
-            + '|' + (fuelEstimate && fuelEstimate.mass ? fuelEstimate.mass.freighter : '');
-        if (host.dataset.cabinSig === sig) return;
-        host.dataset.cabinSig = sig;
-
-        if (name) {
-            html = window.CabinMap.renderHTML(window.CabinMap.layout(name, {
-                paxOnboard: fuelEstimate && fuelEstimate.environment ? fuelEstimate.environment.paxCount : undefined,
-                freighter: !!(fuelEstimate && fuelEstimate.mass && fuelEstimate.mass.freighter),
-                payloadKg: fuelEstimate && fuelEstimate.mass ? fuelEstimate.mass.payloadKg : undefined
-            }));
-        }
-    } catch (e) { html = ''; }
-
-    host.innerHTML = html;
-    if (sec) sec.style.display = html ? '' : 'none';
-}
 
 function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData, filedPlanData = null) {
     if (!flightProps) return null;
@@ -18340,10 +18117,6 @@ function formatDataForSimpleWindow(flightProps, plan, routePoints, communityData
         // Previous flights / multi-leg journey reconstructed from the trail.
         // Detected here (where the airport DB lives) and rendered in the iframe.
         legs: detectLegsCached(routePoints),
-        // Hypothetical fuel burn, integrated over the flown profile. Computed
-        // here (the trail and the weather sample both live on this side) and
-        // rendered from the plain result inside the iframe.
-        fuel: buildFuelEstimate(flightProps, plan, routePoints, distFlownNm, distRemainingNm, filedPlanData),
         phase: detailedPhase.flightPhase || 'ENROUTE',
         phaseClass: detailedPhase.phaseClass || 'phase-enroute',
         phaseIcon: detailedPhase.phaseIcon || 'fa-route',
@@ -22465,6 +22238,7 @@ function onAtcDataReceived(newAtcData) {
     // NEW: Helper to clear the live flight trail from the map
     function clearLiveFlightPath(flightId) {
         if (!sectorOpsMap || !flightId) return;
+        if (flightId === _taxiOverlayFlight) removeTaxiOverlay();
 
         // Get all layers associated with this flight
         const layersObj = sectorOpsLiveFlightPathLayers[flightId];
@@ -22593,6 +22367,8 @@ if (flightProps) {
                 }
             }, getUnderAircraftAnchor());
     applyFlownPathGradient(`flown-path-${flightId}`, routeFeature);
+    // The style change took the taxi overlay with it; put it back.
+    if (_taxiOverlayFlight === flightId) { _taxiOverlayFlight = null; updateTaxiOverlay(flightId, localTrail); }
 
     sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
 }
@@ -23610,6 +23386,268 @@ function buildFlownPathGradient(points) {
     return expr.length >= 7 ? expr : null;
 }
 
+/*
+ * Taxi parts of a flight's trail, drawn along the taxiways on the main map —
+ * exactly what the flight window's taxi card draws (TaxiView.analyse): the
+ * taxi snapped onto each leg's own taxiway centreline with its turns rounded,
+ * the pushback and the takeoff/landing rolls as flown.
+ *
+ * Memoised per trail array. Only the ends of a trail can be taxi, so while a
+ * flight is airborne nothing is recomputed at all; on the ground it is redone
+ * as the trail grows. The airport layouts (OSM, airportLayout.js) load in the
+ * background; until a field's layout is in, that part stays as flown, and
+ * once it lands the trail is redrawn (redrawFlownPath).
+ *
+ * @returns {{ sig: string, ranges: Array<{t0, t1, pts, alt}>, segs: Array }}
+ */
+const _taxiSnapCache = new WeakMap();
+const _taxiLayoutAsked = new Set();
+function taxiSnapForTrail(trailPoints) {
+    const none = { sig: '', ranges: [], segs: [] };
+    if (!Array.isArray(trailPoints) || trailPoints.length < 3 || !window.TaxiView || !window.FlightLegs) return none;
+    let c = _taxiSnapCache.get(trailPoints);
+    const n = trailPoints.length;
+    const last = trailPoints[n - 1] || {};
+    const lastGs = last.groundSpeed != null ? last.groundSpeed : (last.gs != null ? last.gs : null);
+    const airborne = lastGs != null && lastGs > 40;
+    // Re-extract only when it can have changed: something new on the ground.
+    if (!c || c.first !== trailPoints[0].date || (c.n !== n && !(airborne && c.wasAirborne))) {
+        const segs = window.TaxiView.extract(window.FlightLegs.normalize(trailPoints));
+        c = { first: trailPoints[0].date, n, wasAirborne: airborne, segs: [segs.out, segs.in].filter(Boolean), byKey: {} };
+        _taxiSnapCache.set(trailPoints, c);
+    } else {
+        c.n = n; c.wasAirborne = airborne;
+    }
+    if (!c.segs.length) return none;
+
+    const ranges = [], sigs = [];
+    for (const seg of c.segs) {
+        const g = seg.kind === 'out' ? seg.path[0] : seg.path[seg.path.length - 1];
+        const near = nearestAirportWithin2Deg(g.lat, g.lon);
+        const icao = near && near.km <= 8 ? near.icao : null;
+        const layout = icao ? AirportLayoutManager.layoutCache.get(icao) : null;
+        if (icao && !layout && !_taxiLayoutAsked.has(icao) && airportsData[icao]) {
+            _taxiLayoutAsked.add(icao);
+            AirportLayoutManager.getLayout(icao, airportsData[icao].lat, airportsData[icao].lon)
+                .then((geo) => { if (geo) redrawAllFlownPaths(); });
+        }
+        const key = `${seg.kind}|${seg.path.length}|${seg.roll.length}|${seg.ongoing}|${layout ? 1 : 0}`;
+        const memo = c.byKey[seg.kind];
+        const a = memo && memo.key === key ? memo.a : window.TaxiView.analyse(seg, layout);
+        c.byKey[seg.kind] = { key, a };
+        seg.icao = icao;
+        seg.analysis = a;
+        sigs.push(key);
+        const route = a.route;
+        if (!layout || !route || !route.taxi || route.taxi.length < 2) continue;
+        const pts = (route.push && route.push.length > 1 ? route.push.slice(0, -1) : []).concat(route.taxi);
+        const alt = seg.path.reduce((m, s) => (s.alt != null && s.alt < m ? s.alt : m), Infinity);
+        ranges.push({ t0: seg.path[0].t, t1: seg.path[seg.path.length - 1].t, pts, alt: Number.isFinite(alt) ? alt : 0 });
+    }
+    return { sig: sigs.join(';'), ranges, segs: c.segs };
+}
+
+/*
+ * The open flight's story along its flown path on the main map:
+ *  • in the air, from any zoom — takeoff, top of climb, each step climb or
+ *    descent, top of descent, landing, each with its flight level and time;
+ *  • on the ground, close in (zoom 12.5+) — the pushback tail, every stop
+ *    with how long it lasted, the pushback / taxi / takeoff (landing /
+ *    parking) times and the letters of the taxiways used, as on the taxi card.
+ * Labels are fixed-size callouts (see PATH_PILLS) that never grow with
+ * their text. The whole overlay can be switched off with the path-info
+ * button in the flight window; the trail itself stays.
+ */
+const TAXI_OVL = 'taxi-overlay';
+const TAXI_OVL_LAYERS = ['taxi-overlay-push', 'taxi-overlay-dots', 'taxi-overlay-labels', 'taxi-overlay-twy', 'taxi-overlay-marks-dots', 'taxi-overlay-marks'];
+const PATH_INFO_KEY = 'inflight.pathInfo';    // '0' = hidden
+let _taxiOverlayFlight = null;
+
+function pathInfoOn() {
+    try { return localStorage.getItem(PATH_INFO_KEY) !== '0'; } catch (_) { return true; }
+}
+
+function setPathInfo(on) {
+    try { localStorage.setItem(PATH_INFO_KEY, on ? '1' : '0'); } catch (_) { /* private mode */ }
+    if (sectorOpsMap) {
+        TAXI_OVL_LAYERS.forEach((id) => {
+            if (sectorOpsMap.getLayer(id)) sectorOpsMap.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+        });
+    }
+    document.querySelectorAll('.aircraft-window-pathinfo-btn').forEach((b) => {
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.title = on ? 'Hide path info' : 'Show path info';
+    });
+}
+
+// Path labels are fixed-size callouts — they never grow with their text: a
+// short code on top ("TOC FL360", "HOLD") and the time or duration under it,
+// with a little tail pointing at the dot. Sizes are in CSS px; the images are
+// drawn once per style (a style change drops them).
+const PATH_PILLS = {
+    //           width, height, fill,                     border,                    tail
+    'pp-mark': [76, 30, 'rgba(12,74,110,0.94)', 'rgba(125,211,252,0.7)', true],
+    'pp-time': [58, 30, 'rgba(15,23,42,0.92)', 'rgba(255,255,255,0.32)', true],
+    'pp-stop': [58, 30, '#c2410c', 'rgba(0,0,0,0.35)', true],
+    'pp-hold': [58, 30, '#b91c1c', 'rgba(0,0,0,0.35)', true],
+    'pp-twy': [26, 18, '#facc15', 'rgba(0,0,0,0.55)', false],
+};
+const PATH_PILL_TAIL = 5;
+
+function ensurePathPills(map) {
+    const R = 2;
+    for (const [name, [w, h, fill, stroke, tail]] of Object.entries(PATH_PILLS)) {
+        if (map.hasImage && map.hasImage(name)) continue;
+        const H = h + (tail ? PATH_PILL_TAIL : 0);
+        const c = document.createElement('canvas');
+        c.width = w * R; c.height = H * R;
+        const g = c.getContext('2d');
+        g.scale(R, R);
+        const r = Math.min(7, h / 2 - 1), x0 = 0.75, y0 = 0.75, x1 = w - 0.75, y1 = h - 0.75, mid = w / 2;
+        g.beginPath();
+        g.moveTo(x0 + r, y0);
+        g.arcTo(x1, y0, x1, y1, r);
+        g.arcTo(x1, y1, x0, y1, r);
+        if (tail) {                      // the tail, centred under the body
+            g.lineTo(mid + 5, y1); g.lineTo(mid, y1 + PATH_PILL_TAIL); g.lineTo(mid - 5, y1);
+        }
+        g.arcTo(x0, y1, x0, y0, r);
+        g.arcTo(x0, y0, x1, y0, r);
+        g.closePath();
+        g.fillStyle = fill; g.fill();
+        g.lineWidth = 1; g.strokeStyle = stroke; g.stroke();
+        try { map.addImage(name, g.getImageData(0, 0, w * R, H * R), { pixelRatio: R }); } catch (_) { /* text-only fallback */ }
+    }
+}
+
+function removeTaxiOverlay() {
+    _taxiOverlayFlight = null;
+    if (!sectorOpsMap) return;
+    TAXI_OVL_LAYERS.forEach((id) => { if (sectorOpsMap.getLayer(id)) sectorOpsMap.removeLayer(id); });
+    if (sectorOpsMap.getSource(TAXI_OVL)) sectorOpsMap.removeSource(TAXI_OVL);
+}
+
+function updateTaxiOverlay(flightId, trail) {
+    if (!sectorOpsMap || !sectorOpsMap.isStyleLoaded || !window.TaxiView) return;
+    const TV = window.TaxiView;
+    const snap = taxiSnapForTrail(trail);
+    const feats = [];
+    const pt = (lat, lon, props) => ({ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [lon, lat] } });
+    const clock = (ms) => _formatUtcHHMM(new Date(ms)) || '';
+    const fl = (n) => (n >= 180 ? `FL${String(n).padStart(3, '0')}` : `${n * 100}ft`);
+    // Two short lines: a code on top, the time or duration below.
+    const label = (kind, pill, l1, l2, extra) => ({ kind, pill, l1, l2: l2 || '', ...extra });
+
+    // On the ground: the taxi details.
+    for (const seg of snap.segs) {
+        const a = seg.analysis;
+        if (!a) continue;
+        const route = a.route || {};
+        const taxi = route.taxi && route.taxi.length ? route.taxi : seg.path;
+        if (route.push && route.push.length > 1) {
+            feats.push({ type: 'Feature', properties: { kind: 'push' },
+                geometry: { type: 'LineString', coordinates: route.push.map((q) => [q.lon, q.lat]) } });
+        }
+        a.stops.forEach((st) => feats.push(pt(st.lat, st.lon, label('stop', st.holdShort ? 'pp-hold' : 'pp-stop',
+            st.holdShort ? 'HOLD' : 'STOP', TV.fmtDur(st.ms), { dot: st.holdShort ? '#ef4444' : '#f97316' }))));
+        a.legs.forEach((l) => { if (l.ref) feats.push(pt(l.at.lat, l.at.lon, label('twy', 'pp-twy', l.ref))); });
+        const t = a.times || {};
+        const marks = seg.kind === 'out'
+            ? [['PUSH', t.pushback, route.push && route.push[0]], ['TAXI', t.taxi, taxi[0]]]
+            : [['PARK', t.parked, taxi[taxi.length - 1]]];
+        marks.forEach(([what, ms, at]) => {
+            if (ms != null && at) feats.push(pt(at.lat, at.lon, label('time', 'pp-time', what, clock(ms), { dot: '#ffffff' })));
+        });
+        // Takeoff and landing belong to the flight as much as to the taxi:
+        // shown from any zoom with the in-flight milestones.
+        if (seg.kind === 'out' && t.takeoff != null && seg.roll && seg.roll.length) {
+            feats.push(pt(seg.roll[0].lat, seg.roll[0].lon, label('mark', 'pp-mark', 'T/O', clock(t.takeoff))));
+        }
+        if (seg.kind === 'in' && t.landed != null && seg.roll && seg.roll.length) {
+            feats.push(pt(seg.roll[0].lat, seg.roll[0].lon, label('mark', 'pp-mark', 'LDG', clock(t.landed))));
+        }
+    }
+
+    // In the air: top of climb, steps, top of descent (recomputed at most
+    // every half minute — they move slowly).
+    const ms = memoOverTrail('milestones', [flightId], trail, 30000,
+        () => TV.milestones(window.FlightLegs ? window.FlightLegs.normalize(trail || []) : []));
+    for (const m of ms) {
+        const code = m.kind === 'toc' ? `TOC ${fl(m.fl)}` : m.kind === 'tod' ? 'TOD' : `${m.dir > 0 ? 'CLB' : 'DES'} ${fl(m.fl)}`;
+        feats.push(pt(m.lat, m.lon, label('mark', 'pp-mark', code, clock(m.t))));
+    }
+
+    const data = { type: 'FeatureCollection', features: feats };
+    if (_taxiOverlayFlight !== flightId) removeTaxiOverlay();
+    _taxiOverlayFlight = flightId;
+    const src = sectorOpsMap.getSource(TAXI_OVL);
+    if (src) { src.setData(data); return; }
+    if (!feats.length) return;
+    try {
+        ensurePathPills(sectorOpsMap);
+        const under = getUnderAircraftAnchor();
+        const anchor = sectorOpsMap.getLayer(under) ? under : undefined;
+        const kind = (k) => ['==', ['get', 'kind'], k];
+        const vis = pathInfoOn() ? 'visible' : 'none';
+        const font = mapTextFont(['DIN Pro Medium', 'Arial Unicode MS Regular']);
+        const GROUND_Z = 12.5;
+        // Callouts sit above their dot (tail down); the text is centred in the
+        // body: body height / 2 + tail + dot gap, in px → ems of the text size.
+        const SIZE = 10;
+        const lift = (h) => -(h / 2 + PATH_PILL_TAIL + 4);
+        const textFor = ['case', ['==', ['get', 'l2'], ''], ['get', 'l1'], ['concat', ['get', 'l1'], '\n', ['get', 'l2']]];
+        const callout = (id, filter, minzoom, pillH) => ({
+            id, type: 'symbol', source: TAXI_OVL, filter, ...(minzoom ? { minzoom } : {}),
+            layout: {
+                visibility: vis,
+                'icon-image': ['get', 'pill'], 'icon-size': 1, 'icon-anchor': 'bottom', 'icon-offset': [0, -4],
+                'text-field': textFor, 'text-font': font, 'text-size': SIZE, 'text-line-height': 1.15,
+                'text-anchor': 'center', 'text-offset': [0, lift(pillH) / SIZE], 'text-max-width': 30,
+                'text-allow-overlap': false, 'icon-allow-overlap': false, 'text-optional': false,
+            },
+            paint: { 'text-color': '#ffffff' },
+        });
+        sectorOpsMap.addSource(TAXI_OVL, { type: 'geojson', data });
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-push', type: 'line', source: TAXI_OVL, minzoom: GROUND_Z, filter: kind('push'),
+            layout: { 'line-cap': 'round', visibility: vis },
+            paint: { 'line-color': '#ffffff', 'line-width': 2.5, 'line-dasharray': [1, 1.4], 'line-opacity': 0.9 } }, anchor);
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-dots', type: 'circle', source: TAXI_OVL, minzoom: GROUND_Z,
+            filter: ['any', kind('stop'), kind('time')], layout: { visibility: vis },
+            paint: { 'circle-radius': ['case', kind('stop'), 5, 3.5], 'circle-color': ['get', 'dot'],
+                'circle-stroke-color': ['case', kind('stop'), '#ffffff', 'rgba(15,23,42,0.9)'], 'circle-stroke-width': 2 } }, anchor);
+        // Ground callouts (all 30 px bodies) and the taxiway squares.
+        sectorOpsMap.addLayer(callout('taxi-overlay-labels', ['any', kind('stop'), kind('time')], GROUND_Z, 30), anchor);
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-twy', type: 'symbol', source: TAXI_OVL, minzoom: GROUND_Z, filter: kind('twy'),
+            layout: { visibility: vis, 'icon-image': 'pp-twy', 'icon-size': 1, 'text-field': ['get', 'l1'], 'text-font': font,
+                'text-size': 11, 'text-max-width': 30, 'text-allow-overlap': false, 'icon-allow-overlap': false },
+            paint: { 'text-color': '#111111' } }, anchor);
+        sectorOpsMap.addLayer({ id: 'taxi-overlay-marks-dots', type: 'circle', source: TAXI_OVL, filter: kind('mark'),
+            layout: { visibility: vis },
+            paint: { 'circle-radius': 4, 'circle-color': '#0ea5e9', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } }, anchor);
+        sectorOpsMap.addLayer(callout('taxi-overlay-marks', kind('mark'), 0, 30), anchor);
+    } catch (_) { /* the overlay is a nicety; the trail itself already drew */ }
+}
+
+// Rebuild every flown trail on the map (a taxiway layout just arrived).
+function redrawAllFlownPaths() {
+    if (!sectorOpsMap || typeof sectorOpsLiveFlightPathLayers === 'undefined') return;
+    for (const flightId of Object.keys(sectorOpsLiveFlightPathLayers)) {
+        const layerId = sectorOpsLiveFlightPathLayers[flightId] && sectorOpsLiveFlightPathLayers[flightId].flown;
+        const src = layerId && sectorOpsMap.getSource(layerId);
+        const trail = liveTrailCache.get(flightId);
+        const f = currentMapFeatures[flightId];
+        if (!src || !trail || !f) continue;
+        const pos = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], alt_ft: f.properties && f.properties.altitude };
+        const plan = flightId === currentFlightInWindow && typeof cachedFlightDataForStatsView !== 'undefined' && cachedFlightDataForStatsView
+            ? cachedFlightDataForStatsView.plan : null;
+        const data = generateAltitudeColoredRoute(trail, pos, plan);
+        src.setData(data);
+        applyFlownPathGradient(layerId, data);
+        if (flightId === currentFlightInWindow) updateTaxiOverlay(flightId, trail);
+    }
+}
+
 function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     const allPoints = [...(trailPoints || [])];
 
@@ -23645,11 +23683,31 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     }
 
     // Normalise field names once ({lat, lon, alt}).
-    const raw = allPoints.map(p => ({
+    let raw = allPoints.map(p => ({
         lat: (p.latitude != null) ? p.latitude : p.lat,
         lon: (p.longitude != null) ? p.longitude : p.lon,
         alt: (p.altitude != null) ? p.altitude : (p.alt || 0)
     }));
+
+    // Taxiing: drawn along the taxiways, the same way as the flight window's
+    // taxi card (rolls and pushback as flown). See taxiSnapForTrail.
+    const snap = taxiSnapForTrail(trailPoints);
+    if (snap.ranges.length) {
+        const times = allPoints.map(p => (p.date ? Date.parse(p.date) : NaN));
+        // From the end backwards, so earlier indices stay put.
+        for (const r of snap.ranges.slice().sort((a, b) => b.t0 - a.t0)) {
+            let i0 = -1, i1 = -1;
+            for (let i = 0; i < times.length; i++) {
+                if (!Number.isFinite(times[i])) continue;
+                if (i0 < 0 && times[i] >= r.t0) i0 = i;
+                if (times[i] <= r.t1) i1 = i;
+            }
+            if (i0 < 0 || i1 < i0) continue;
+            const pts = r.pts.map(q => ({ lat: q.lat, lon: q.lon, alt: r.alt }));
+            raw = raw.slice(0, i0).concat(pts, raw.slice(i1 + 1));
+            times.splice(i0, i1 - i0 + 1, ...pts.map(() => NaN));
+        }
+    }
 
     // --- Great-circle densification (polar routes / sparse gaps) ---
     // Rendered vertices are joined by STRAIGHT lines in lon/lat (mercator)
@@ -23664,7 +23722,7 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
     // correctly runs up to the polar cap and back down the far side).
     // Densify (great-circle), unwrap longitudes and Catmull-Rom smooth —
     // incrementally for long trails, see smoothTrailIncremental.
-    const smoothedPoints = smoothTrailIncremental(raw, trailPoints);
+    const smoothedPoints = smoothTrailIncremental(raw, trailPoints, snap.sig);
 
     // ONE continuous LineString, coloured along its length by a line-gradient
     // (see buildFlownPathGradient). The old approach — a distinct 2-point
@@ -23764,11 +23822,13 @@ const TRAIL_BODY_REBUILD_AFTER = 400; // tail length that triggers a new body
 const TRAIL_INCREMENTAL_MIN = 800;   // below this a full pass is cheap enough
 const _trailBodies = new WeakMap();
 
-function smoothTrailIncremental(raw, src) {
+function smoothTrailIncremental(raw, src, sig = '') {
     const n = raw.length;
     if (!src || typeof src !== 'object' || n < TRAIL_INCREMENTAL_MIN) return smoothTrailFull(raw).smoothed;
 
-    const first = (src[0] && src[0].date) || '';
+    // `sig` changes when the taxi parts of the trail are redrawn along the
+    // taxiways (taxiSnapForTrail), which rewrites the start of `raw`.
+    const first = ((src[0] && src[0].date) || '') + '|' + sig;
     let body = _trailBodies.get(src);
     const same = (a, b) => a && b && a.lat === b.lat && a.lon === b.lon && a.alt === b.alt;
     const valid = body && body.first === first && body.R + 3 <= n
@@ -24307,6 +24367,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
                 }
             }, getUnderAircraftAnchor());
             applyFlownPathGradient(flownLayerId, initialRouteData);
+            updateTaxiOverlay(flightProps.flightId, trailUpToMarker);
 
             if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
                 if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
@@ -25079,8 +25140,8 @@ const HORIZON_WINDOW_CSS = (() => {
                own colour (sampleHorizonGlow). Plain window colour without it. */
             --sr-tint: var(--sr-bg);
             --sr-radius: 18px;
-            /* The Fuel and Cabin cards (fuelEstimator.js, cabinMap.js) paint
-               with these host variables, so they follow the skin too. */
+            /* Cards rendered by shared modules paint with these host
+               variables, so they follow the skin too. */
             --card-bg: var(--sr-surface);
             --border-glass: var(--sr-line);
             --color-brand: var(--sr-accent);
@@ -25375,7 +25436,9 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} .pfd-main-panel .display-bezel { background: #0e1013 !important; }
         ${S} .crt-container { border: 0 !important; border-radius: calc(var(--sr-radius) - 1px) !important; box-shadow: none !important; background: #0e1013 !important; }
         ${S} .scanlines::before { display: none !important; }
-        ${S} #pfd-container svg { background-color: #0e1013 !important; filter: saturate(0.82) contrast(0.97) !important; }
+        /* No CSS filters on the PFD or ND (see #pfd-container svg): the colours
+           are set directly instead. */
+        ${S} #pfd-container svg { background-color: #0e1013 !important; filter: none !important; }
         ${S} #pfd-container #Sky { fill: #4f8fc4; }
         ${S} #pfd-container #Ground { fill: #7b563b; }
         ${S} #pfd-container [fill="#030309"] { fill: #0e1013; }
@@ -25387,11 +25450,9 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} #pfd-container [stroke="#FDFD03"], ${S} #pfd-container [stroke="#FEFE03"],
         ${S} #pfd-container [stroke="#ECED06"], ${S} #pfd-container [stroke="#DDDF07"] { stroke: #f0d37a; }
         ${S} #pfd-container [fill="#C477C6"] { fill: #c7a3d9; }
-        ${S} #nav-display-frame { filter: saturate(0.7) brightness(0.97); }
 
-        /* Pilot status + timers: moved out from beside the PFD into one
-           card under the glance row (arrangeHorizonWindow adds .sr-status).
-           Status on top, the three timers in a row beneath a hairline. */
+        /* Pilot status: moved out from beside the PFD into its own card
+           under the glance row (arrangeHorizonWindow adds .sr-status). */
         ${S} .pfd-and-location-grid { grid-template-columns: 1fr !important; }
         ${S} .sr-status {
             height: auto !important; overflow: visible !important; gap: 0 !important;
@@ -25425,31 +25486,14 @@ const HORIZON_WINDOW_CSS = (() => {
         }
         ${S} .modern-status-card > div > div:last-child > span:nth-child(2)::first-letter { text-transform: uppercase; }
         ${S} .modern-status-card > div > div:last-child > span:nth-child(3) { color: var(--sr-faint) !important; font-size: 11px !important; }
-        ${S} .modern-timer-stack {
-            display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 0 !important;
-            margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--sr-line);
-        }
-        ${S} .timer-node, ${S} .timer-node:last-child {
-            display: flex !important; flex-direction: column !important; align-items: flex-start !important;
-            justify-content: flex-start !important; gap: 3px;
-            background: transparent !important; border: 0 !important; border-radius: 0 !important;
-            padding: 0 12px !important; min-width: 0;
-        }
-        ${S} .timer-node:first-child { padding-left: 0 !important; }
-        ${S} .timer-node + .timer-node { border-left: 1px solid var(--sr-line) !important; }
-        ${S} .timer-node > div { margin: 0 !important; }
-        ${S} .timer-node > div > span, ${S} .timer-node:last-child > span:first-child {
-            font-size: 11px !important; font-weight: 500 !important; color: var(--sr-muted) !important;
-            text-transform: none !important; letter-spacing: 0 !important;
-        }
-        ${S} .timer-node i { color: var(--sr-faint) !important; font-size: 9px !important; }
-        ${S} .timer-node:nth-child(2) i, ${S} .timer-node:nth-child(2) > div > span { color: var(--sr-accent) !important; }
-        ${S} #ac-sensor-elapsed, ${S} #ac-sensor-ete, ${S} #ac-sensor-total {
-            font-family: var(--font-ui) !important; font-size: 17px !important; font-weight: 500 !important;
-            color: var(--sr-text) !important; font-variant-numeric: tabular-nums;
-        }
-        ${S} #ac-sensor-ete { color: var(--sr-accent) !important; }
         ${S} .sr-hidden { display: none !important; }
+        /* The glance row already shows vertical speed. */
+        ${S} .nav-card .nav-vs { display: none !important; }
+        /* Taxi diagram in the skin's own ink and accent. */
+        ${S} .taxi-card { --tx-ink: var(--sr-ink-rgb); --tx-accent: var(--sr-accent); }
+        ${S} .tx-map { background: rgba(var(--sr-ink-rgb),0.035); border-color: var(--sr-line); }
+        ${S} .tx-tab { color: var(--sr-muted); }
+        ${S} .tx-tab.on { color: var(--sr-text); background: rgba(var(--sr-ink-rgb),0.08); }
 
         /* Navigation / Flight plan switch */
         ${S} .nd-full-width-section .modern-view-switcher {
@@ -25472,10 +25516,6 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S} .fms-columns span { text-transform: none !important; font-size: 10.5px !important; color: var(--sr-faint) !important; }
         ${S} .fms-row { border-bottom-color: rgba(255,255,255,0.04) !important; }
         ${S} .fms-row.active-leg { background: rgba(140,200,238,0.07); }
-        ${S} .fms-footer { background: var(--sr-surface) !important; border-top-color: var(--sr-line) !important; }
-        ${S} .fms-footer .stat-label { text-transform: none !important; font-size: 10.5px !important; color: var(--sr-muted) !important; }
-        ${S} .fms-footer .stat-value { font-weight: 500 !important; }
-        ${S} #fms-total-ete { color: var(--sr-accent) !important; }
         ${S} .proc-tag { opacity: 0.8; }
 
         /* ---- Stat cards (Speed & altitude, This flight, Navigation, Aircraft) ---- */
@@ -25492,11 +25532,8 @@ const HORIZON_WINDOW_CSS = (() => {
             font-family: var(--font-ui); font-weight: 500; font-variant-numeric: tabular-nums;
         }
         ${S} .acx-hero-num { font-family: var(--font-ui); font-size: 30px; font-weight: 300; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-        ${S} .acx-bar { height: 4px; border-radius: 2px; background: rgba(var(--sr-ink-rgb),0.07); margin: 16px 0 6px; }
-        ${S} .acx-bar-fill { border-radius: 2px; background: linear-gradient(90deg, var(--sr-accent-soft), var(--sr-accent)); }
         ${S} .acx-row, ${S} .acx-rows .acx-row:first-child, ${S} .acx-group-label, ${S} .acx-foot { border-color: var(--sr-line); }
         ${S} .acx-group-label { color: var(--sr-faint); font-weight: 500; }
-        ${S} .fuel-card, ${S} .cabin-card { border-radius: 20px !important; padding: 18px !important; }
 
         /* ---- Destination dropdown ---- */
         ${S} .dest-card { background: var(--sr-surface); border-color: var(--sr-line); border-radius: 20px; }
@@ -25565,7 +25602,6 @@ const HORIZON_WINDOW_CSS = (() => {
         ${S}.sr-bgimg .ac-route-bar-backdrop { border-bottom-color: rgba(var(--sr-ink-rgb),0.1); }
         /* Surfaces become frosted glass so they read over any image. */
         ${S}.sr-bgimg .acx-card, ${S}.sr-bgimg .sr-glance, ${S}.sr-bgimg .sr-status, ${S}.sr-bgimg .dest-card,
-        ${S}.sr-bgimg .fuel-card, ${S}.sr-bgimg .cabin-card,
         ${S}.sr-bgimg #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile),
         ${S}.sr-bgimg .nd-full-width-section .modern-view-switcher {
             background: rgba(var(--sr-bg-rgb), 0.55) !important;
@@ -25597,14 +25633,12 @@ const HORIZON_WINDOW_CSS = (() => {
         /* Card material: a faint top-lit gradient, an inner highlight on the
            top edge and a soft drop, so cards sit on the window rather than
            being cut into it. A small lift on hover (mouse only). */
-        ${S} .acx-card, ${S} .sr-glance, ${S} .sr-status, ${S} .dest-card,
-        ${S} .fuel-card, ${S} .cabin-card {
+        ${S} .acx-card, ${S} .sr-glance, ${S} .sr-status, ${S} .dest-card {
             background: linear-gradient(180deg, rgba(var(--sr-ink-rgb),0.055), rgba(var(--sr-ink-rgb),0.025)) !important;
             box-shadow: inset 0 1px 0 rgba(var(--sr-ink-rgb),0.06), 0 10px 26px rgba(0,0,0,0.14) !important;
             transition: transform .25s ease, box-shadow .25s ease;
         }
-        ${S}.sr-light .acx-card, ${S}.sr-light .sr-glance, ${S}.sr-light .sr-status, ${S}.sr-light .dest-card,
-        ${S}.sr-light .fuel-card, ${S}.sr-light .cabin-card {
+        ${S}.sr-light .acx-card, ${S}.sr-light .sr-glance, ${S}.sr-light .sr-status, ${S}.sr-light .dest-card {
             background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,255,255,0.45)) !important;
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.8), 0 8px 22px rgba(0,0,0,0.06) !important;
         }
@@ -25655,8 +25689,7 @@ const HORIZON_WINDOW_CSS = (() => {
         /* Status colours (times, on-time badge, V/S arrow) are pale tints
            made for a dark window; deepen them on a light one. */
         ${S}.sr-light .route-node .time-small, ${S}.sr-light .route-node .time-source-label,
-        ${S}.sr-light #ac-flight-status-badge, ${S}.sr-light .sr-g-v span:not([style*="font-size"]),
-        ${S}.sr-light .timer-node:nth-child(2) { filter: brightness(0.62) saturate(1.3); }
+        ${S}.sr-light #ac-flight-status-badge, ${S}.sr-light .sr-g-v span:not([style*="font-size"]) { filter: brightness(0.62) saturate(1.3); }
         ${S}.sr-light .sr-eyebrow, ${S}.sr-light h1.sr-callsign { text-shadow: none !important; }
         ${S}.sr-light .hero-photo-dots span { filter: invert(1); }
         ${S}.sr-light .ac-pilot-avatar { background: #d9dce2; color: #1b1e24; border-color: rgba(0,0,0,0.12); }
@@ -26339,7 +26372,7 @@ function injectLegacyWindowBackgroundStyle() {
         }
         ${W} .ac-info-window-tabs, ${W} .unified-display-main-content { background: transparent !important; }
         ${W} #main-data-switcher > .ac-info-tab-btn.pilot-tab-btn:not(.has-profile) { background: rgba(34,34,37,0.6) !important; }
-        ${W} .acx-card, ${W} .dest-card, ${W} .modern-status-card, ${W} .timer-node, ${W} .fuel-card, ${W} .cabin-card {
+        ${W} .acx-card, ${W} .dest-card, ${W} .modern-status-card {
             background: rgba(34,34,37,0.6) !important;
             -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
         }
@@ -27378,8 +27411,8 @@ const SR_ICON = (() => {
         gauge: svg('<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 14.5l4-4.5"/><circle cx="12" cy="15" r="1.2"/>'),
         chart: svg('<path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/>'),
         compass: svg('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>'),
-        drop: svg('<path d="M12 3.5c3.4 4 5.8 7.1 5.8 10.1a5.8 5.8 0 0 1-11.6 0c0-3 2.4-6.1 5.8-10.1z"/>'),
-        cabin: svg('<circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9" r="2.3"/><path d="M16 14.3a4.6 4.6 0 0 1 4.6 5.7"/>'),
+        clock: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>'),
+        taxi: svg('<circle cx="6" cy="18" r="2"/><path d="M8 18h4a4 4 0 0 0 4-4V9"/><path d="M13 9l3-4 3 4"/>'),
         plane: svg('<path d="M12 2c.8 0 1.3 1 1.3 2.2V9l7.7 4.6v2l-7.7-2.3V18l2.2 1.7V21L12 20l-3.5 1v-1.3L10.7 18v-4.7L3 15.6v-2L10.7 9V4.2C10.7 3 11.2 2 12 2z"/>', true),
         up: svg('<path d="M12 19V5"/><path d="M6.5 10.5L12 5l5.5 5.5"/>'),
         speed: svg('<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 15l3.5-4"/>'),
@@ -27391,9 +27424,9 @@ const SR_ICON = (() => {
 const HORIZON_SECTION_ICONS = {
     'Instruments': 'gauge',
     'Speed & altitude': 'chart',
-    'Navigation': 'compass',
-    'Fuel': 'drop',
-    'Cabin': 'cabin',
+    'Position & weather': 'compass',
+    'Airports': 'taxi',
+    'This flight': 'clock',
     'Aircraft': 'plane',
 };
 
@@ -27468,26 +27501,22 @@ function arrangeHorizonWindow(html) {
         `<div class="sr-g${id === 'ac-heading' ? ' sr-g-hdg' : ''}"><span class="sr-g-top"><span class="sr-g-ic">${SR_ICON[icon]}</span><span class="sr-g-l">${label}</span></span><span class="sr-g-v" data-sr-mirror="${id}">---</span></div>`
     ).join(''));
 
-    // "This flight" is left out of Horizon. It stays in the DOM, hidden,
-    // because the live-update path writes to its ids.
-    withHeading(q('.stats-card')).forEach((el) => el.classList.add('sr-hidden'));
-    // Pilot status + timers leave the PFD's side column for their own card.
+    // Pilot status leaves the PFD's side column for its own card.
     const status = pane.querySelector('.pfd-and-location-grid .info-right-col');
     if (status) status.classList.add('sr-status');
 
     const order = [
         glance,
         status,
-        q('#legacy-dest-card'),
         make('h2', 'acx-sec', 'Instruments'),
         q('.pfd-and-location-grid'),
         q('.nd-full-width-section'),
         q('#ac-va-banner'),
         ...withHeading(q('.graph-card')),
         q('#ac-legs-host'),
+        ...withHeading(q('.stats-card')),
+        q('#ac-taxi-sec'), q('#ac-taxi-host'), q('#legacy-dest-card'),
         ...withHeading(q('.nav-card')),
-        q('#ac-fuel-sec'), q('#ac-fuel-host'),
-        q('#ac-cabin-sec'), q('#ac-cabin-host'),
         ...withHeading(q('.aircraft-card')),
     ].filter(Boolean);
     order.forEach((el) => pane.appendChild(el));
@@ -27527,10 +27556,15 @@ function fitHorizonHero(panel, photos) {
     const targets = [panel, fadeLayer].filter(Boolean);
 
     // Crop only a photo taller than the band; a photo that fits sits on top.
+    // The crop is a pixel offset measured against the band, not a percentage:
+    // the header runs taller than the band (identity text, Horizon's extra
+    // 48px), and a percentage of THAT height pushed a photo shorter than the
+    // header down from the top, leaving a strip of window colour above it.
     const place = (el) => {
         const r = aspect.get(urlOf(el));
         if (!r || band == null || !panel.clientWidth) return;
-        const pos = panel.clientWidth * r > band + 1 ? 'center 40%' : 'center top';
+        const over = panel.clientWidth * r - band;
+        const pos = over > 1 ? `center ${-Math.round(over * 0.4)}px` : 'center top';
         if (el.style.getPropertyValue('background-position') !== pos) {
             el.style.setProperty('background-position', pos, 'important');
         }
@@ -27570,6 +27604,18 @@ function fitHorizonHero(panel, photos) {
         });
     });
     targets.forEach((el) => mo.observe(el, { attributes: true, attributeFilter: ['style'] }));
+    // The band and the crop are in pixels, so re-fit when the width changes
+    // (docking, rotating the phone).
+    if (panel._srHeroResize) panel._srHeroResize.disconnect();
+    if (typeof ResizeObserver === 'function') {
+        let lastW = panel.clientWidth;
+        panel._srHeroResize = new ResizeObserver(() => {
+            if (panel.clientWidth === lastW) return;
+            lastW = panel.clientWidth;
+            setBand();
+        });
+        panel._srHeroResize.observe(panel);
+    }
     panel._srHeroObserver = mo;
 }
 
@@ -28108,16 +28154,6 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             #aircraft-info-window .acx-hero-num { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 400; color: #fff; line-height: 1; white-space: nowrap; }
             #aircraft-info-window .acx-hero-num .unit { font-size: 12px; color: #9a9aa2; font-weight: 500; margin-left: 3px; }
             #aircraft-info-window .acx-hero-l { font-size: 11px; color: #9a9aa2; font-weight: 500; margin-top: 4px; }
-            #aircraft-info-window .acx-bar { position: relative; height: 3px; border-radius: 1.5px; background: rgba(255,255,255,0.10); margin: 14px 0 4px; }
-            #aircraft-info-window .acx-bar-fill {
-                position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
-                border-radius: 1.5px; background: #38bdf8;
-                transition: width 0.6s ease;
-            }
-            #aircraft-info-window .acx-bar-fill i {
-                position: absolute; right: -5px; top: 50%; transform: translateY(-50%);
-                color: #fff; font-size: 10px;
-            }
 
             /* Key-value rows with hairline dividers (details lists) */
             #aircraft-info-window .acx-row {
@@ -28131,6 +28167,114 @@ function populateAircraftInfoWindow(baseProps, plan, sortedRoutePoints, communit
             #aircraft-info-window .acx-row .l { font-size: 12.5px; color: #9a9aa2; font-weight: 500; white-space: nowrap; }
             #aircraft-info-window .acx-row .v { font-size: 13.5px; color: #fff; font-weight: 600; font-family: 'JetBrains Mono', monospace; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             #aircraft-info-window .acx-row .v .unit { font-size: 10px; color: #9a9aa2; font-weight: 500; margin-left: 2px; }
+
+            /* Path-info toggle (hero row). Phones: an icon button like its
+               neighbours, struck through when off. Desktop: a labelled pill
+               with an on/off light, so its state reads at a glance. */
+            #aircraft-info-window .aircraft-window-pathinfo-btn { position: relative; }
+            #aircraft-info-window .aircraft-window-pathinfo-btn .pi-label,
+            #aircraft-info-window .aircraft-window-pathinfo-btn .pi-state { display: none; }
+            #aircraft-info-window .aircraft-window-pathinfo-btn.on { color: #7dd3fc !important; }
+            #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on) { opacity: 0.7; }
+            #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on)::after {
+                content: ''; position: absolute; left: 25%; right: 25%; top: 50%; height: 2px; border-radius: 1px;
+                background: currentColor; transform: rotate(-35deg); pointer-events: none;
+            }
+            @media (min-width: 769px) {
+                #aircraft-info-window .aircraft-window-pathinfo-btn {
+                    width: auto !important; padding: 0 12px 0 11px !important; border-radius: 999px !important;
+                    display: inline-flex !important; align-items: center; gap: 7px;
+                    font: 600 11.5px/1 var(--font-ui, system-ui), system-ui, sans-serif; letter-spacing: 0.01em;
+                }
+                #aircraft-info-window .aircraft-window-pathinfo-btn .pi-label { display: inline; color: #fff; }
+                #aircraft-info-window .aircraft-window-pathinfo-btn .pi-state {
+                    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+                    background: rgba(255,255,255,0.35); box-shadow: 0 0 0 2px rgba(0,0,0,0.25);
+                }
+                #aircraft-info-window .aircraft-window-pathinfo-btn.on .pi-state { background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.8); }
+                #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on) { opacity: 1; }
+                #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on)::after { content: none; }
+                #aircraft-info-window .aircraft-window-pathinfo-btn:not(.on) .pi-label { color: rgba(255,255,255,0.7); }
+            }
+
+            /* Taxi card (renderTaxiCard / taxiView.js) */
+            #aircraft-info-window .taxi-card { --tx-ink: 255,255,255; --tx-accent: #38bdf8; }
+            #aircraft-info-window .tx-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; min-width: 0; }
+            #aircraft-info-window .tx-apt { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+            #aircraft-info-window .tx-apt-code { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; color: #fff; flex: 0 0 auto; }
+            #aircraft-info-window .tx-apt-name { font-size: 12px; color: #9a9aa2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+            #aircraft-info-window .tx-tabs { display: flex; gap: 4px; flex: 0 0 auto; }
+            #aircraft-info-window .tx-tab { border: 0; background: transparent; color: #9a9aa2; font: inherit; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+            #aircraft-info-window .tx-tab.on { color: #fff; background: rgba(255,255,255,0.08); }
+            #aircraft-info-window .tx-map { border-radius: 12px; overflow: hidden; background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(255,255,255,0.05); }
+            #aircraft-info-window .tv-svg { display: block; width: 100%; height: auto; }
+            #aircraft-info-window .tv-apron { fill: rgba(var(--tx-ink),0.05); stroke: none; }
+            #aircraft-info-window .tv-twy { fill: none; stroke: rgba(var(--tx-ink),0.16); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+            #aircraft-info-window .tv-rwy { stroke: rgba(var(--tx-ink),0.22); stroke-linecap: butt; }
+            #aircraft-info-window .tv-rwy-used { stroke: rgba(var(--tx-ink),0.34); }
+            #aircraft-info-window .tv-rwy-cl { stroke: rgba(var(--tx-ink),0.45); stroke-width: 0.8; stroke-dasharray: 4 4; }
+            #aircraft-info-window .tv-rwy-id { fill: rgba(var(--tx-ink),0.45); font: 600 8px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tv-rwy-id-used { fill: rgba(var(--tx-ink),0.9); }
+            #aircraft-info-window .tv-roll { fill: none; stroke: var(--tx-accent); stroke-width: 2; stroke-dasharray: 3 4; opacity: 0.8; stroke-linecap: round; }
+            #aircraft-info-window .tv-path-halo { fill: none; stroke: rgba(0,0,0,0.35); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+            #aircraft-info-window .tv-path { fill: none; stroke: var(--tx-accent); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+            #aircraft-info-window .tv-gate { fill: rgba(0,0,0,0.5); stroke: var(--tx-accent); stroke-width: 2; }
+            #aircraft-info-window .tv-tip { fill: var(--tx-accent); }
+            #aircraft-info-window .tv-now { fill: #fff; stroke: var(--tx-accent); stroke-width: 3; }
+            #aircraft-info-window .tx-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            #aircraft-info-window .tx-kicker { font-size: 11px; font-weight: 600; color: #9a9aa2; }
+            #aircraft-info-window .tv-twy-used { stroke: rgba(var(--tx-ink),0.38); stroke-width: 3; }
+            #aircraft-info-window .tv-twy-tag rect { fill: #facc15; }
+            #aircraft-info-window .tv-twy-letter rect { fill: #111; stroke: #facc15; stroke-width: 0.8; }
+            #aircraft-info-window .tv-twy-letter text { fill: #facc15; font: 700 7.5px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tv-twy-letter-used rect { fill: #facc15; stroke: #111; }
+            #aircraft-info-window .tv-twy-letter-used text { fill: #111; }
+            #aircraft-info-window .tv-twy-tag text { fill: #111; font: 700 9px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tx-twy { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: #111; background: #facc15; border-radius: 4px; padding: 1px 6px; }
+            #aircraft-info-window .tx-dim { color: #9a9aa2; font-size: 12px; }
+            #aircraft-info-window .tx-stats { margin-top: 14px; grid-template-columns: repeat(4, 1fr); gap: 10px 8px; }
+            #aircraft-info-window .tx-map { position: relative; cursor: zoom-in; }
+            #aircraft-info-window .tx-modes { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 8px; border-radius: 10px; background: rgba(var(--tx-ink),0.06); }
+            #aircraft-info-window .tx-mode { border: 0; background: transparent; color: rgba(var(--tx-ink),0.62); font: inherit; font-size: 11.5px; font-weight: 600; padding: 4px 12px; border-radius: 8px; cursor: pointer; }
+            #aircraft-info-window .tx-mode.on { color: rgba(var(--tx-ink),0.95); background: rgba(var(--tx-ink),0.12); }
+            #aircraft-info-window .tx-map-3d { cursor: default; }
+            #aircraft-info-window .tx-gl { width: 100%; height: 300px; }
+            #aircraft-info-window .tx-gl-msg { padding: 40px 16px; text-align: center; font-size: 12px; color: rgba(var(--tx-ink),0.6); }
+            #aircraft-info-window .tv-sat .tv-veil { fill: rgba(0,0,0,0.16); }
+            #aircraft-info-window .tv-sat .tv-apron { display: none; }
+            #aircraft-info-window .tv-sat .tv-twy { stroke: rgba(250,204,21,0.35); stroke-width: 1.2; }
+            #aircraft-info-window .tv-sat .tv-twy-used { stroke: rgba(250,204,21,0.85); stroke-width: 2; }
+            #aircraft-info-window .tv-sat .tv-rwy { stroke: rgba(255,255,255,0.05); }
+            #aircraft-info-window .tv-sat .tv-rwy-used { stroke: rgba(56,189,248,0.16); }
+            #aircraft-info-window .tv-sat .tv-rwy-cl { stroke: rgba(255,255,255,0.3); }
+            #aircraft-info-window .tv-sat .tv-tick { stroke: #fff; }
+            #aircraft-info-window .tv-sat .tv-rwy-id, #aircraft-info-window .tv-sat .tv-tick-l { fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,0.8); stroke-width: 2.5px; }
+            #aircraft-info-window .tx-map.tall { cursor: zoom-out; }
+            #aircraft-info-window .tx-zoom { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font: 600 15px/1 system-ui, sans-serif; color: rgba(var(--tx-ink),0.85); background: rgba(0,0,0,0.35); pointer-events: none; }
+            #aircraft-info-window .tv-tick { stroke: rgba(var(--tx-ink),0.9); stroke-width: 1.6; stroke-linecap: round; }
+            #aircraft-info-window .tv-tick-l { fill: rgba(var(--tx-ink),0.7); font: 600 7.5px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tv-push { fill: none; stroke: #fff; stroke-width: 2; stroke-dasharray: 3 3; stroke-linecap: round; opacity: 0.9; }
+            #aircraft-info-window .tv-time-tag rect { fill: rgba(15,23,42,0.85); stroke: rgba(var(--tx-ink),0.35); stroke-width: 0.6; }
+            #aircraft-info-window .tv-time-tag text { fill: #fff; font: 600 7.5px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tx-step.push .tx-mark { background: #fff; }
+            #aircraft-info-window .tv-stop { fill: #f97316; stroke: rgba(0,0,0,0.55); stroke-width: 1.5; }
+            #aircraft-info-window .tv-stop-hold { fill: #ef4444; }
+            #aircraft-info-window .tv-stop-tag rect { fill: rgba(0,0,0,0.72); }
+            #aircraft-info-window .tv-stop-tag text { fill: #fff; font: 600 8px 'JetBrains Mono', monospace; }
+            #aircraft-info-window .tx-steps { list-style: none; margin: 14px 0 0; padding: 12px 0 0; border-top: 1px solid rgba(var(--tx-ink),0.07); display: flex; flex-direction: column; }
+            #aircraft-info-window .tx-step { position: relative; display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 10px; padding: 6px 0; min-width: 0; }
+            /* the thread joining the marks */
+            #aircraft-info-window .tx-step:not(:last-child)::after { content: ''; position: absolute; left: 10.5px; top: 24px; bottom: -8px; width: 1px; background: rgba(var(--tx-ink),0.14); }
+            #aircraft-info-window .tx-mark { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; line-height: 1; position: relative; z-index: 1; }
+            #aircraft-info-window .tx-step.done .tx-mark { color: #0b1220; background: var(--tx-accent); }
+            #aircraft-info-window .tx-step.now .tx-mark { background: rgba(var(--tx-ink),0.08); }
+            #aircraft-info-window .tx-step.stop .tx-mark { background: rgba(249,115,22,0.16); }
+            #aircraft-info-window .tx-live { width: 9px; height: 9px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px var(--tx-accent); animation: pulse 2s infinite; }
+            #aircraft-info-window .tx-stopic { width: 9px; height: 9px; border-radius: 2px; background: #f97316; }
+            #aircraft-info-window .tx-step-name { font-size: 13px; color: rgba(var(--tx-ink),0.92); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            #aircraft-info-window .tx-step.stop .tx-step-name { color: rgba(var(--tx-ink),0.7); }
+            #aircraft-info-window .tx-step-meta { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: rgba(var(--tx-ink),0.62); white-space: nowrap; }
+            #aircraft-info-window .tx-step.stop .tx-step-meta { color: #fdba74; }
 
             #aircraft-info-window .acx-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
             #aircraft-info-window .acx-foot .acx-l { margin-bottom: 3px; }
@@ -28260,19 +28404,6 @@ let totalDistanceNM = 0;
     }
     windowEl.dataset.depIcao = departureIcao || '';
     windowEl.dataset.arrIcao = arrivalIcao || '';
-    // Same idea for the dispatch plan's fuel and passenger figures: the fuel
-    // panel refreshes on every live tick and needs them to anchor block fuel
-    // and payload instead of falling back to modelled averages.
-    if (filedPlanData && filedPlanData.fuel_used != null) {
-        windowEl.dataset.filedFuel = String(filedPlanData.fuel_used);
-    } else {
-        delete windowEl.dataset.filedFuel;
-    }
-    if (filedPlanData && filedPlanData.passengers != null) {
-        windowEl.dataset.filedPax = String(filedPlanData.passengers);
-    } else {
-        delete windowEl.dataset.filedPax;
-    }
 
     // --- Derive a cruise altitude target from the highest waypoint altitude in the plan ---
     // Used by the redesigned VSD card to show CRZ TGT and ALT Δ readouts.
@@ -28360,7 +28491,7 @@ let totalDistanceNM = 0;
     let psTitle = "ACTIVE";
     let psIcon = "fa-user-check";
     let psColor = "#4ade80";
-    let psDesc = "Pilot is active";
+    let psDesc = "";
     switch (pilotStateValue) {
         case 1: psTitle = "AWAY"; psIcon = "fa-plane-slash"; psColor = "#facc15"; psDesc = "Online (No Input)"; break;
         case 2: psTitle = "PARKED"; psIcon = "fa-square-parking"; psColor = "#94a3b8"; psDesc = "Away (On Ground)"; break;
@@ -28423,7 +28554,7 @@ let totalDistanceNM = 0;
                             <i class="fa-solid fa-plane-arrival dest-toggle-ic"></i>
                             <span class="dest-toggle-txt">
                                 <span class="dest-toggle-code" data-ap-code="${destValidIcao}">${displayAirportCode(destValidIcao)}</span>
-                                <span class="dest-toggle-sub">Arriving at · tap for info</span>
+                                <span class="dest-toggle-sub">Arrival · weather &amp; airport info</span>
                             </span>
                         </span>
                         <i class="fa-solid fa-chevron-down dest-chev"></i>
@@ -28467,6 +28598,13 @@ let totalDistanceNM = 0;
     <button class="hero-btn aircraft-window-trackme-btn" id="trackme-btn-${baseProps.flightId}" data-flight-id="${baseProps.flightId}" title="This is my flight">
         <i class="fa-solid ${window.InflightLiveActivity.isTrackingFlight(baseProps.flightId) ? 'fa-bell-slash' : 'fa-bell'}"></i>
     </button>` : ''}
+
+    <!-- Path info on the map (milestones, stops, times, taxiways) — on/off.
+         Icon-only on phones (it sits in the peek), labelled on desktop. -->
+    <button class="hero-btn aircraft-window-pathinfo-btn${pathInfoOn() ? ' on' : ''}" type="button"
+            aria-pressed="${pathInfoOn() ? 'true' : 'false'}" title="${pathInfoOn() ? 'Hide' : 'Show'} path info">
+        <i class="fa-solid fa-route"></i><span class="pi-label">Path info</span><span class="pi-state" aria-hidden="true"></span>
+    </button>
 
     <button class="hero-btn aircraft-window-replay-btn" title="Replay Flight">
         <i class="fa-solid fa-circle-play"></i>
@@ -28707,33 +28845,11 @@ let totalDistanceNM = 0;
             <div>
                 <span style="display: block; font-size: 8px; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1px;">Pilot Status</span>
                 <span style="display: block; font-size: 14px; color: #fff; font-weight: 800; letter-spacing: 0.5px;">${psTitle}</span>
-                <span style="display: block; font-size: 9px; color: #64748b; font-weight: 500; margin-top: 1px;">${psDesc}</span>
+                ${psDesc ? `<span style="display: block; font-size: 9px; color: #64748b; font-weight: 500; margin-top: 1px;">${psDesc}</span>` : ''}
             </div>
         </div>
     </div>
 
-    <div class="modern-timer-stack" style="display: flex; flex-direction: column; gap: 4px;">
-        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4); border-left: 3px solid #64748b; padding: 8px 10px; border-radius: 4px 10px 10px 4px; border-top: 1px solid rgba(255,255,255,0.03);">
-            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
-                <i class="fa-solid fa-stopwatch" style="color: #64748b; font-size: 8px;"></i>
-                <span style="display: block; font-size: 7px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Elapsed</span>
-            </div>
-            <span id="ac-sensor-elapsed" style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #fff; font-weight: 500;">--:--</span>
-        </div>
-
-        <div class="timer-node" style="background: rgba(15, 23, 42, 0.4); border-left: 3px solid #38bdf8; padding: 8px 10px; border-radius: 4px 10px 10px 4px; border-top: 1px solid rgba(255,255,255,0.03);">
-            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
-                <i class="fa-solid fa-hourglass-half" style="color: #38bdf8; font-size: 8px;"></i>
-                <span style="display: block; font-size: 7px; color: #38bdf8; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Remaining</span>
-            </div>
-            <span id="ac-sensor-ete" style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
-        </div>
-
-        <div class="timer-node" style="background: transparent; padding: 4px 10px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05);">
-            <span style="font-size: 7px; color: #475569; text-transform: uppercase; font-weight: 700;">Total</span>
-            <span id="ac-sensor-total" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #475569; font-weight: 600;">--:--</span>
-        </div>
-    </div>
 </div>
                 </div>
 
@@ -28770,16 +28886,6 @@ let totalDistanceNM = 0;
                                     <div id="fms-legs-list" class="fms-list-scrollarea" style="flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: none;">
                                         ${fmsLegsHtml}
                                     </div>
-                                     <div class="fms-footer" style="background: rgba(15, 23, 42, 0.8); border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; padding: 12px 18px; display: flex; gap: 24px;">
-                                        <div class="fms-stat">
-                                            <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Total Distance</span>
-                                            <span id="fms-total-dist" class="stat-value" style="font-size: 16px; color: #fff; font-weight: 700;">---- NM</span>
-                                        </div>
-                                        <div class="fms-stat">
-                                             <span class="stat-label" style="display: block; font-size: 8px; color: #64748b; text-transform: uppercase; margin-bottom: 2px;">Estimated Time</span>
-                                            <span id="fms-total-ete" class="stat-value" style="font-size: 16px; color: #38bdf8; font-weight: 700;">--:--</span>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -28790,9 +28896,14 @@ let totalDistanceNM = 0;
                      partners. Hidden until hydrated so it adds no empty gap. -->
                 <div id="ac-va-banner" class="va-ad-banner-slot" style="margin: 2px 0 0; display: none;"></div>
 
-                <!-- Hidden legacy elements: FMS-view footer copies their innerHTML/textContent. Keep them so legacy code keeps working. -->
+                <!-- Hidden sources: the timer card reads the ETE from here, and
+                     Horizon's glance row mirrors altitude / speed / heading (the
+                     PFD shows them, so they have no visible cell of their own). -->
                 <span id="ac-dist" style="display:none;"></span>
                 <span id="ac-ete" style="display:none;"></span>
+                <span id="ac-alt" style="display:none;"></span>
+                <span id="ac-gs" style="display:none;"></span>
+                <span id="ac-heading" style="display:none;"></span>
 
                 <!-- ════════════ SPEED & ALTITUDE (parity with Simple/Card) ════════════ -->
                 <h2 class="acx-sec">Speed &amp; altitude</h2>
@@ -28811,45 +28922,36 @@ let totalDistanceNM = 0;
                         <div><div id="ac-flown" class="acx-hero-num">----<span class="unit">NM</span></div><div class="acx-hero-l">Flown</div></div>
                         <div style="text-align: right;"><div id="ac-dist" class="acx-hero-num">----<span class="unit">NM</span></div><div class="acx-hero-l">Remaining</div></div>
                     </div>
-                    <div class="acx-bar"><div id="ac-progress-bar" class="acx-bar-fill" style="width: ${progress}%;"><i class="fa-solid fa-plane"></i></div></div>
                     <div class="acx-rows">
-                        <div class="acx-row"><span class="l">Time airborne</span><span id="ac-elapsed" class="v">--:--</span></div>
+                        <div class="acx-row"><span class="l">Time since departure</span><span id="ac-sensor-elapsed" class="v">--:--</span></div>
+                        <div class="acx-row"><span class="l">Total trip time</span><span id="ac-sensor-total" class="v">--:--</span></div>
+                        ${cruiseAltFt ? `<div class="acx-row"><span class="l">Planned cruise</span><span class="v"><span id="ac-cruise-tgt">${cruiseAltText}</span> · <span id="ac-alt-delta">---</span></span></div>` : ''}
                         <div class="acx-row"><span class="l">Average ground speed</span><span id="ac-avg-gs" class="v">---<span class="unit">kt</span></span></div>
                         <div class="acx-row"><span class="l">Max ground speed</span><span id="ac-max-gs" class="v">---<span class="unit">kt</span></span></div>
                         <div class="acx-row"><span class="l">Max altitude</span><span id="ac-max-alt" class="v">---<span class="unit">ft</span></span></div>
                     </div>
                 </div>
 
-                <!-- ════════════ FUEL (modelled — see fuelEstimator.js) ════════════ -->
-                <!-- Hidden until the estimator produces a result, so a flight
-                     it can't model adds no empty section. -->
-                <h2 class="acx-sec" id="ac-fuel-sec" style="display: none;">Fuel</h2>
-                <div id="ac-fuel-host"></div>
-
-                <!-- ════════════ CABIN (typical layout — see cabinMap.js) ════════════ -->
-                <h2 class="acx-sec" id="ac-cabin-sec" style="display: none;">Cabin</h2>
-                <div id="ac-cabin-host"></div>
+                <!-- ════════════ AIRPORTS: how it taxied (renderTaxiCard) + where it's going ════════════ -->
+                <h2 class="acx-sec" id="ac-taxi-sec" style="display: ${destCardHtml ? 'block' : 'none'};">Airports</h2>
+                <div id="ac-taxi-host" class="acx-card taxi-card" style="display: none;"></div>
+                ${destCardHtml}
 
                 <!-- ════════════ NAVIGATION ════════════ -->
-                <h2 class="acx-sec">Navigation</h2>
+                <h2 class="acx-sec">Position &amp; weather</h2>
                 <div class="ac-info-card-bar acx-card nav-card">
                     <div class="acx-group-label">Position</div>
                     <div class="acx-grid">
                         <div class="acx-cell"><span class="acx-l">Latitude</span><span id="ac-lat" class="acx-v">---</span></div>
                         <div class="acx-cell"><span class="acx-l">Longitude</span><span id="ac-lon" class="acx-v">---</span></div>
-                        <div class="acx-cell"><span class="acx-l">Altitude</span><span id="ac-alt" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">ft</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">Heading</span><span id="ac-heading" class="acx-v">---°</span></div>
-                        <div class="acx-cell"><span class="acx-l">Ground speed</span><span id="ac-gs" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">kt</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">Vertical speed</span><span id="ac-vs" class="acx-v">---</span></div>
+                        <div class="acx-cell"><span class="acx-l">True airspeed</span><span id="ac-tas" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">kt</span></span></div>
+                        <div class="acx-cell nav-vs"><span class="acx-l">Vertical speed</span><span id="ac-vs" class="acx-v">---</span></div>
                     </div>
 
-                    <div class="acx-group-label">Atmosphere &amp; plan</div>
+                    <div class="acx-group-label">Weather at the aircraft</div>
                     <div class="acx-grid">
                         <div class="acx-cell"><span class="acx-l">Wind</span><span id="ac-env-wind" class="acx-v">---/--</span></div>
                         <div class="acx-cell"><span class="acx-l">Outside air</span><span id="ac-env-oat" class="acx-v">--°C</span></div>
-                        <div class="acx-cell"><span class="acx-l">True airspeed</span><span id="ac-tas" class="acx-v">--- <span style="font-size: 10px; color: #9a9aa2; font-weight: 500;">kt</span></span></div>
-                        <div class="acx-cell"><span class="acx-l">Cruise</span><span id="ac-cruise-tgt" class="acx-v">${cruiseAltText}</span></div>
-                        <div class="acx-cell"><span class="acx-l">Off cruise</span><span id="ac-alt-delta" class="acx-v">---</span></div>
                     </div>
 
                     <div class="acx-rows">
@@ -28869,14 +28971,9 @@ let totalDistanceNM = 0;
                <div class="ac-info-card-bar acx-card aircraft-card">
                     <div class="acx-row"><span class="l">Registration</span><span class="v">${techCardTail}</span></div>
                     <div class="acx-row"><span class="l">Class</span><span class="v" style="font-family: inherit; text-transform: capitalize;">${baseProps.category || 'Commercial'}</span></div>
-                    ${filedPlanData ? `
-                    <div class="acx-row"><span class="l">Passengers</span><span class="v">${filedPlanData.passengers != null ? filedPlanData.passengers : '—'}</span></div>
-                    <div class="acx-row"><span class="l">Block fuel</span><span class="v">${filedPlanData.fuel_used ? Math.round(filedPlanData.fuel_used / 1000) + 'k' : '—'}<span class="unit">kg</span></span></div>` : ''}
                     ${photographerName && photographerName !== 'IF Community' && techCardPhotos.length <= 1 ? `
                     <div class="acx-row"><span class="l">Photo</span><span class="v" style="font-family: inherit;">${photographerName}</span></div>` : ''}
                 </div>
-
-                ${destCardHtml}
             </div>
  
             <div id="ac-tab-pilot-report" class="ac-tab-pane ${pilotReportActiveClass}" style="display: ${pilotReportDisplay}; padding: 12px;">
@@ -28935,18 +29032,13 @@ let totalDistanceNM = 0;
         if (_stats) {
             const _set = (id, html) => { const el = windowEl.querySelector('#' + id); if (el) el.innerHTML = html; };
             _set('ac-flown', `${Math.round(_stats.flownNm).toLocaleString()}<span class="unit">NM</span>`);
-            _set('ac-elapsed', _stats.elapsedTxt);
             if (_stats.avgGsKt != null) _set('ac-avg-gs', `${_stats.avgGsKt}<span class="unit">kt</span>`);
             _set('ac-max-gs', `${_stats.maxGsKt}<span class="unit">kt</span>`);
             _set('ac-max-alt', `${Math.round(_stats.maxAltFt).toLocaleString()}<span class="unit">ft</span>`);
         }
-        // Fuel card — first paint. Repainted by the live-update path as the
-        // trail grows, and again whenever the kg/lb toggle is used.
-        renderLegacyFuelCard(
-            windowEl, baseProps, plan, sortedRoutePoints,
-            _stats ? _stats.flownNm : (totalDistanceNM - distanceToDestNM),
-            distanceToDestNM, filedPlanData
-        );
+        // Taxi card — first paint; the live-update path redraws it as the
+        // ground part of the trail grows.
+        renderTaxiCard(windowEl, sortedRoutePoints);
     } catch (_) { /* best-effort */ }
 
     if(typeof createPfdDisplay === 'function') createPfdDisplay();
@@ -29025,7 +29117,6 @@ let totalDistanceNM = 0;
     const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
     const updateSensorTimers = () => {
         const elElapsed = document.getElementById('ac-sensor-elapsed');
-        const elEte = document.getElementById('ac-sensor-ete');
         const elTotal = document.getElementById('ac-sensor-total');
         const sourceEte = document.getElementById('ac-ete');
         
@@ -29040,10 +29131,9 @@ let totalDistanceNM = 0;
             }
         }
 
-        if (elEte && sourceEte && elTotal) {
+        if (sourceEte && elTotal) {
             const currentEte = sourceEte.textContent;
             if (currentEte && currentEte.includes(':')) {
-                setText(elEte, currentEte);
                 if (elElapsed && elElapsed.textContent !== '--:--') {
                     const [eH, eM] = elElapsed.textContent.split(':').map(Number);
                     const [rH, rM] = currentEte.split(':').map(Number);
@@ -29845,6 +29935,380 @@ function computeDetailedFlightPhase(baseProps, plan, sortedRoutePoints, progress
  * altitude, groundSpeed, date}). Returns null when the trail is too short to
  * say anything meaningful.
  */
+/**
+ * The Taxi card: the way the flight taxied out — and, once it has landed,
+ * in — drawn over the airport it was at (see taxiView.js), with the runway it
+ * used, how long it took and how far it went.
+ *
+ * Runs on first paint and on every live tick, but only redraws when the
+ * ground part of the trail (or the tab, or the data behind the drawing)
+ * changes. Runways and the OSM taxiway layout arrive lazily; each repaints the
+ * card when it lands.
+ */
+// Satellite imagery for the taxi map (keyless; the free map engine's own
+// satellite source).
+const TAXI_SAT_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const TAXI_VIEW_KEY = 'inflight.taxiView';   // 'sat' | 'map' — 3D is never remembered
+
+/*
+ * The taxi card's optional 3D view: a small, tilted satellite map with
+ * terrain and 3D buildings, the route drawn on the ground and every taxiway
+ * lettered. Always MapLibre (the open-source engine the free map mode
+ * already loads) on keyless sources — Esri imagery, Terrarium elevation,
+ * OpenFreeMap buildings — so it never spends a Mapbox map load, whichever
+ * engine the main map is on. Built only when the user taps 3D; only one
+ * exists at a time. It survives the card's live repaints (the element is
+ * carried into the new markup and its data updated) and is removed as soon as
+ * it's switched off, the flight changes or the window goes away.
+ */
+let _taxi3d = null;   // { host, key, map, el, timer, pending }
+
+function dropTaxi3D() {
+    if (!_taxi3d) return;
+    clearInterval(_taxi3d.timer);
+    try { _taxi3d.map && _taxi3d.map.remove(); } catch (_) { /* already gone */ }
+    _taxi3d = null;
+}
+
+function taxi3DGeoJSON(seg, analysis) {
+    const ll = (p) => [p.lon, p.lat];
+    // Same geometry as the 2D map: taxi along the taxiways, push and rolls as flown.
+    const route = analysis.route || {};
+    const taxi = route.taxi && route.taxi.length > 1 ? route.taxi : seg.path;
+    const push = route.push && route.push.length > 1 ? route.push : null;
+    const feats = [{ type: 'Feature', properties: { kind: 'path' }, geometry: { type: 'LineString', coordinates: taxi.map(ll) } }];
+    if (push) feats.push({ type: 'Feature', properties: { kind: 'push' }, geometry: { type: 'LineString', coordinates: push.map(ll) } });
+    if (seg.roll && seg.roll.length) {
+        const roll = seg.kind === 'out' ? [taxi[taxi.length - 1], ...seg.roll] : [...seg.roll, taxi[0]];
+        feats.push({ type: 'Feature', properties: { kind: 'roll' }, geometry: { type: 'LineString', coordinates: roll.map(ll) } });
+    }
+    const gate = seg.kind === 'out' ? (push || taxi)[0] : taxi[taxi.length - 1];
+    feats.push({ type: 'Feature', properties: { kind: 'gate' }, geometry: { type: 'Point', coordinates: ll(gate) } });
+    analysis.stops.forEach((st) => feats.push({ type: 'Feature',
+        properties: { kind: 'stop', hold: st.holdShort ? 1 : 0, label: window.TaxiView.fmtDur(st.ms) },
+        geometry: { type: 'Point', coordinates: [st.lon, st.lat] } }));
+    return { type: 'FeatureCollection', features: feats };
+}
+
+// Every named taxiway centreline in the field's OSM layout, for lettering.
+function taxi3DTaxiways(layout, usedRefs) {
+    const feats = ((layout && layout.features) || []).filter((f) => {
+        const p = f && f.properties, g = f && f.geometry;
+        return g && g.type === 'LineString' && p && (p.aeroway === 'taxiway' || p.aeroway === 'taxilane') && String(p.ref || '').trim();
+    }).map((f) => ({ type: 'Feature', geometry: f.geometry,
+        properties: { ref: String(f.properties.ref).trim(), used: usedRefs.has(String(f.properties.ref).trim()) ? 1 : 0 } }));
+    return { type: 'FeatureCollection', features: feats };
+}
+
+function mountTaxi3D(host, slot, key, seg, data, twyData) {
+    if (_taxi3d && _taxi3d.host === host && _taxi3d.key === key) {
+        slot.appendChild(_taxi3d.el);
+        if (_taxi3d.map) {
+            _taxi3d.map.resize();
+            const src = _taxi3d.map.getSource('taxi-route');
+            if (src) { src.setData(data); _taxi3d.map.getSource('taxi-osm')?.setData(twyData); }
+            else { _taxi3d.pending = data; _taxi3d.pendingTwy = twyData; }
+        } else {
+            _taxi3d.pending = data; _taxi3d.pendingTwy = twyData;
+        }
+        return;
+    }
+    dropTaxi3D();
+    const el = document.createElement('div');
+    el.className = 'tx-gl';
+    el.innerHTML = '<div class="tx-gl-msg">Loading 3D…</div>';
+    slot.appendChild(el);
+    const entry = { host, key, map: null, el, pending: data, pendingTwy: twyData,
+        // Gone with its window (closed, or rebuilt for another flight).
+        timer: setInterval(() => { if (!el.isConnected) dropTaxi3D(); }, 5000) };
+    _taxi3d = entry;
+    const unavailable = () => { if (_taxi3d === entry) el.innerHTML = '<div class="tx-gl-msg">3D view isn\'t available right now.</div>'; };
+
+    loadFreeMapEngine().then(() => {
+        if (_taxi3d !== entry) return;            // switched off while loading
+        const gl = window.maplibregl;
+        if (!gl) return unavailable();
+        el.innerHTML = '';
+
+        const pts = seg.path.concat(seg.roll || []);
+        const lons = pts.map((p) => p.lon), lats = pts.map((p) => p.lat);
+        const bounds = [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]];
+        // Look along the route: from where it started towards where it went.
+        const a = seg.path[0], b = seg.kind === 'out' && seg.roll.length ? seg.roll[0] : seg.path[seg.path.length - 1];
+        const bearing = AirportLayoutManager.getBearing([a.lon, a.lat], [b.lon, b.lat]);
+
+        let map;
+        try {
+            map = new gl.Map({
+                container: el,
+                // Its own copy: the main map may be using the same style object.
+                style: JSON.parse(JSON.stringify(FREE_STYLE_SATELLITE)),
+                bounds,
+                fitBoundsOptions: { padding: 36 },
+                attributionControl: { compact: true },
+                // One finger scrolls the window; two move the map.
+                cooperativeGestures: true,
+                maxPitch: 70,
+            });
+        } catch (e) {
+            return unavailable();
+        }
+        entry.map = map;
+
+        map.on('load', () => {
+            if (_taxi3d !== entry) return;
+            try {
+                map.addSource('taxi-dem', {
+                    type: 'raster-dem', tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+                    encoding: 'terrarium', tileSize: 256, maxzoom: 15,
+                });
+                map.setTerrain({ source: 'taxi-dem', exaggeration: 1 });
+            } catch (_) { /* flat is fine */ }
+            try {
+                // Terminal buildings from OpenFreeMap's (keyless) vector tiles.
+                map.addSource('taxi-ofm', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+                map.addLayer({
+                    id: 'taxi-buildings', type: 'fill-extrusion', source: 'taxi-ofm', 'source-layer': 'building', minzoom: 13,
+                    paint: {
+                        'fill-extrusion-color': '#d4d4d8',
+                        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
+                        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+                        'fill-extrusion-opacity': 0.8,
+                    },
+                });
+            } catch (_) { /* no buildings */ }
+
+            const font = ['Noto Sans Bold'];   // what the style's glyph host serves
+            map.addSource('taxi-osm', { type: 'geojson', data: entry.pendingTwy || twyData });
+            // Every taxiway's letter, along its line: yellow on black like a
+            // location sign; the ones this flight used black on yellow.
+            map.addLayer({ id: 'taxi-osm-lines', type: 'line', source: 'taxi-osm',
+                paint: { 'line-color': ['case', ['==', ['get', 'used'], 1], '#facc15', 'rgba(250,204,21,0.45)'],
+                    'line-width': ['case', ['==', ['get', 'used'], 1], 2.5, 1.2] } });
+            map.addLayer({ id: 'taxi-osm-letters', type: 'symbol', source: 'taxi-osm',
+                layout: { 'symbol-placement': 'line', 'symbol-spacing': 220, 'text-field': ['get', 'ref'],
+                    'text-font': font, 'text-size': 12, 'text-keep-upright': true, 'text-rotation-alignment': 'viewport' },
+                paint: { 'text-color': ['case', ['==', ['get', 'used'], 1], '#111111', '#facc15'],
+                    'text-halo-color': ['case', ['==', ['get', 'used'], 1], '#facc15', '#111111'], 'text-halo-width': 3 } });
+
+            map.addSource('taxi-route', { type: 'geojson', data: entry.pending || data });
+            const kind = (k) => ['==', ['get', 'kind'], k];
+            map.addLayer({ id: 'taxi-roll', type: 'line', source: 'taxi-route', filter: kind('roll'),
+                paint: { 'line-color': '#38bdf8', 'line-width': 3, 'line-dasharray': [1.5, 1.5], 'line-opacity': 0.85 } });
+            map.addLayer({ id: 'taxi-push', type: 'line', source: 'taxi-route', filter: kind('push'),
+                paint: { 'line-color': '#ffffff', 'line-width': 3, 'line-dasharray': [1, 1.2], 'line-opacity': 0.9 } });
+            map.addLayer({ id: 'taxi-halo', type: 'line', source: 'taxi-route', filter: kind('path'),
+                layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#000', 'line-width': 9, 'line-opacity': 0.35 } });
+            map.addLayer({ id: 'taxi-path', type: 'line', source: 'taxi-route', filter: kind('path'),
+                layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#38bdf8', 'line-width': 5 } });
+            map.addLayer({ id: 'taxi-gate', type: 'circle', source: 'taxi-route', filter: kind('gate'),
+                paint: { 'circle-radius': 6, 'circle-color': 'rgba(0,0,0,0.5)', 'circle-stroke-color': '#38bdf8', 'circle-stroke-width': 2.5 } });
+            map.addLayer({ id: 'taxi-stops', type: 'circle', source: 'taxi-route', filter: kind('stop'),
+                paint: { 'circle-radius': 7, 'circle-color': ['case', ['==', ['get', 'hold'], 1], '#ef4444', '#f97316'],
+                    'circle-stroke-color': '#000', 'circle-stroke-width': 1.5 } });
+            map.addLayer({ id: 'taxi-labels', type: 'symbol', source: 'taxi-route', filter: kind('stop'),
+                layout: { 'text-field': ['get', 'label'], 'text-font': font, 'text-size': 13,
+                    'text-offset': [0, -1.5], 'text-allow-overlap': true },
+                paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 2 } });
+            entry.pending = entry.pendingTwy = null;
+            // Tilt into 3D, looking down the route.
+            map.easeTo({ pitch: 60, bearing, duration: 1400 });
+        });
+    }, unavailable);
+}
+
+function renderTaxiCard(windowEl, points) {
+    const host = windowEl && windowEl.querySelector('#ac-taxi-host');
+    // A 3D view from a window that has since been rebuilt or closed.
+    if (_taxi3d && _taxi3d.host !== host) dropTaxi3D();
+    if (!host || !window.TaxiView || !window.FlightLegs) return;
+    const sec = windowEl.querySelector('#ac-taxi-sec');
+    host._points = points;
+
+    const segs = memoOverTrail('taxi', [currentFlightInWindow], points, 10000,
+        () => window.TaxiView.extract(window.FlightLegs.normalize(points || [])));
+    const avail = [segs.out, segs.in].filter(Boolean);
+    // The Airports heading also covers the arrival card, so it stays while
+    // that card is there even when there is no taxi to show.
+    const show = (on) => {
+        host.style.display = on ? '' : 'none';
+        if (sec) sec.style.display = (on || windowEl.querySelector('#legacy-dest-card')) ? '' : 'none';
+    };
+    if (!avail.length) { host._sig = ''; dropTaxi3D(); host.innerHTML = ''; show(false); return; }
+    if (!host._mode) {
+        let saved = null;
+        try { saved = localStorage.getItem(TAXI_VIEW_KEY); } catch (_) { /* private mode */ }
+        host._mode = saved === 'map' ? 'map' : 'sat';
+    }
+
+    // The field each segment happened at: nearest to its gate end.
+    const airportOf = (seg) => {
+        const p = seg.kind === 'out' ? seg.path[0] : seg.path[seg.path.length - 1];
+        const n = nearestAirportWithin2Deg(p.lat, p.lon);
+        return (n && n.km <= 8) ? n.icao : null;
+    };
+    avail.forEach((seg) => { seg.icao = airportOf(seg); });
+
+    // Landed: show the taxi-in unless the departure was picked.
+    if (!avail.some((s) => s.kind === host._view)) host._view = avail[avail.length - 1].kind;
+    const seg = avail.find((s) => s.kind === host._view);
+    const icao = seg.icao;
+    const apt = icao && airportsData[icao];
+    const runways = icao ? runwaysData[icao] : null;
+    const layout = (icao && AirportLayoutManager.layoutCache.get(icao)) || null;
+
+    const sig = avail.map((s) => `${s.kind}:${s.icao}:${s.path.length}:${s.roll.length}:${s.ongoing}`).join('|')
+        + `|${host._view}|${runways ? runways.length : '-'}|${layout ? 1 : 0}|${host._osm || ''}|${host._tall ? 1 : 0}|${host._mode}`;
+    if (host._sig === sig) return;
+    host._sig = sig;
+
+    // Fetch what the drawing still lacks, once per field, then repaint.
+    const repaint = () => { host._sig = ''; if (host.isConnected) renderTaxiCard(windowEl, host._points); };
+    host._asked = host._asked || new Set();
+    if (icao && !runways && typeof ensureRunwaysData === 'function' && !host._asked.has('rwy:' + icao)) {
+        host._asked.add('rwy:' + icao);
+        Promise.resolve(ensureRunwaysData(icao)).then(repaint, () => {});
+    }
+    if (icao && apt && !layout && !host._asked.has('osm:' + icao)) {
+        host._asked.add('osm:' + icao);
+        // Only once the card is actually on screen — Overpass is slow and
+        // shared, and most windows are closed before anyone scrolls this far.
+        host._osm = 'loading';
+        const fetchLayout = () => AirportLayoutManager.getLayout(icao, apt.lat, apt.lon).then((g) => {
+            host._osm = g ? 'ready' : 'failed';
+            repaint();
+        });
+        if (typeof IntersectionObserver === 'function') {
+            const io = new IntersectionObserver((entries) => {
+                if (!entries.some((e) => e.isIntersecting)) return;
+                io.disconnect();
+                fetchLayout();
+            });
+            io.observe(host);
+        } else {
+            fetchLayout();
+        }
+    }
+
+    const lead = seg.kind === 'out' ? seg.path[seg.path.length - 1] : null;
+    const used = runways ? window.TaxiView.runwayFor(runways, seg.roll, lead) : null;
+    const TV = window.TaxiView;
+    const analysis = TV.analyse(seg, layout);
+    // Clock times in the same zone and 12/24 h format as the rest of the window.
+    const clock = (ms) => _formatUtcHHMM(new Date(ms)) || '--:--';
+    const clockZ = (ms) => `${clock(ms)} ${getFlightTimeSuffix()}`;
+    const taxiways = layout ? TV.taxiwaysUsed(seg, layout, analysis) : [];
+    const mode = host._mode;
+    const svg = mode === '3d' ? '' : TV.renderSVG(seg, { runways: runways || [], used, layout, taxiways, analysis,
+        tall: !!host._tall, tileUrl: mode === 'sat' ? TAXI_SAT_TILES : null, clock });
+
+    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const tabs = avail.length > 1 ? `<div class="tx-tabs" role="tablist">${avail.map((s) =>
+        `<button type="button" class="tx-tab${s.kind === host._view ? ' on' : ''}" data-tx-view="${s.kind}" role="tab" aria-selected="${s.kind === host._view}">${s.kind === 'out' ? 'Out' : 'In'}</button>`
+    ).join('')}</div>` : '';
+    const aptHtml = icao
+        ? `<span class="tx-apt-code ac-icao-link" data-icao="${esc(icao)}" role="button" tabindex="0" title="View ${esc(icao)} airport">${esc(displayAirportCode(icao))}</span><span class="tx-apt-name">${esc((apt && apt.name) || '')}</span>`
+        : `<span class="tx-apt-name">Unknown airport</span>`;
+    const nm = (m) => { const v = m / 1852; return v < 10 ? v.toFixed(1) : String(Math.round(v)); };
+    const rwy = used ? esc(used.ident) : '';
+
+    // The route, step by step: each taxiway ticked off once it is behind the
+    // aircraft, with how long it took and every stop along it.
+    const loading = !layout && host._osm !== 'failed' && apt;
+    const legName = (l, i, n) => {
+        if (l.ref) return `<b class="tx-twy">${esc(l.ref)}</b>`;
+        if (loading) return `<span class="tx-dim">Taxiways loading…</span>`;
+        if (!layout) return 'Taxi';
+        const atRamp = (seg.kind === 'out' && i === 0) || (seg.kind === 'in' && i === n - 1);
+        return atRamp ? 'Ramp' : 'Unnamed taxiway';
+    };
+    const row = (mark, name, meta, cls = '') =>
+        `<li class="tx-step${cls}"><span class="tx-mark">${mark}</span><span class="tx-step-name">${name}</span><span class="tx-step-meta">${meta}</span></li>`;
+    const TICK = '✓';
+    const rows = [];
+    const tm = analysis.times || {};
+    const at = (t) => (t != null ? clockZ(t) : '');
+    if (seg.kind === 'in') {
+        rows.push(row(TICK, rwy ? `Landed on ${rwy}` : 'Landed', at(tm.landed), ' done'));
+    } else {
+        if (analysis.pushback) {
+            rows.push(row(TICK, 'Pushed back', `${at(tm.pushback)} · ${Math.round(analysis.pushback.m)} m`, ' done push'));
+        }
+        rows.push(row(TICK, analysis.pushback ? 'Started taxiing' : 'Left the gate, taxiing', at(tm.taxi), ' done'));
+    }
+    analysis.legs.forEach((l, i, all) => {
+        const current = seg.ongoing && i === all.length - 1;
+        rows.push(row(current ? '<i class="tx-live"></i>' : TICK, legName(l, i, all.length),
+            `${TV.fmtDur(l.t1 - l.t0)} · ${nm(l.m)} NM`, current ? ' now' : ' done'));
+        l.stops.forEach((st) => {
+            const where = st.holdShort ? (rwy ? `Held short of ${rwy}` : 'Held short')
+                : (st.ref ? `Stopped on ${esc(st.ref)}` : 'Stopped');
+            rows.push(row('<i class="tx-stopic"></i>', where, TV.fmtDur(st.ms), ' stop'));
+        });
+    });
+    if (!seg.ongoing) {
+        rows.push(seg.kind === 'out'
+            ? row(TICK, rwy ? `Took off from ${rwy}` : 'Took off', at(tm.takeoff), ' done')
+            : row(TICK, 'Parked', at(tm.parked), ' done'));
+    }
+    const taxiMs = seg.minutes != null ? seg.minutes * 60000 : null;
+
+    host.innerHTML = `
+        <div class="tx-head">
+            <div class="tx-title">
+                <span class="tx-kicker">${seg.kind === 'out' ? 'Taxi out' : 'Taxi in'}${seg.ongoing ? ' · now' : ''}</span>
+                <div class="tx-apt">${aptHtml}</div>
+            </div>
+            ${tabs}
+        </div>
+        <div class="tx-modes" role="tablist" aria-label="Taxi map view">${[['sat', 'Satellite'], ['map', 'Map'], ['3d', '3D']].map(([m, l]) =>
+            `<button type="button" class="tx-mode${m === mode ? ' on' : ''}" data-tx-mode="${m}" role="tab" aria-selected="${m === mode}">${l}</button>`).join('')}</div>
+        ${mode === '3d'
+            ? `<div class="tx-map tx-map-3d"><div class="tx-gl-slot"></div></div>`
+            : `<div class="tx-map${host._tall ? ' tall' : ''}" data-tx-zoom role="button" tabindex="0" aria-label="${host._tall ? 'Shrink' : 'Enlarge'} the taxi map">
+            ${svg}
+            <span class="tx-zoom" aria-hidden="true">${host._tall ? '−' : '+'}</span>
+        </div>`}
+        <div class="acx-grid tx-stats">
+            <div class="acx-cell"><span class="acx-l">${seg.kind === 'out' ? 'Runway' : 'Landed'}</span><span class="acx-v">${rwy || '---'}</span></div>
+            <div class="acx-cell"><span class="acx-l">Taxi time</span><span class="acx-v">${taxiMs != null ? TV.fmtDur(taxiMs) : '--'}</span></div>
+            <div class="acx-cell"><span class="acx-l">Stopped</span><span class="acx-v">${analysis.stoppedMs ? TV.fmtDur(analysis.stoppedMs) : 'None'}</span></div>
+            <div class="acx-cell"><span class="acx-l">Distance</span><span class="acx-v">${nm(seg.distanceKm * 1000)}<span class="unit">NM</span></span></div>
+        </div>
+        <ol class="tx-steps">${rows.join('')}</ol>`;
+    show(true);
+
+    if (mode === '3d') {
+        mountTaxi3D(host, host.querySelector('.tx-gl-slot'), `${icao}|${seg.kind}`, seg,
+            taxi3DGeoJSON(seg, analysis), taxi3DTaxiways(layout, new Set(taxiways.map((t) => t.ref))));
+    } else if (_taxi3d && _taxi3d.host === host) {
+        dropTaxi3D();
+    }
+
+    if (!host._wired) {
+        host._wired = true;
+        host.addEventListener('click', (e) => {
+            if (e.target.closest('.ac-icao-link')) return;
+            const b = e.target.closest('[data-tx-view]');
+            if (b && b.dataset.txView !== host._view) { host._view = b.dataset.txView; repaint(); return; }
+            const m = e.target.closest('[data-tx-mode]');
+            if (m) {
+                if (m.dataset.txMode === host._mode) return;
+                host._mode = m.dataset.txMode;
+                if (host._mode !== '3d') { try { localStorage.setItem(TAXI_VIEW_KEY, host._mode); } catch (_) { /* private mode */ } }
+                repaint();
+                return;
+            }
+            if (e.target.closest('[data-tx-zoom]')) { host._tall = !host._tall; repaint(); }
+        });
+        host.addEventListener('keydown', (e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-tx-zoom]')) {
+                e.preventDefault(); host._tall = !host._tall; repaint();
+            }
+        });
+    }
+}
+
 function computeLegacyTrailStats(points) {
     if (!Array.isArray(points) || points.length < 2) return null;
     let flownKm = 0, maxAltFt = 0, maxGsKt = 0;
@@ -30025,17 +30489,11 @@ function updateAircraftInfoWindow(baseProps, plan, sortedRoutePoints) {
         const trailStats = computeLegacyTrailStats(sortedRoutePoints);
         if (trailStats) {
             updateAll('#ac-flown', `${Math.round(trailStats.flownNm).toLocaleString()}<span class="unit">NM</span>`, true);
-            updateAll('#ac-elapsed', trailStats.elapsedTxt);
             if (trailStats.avgGsKt != null) updateAll('#ac-avg-gs', `${trailStats.avgGsKt}<span class="unit">kt</span>`, true);
             updateAll('#ac-max-gs', `${trailStats.maxGsKt}<span class="unit">kt</span>`, true);
             updateAll('#ac-max-alt', `${Math.round(trailStats.maxAltFt).toLocaleString()}<span class="unit">ft</span>`, true);
         }
-        // Fuel card — repainted from the grown trail on every tick.
-        renderLegacyFuelCard(
-            document.getElementById('aircraft-info-window'), baseProps, plan, sortedRoutePoints,
-            trailStats ? trailStats.flownNm : Math.max(0, totalDistanceNM - distanceToDestNM),
-            distanceToDestNM, null
-        );
+        renderTaxiCard(document.getElementById('aircraft-info-window'), sortedRoutePoints);
     } catch (_) { /* stats are best-effort — never break live updates */ }
 
     const altitude = baseProps.position.alt_ft || 0;

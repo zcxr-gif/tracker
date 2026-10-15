@@ -100,26 +100,49 @@ export const RecentItems = {
     },
 
     /**
-     * Whether a remembered flight is still in the live feed. Read at tap time,
-     * never cached: the list can sit on screen while the flight lands.
+     * The live feed's feature for a remembered flight, or null. Looked up at
+     * tap time, never cached: the list can sit on screen while the flight
+     * lands.
+     *
+     * By id first. Failing that, the same pilot under the same callsign: a
+     * pilot who respawns, or a flight seen on another server, carries a new
+     * id, and searching the callsign again — what people did instead — finds
+     * exactly that flight.
      */
-    isLive(flightId) {
-        if (typeof window.getLiveFlightById !== 'function') return false;
-        return !!window.getLiveFlightById(flightId);
+    liveFeature(flightId, meta = {}) {
+        if (typeof window.getLiveFlightById === 'function') {
+            const byId = window.getLiveFlightById(flightId);
+            if (byId) return byId;
+        }
+        const cs = String(meta.callsign || '').trim().toUpperCase();
+        if (!cs || typeof window.getLiveFlightData !== 'function') return null;
+        const user = String(meta.username || '').trim().toLowerCase();
+        return (window.getLiveFlightData() || []).find((f) => {
+            const p = f && f.properties;
+            if (!p || String(p.callsign || '').trim().toUpperCase() !== cs) return false;
+            return !user || String(p.username || '').trim().toLowerCase() === user;
+        }) || null;
+    },
+
+    /** Whether a remembered flight is still flying (see liveFeature). */
+    isLive(flightId, meta = {}) {
+        return !!this.liveFeature(flightId, meta);
     },
 
     /**
      * Open a remembered flight the best way still available.
      * @returns {'live'|'replay'|'none'} what it did, so the caller can report.
+     *   'replay' means one was asked for; if it then fails to load,
+     *   meta.onReplayFailed is called so the tap is never silently lost.
      */
     openFlight(flightId, meta = {}) {
-        const feature = (typeof window.getLiveFlightById === 'function')
-            ? window.getLiveFlightById(flightId) : null;
+        const feature = this.liveFeature(flightId, meta);
 
         if (feature && feature.geometry && feature.geometry.coordinates) {
             const [lon, lat] = feature.geometry.coordinates;
+            const liveId = (feature.properties && feature.properties.flightId) || flightId;
             if (typeof window.onSearchResultClick === 'function') {
-                window.onSearchResultClick(flightId, lat, lon);
+                window.onSearchResultClick(liveId, lat, lon);
                 return 'live';
             }
         }
@@ -127,9 +150,12 @@ export const RecentItems = {
         // this flight, and after a landing it is usually what was wanted.
         if (typeof window.openFlightReplayById === 'function') {
             try {
-                window.openFlightReplayById(String(flightId), {
+                const opened = window.openFlightReplayById(String(flightId), {
                     callsign: meta.callsign || meta.username || String(flightId),
                 });
+                if (opened && typeof opened.then === 'function' && typeof meta.onReplayFailed === 'function') {
+                    opened.then((ok) => { if (!ok) meta.onReplayFailed(); }, () => meta.onReplayFailed());
+                }
                 return 'replay';
             } catch (_) { /* fall through */ }
         }

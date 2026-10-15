@@ -69,6 +69,44 @@ export const AirportLayoutManager = {
         return [lon2 * 180 / Math.PI, lat2 * 180 / Math.PI];
     },
 
+    /**
+     * The field's OSM layout (taxiways, aprons, runways, stands) as GeoJSON,
+     * from the cache or Overpass. Shared by the map layers below and the
+     * flight window's taxi diagram, so each airport is fetched once.
+     * Concurrent asks for the same field share one request.
+     * @returns {Promise<object|null>} null when it can't be had.
+     */
+    getLayout(icao, lat, lon) {
+        if (this.layoutCache.has(icao)) {
+            this._touchCache(icao);
+            return Promise.resolve(this.layoutCache.get(icao));
+        }
+        this._pending = this._pending || new Map();
+        if (this._pending.has(icao)) return this._pending.get(icao);
+
+        const buffer = 0.05;
+        const bbox = `${lat - (buffer/2)},${lon - buffer},${lat + (buffer/2)},${lon + buffer}`;
+        const query = `[out:json][timeout:45];(way["aeroway"~"taxiway|taxilane|apron|runway|parking_guideline"](${bbox});relation["aeroway"~"taxiway|taxilane|apron|runway|parking_guideline"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
+        const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+
+        const req = fetch(url)
+            .then((response) => response.json())
+            .then((data) => {
+                if (!data.elements) return null;
+                const geojsonData = this.processOsmData(data.elements);
+                this.layoutCache.set(icao, geojsonData);
+                this._trimCache();
+                return geojsonData;
+            })
+            .catch((error) => {
+                console.error(`AirportLayout error:`, error);
+                return null;
+            })
+            .finally(() => this._pending.delete(icao));
+        this._pending.set(icao, req);
+        return req;
+    },
+
     async plotTaxiways(map, icao, lat, lon) {
         if (!map) return;
 
@@ -82,29 +120,8 @@ export const AirportLayoutManager = {
         
         this.clearAll(map);
 
-        let geojsonData;
-
-        if (this.layoutCache.has(icao)) {
-            geojsonData = this.layoutCache.get(icao);
-            this._touchCache(icao);
-        } else {
-            const buffer = 0.05;
-            const bbox = `${lat - (buffer/2)},${lon - buffer},${lat + (buffer/2)},${lon + buffer}`;
-            const query = `[out:json][timeout:45];(way["aeroway"~"taxiway|taxilane|apron|runway|parking_guideline"](${bbox});relation["aeroway"~"taxiway|taxilane|apron|runway|parking_guideline"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
-            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
-                if (!data.elements) return;
-                geojsonData = this.processOsmData(data.elements);
-                this.layoutCache.set(icao, geojsonData);
-                this._trimCache();
-            } catch (error) {
-                console.error(`AirportLayout error:`, error);
-                return;
-            }
-        }
+        const geojsonData = await this.getLayout(icao, lat, lon);
+        if (!geojsonData) return;
 
         const markingData = this.generateRunwayBuild(geojsonData);
 
