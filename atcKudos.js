@@ -1,5 +1,11 @@
 /**
- * Kudos — a thumbs-up or a "Good Day" for an ATC controller on frequency.
+ * Kudos and RateMyATC — thanks and ratings for ATC controllers on frequency.
+ *
+ * KUDOS are one tap: 👍 or ☀️ sends straight away, and the toast offers "Add a
+ * note". RATEMYATC is a 1–5 star rating per controller session. Every star is
+ * public (average and count on the controller's row and profile); a comment
+ * on a 4–5 star rating is public, a comment on a 1–3 star rating goes
+ * privately to the controller only, without the rater's name.
  *
  * Controllers volunteer their evenings to open fields that would otherwise be
  * uncontrolled. Kudos let pilots say thanks: buttons on every live controller
@@ -26,6 +32,7 @@
 
 const FEEDBACK_URL = 'https://community.infiniteflight.com/t/procedures-for-appealing-violations-and-providing-atc-feedback/795506';
 const NOTE_MAX = 140;
+const RATE_MAX = 280;
 const COUNTS_TTL_MS = 60 * 1000;
 const INBOX_POLL_MS = 60 * 1000;
 const SEEN_KEY = 'inflight-kudos-seen-at';
@@ -135,6 +142,9 @@ export const AtcKudos = {
         return `
             <span class="atcc-controls" ${attrs}>
                 ${btn('thumbs_up')}${btn('good_day')}
+                <button type="button" class="atcc-btn atcc-rate" data-atcc-act="rate" title="Rate this controller (RateMyATC)">
+                    <span class="atcc-star" aria-hidden="true">★</span><span class="atcc-n" data-atcc-avg>Rate</span>
+                </button>
                 ${view ? `<button type="button" class="atcc-btn atcc-view" data-atcc-act="view"
                         title="See this controller's kudos"><i class="fa-solid fa-award"></i></button>` : ''}
             </span>`;
@@ -179,10 +189,24 @@ export const AtcKudos = {
         if (!want.length) return this._pending;
         const p = (async () => {
             try {
-                const { data, error } = await this._sb.rpc('atc_commendation_counts', { p_controller_if_ids: want.slice(0, 100) });
-                if (error) throw error;
+                const ids = want.slice(0, 100);
+                const [k, rt] = await Promise.all([
+                    this._sb.rpc('atc_commendation_counts', { p_controller_if_ids: ids }),
+                    this._sb.rpc('atc_rating_counts', { p_controller_if_ids: ids }),
+                ]);
+                if (k.error) throw k.error;
                 const at = Date.now();
-                (data || []).forEach(r => this._counts.set(r.controller_if_id, { ...r, at }));
+                const ratings = new Map((rt.data || []).map(x => [x.controller_if_id, x]));
+                (k.data || []).forEach(row => {
+                    const x = ratings.get(row.controller_if_id) || {};
+                    this._counts.set(row.controller_if_id, {
+                        ...row, at,
+                        rating_avg: x.rating_avg == null ? null : Number(x.rating_avg),
+                        rating_count: x.rating_count || 0,
+                        my_stars: x.my_stars || null,
+                        my_rated_session: x.my_session_started_at || null,
+                    });
+                });
             } catch (err) {
                 console.warn('[Kudos] counts failed:', err?.message || err);
             }
@@ -206,8 +230,19 @@ export const AtcKudos = {
             const label = KINDS[b.dataset.atccAct].label;
             b.classList.toggle('is-on', on);
             b.setAttribute('aria-pressed', on ? 'true' : 'false');
-            b.title = on ? `You gave ${label} kudos — press again to take it back` : `Give ${label} kudos`;
+            b.title = on ? `You gave ${label} kudos — press again to take it back` : `Give ${label} kudos (one tap)`;
         });
+        const rate = el.querySelector('[data-atcc-act="rate"]');
+        if (rate) {
+            const avgEl = rate.querySelector('[data-atcc-avg]');
+            const myStars = c.my_stars && this._sameSession(c.my_rated_session, el.dataset.atccStart) ? c.my_stars : null;
+            if (avgEl) avgEl.textContent = c.rating_count ? c.rating_avg.toFixed(1) : 'Rate';
+            rate.classList.toggle('is-on', !!myStars);
+            rate.dataset.atccMyStars = myStars || '';
+            rate.title = c.rating_count
+                ? `RateMyATC: ${c.rating_avg.toFixed(1)}★ from ${c.rating_count} rating${c.rating_count === 1 ? '' : 's'}${myStars ? ` · you gave ${myStars}★` : ''}`
+                : 'Rate this controller (RateMyATC)';
+        }
     },
 
     _repaintAll(id) {
@@ -236,6 +271,8 @@ export const AtcKudos = {
 
         if (act === 'close') return this._closeCompose();
         if (act === 'submit') return this._submit();
+        if (act === 'star') return this._pickStars(Number(btn.dataset.atccStars));
+        if (act === 'rate-submit') return this._submitRate();
         if (act === 'pick') return this._pickKind(btn.dataset.atccKind);
         if (act === 'profile') return this.openProfile(btn.dataset.atccUser, btn.dataset.atccId);
         if (act === 'inbox') return this._openInbox();
@@ -254,10 +291,11 @@ export const AtcKudos = {
             startTime: row.dataset.atccStart,
         };
         if (act === 'view') return this.openProfile(f.username, f.userId);
+        if (act === 'rate') return this._openRate(f, Number(btn.dataset.atccMyStars) || 0);
         if (act === 'thumbs_up' || act === 'good_day') {
             // Pressing your own highlighted button again takes it back.
             if (btn.classList.contains('is-on')) return this._withdraw(f, act);
-            this._openCompose(f, act);
+            this._quickKudos(f, act, btn);
         }
     },
 
@@ -293,15 +331,41 @@ export const AtcKudos = {
             .forEach(el => this.renderProfileInto(el, f.userId, f.username));
     },
 
-    /* ─────────────────────────── Give-kudos dialog ─────────────────────────── */
+    async _signedIn(what) {
+        const { data } = await this._sb.auth.getSession().catch(() => ({ data: null }));
+        if (data?.session) return true;
+        this._notify(`Sign in to ${what}.`, 'info');
+        try { window.AuthUI?.open?.(); } catch (_) {}
+        return false;
+    },
+
+    // One tap: send straight away, no note needed. The toast offers to add one.
+    async _quickKudos(f, kind, btn) {
+        if (!(await this._signedIn('give kudos'))) return;
+        if (btn) { btn.disabled = true; btn.classList.add('is-sending'); }
+        const { error } = await this._sb.rpc('atc_commend', {
+            p_controller_if_id: f.userId,
+            p_controller_username: f.username || null,
+            p_airport_icao: f.airportName || null,
+            p_facility_type: Number.isFinite(f.type) ? f.type : null,
+            p_session_started_at: new Date(f.startTime).toISOString(),
+            p_kind: kind,
+            p_note: null,
+        });
+        if (btn) { btn.disabled = false; btn.classList.remove('is-sending'); }
+        if (error) { this._notify(error.message || 'Could not send that. Try again.', 'error'); return; }
+        const msg = `${KINDS[kind].short} ${KINDS[kind].label} sent to ${f.username || 'the controller'}!`;
+        const notify = window.InflightNotify;
+        if (notify?.notify) {
+            notify.notify(msg, 'success', { timeout: 6000, action: { label: 'Add a note', onClick: () => this._openCompose(f, kind) } });
+        } else this._notify(msg, 'success');
+        await this._refreshAfterChange(f);
+    },
+
+    /* ─────────────────────────── Add-a-note dialog ─────────────────────────── */
 
     async _openCompose(f, kind) {
-        const { data } = await this._sb.auth.getSession().catch(() => ({ data: null }));
-        if (!data?.session) {
-            this._notify('Sign in to give kudos.', 'info');
-            try { window.AuthUI?.open?.(); } catch (_) {}
-            return;
-        }
+        if (!(await this._signedIn('give kudos'))) return;
         this._compose = { f, kind };
         let root = document.getElementById('atcc-compose');
         if (!root) {
@@ -320,10 +384,10 @@ export const AtcKudos = {
             <div class="atcc-dialog" role="dialog" aria-modal="true" aria-labelledby="atcc-title">
                 <button type="button" class="atcc-x" data-atcc-act="close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
                 <div class="atcc-dialog-badge" aria-hidden="true"><i class="fa-solid fa-award"></i></div>
-                <h3 id="atcc-title">Give kudos to ${this._esc(f.username || 'this controller')}</h3>
+                <h3 id="atcc-title">Add a note for ${this._esc(f.username || 'this controller')}</h3>
                 ${where ? `<p class="atcc-where"><i class="fa-solid fa-headset"></i> ${this._esc(where)}</p>` : ''}
                 <div class="atcc-choices">${choice('thumbs_up')}${choice('good_day')}</div>
-                <label class="atcc-label" for="atcc-note">Add a note <span>(optional)</span></label>
+                <label class="atcc-label" for="atcc-note">Your note <span>(public, positive only)</span></label>
                 <textarea id="atcc-note" maxlength="${NOTE_MAX}" rows="3"
                     placeholder="Thanks for opening the field — smooth flow tonight!"></textarea>
                 <div class="atcc-meta"><span id="atcc-left">${NOTE_MAX}</span> left · shown on the airport and on their profile</div>
@@ -334,7 +398,7 @@ export const AtcKudos = {
                 <p class="atcc-err" id="atcc-err" hidden></p>
                 <div class="atcc-actions">
                     <button type="button" class="atcc-secondary" data-atcc-act="close">Cancel</button>
-                    <button type="button" class="atcc-primary" data-atcc-act="submit" id="atcc-submit">Send kudos</button>
+                    <button type="button" class="atcc-primary" data-atcc-act="submit" id="atcc-submit">Save note</button>
                 </div>
             </div>`;
         const ta = root.querySelector('#atcc-note');
@@ -355,6 +419,7 @@ export const AtcKudos = {
 
     _closeCompose() {
         this._compose = null;
+        this._rate = null;
         const root = document.getElementById('atcc-compose');
         if (root) { root.classList.remove('is-open'); root.innerHTML = ''; }
         if (this._escHandler) document.removeEventListener('keydown', this._escHandler);
@@ -382,12 +447,109 @@ export const AtcKudos = {
 
         if (error) {
             if (errEl) { errEl.textContent = error.message || 'Could not send that. Try again.'; errEl.hidden = false; }
-            if (btn) { btn.disabled = false; btn.textContent = 'Send kudos'; }
+            if (btn) { btn.disabled = false; btn.textContent = 'Save note'; }
             return;
         }
 
         this._closeCompose();
-        this._notify(`${KINDS[c.kind].short} Kudos sent to ${c.f.username || 'the controller'} — thanks for supporting ATC!`, 'success');
+        this._notify(`${KINDS[c.kind].short} Note added to your kudos for ${c.f.username || 'the controller'}.`, 'success');
+        await this._refreshAfterChange(c.f);
+    },
+
+    /* ─────────────────────────── RateMyATC dialog ─────────────────────────── */
+
+    async _openRate(f, current) {
+        if (!(await this._signedIn('rate a controller'))) return;
+        this._rate = { f, stars: current || 0 };
+        let root = document.getElementById('atcc-compose');
+        if (!root) {
+            root = document.createElement('div');
+            root.id = 'atcc-compose';
+            root.className = 'atcc-backdrop';
+            root.addEventListener('click', (e) => { if (e.target === root) this._closeCompose(); });
+            document.body.appendChild(root);
+        }
+        const where = [FACILITY[f.type]?.[1], f.airportName].filter(Boolean).join(' · ');
+        const stars = [1, 2, 3, 4, 5].map(n => `
+            <button type="button" class="atcc-star-btn" data-atcc-act="star" data-atcc-stars="${n}"
+                    aria-label="${n} star${n === 1 ? '' : 's'}">★</button>`).join('');
+        root.innerHTML = `
+            <div class="atcc-dialog" role="dialog" aria-modal="true" aria-labelledby="atcc-rate-title">
+                <button type="button" class="atcc-x" data-atcc-act="close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                <div class="atcc-dialog-badge is-rate" aria-hidden="true">★</div>
+                <h3 id="atcc-rate-title">Rate ${this._esc(f.username || 'this controller')}</h3>
+                <p class="atcc-where"><b>RateMyATC</b>${where ? ` · ${this._esc(where)}` : ''}</p>
+                <div class="atcc-stars" role="radiogroup" aria-label="Stars">${stars}</div>
+                <p class="atcc-stars-label" id="atcc-stars-label">Tap a star</p>
+                <label class="atcc-label" for="atcc-rate-note">Comment <span>(optional)</span></label>
+                <textarea id="atcc-rate-note" maxlength="${RATE_MAX}" rows="3" placeholder="What went well, or what could be better?"></textarea>
+                <div class="atcc-meta"><span id="atcc-rate-left">${RATE_MAX}</span> left</div>
+                <p class="atcc-visibility" id="atcc-visibility"></p>
+                <p class="atcc-policy">
+                    Stars are public. To appeal a violation, use the
+                    <a href="${FEEDBACK_URL}" target="_blank" rel="noopener">official IFC thread</a>.
+                </p>
+                <p class="atcc-err" id="atcc-err" hidden></p>
+                <div class="atcc-actions">
+                    <button type="button" class="atcc-secondary" data-atcc-act="close">Cancel</button>
+                    <button type="button" class="atcc-primary" data-atcc-act="rate-submit" id="atcc-rate-submit" disabled>Submit rating</button>
+                </div>
+            </div>`;
+        const ta = root.querySelector('#atcc-rate-note');
+        const left = root.querySelector('#atcc-rate-left');
+        ta.addEventListener('input', () => { left.textContent = String(RATE_MAX - ta.value.length); });
+        root.classList.add('is-open');
+        this._escHandler = (e) => { if (e.key === 'Escape') this._closeCompose(); };
+        document.addEventListener('keydown', this._escHandler);
+        this._pickStars(this._rate.stars);
+    },
+
+    _pickStars(n) {
+        if (!this._rate) return;
+        this._rate.stars = n;
+        document.querySelectorAll('#atcc-compose .atcc-star-btn').forEach(b =>
+            b.classList.toggle('is-on', Number(b.dataset.atccStars) <= n));
+        const labels = ['Tap a star', 'Poor', 'Below average', 'OK', 'Good', 'Excellent'];
+        const lab = document.getElementById('atcc-stars-label');
+        if (lab) lab.textContent = labels[n] || labels[0];
+        const vis = document.getElementById('atcc-visibility');
+        if (vis) {
+            vis.className = 'atcc-visibility' + (n && n <= 3 ? ' is-private' : n ? ' is-public' : '');
+            vis.innerHTML = !n ? ''
+                : n <= 3
+                    ? '<i class="fa-solid fa-lock"></i> Your comment goes <b>privately to the controller only</b>. It is never shown publicly and your name is not attached. Your stars still count publicly.'
+                    : '<i class="fa-solid fa-globe"></i> Your comment will be <b>shown publicly</b> on their profile with your stars.';
+        }
+        const submit = document.getElementById('atcc-rate-submit');
+        if (submit) submit.disabled = !n;
+    },
+
+    async _submitRate() {
+        const c = this._rate;
+        if (!c || !c.stars) return;
+        const btn = document.getElementById('atcc-rate-submit');
+        const errEl = document.getElementById('atcc-err');
+        const comment = (document.getElementById('atcc-rate-note')?.value || '').trim();
+        if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+        if (errEl) errEl.hidden = true;
+        const { error } = await this._sb.rpc('atc_rate', {
+            p_controller_if_id: c.f.userId,
+            p_controller_username: c.f.username || null,
+            p_airport_icao: c.f.airportName || null,
+            p_facility_type: Number.isFinite(c.f.type) ? c.f.type : null,
+            p_session_started_at: new Date(c.f.startTime).toISOString(),
+            p_stars: c.stars,
+            p_comment: comment || null,
+        });
+        if (error) {
+            if (errEl) { errEl.textContent = error.message || 'Could not submit that. Try again.'; errEl.hidden = false; }
+            if (btn) { btn.disabled = false; btn.textContent = 'Submit rating'; }
+            return;
+        }
+        this._closeCompose();
+        this._notify(comment && c.stars <= 3
+            ? `Rated ${c.stars}★. Your comment was sent privately to ${c.f.username || 'the controller'}.`
+            : `Rated ${c.stars}★ — thanks for the feedback!`, 'success');
         await this._refreshAfterChange(c.f);
     },
 
@@ -438,14 +600,21 @@ export const AtcKudos = {
 
     /* ─────────────────────────── Profile ─────────────────────────── */
 
-    // Fills `el` with a controller's kudos summary and returns the data, so the
-    // profile can also put a kudos pill on its header/banner.
+    // Fills `el` with a controller's kudos and RateMyATC summary and returns
+    // the data, so the profile can also put pills on its header/banner. When
+    // the profile is the signed-in controller's own, their private feedback
+    // (1–3 star comments) shows here too, for their eyes only.
     async renderProfileInto(el, ifUserId, username) {
         if (!el || !ifUserId || !this._sb) return null;
         el.classList.add('atcc-profile');
         el.setAttribute('data-atcc-profile', ifUserId);
-        const { data, error } = await this._sb.rpc('atc_commendation_profile', { p_controller_if_id: ifUserId, p_limit: 20 });
-        if (error || !data) {
+        const [k, rt] = await Promise.all([
+            this._sb.rpc('atc_commendation_profile', { p_controller_if_id: ifUserId, p_limit: 20 }),
+            this._sb.rpc('atc_rating_profile', { p_controller_if_id: ifUserId, p_limit: 10 }),
+        ]);
+        const data = k.error ? null : k.data;
+        const rating = rt.error ? null : rt.data;
+        if (!data) {
             el.innerHTML = `<div class="ups-section-title">Kudos</div>
                 <div class="ups-empty is-inline"><p>Kudos are unavailable right now.</p></div>`;
             return null;
@@ -455,7 +624,10 @@ export const AtcKudos = {
         const airports = (data.airports || []).map(a =>
             `<span class="atcc-apt-chip">${this._esc(a.icao)} <b>${n(a.count)}</b></span>`).join('');
         const recent = data.recent || [];
+        const isMe = !!(this._inbox?.owner && username && this._inbox.username === String(username).toLowerCase());
         el.innerHTML = `
+            ${this._ratingBlockHTML(rating, username)}
+            ${isMe ? this._privateFeedbackHTML(this._inbox) : ''}
             <div class="ups-section-title">Kudos
                 ${data.total ? `<span class="ups-section-count">${n(data.total)}</span>` : ''}
             </div>
@@ -472,19 +644,91 @@ export const AtcKudos = {
             <div class="ups-empty is-inline"><p>No kudos yet. When ${this._esc(username || 'this controller')}
                 is on frequency, pilots can thank them from the airport window or the ATC board.</p></div>`}
             ${this._policyLine()}`;
-        return data;
+        if (isMe) this._markSeen();
+        return { ...data, rating };
     },
 
-    // The pill a profile header shows when the pilot has kudos. On a profile
-    // with an InFlight banner it sits on the banner, where it is the first
-    // thing anyone opening the profile sees.
+    _starsHTML(avg) {
+        const v = Math.max(0, Math.min(5, Number(avg) || 0));
+        const pct = (v / 5) * 100;
+        return `<span class="atcc-stars-meter" aria-label="${v.toFixed(1)} out of 5">
+                    <span class="atcc-stars-bg">★★★★★</span>
+                    <span class="atcc-stars-fg" style="width:${pct}%">★★★★★</span>
+                </span>`;
+    },
+
+    _ratingBlockHTML(rating, username) {
+        const count = Number(rating?.count || 0);
+        if (!count) {
+            return `<div class="ups-section-title">RateMyATC</div>
+                <div class="ups-empty is-inline"><p>No ratings yet. Pilots can rate ${this._esc(username || 'this controller')}
+                    with ★ next to their name while they are on frequency.</p></div>`;
+        }
+        const dist = rating.dist || {};
+        const bars = [5, 4, 3, 2, 1].map(st => {
+            const c = Number(dist[st] || 0);
+            const w = count ? Math.round((c / count) * 100) : 0;
+            return `<div class="atcc-dist-row"><span>${st}★</span>
+                        <span class="atcc-dist-bar"><span style="width:${w}%"></span></span>
+                        <span class="atcc-dist-n">${c.toLocaleString()}</span></div>`;
+        }).join('');
+        const comments = (rating.comments || []).map(c => `
+            <div class="atcc-note">
+                <span class="atcc-note-kind atcc-note-stars">${'★'.repeat(c.stars)}</span>
+                <div class="atcc-note-main">
+                    <div class="atcc-note-head"><span>${[FACILITY[c.facility_type]?.[1], c.airport_icao].filter(Boolean).map(x => this._esc(x)).join(' · ')}</span>
+                        <span class="atcc-note-time">${this._esc(this._ago(c.created_at))}</span></div>
+                    <p class="atcc-note-text">${this._esc(c.comment)}</p>
+                    <span class="atcc-note-by">— ${this._esc(this._byName(c.by))}</span>
+                </div>
+            </div>`).join('');
+        return `
+            <div class="ups-section-title">RateMyATC <span class="ups-section-count">${count.toLocaleString()}</span></div>
+            <div class="atcc-rating">
+                <div class="atcc-rating-big">
+                    <span class="atcc-rating-avg">${Number(rating.avg).toFixed(1)}</span>
+                    ${this._starsHTML(rating.avg)}
+                    <span class="atcc-rating-count">${count.toLocaleString()} rating${count === 1 ? '' : 's'}</span>
+                </div>
+                <div class="atcc-dist">${bars}</div>
+            </div>
+            ${comments}`;
+    },
+
+    _privateFeedbackHTML(inbox) {
+        const items = inbox?.feedback || [];
+        return `
+            <div class="atcc-private">
+                <div class="atcc-private-head"><i class="fa-solid fa-lock"></i> Private feedback
+                    <span>only you can see this</span></div>
+                ${items.length ? items.map(f => `
+                    <div class="atcc-note">
+                        <span class="atcc-note-kind atcc-note-stars">${'★'.repeat(f.stars)}</span>
+                        <div class="atcc-note-main">
+                            <div class="atcc-note-head"><span>${[FACILITY[f.facility_type]?.[1], f.airport_icao].filter(Boolean).map(x => this._esc(x)).join(' · ')}</span>
+                                <span class="atcc-note-time">${this._esc(this._ago(f.created_at))}</span></div>
+                            <p class="atcc-note-text">${this._esc(f.comment)}</p>
+                            <span class="atcc-note-by">— anonymous pilot</span>
+                        </div>
+                    </div>`).join('') : '<p class="atcc-empty">No private feedback. Comments on 1–3 star ratings land here, anonymously.</p>'}
+            </div>`;
+    },
+
+    // The pills a profile header shows: kudos total and RateMyATC average. On a
+    // profile with an InFlight banner they sit on the banner, where they are the
+    // first thing anyone opening the profile sees.
     profilePillHTML(data) {
         const total = Number(data?.total || 0);
-        if (!total) return '';
-        return `<button type="button" class="atcc-profile-pill" data-atcc-act="scroll-kudos"
+        const rc = Number(data?.rating?.count || 0);
+        const kudos = total ? `<button type="button" class="atcc-profile-pill" data-atcc-act="scroll-kudos"
                     title="${total.toLocaleString()} kudos from pilots — see them">
                     <i class="fa-solid fa-award"></i> ${total.toLocaleString()} kudos
-                </button>`;
+                </button>` : '';
+        const stars = rc ? `<button type="button" class="atcc-profile-pill is-rating" data-atcc-act="scroll-kudos"
+                    title="RateMyATC: ${Number(data.rating.avg).toFixed(1)} from ${rc} rating${rc === 1 ? '' : 's'}">
+                    ★ ${Number(data.rating.avg).toFixed(1)} <span>(${rc.toLocaleString()})</span>
+                </button>` : '';
+        return kudos + stars;
     },
 
     /* ─────────────────────────── The controller's own alert ─────────────────────────── */
@@ -515,7 +759,7 @@ export const AtcKudos = {
 
     _markSeen() {
         try { localStorage.setItem(SEEN_KEY, new Date().toISOString()); } catch (_) {}
-        if (this._inbox) this._inbox.unseen = 0;
+        if (this._inbox) { this._inbox.unseen = 0; this._inbox.feedback_unseen = 0; }
         this._paintPills();
     },
 
@@ -527,20 +771,26 @@ export const AtcKudos = {
         this._inboxPolledAt = new Date().toISOString();
         this._inbox = data;
         this._paintPills();
-        if (!data.linked || !data.unseen) return;
+        if (!data.linked) return;
+        const fb = Number(data.feedback_unseen || 0);
+        if (!data.unseen && !fb) return;
 
         const recent = data.recent || [];
         if (first) {
-            // One summary on load rather than a toast per kudos.
-            const top = recent[0];
-            this._kudosToast(data.unseen > 1
-                ? `You have ${data.unseen} new kudos from pilots.`
-                : this._inboxLine(top), data.unseen > 1 ? 'New kudos' : 'You got kudos!');
+            // One summary on load rather than a toast per item.
+            if (data.unseen) {
+                this._kudosToast(data.unseen > 1
+                    ? `You have ${data.unseen} new kudos from pilots.`
+                    : this._inboxLine(recent[0]), data.unseen > 1 ? 'New kudos' : 'You got kudos!');
+            }
+            if (fb) this._kudosToast(`You have ${fb} new private feedback comment${fb === 1 ? '' : 's'} from RateMyATC.`, 'Private feedback', 'info');
             return;
         }
-        recent.filter(r => !prevPoll || Date.parse(r.created_at) > Date.parse(prevPoll))
-            .slice(0, 3).reverse()
+        const isNew = (t) => !prevPoll || Date.parse(t) > Date.parse(prevPoll);
+        recent.filter(r => isNew(r.created_at)).slice(0, 3).reverse()
             .forEach(r => this._kudosToast(this._inboxLine(r), 'You got kudos!'));
+        (data.feedback || []).filter(f => isNew(f.created_at)).slice(0, 2).reverse()
+            .forEach(f => this._kudosToast(`${'★'.repeat(f.stars)} An anonymous pilot left you private feedback${f.airport_icao ? ` at ${f.airport_icao}` : ''}.`, 'Private feedback', 'info'));
     },
 
     _inboxLine(r) {
@@ -550,11 +800,11 @@ export const AtcKudos = {
         return `${k.short} ${this._byName(r.by)} gave you ${k.label}${at}${r.note ? `: “${r.note}”` : '.'}`;
     },
 
-    _kudosToast(message, title) {
+    _kudosToast(message, title, type = 'success') {
         const notify = window.InflightNotify;
         const opts = { title, timeout: 9000, action: { label: 'View', onClick: () => this._openInbox() } };
-        if (notify?.notify) notify.notify(message, 'success', opts);
-        else this._notify(message, 'success');
+        if (notify?.notify) notify.notify(message, type, opts);
+        else this._notify(message, type);
     },
 
     _openInbox() {
@@ -565,7 +815,7 @@ export const AtcKudos = {
 
     _paintPills() {
         const i = this._inbox;
-        const unseen = i?.linked ? Number(i.unseen || 0) : 0;
+        const unseen = i?.linked ? Number(i.unseen || 0) + Number(i.feedback_unseen || 0) : 0;
         document.querySelectorAll(PILLS).forEach(pill => {
             let badge = pill.querySelector(':scope > .atcc-kudos-badge');
             if (!unseen) { badge?.remove(); return; }
@@ -578,7 +828,7 @@ export const AtcKudos = {
                 pill.style.position = pill.style.position || 'relative';
                 pill.appendChild(badge);
             }
-            badge.title = `${unseen} new kudos from pilots — see them`;
+            badge.title = `${unseen} new kudos or feedback from pilots — see them`;
             badge.innerHTML = `<i class="fa-solid fa-award"></i><b>${unseen > 9 ? '9+' : unseen}</b>`;
         });
     },
@@ -775,6 +1025,49 @@ export const AtcKudos = {
                 box-shadow: 0 2px 10px rgba(0,0,0,0.25); backdrop-filter: blur(6px); animation: atcc-pop .35s ease-out; }
             .atcc-profile-pill i { color: #fbbf24; }
             @keyframes atcc-pop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+            .atcc-btn.is-sending { opacity: .6; }
+            .atcc-rate .atcc-star { color: #fbbf24; font-size: 0.85rem; }
+            .atcc-rate.is-on { background: rgba(251,191,36,0.16); border-color: rgba(251,191,36,0.6); color: #fde68a; }
+            .atcc-profile-pill.is-rating { border-color: rgba(250,204,21,0.5); background: rgba(24,24,27,0.55); color: #fde68a; margin-left: 6px; }
+            .atcc-profile-pill.is-rating span { color: #a1a1aa; font-weight: 600; }
+
+            /* RateMyATC dialog */
+            .atcc-dialog-badge.is-rate { background: linear-gradient(135deg, #facc15, #f97316); font-size: 1.3rem; }
+            .atcc-stars { display: flex; gap: 6px; justify-content: center; margin: 6px 0 2px; }
+            .atcc-star-btn { width: 46px; height: 46px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12);
+                background: rgba(255,255,255,0.04); color: #52525b; font-size: 1.6rem; line-height: 1; cursor: pointer;
+                transition: color .12s, transform .12s, background .12s; }
+            .atcc-star-btn:hover { transform: translateY(-1px); }
+            .atcc-star-btn.is-on { color: #facc15; background: rgba(250,204,21,0.12); border-color: rgba(250,204,21,0.5); }
+            .atcc-stars-label { text-align: center; margin: 4px 0 12px; font-size: 0.78rem; font-weight: 700; color: #e4e4e7; min-height: 1em; }
+            #atcc-rate-note { width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px; padding: 10px 12px; border-radius: 10px;
+                border: 1px solid rgba(255,255,255,0.12); background: #0f0f12; color: #f4f4f5;
+                font-family: inherit; font-size: 0.85rem; line-height: 1.4; }
+            #atcc-rate-note:focus { outline: none; border-color: #facc15; }
+            .atcc-visibility { margin: 10px 0 0; padding: 0; font-size: 0.74rem; line-height: 1.45; color: #a1a1aa; }
+            .atcc-visibility:empty { display: none; }
+            .atcc-visibility.is-private { padding: 8px 10px; border-radius: 8px; background: rgba(167,139,250,0.1); border: 1px solid rgba(167,139,250,0.3); color: #ddd6fe; }
+            .atcc-visibility.is-public { padding: 8px 10px; border-radius: 8px; background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.25); color: #bbf7d0; }
+
+            /* RateMyATC on the profile */
+            .atcc-rating { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; margin-bottom: 10px;
+                padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.04); }
+            .atcc-rating-big { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 92px; }
+            .atcc-rating-avg { font-size: 2rem; font-weight: 800; color: #fff; line-height: 1; }
+            .atcc-rating-count { font-size: 0.66rem; color: #a1a1aa; }
+            .atcc-stars-meter { position: relative; display: inline-block; font-size: 0.95rem; letter-spacing: 1px; line-height: 1; }
+            .atcc-stars-bg { color: #3f3f46; }
+            .atcc-stars-fg { position: absolute; inset: 0 auto 0 0; overflow: hidden; white-space: nowrap; color: #facc15; }
+            .atcc-dist { display: flex; flex-direction: column; gap: 3px; }
+            .atcc-dist-row { display: grid; grid-template-columns: 26px 1fr 28px; gap: 6px; align-items: center; font-size: 0.66rem; color: #a1a1aa; }
+            .atcc-dist-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; }
+            .atcc-dist-bar span { display: block; height: 100%; background: #facc15; border-radius: 3px; }
+            .atcc-dist-n { text-align: right; }
+            .atcc-note-stars { color: #facc15; font-size: 0.7rem; letter-spacing: -1px; white-space: nowrap; }
+            .atcc-private { margin: 10px 0 14px; padding: 12px; border-radius: 12px; background: rgba(167,139,250,0.08); border: 1px solid rgba(167,139,250,0.28); }
+            .atcc-private-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 0.75rem; font-weight: 800; color: #ddd6fe; }
+            .atcc-private-head span { font-weight: 500; font-size: 0.66rem; color: #a78bfa; }
 
             /* New-kudos badge on the account pill */
             .atcc-kudos-badge { position: absolute; top: -6px; left: -6px; z-index: 2; display: inline-flex; align-items: center; gap: 3px;
