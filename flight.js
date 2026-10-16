@@ -33005,6 +33005,13 @@ function renderAirportMarkers() {
     // A custom (PRO) tag design is DOM-based, so it forces the classic path.
     const customAtcTag = getAtcTagAppearance();
     const classic = mapFilters.useClassicAirportTags || !!customAtcTag;
+    // Classic tags show the RateMyATC line in their hover panel; fetch counts
+    // for everyone online and redraw once when they arrive.
+    if (classic) {
+        AtcKudos.prefetchOnline(activeAtcFacilities).then(fetched => {
+            if (fetched) renderAirportMarkers();
+        }).catch(() => {});
+    }
 
     // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
     const isMajorAirport = (icao, airport) => {
@@ -33111,7 +33118,11 @@ function renderAirportMarkers() {
 
             const extra = document.createElement('div');
             extra.className = 'apt-tag-extra';
-            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`;
+            // RateMyATC / kudos for the controllers on now, from the cache the
+            // glance layer and airport window share.
+            const kudosLine = AtcKudos.airportTagLine(airportAtc);
+            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`
+                + (kudosLine ? `<div class="apt-tag-extra-item">RateMyATC</div><div class="apt-tag-extra-val" style="color:#facc15;">${escapeHtml(kudosLine)}</div>` : '');
             el.appendChild(extra);
 
             const base = document.createElement('div');
@@ -33453,13 +33464,22 @@ function updateActiveAirportsGlanceLayer() {
     // Group online facilities by airport (centers have no airport — skip them;
     // they're drawn as FIR sectors elsewhere).
     const byAirport = new Map();
+    const facilitiesAt = new Map();
     (activeAtcFacilities || []).forEach(f => {
         const icao = f.airportName;
         const type = Number(f.type);
         if (!icao || type === 6) return;
         if (!byAirport.has(icao)) byAirport.set(icao, new Set());
         byAirport.get(icao).add(type);
+        if (!facilitiesAt.has(icao)) facilitiesAt.set(icao, []);
+        facilitiesAt.get(icao).push(f);
     });
+
+    // Kudos / RateMyATC line for each tag. Counts come from a cache; when new
+    // ones arrive, redraw once so the line appears without waiting a tick.
+    AtcKudos.prefetchOnline(activeAtcFacilities).then(fetched => {
+        if (fetched) updateActiveAirportsGlanceLayer();
+    }).catch(() => {});
 
     const features = [];
     byAirport.forEach((types, icao) => {
@@ -33483,7 +33503,7 @@ function updateActiveAirportsGlanceLayer() {
         features.push({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [apt.lon, apt.lat] },
-            properties: { icao, codes: codes.join('  '), rank }
+            properties: { icao, codes: codes.join('  '), rank, kudos: AtcKudos.airportTagLine(facilitiesAt.get(icao)) }
         });
     });
 
@@ -33522,11 +33542,22 @@ function updateActiveAirportsGlanceLayer() {
                     // by the top service online (per-section colors, Mapbox v3),
                     // set on a dark glass pill (stretchable 9-slice icon) so the
                     // tag reads as a chip instead of loose halo'd text.
-                    'text-field': [
-                        'format',
-                        ['get', 'icao'], { 'font-scale': 1.15, 'text-color': '#ffffff' },
-                        '\n', {},
-                        ['get', 'codes'], { 'font-scale': 0.8, 'text-color': ACTIVE_APT_COLOR }
+                    // A third, gold line carries the staffed controllers' RateMyATC
+                    // rating and kudos when they have any.
+                    'text-field': ['case',
+                        ['!=', ['coalesce', ['get', 'kudos'], ''], ''],
+                        ['format',
+                            ['get', 'icao'], { 'font-scale': 1.15, 'text-color': '#ffffff' },
+                            '\n', {},
+                            ['get', 'codes'], { 'font-scale': 0.8, 'text-color': ACTIVE_APT_COLOR },
+                            '\n', {},
+                            ['get', 'kudos'], { 'font-scale': 0.78, 'text-color': '#facc15' }
+                        ],
+                        ['format',
+                            ['get', 'icao'], { 'font-scale': 1.15, 'text-color': '#ffffff' },
+                            '\n', {},
+                            ['get', 'codes'], { 'font-scale': 0.8, 'text-color': ACTIVE_APT_COLOR }
+                        ]
                     ],
                     'text-font': mapTextFont(['JetBrains Mono Bold', 'Arial Unicode MS Bold']),
                     // Fixed size — the tag must not grow with zoom.

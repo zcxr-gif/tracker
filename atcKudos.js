@@ -182,40 +182,89 @@ export const AtcKudos = {
         rows.forEach(el => this._paintRow(el));
     },
 
-    async _ensureCounts(ids, force = false) {
+    async _ensureCounts(ids, force = false, maxAge = COUNTS_TTL_MS) {
         if (!this._sb) return;
         const now = Date.now();
         const want = [...new Set(ids.filter(Boolean))].filter(id => {
             const c = this._counts.get(id);
-            return force || !c || now - c.at > COUNTS_TTL_MS;
+            return force || !c || now - c.at > maxAge;
         });
         if (!want.length) return this._pending;
-        const p = (async () => {
-            try {
-                const ids = want.slice(0, 100);
-                const [k, rt] = await Promise.all([
-                    this._sb.rpc('atc_commendation_counts', { p_controller_if_ids: ids }),
-                    this._sb.rpc('atc_rating_counts', { p_controller_if_ids: ids }),
-                ]);
-                if (k.error) throw k.error;
-                const at = Date.now();
-                const ratings = new Map((rt.data || []).map(x => [x.controller_if_id, x]));
-                (k.data || []).forEach(row => {
-                    const x = ratings.get(row.controller_if_id) || {};
-                    this._counts.set(row.controller_if_id, {
-                        ...row, at,
-                        rating_avg: x.rating_avg == null ? null : Number(x.rating_avg),
-                        rating_count: x.rating_count || 0,
-                        my_stars: x.my_stars || null,
-                        my_rated_session: x.my_session_started_at || null,
-                    });
-                });
-            } catch (err) {
-                console.warn('[Kudos] counts failed:', err?.message || err);
-            }
-        })();
+        // The RPCs take 100 ids at a time; the map asks for everyone online.
+        const chunks = [];
+        for (let i = 0; i < want.length; i += 100) chunks.push(want.slice(i, i + 100));
+        const p = Promise.all(chunks.map(ids => this._fetchCounts(ids)));
         this._pending = p;
         return p;
+    },
+
+    async _fetchCounts(ids) {
+        try {
+            const [k, rt] = await Promise.all([
+                this._sb.rpc('atc_commendation_counts', { p_controller_if_ids: ids }),
+                this._sb.rpc('atc_rating_counts', { p_controller_if_ids: ids }),
+            ]);
+            if (k.error) throw k.error;
+            const at = Date.now();
+            const ratings = new Map((rt.data || []).map(x => [x.controller_if_id, x]));
+            (k.data || []).forEach(row => {
+                const x = ratings.get(row.controller_if_id) || {};
+                this._counts.set(row.controller_if_id, {
+                    ...row, at,
+                    rating_avg: x.rating_avg == null ? null : Number(x.rating_avg),
+                    rating_count: x.rating_count || 0,
+                    my_stars: x.my_stars || null,
+                    my_rated_session: x.my_session_started_at || null,
+                });
+            });
+        } catch (err) {
+            console.warn('[Kudos] counts failed:', err?.message || err);
+        }
+    },
+
+    /* ─────────────────────────── Map airport tags ─────────────────────────── */
+
+    // Fetch counts for every controller online, for the map's airport tags.
+    // Resolves true only when something new was fetched, so the caller can
+    // redraw once rather than on every ATC tick. Background use, so the cache
+    // is allowed to be five minutes old.
+    async prefetchOnline(facilities) {
+        const ids = [...new Set((facilities || []).map(f => f && f.userId).filter(Boolean))];
+        const now = Date.now();
+        // `_tried` stops a failing backend turning the redraw into a retry loop:
+        // each controller is attempted at most once every five minutes.
+        if (!this._tried) this._tried = new Map();
+        const stale = ids.filter(id => {
+            const c = this._counts.get(id);
+            return (!c || now - c.at > 5 * 60 * 1000) && !(now - (this._tried.get(id) || 0) < 5 * 60 * 1000);
+        });
+        if (!stale.length || this._prefetching) return false;
+        stale.forEach(id => this._tried.set(id, now));
+        this._prefetching = true;
+        try { await this._ensureCounts(stale, false, 5 * 60 * 1000); }
+        finally { this._prefetching = false; }
+        return true;
+    },
+
+    // One line for an airport's map tag: the staffed controllers' combined
+    // rating (weighted by number of ratings) and their kudos total, e.g.
+    // "Rated 4.7 · 12 kudos". Empty when nobody there has any yet.
+    airportTagLine(facilities) {
+        let starSum = 0, ratings = 0, kudos = 0;
+        const seen = new Set();
+        (facilities || []).forEach(f => {
+            if (!f || !f.userId || seen.has(f.userId)) return;
+            seen.add(f.userId);
+            const c = this._counts.get(f.userId);
+            if (!c) return;
+            if (c.rating_count) { starSum += Number(c.rating_avg) * c.rating_count; ratings += c.rating_count; }
+            kudos += Number(c.total || 0);
+        });
+        const parts = [];
+        // Plain text: the free map style's Noto Sans has no ★ glyph.
+        if (ratings) parts.push(`Rated ${(starSum / ratings).toFixed(1)}`);
+        if (kudos) parts.push(`${kudos.toLocaleString()} kudos`);
+        return parts.join(' · ');
     },
 
     _paintRow(el) {
