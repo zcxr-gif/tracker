@@ -920,7 +920,7 @@ export const MobileLandingChromeUI = {
                     ${meta ? `<span class="ios-atc-ctrl-meta">${this._atcEsc(meta)}</span>` : ''}
                 </span>
                 ${dur ? `<span class="ios-atc-ctrl-time"><i class="fa-regular fa-clock"></i> ${this._atcEsc(dur)}</span>` : ''}
-                ${window.InflightCommendations ? window.InflightCommendations.controlsHTML(f) : ''}
+                ${window.InflightKudos ? window.InflightKudos.controlsHTML(f) : ''}
             </div>`;
     },
     // Per-field live traffic readout for the drawer: pilot-state stats, ETA
