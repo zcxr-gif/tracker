@@ -112,7 +112,10 @@ export const AtcKudos = {
                         <span class="atcc-live-dot${list.length ? '' : ' is-off'}"></span>
                         ${list.length ? 'On frequency' : 'No ATC online'}
                     </span>
-                    <span class="atcc-of-total" data-atcc-total></span>
+                    <span class="atcc-of-head-right">
+                        <span class="atcc-of-total" data-atcc-total></span>
+                        <button type="button" class="atcc-board-link" data-atcc-act="board" title="Open the RateMyATC board">★ RateMyATC</button>
+                    </span>
                 </header>
                 ${list.length ? rows : `
                 <p class="atcc-of-empty">This field is uncontrolled right now. When a controller opens a
@@ -276,6 +279,10 @@ export const AtcKudos = {
         if (act === 'pick') return this._pickKind(btn.dataset.atccKind);
         if (act === 'profile') return this.openProfile(btn.dataset.atccUser, btn.dataset.atccId);
         if (act === 'inbox') return this._openInbox();
+        if (act === 'board') {
+            window.dispatchEvent(new CustomEvent('openRateMyAtc', { detail: { tab: btn.dataset.atccTab || 'top' } }));
+            return;
+        }
         if (act === 'scroll-kudos') {
             document.getElementById('ups-commendations')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             return;
@@ -660,7 +667,7 @@ export const AtcKudos = {
     _ratingBlockHTML(rating, username) {
         const count = Number(rating?.count || 0);
         if (!count) {
-            return `<div class="ups-section-title">RateMyATC</div>
+            return `<div class="ups-section-title">RateMyATC ${this._boardLink()}</div>
                 <div class="ups-empty is-inline"><p>No ratings yet. Pilots can rate ${this._esc(username || 'this controller')}
                     with ★ next to their name while they are on frequency.</p></div>`;
         }
@@ -683,7 +690,7 @@ export const AtcKudos = {
                 </div>
             </div>`).join('');
         return `
-            <div class="ups-section-title">RateMyATC <span class="ups-section-count">${count.toLocaleString()}</span></div>
+            <div class="ups-section-title">RateMyATC <span class="ups-section-count">${count.toLocaleString()}</span> ${this._boardLink()}</div>
             <div class="atcc-rating">
                 <div class="atcc-rating-big">
                     <span class="atcc-rating-avg">${Number(rating.avg).toFixed(1)}</span>
@@ -693,6 +700,10 @@ export const AtcKudos = {
                 <div class="atcc-dist">${bars}</div>
             </div>
             ${comments}`;
+    },
+
+    _boardLink() {
+        return '<button type="button" class="atcc-board-link is-inline" data-atcc-act="board">See the board ›</button>';
     },
 
     _privateFeedbackHTML(inbox) {
@@ -930,6 +941,12 @@ export const AtcKudos = {
             .atcc-live-dot.is-off { background: #52525b; box-shadow: none; animation: none; }
             @keyframes atcc-pulse { 50% { box-shadow: 0 0 0 6px rgba(74,222,128,0.05); } }
             .atcc-of-total { font-size: 0.7rem; font-weight: 700; color: #fcd34d; white-space: nowrap; }
+            .atcc-of-head-right { display: inline-flex; align-items: center; gap: 8px; }
+            .atcc-board-link { padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(250,204,21,0.45);
+                background: rgba(250,204,21,0.1); color: #fde68a; font-family: inherit; font-size: 0.66rem; font-weight: 800;
+                cursor: pointer; white-space: nowrap; }
+            .atcc-board-link:hover { background: rgba(250,204,21,0.2); }
+            .atcc-board-link.is-inline { margin-left: auto; font-size: 0.62rem; padding: 2px 8px; text-transform: none; letter-spacing: 0; }
             .atcc-of-total i { margin-right: 3px; }
             .atcc-of-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
             .atcc-of-row + .atcc-of-row { border-top: 1px solid rgba(255,255,255,0.06); }

@@ -230,6 +230,8 @@ export const MobileLandingChromeUI = {
                     <button type="button" class="ios-seg-btn is-on" data-atc-view="airports">Airports</button>
                     <button type="button" class="ios-seg-btn" data-atc-view="network">Network</button>
                     <button type="button" class="ios-seg-btn" data-atc-view="nearby">Nearby</button>
+                    <button type="button" class="ios-seg-btn ios-seg-rate" onclick="window.dispatchEvent(new CustomEvent('openRateMyAtc'))"
+                            title="RateMyATC board">★ Rate</button>
                 </div>
                 <div class="ios-atc-search">
                     <i class="fa-solid fa-magnifying-glass"></i>

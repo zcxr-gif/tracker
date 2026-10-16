@@ -63,6 +63,7 @@ import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
 import { RecentItems } from './recentItems.js';
 import { AtcKudos } from './atcKudos.js';
+import { RateMyAtcBoard } from './rateMyAtcBoard.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
 import './notifications.js';
@@ -87,6 +88,10 @@ PreferenceSync.init(supabase);
 // airport windows and on profiles, and the controller's own new-kudos alert.
 // See atcKudos.js.
 AtcKudos.init(supabase);
+// The RateMyATC board (top rated, most kudos, live now). Opened by the
+// `openRateMyAtc` event from the nav orb, toolbar, phone ATC sheet, airport
+// window and profiles.
+RateMyAtcBoard.init(supabase);
 
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
