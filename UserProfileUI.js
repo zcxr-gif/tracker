@@ -40,7 +40,9 @@ export const UserProfileUI = {
 
     /* ─────────────────────────── Public API ─────────────────────────── */
 
-    open({ username, userId = null } = {}) {
+    // `focus: 'commendations'` scrolls to the ATC commendations section once
+    // the profile has loaded (the controller rows' "View" button uses it).
+    open({ username, userId = null, focus = null } = {}) {
         if (!username) return;
         this._injectStyles();
         this._buildShell();
@@ -61,6 +63,7 @@ export const UserProfileUI = {
             loadingMore: false,
             expandedFlights: new Set(),
             liveFeature,
+            focus,
         };
 
         const root = document.getElementById('user-profile-sheet');
@@ -400,6 +403,7 @@ export const UserProfileUI = {
         body.innerHTML = [
             this._renderLiveCard(),
             this._renderStatsSection(),
+            this._renderCommendationsSection(),
             this._renderReplaysSection(),
             this._renderLogbookSection(),
             `<a class="ups-community-link" href="https://community.infiniteflight.com/u/${encodeURIComponent(d.username)}/summary" target="_blank" rel="noopener">
@@ -410,6 +414,27 @@ export const UserProfileUI = {
         ].join('');
 
         this._hydratePhotos();
+        this._hydrateCommendations();
+    },
+
+    // ATC commendations other pilots left for this user while they controlled.
+    // Filled by atcCommendations.js, which owns the data and the markup.
+    _renderCommendationsSection() {
+        if (!this._data?.userId || !window.InflightCommendations) return '';
+        return `<div class="ups-section" id="ups-commendations"></div>`;
+    },
+
+    _hydrateCommendations() {
+        const el = document.getElementById('ups-commendations');
+        const d = this._data;
+        if (!el || !d?.userId || !window.InflightCommendations) return;
+        const p = window.InflightCommendations.renderProfileInto(el, d.userId, d.username);
+        if (d.focus === 'commendations') {
+            d.focus = null;
+            Promise.resolve(p).then(() => {
+                try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {}
+            });
+        }
     },
 
     // Lazily resolve real aircraft photos for any [data-photo-reg] slot in the

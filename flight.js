@@ -62,6 +62,7 @@ import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
 import { RecentItems } from './recentItems.js';
+import { AtcCommendations } from './atcCommendations.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
 import './notifications.js';
@@ -81,6 +82,10 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // nothing at all for a free account; see preferenceSync.js for the allowlist of
 // what may travel (and the list of what must never).
 PreferenceSync.init(supabase);
+
+// Thumbs-up / Good Day buttons on live controller rows, and the commendations
+// shown in airport windows and on profiles. See atcCommendations.js.
+AtcCommendations.init(supabase);
 
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
@@ -15767,7 +15772,8 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
         let atcHtml = airportAtc.length === 0
             ? '<div style="padding: 20px; text-align: center; color: #71717a;">No active frequencies.</div>'
-            : `<div style="padding: 12px;">${airportAtc.map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
+            : `<div style="padding: 12px;">${airportAtc.map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span>${AtcCommendations.controlsHTML(f)}</div>`).join('')}</div>`;
+        atcHtml += AtcCommendations.airportSectionHTML(icao);
 
         // --- ATC Replay History (recorded controller sessions for this field) ---
         const atcSessions = await fetchAtcSessionsForAirport(icao);
@@ -21083,6 +21089,7 @@ const AtcBoardUI = {
                     <span class="d-atc-ctrl-user">${this._esc(f.username || 'Unknown controller')}</span>
                     ${meta ? `<span class="d-atc-ctrl-meta">${this._esc(meta)}</span>` : ''}
                 </span>
+                ${AtcCommendations.controlsHTML(f)}
             </div>`;
     },
 
