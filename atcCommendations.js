@@ -148,8 +148,10 @@ export const AtcCommendations = {
         const mine = c.my_kind && this._sameSession(c.my_session_started_at, el.dataset.atccStart) ? c.my_kind : null;
         el.querySelectorAll('[data-atcc-act="thumbs_up"],[data-atcc-act="good_day"]').forEach(b => {
             const on = b.dataset.atccAct === mine;
+            const label = KINDS[b.dataset.atccAct].label;
             b.classList.toggle('is-on', on);
             b.setAttribute('aria-pressed', on ? 'true' : 'false');
+            b.title = on ? `You sent ${label} — press again to take it back` : `${label} — thank this controller`;
         });
     },
 
@@ -192,7 +194,33 @@ export const AtcCommendations = {
             startTime: row.dataset.atccStart,
         };
         if (act === 'view') return this.openProfile(f.username, f.userId);
-        if (act === 'thumbs_up' || act === 'good_day') this._openCompose(f, act);
+        if (act === 'thumbs_up' || act === 'good_day') {
+            // Pressing your own highlighted button again takes it back.
+            if (btn.classList.contains('is-on')) return this._withdraw(f, act);
+            this._openCompose(f, act);
+        }
+    },
+
+    async _withdraw(f, kind) {
+        const { error } = await this._sb.rpc('atc_commendation_withdraw', {
+            p_controller_if_id: f.userId,
+            p_session_started_at: new Date(f.startTime).toISOString(),
+        });
+        if (error) {
+            this._notify(error.message || 'Could not take that back. Try again.', 'error');
+            return;
+        }
+        this._notify(`${KINDS[kind].label} withdrawn.`, 'info');
+        await this._refreshAfterChange(f);
+    },
+
+    async _refreshAfterChange(f) {
+        await this._ensureCounts([f.userId], true);
+        this._repaintAll(f.userId);
+        document.querySelectorAll(`.atcc-airport[data-atcc-airport="${CSS.escape(f.airportName || '')}"]`)
+            .forEach(el => this._fillAirport(el));
+        document.querySelectorAll(`.atcc-profile[data-atcc-profile="${CSS.escape(f.userId)}"]`)
+            .forEach(el => this.renderProfileInto(el, f.userId, f.username));
     },
 
     // Opens the controller's profile scrolled to their commendations.
@@ -298,12 +326,7 @@ export const AtcCommendations = {
 
         this._closeCompose();
         this._notify(`${KINDS[c.kind].short} Sent to ${c.f.username || 'the controller'} — thanks for supporting ATC!`, 'success');
-        await this._ensureCounts([c.f.userId], true);
-        this._repaintAll(c.f.userId);
-        document.querySelectorAll(`.atcc-airport[data-atcc-airport="${CSS.escape(c.f.airportName || '')}"]`)
-            .forEach(el => this._fillAirport(el));
-        document.querySelectorAll(`.atcc-profile[data-atcc-profile="${CSS.escape(c.f.userId)}"]`)
-            .forEach(el => this.renderProfileInto(el, c.f.userId, c.f.username));
+        await this._refreshAfterChange(c.f);
     },
 
     /* ─────────────────────────── Airport window ─────────────────────────── */
