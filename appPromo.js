@@ -4,10 +4,9 @@
  * Three quiet surfaces, one link:
  *   1. iPhone Safari gets Apple's own Smart App Banner (the apple-itunes-app
  *      meta in index.html / home.html). Nothing here duplicates it.
- *   2. A one-time corner card — on desktop with a QR code to scan with the
- *      phone, on iPhone/iPad browsers other than Safari with a Get button.
- *      Never on a visit that already has the What's New popup or card, never
- *      over a sheet or a flight link, and it leaves by itself.
+ *   2. A corner card — on desktop with a QR code to scan with the phone, on
+ *      iPhone/iPad browsers other than Safari with a Get button. Only when
+ *      something calls showCard(); it no longer pops up on its own.
  *   3. A permanent card in Settings › What's New (desktop) and a row in the
  *      phone Settings (MobileSettingsUI.js), via cardHtml() / rowHtml().
  *
@@ -158,19 +157,9 @@
     // The one-time corner card
     // ---------------------------------------------------------------------
 
-    function seen() {
-        try { return localStorage.getItem(SEEN_KEY) === '1'; } catch (_) { return true; }
-    }
     function markSeen() {
         try { localStorage.setItem(SEEN_KEY, '1'); } catch (_) { /* private mode */ }
     }
-
-    // Anything that means "someone is in the middle of something".
-    const BLOCKERS = [
-        '#inflight-pro-loader-overlay', '#fre-overlay', '#fre-window-demo', '.cl-overlay', '.cl-nudge',
-        '#auth-modal-overlay.open', '.iadj-overlay', '.acs-overlay', '.pst-overlay', '.pcp-overlay',
-        '#global-settings-modal-overlay.open', '.mobile-sheet-overlay.visible', '.modal-overlay.open'
-    ].join(', ');
 
     let cardEl = null;
     function closeCard() {
@@ -209,41 +198,6 @@
         document.body.appendChild(cardEl);
         requestAnimationFrame(() => requestAnimationFrame(() => cardEl && cardEl.classList.add('visible')));
         arm(25000);
-    }
-
-    function maybeShowCard() {
-        if (!canPromote || isIOSSafari || seen()) return;
-
-        // One announcement per visit: if What's New is due this time, the app
-        // waits for the next one.
-        try {
-            const cl = window.InflightChangelog;
-            if (cl && localStorage.getItem('inflight_changelog_seen') !== cl.latestVersion) return;
-        } catch (_) { return; }
-
-        // Flight and replay links land on a window; leave those visits alone.
-        try {
-            const p = new URLSearchParams(window.location.search || '');
-            if (p.get('flight') || p.get('replay') ||
-                sessionStorage.getItem('inflight_share_payload') ||
-                sessionStorage.getItem('inflight_replay_payload')) return;
-        } catch (_) { /* non-fatal */ }
-
-        const started = Date.now();
-        const attempt = () => {
-            if (seen()) return;
-            const free = document.readyState === 'complete' && !document.hidden && !document.querySelector(BLOCKERS);
-            if (free) showCard();
-            else if (Date.now() - started < 6 * 60 * 1000) setTimeout(attempt, 15000);
-        };
-        // A little while into the visit, once the map has had its moment.
-        setTimeout(attempt, 40000);
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', maybeShowCard, { once: true });
-    } else {
-        maybeShowCard();
     }
 
     window.InflightAppPromo = {

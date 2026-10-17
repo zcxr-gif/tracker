@@ -1,22 +1,15 @@
 /**
  * changelog.js — "What's New" release notes for the live tracker.
  *
- * Two surfaces, one data source (RELEASES below):
- *   1. A one-time popup after the loading screen — shown once per release
- *      (localStorage 'inflight_changelog_seen' remembers the last version
- *      the user has been shown).
- *   2. A browsable changelog inside Settings — the desktop Global Settings
- *      modal hosts renderSettingsPanel(); the mobile Settings sheet's More
- *      tab opens the full modal via open().
+ * One data source (RELEASES below), read in Settings — the desktop Global
+ * Settings modal hosts renderSettingsPanel(); the mobile Settings sheet's
+ * More tab opens the full modal via open(). Nothing pops up on its own when
+ * the site loads: pilots read the notes when they choose to.
  *
  * To ship notes for a new update: prepend a release object to RELEASES.
- * The popup re-arms automatically because the stored "seen" id no longer
- * matches the newest release id.
- *
- * A release marked `quiet: true` is not announced with the popup: a small
- * card sits in the corner instead ("Take a look" / "What's new" / dismiss),
- * and fades away on its own. An entry's `action` adds a button that takes
- * the pilot straight to the feature (ACTIONS below).
+ * An entry's `action` adds a button that takes the pilot straight to the
+ * feature (ACTIONS below). `quiet` and `nudge` are left on older releases
+ * and only matter if something calls showNudge().
  *
  * Exposed as window.InflightChangelog. Loaded as a plain (non-module)
  * script alongside vaAds.js.
@@ -28,6 +21,50 @@
 
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
+        {
+            id: '2026.10.17',
+            date: 'October 2026',
+            title: 'Thank Your Controller',
+            tagline: 'Kudos and RateMyATC for the controllers who open a frequency, a calmer airport window, and far fewer popups.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-thumbs-up',
+                    text: 'Kudos: one tap on 👍 Thumbs up or ☀️ Good Day under any controller on frequency — in the airport window, the ATC board and the phone’s ATC sheet. Add a short public note if you like, or tap again to take it back.'
+                },
+                {
+                    tag: 'new', icon: 'fa-star', action: 'ratemyatc',
+                    text: 'RateMyATC: give a controller’s session 1 to 5 stars. Every star counts toward their public rating. A comment on a 4–5★ rating shows on their profile; a comment on 1–3★ goes privately to that controller, and nobody else sees it. Appealing a violation still goes through the Infinite Flight Community.'
+                },
+                {
+                    tag: 'new', icon: 'fa-ranking-star', action: 'ratemyatc',
+                    text: 'The RateMyATC board: top-rated controllers, most kudos and who’s on frequency now, over 30 days or all time. Open it from the ★ on the map toolbar, the ATC sheet or an airport’s On frequency card.'
+                },
+                {
+                    tag: 'new', icon: 'fa-share-nodes', action: 'atc-page',
+                    text: 'The RateMyATC page at inflight.info/atc: the board, the numbers, what pilots are saying — and a page for every controller at inflight.info/atc/their-name, with a Share button. Controllers, put yours in your IFC profile.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-tower-broadcast',
+                    text: 'The airport window, decluttered: who’s on frequency comes first, weather and ATIS fold into one line that opens on tap, and four tabs become three — Traffic, ATC and Info.'
+                },
+                {
+                    tag: 'new', icon: 'fa-map-pin',
+                    text: 'Staffed airports on the map show their controllers’ rating and kudos under the frequencies, e.g. “Rated 4.7 · 12 kudos”.'
+                },
+                {
+                    tag: 'new', icon: 'fa-plane-up',
+                    text: 'Pilots who also control wear their RateMyATC record on the pilot card in every flight window — “★ 4.7 ATC”. Controllers with an InFlight profile show their picture and banner on the board and on their RateMyATC page.'
+                },
+                {
+                    tag: 'new', icon: 'fa-id-badge',
+                    text: 'Profiles show a controller’s RateMyATC stars, comments and kudos. Control on Infinite Flight? Put your IF username on your profile and a gold badge lets you know when pilots thank or rate you — private feedback included.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-bell-slash',
+                    text: 'Fewer popups when you arrive: no more flight-window picker, What’s New popup, App Store card, photo invite or picture prompt. These notes now live here in Settings, and the Halloween greeting shows once.'
+                }
+            ]
+        },
         {
             id: '2026.09.29',
             date: 'September 2026',
@@ -791,6 +828,9 @@
         'account-email': { label: 'Change email', run: () => window.openAccountEmail && window.openAccountEmail() },
         // Opened inside the click itself, or the browser treats it as a popup.
         'ios-app': { label: 'Get it on the App Store', now: true, run: () => window.InflightAppPromo && window.InflightAppPromo.open() },
+        // Opened inside the click itself, or the browser treats it as a popup.
+        'atc-page': { label: 'Open the RateMyATC page', now: true, run: () => window.open('/atc', '_blank', 'noopener') },
+        'ratemyatc': { label: 'Open the RateMyATC board', run: () => window.dispatchEvent(new CustomEvent('openRateMyAtc', { detail: { tab: 'top' } })) },
     };
     function runAction(id) {
         const a = ACTIONS[id];
@@ -1189,78 +1229,6 @@
         document.body.appendChild(nudgeEl);
         requestAnimationFrame(() => requestAnimationFrame(() => nudgeEl && nudgeEl.classList.add('visible')));
         arm(18000);
-    }
-
-    // ---------------------------------------------------------------------
-    // One-time popup after the loading screen
-    // ---------------------------------------------------------------------
-
-    function maybeShowOnBoot() {
-        // Share-link arrivals land straight on a flight window — don't stack a
-        // popup on top of it. They'll get the notes on their next normal visit.
-        try {
-            const p = new URLSearchParams(window.location.search || '');
-            if (p.get('flight') || p.get('replay') ||
-                sessionStorage.getItem('inflight_share_payload') ||
-                sessionStorage.getItem('inflight_replay_payload')) return;
-        } catch (_) { /* non-fatal */ }
-
-        // Already seen this release (or storage is unreadable — in that case we
-        // can't remember showing it, so never nag on every load).
-        let seen;
-        try { seen = localStorage.getItem(SEEN_KEY); } catch (_) { return; }
-        if (seen === LATEST.id) return;
-
-        // Wait for the splash overlay to dismiss itself (it's removed from the
-        // DOM — see index.html), then for the first-run gate (ToS acceptance +
-        // flight-window picker) to finish, then let the UI settle for a beat.
-        // Without the gate wait, a brand-new user got the legal modal, the
-        // window picker AND this popup stacked on top of each other.
-        const started = Date.now();
-        const timer = setInterval(() => {
-            const splashGone = !document.getElementById('inflight-pro-loader-overlay');
-            const loaded = document.readyState === 'complete';
-            if (splashGone && loaded) {
-                clearInterval(timer);
-                waitForFirstRunGate().then(() => {
-                    setTimeout(() => {
-                        // Mark seen the moment it shows so it truly appears once,
-                        // even if the tab dies before the user taps the button.
-                        markSeen();
-                        if (LATEST.quiet) showNudge();
-                        else showModal({ popup: true });
-                    }, 900);
-                });
-            } else if (Date.now() - started > 30000) {
-                clearInterval(timer); // splash never cleared — skip this session
-            }
-        }, 400);
-    }
-
-    // flight.js publishes window.__inflightFirstRunPromise when the onboarding
-    // gate starts (firstRunExperience.js resolves it when both steps finish;
-    // returning users resolve immediately). It's created a beat into boot, so
-    // poll briefly for it to appear before awaiting it. Fails open so a boot
-    // hiccup can only ever delay the popup, never permanently eat it.
-    async function waitForFirstRunGate() {
-        const t0 = Date.now();
-        while (!window.__inflightFirstRunPromise && Date.now() - t0 < 20000) {
-            await new Promise((r) => setTimeout(r, 200));
-        }
-        try {
-            if (window.__inflightFirstRunPromise) {
-                await Promise.race([
-                    window.__inflightFirstRunPromise,
-                    new Promise((r) => setTimeout(r, 10 * 60 * 1000))
-                ]);
-            }
-        } catch (_) { /* never block What's New on gate errors */ }
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', maybeShowOnBoot, { once: true });
-    } else {
-        maybeShowOnBoot();
     }
 
     // ---------------------------------------------------------------------

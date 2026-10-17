@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>RateMyATC | InFlight ATC</title>
+
+    <meta name="description" content="RateMyATC — thank and rate the Infinite Flight controllers who open a frequency. Top-rated controllers, most kudos, and every controller's own page.">
+    <link rel="canonical" href="https://inflight.info/atc">
+    <meta name="theme-color" content="#16181d">
+    <link rel="icon" href="/Images/inflight.png">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="InFlight">
+    <meta property="og:title" content="RateMyATC — InFlight">
+    <meta property="og:description" content="Thank and rate the Infinite Flight controllers who open a frequency. See who pilots rate highest.">
+    <meta property="og:url" content="https://inflight.info/atc">
+    <meta property="og:image" content="https://inflight.info/Images/og-banner.png">
+    <meta name="twitter:card" content="summary_large_image">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+    <style>
+        /* ==================================================================
+           InFlight ATC — the RateMyATC page. Same print-like layout as the
+           Spotters gallery: gray page, white panels with gray title bars,
+           one black masthead. Paths are absolute because this document is
+           also served at /atc/<controller>.
+           ================================================================== */
+        :root {
+            color-scheme: light;
+            --page:   #e7e9ec;
+            --card:   #ffffff;
+            --panel-head: #f2f4f6;
+            --head:   #16181d;
+            --ink:    #15181d;
+            --ink2:   #4d5561;
+            --muted:  #858d99;
+            --line:   #d3d8de;
+            --link:   #0b63ce;
+            --link-dk:#0a58b5;
+            --gold:   #c08a00;
+            --star:   #eda100;
+            /* Chart series (validated pair: dataviz reference slots 1 and 2). */
+            --s-ratings: #2a78d6;
+            --s-kudos:   #eb6834;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            background: var(--page); color: var(--ink);
+            min-height: 100vh; display: flex; flex-direction: column;
+            -webkit-font-smoothing: antialiased;
+        }
+        img { display: block; max-width: 100%; }
+        button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+        a { color: inherit; text-decoration: none; }
+        input { font: inherit; }
+        .wrap { width: 100%; max-width: 1360px; margin: 0 auto; padding: 0 16px; }
+        .muted { color: var(--muted); }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* ---------------- Masthead ---------------- */
+        .masthead { color: #fff; padding: 12px 0 0; position: relative; z-index: 40; }
+        .masthead-inner {
+            display: flex; align-items: center; gap: 14px;
+            height: 66px; padding: 0 16px;
+            background: var(--head); border-radius: 16px;
+            box-shadow: 0 6px 20px rgba(21, 24, 29, .18);
+        }
+        .brand { display: inline-flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+        .brand-logo { width: 34px; height: 34px; object-fit: contain; }
+        .brand-mark { display: flex; flex-direction: column; line-height: 1; }
+        .brand-word { font-size: 1.05rem; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+        .brand-sub { margin-top: 3px; font-size: .55rem; font-weight: 700; letter-spacing: .43em; text-transform: uppercase; color: #f2c14e; }
+        .mast-nav { display: none; gap: 4px; margin-left: 8px; }
+        .mast-link { padding: 8px 12px; border-radius: 7px; font-size: .82rem; font-weight: 600; color: #c3cad4; }
+        .mast-link:hover { color: #fff; background: rgba(255,255,255,.08); }
+        .mast-link.active { color: #fff; background: rgba(255,255,255,.14); }
+        .spacer { flex: 1 1 auto; }
+        .search { position: relative; flex: 1 1 260px; max-width: 340px; min-width: 0; }
+        .search input {
+            width: 100%; height: 38px; background: #fff; color: var(--ink);
+            border: 1px solid #3a4049; border-radius: 6px; padding: 0 12px 0 34px; font-size: .86rem;
+        }
+        .search input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+        .search .ic { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: #7c8492; pointer-events: none; }
+        .results {
+            position: absolute; top: 44px; left: 0; right: 0; z-index: 50;
+            background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+            box-shadow: 0 12px 30px rgba(21,24,29,.18); overflow: hidden; display: none;
+        }
+        .results.show { display: block; }
+        .result { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; text-align: left; border-bottom: 1px solid #edeff2; }
+        .result:last-child { border-bottom: 0; }
+        .result:hover, .result.hl { background: #f3f8ff; }
+        .result b { font-size: .86rem; }
+        .result .meta { margin-left: auto; font-size: .74rem; color: var(--ink2); white-space: nowrap; }
+        .result-empty { padding: 12px; font-size: .82rem; color: var(--muted); }
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            height: 38px; padding: 0 16px; border-radius: 6px; background: var(--link); color: #fff;
+            font-size: .84rem; font-weight: 700; white-space: nowrap;
+        }
+        .btn:hover { background: var(--link-dk); }
+        .btn.ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.35); }
+        .btn.ghost:hover { background: rgba(255,255,255,.1); }
+        .btn.light { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+        .btn.light:hover { background: #f3f5f8; }
+        .map-btn .lbl { display: none; }
+        @media (min-width: 900px) { .mast-nav { display: flex; } .map-btn .lbl { display: inline; } }
+        @media (max-width: 560px) { .brand-mark { display: none; } }
+
+        /* ---------------- Announcement ---------------- */
+        .announce {
+            position: relative; overflow: hidden; margin-top: 16px;
+            border-radius: 16px; color: #fff;
+            background:
+                radial-gradient(ellipse 60% 120% at 100% 0%, rgba(242,193,78,.28), transparent 60%),
+                radial-gradient(ellipse 50% 90% at 0% 100%, rgba(42,120,214,.35), transparent 65%),
+                linear-gradient(135deg, #1b2230, #121419 70%);
+            box-shadow: 0 10px 30px rgba(21,24,29,.22);
+        }
+        .announce-inner { display: grid; gap: 22px; padding: 28px 22px; }
+        @media (min-width: 900px) { .announce-inner { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); padding: 36px 36px; align-items: center; } }
+        .new-pill {
+            display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+            background: rgba(242,193,78,.16); border: 1px solid rgba(242,193,78,.45); color: #f6d27a;
+            font-size: .66rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+        }
+        .announce h1 { margin: 12px 0 10px; font-size: clamp(1.6rem, 3.4vw, 2.4rem); line-height: 1.12; font-weight: 900; letter-spacing: -.01em; }
+        .announce p { margin: 0; color: #c9d0da; font-size: .95rem; line-height: 1.55; max-width: 60ch; }
+        .announce-ctas { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+        .how { display: grid; gap: 10px; }
+        .how-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); }
+        .how-ic { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 1.05rem; background: rgba(255,255,255,.08); }
+        .how-item b { display: block; font-size: .88rem; margin-bottom: 2px; }
+        .how-item span { font-size: .8rem; color: #b8c0cc; line-height: 1.45; }
+
+        /* ---------------- Panels ---------------- */
+        .panel { background: var(--card); border: 1px solid var(--line); border-radius: 4px; margin-bottom: 16px; }
+        .panel-head {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 9px 12px; background: var(--panel-head); border-bottom: 1px solid var(--line);
+            font-size: .66rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--ink2);
+        }
+        .panel-body { padding: 12px; }
+        .layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; padding: 16px 0 28px; }
+        @media (min-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr) 340px; } }
+
+        .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; background: #fff; }
+        .seg button { padding: 5px 10px; font-size: .74rem; font-weight: 700; color: var(--ink2); border-right: 1px solid var(--line); letter-spacing: 0; text-transform: none; }
+        .seg button:last-child { border-right: 0; }
+        .seg button:hover { background: #f2f5f9; }
+        .seg button.on { background: var(--link); color: #fff; }
+
+        /* ---------------- Numbers ---------------- */
+        .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        @media (min-width: 720px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1100px) { .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+        .stat { padding: 14px 14px 12px; border-right: 1px solid #edeff2; border-bottom: 1px solid #edeff2; }
+        .stat .v { font-size: 1.55rem; font-weight: 900; letter-spacing: -.02em; line-height: 1.1; }
+        .stat .l { margin-top: 4px; font-size: .64rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+
+        /* ---------------- Board ---------------- */
+        .tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; padding: 0 6px; border-bottom: 1px solid var(--line); }
+        .tab { position: relative; flex: 0 0 auto; padding: 12px 12px; font-size: .82rem; font-weight: 700; color: var(--ink2); white-space: nowrap; }
+        .tab:hover { color: var(--ink); }
+        .tab.active { color: var(--link); }
+        .tab.active::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: 5px; height: 3px; background: var(--link); border-radius: 3px; }
+        .board-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #edeff2; }
+        .board-tools input { height: 32px; border: 1px solid var(--line); border-radius: 5px; padding: 0 10px; font-size: .8rem; min-width: 0; flex: 1 1 180px; max-width: 260px; }
+        .row {
+            display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+            padding: 11px 12px; border-bottom: 1px solid #edeff2;
+        }
+        .row:last-child { border-bottom: 0; }
+        .row:hover { background: #fafbfc; }
+        .av {
+            flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%; overflow: hidden;
+            display: grid; place-items: center; background: #c9ced6; color: #3a414c;
+            font-size: .72rem; font-weight: 800; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(21,24,29,.25);
+        }
+        .av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .who-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .result .av { width: 28px; height: 28px; font-size: .62rem; border-width: 1.5px; }
+        .rank { font-size: .95rem; font-weight: 900; color: var(--muted); text-align: center; }
+        .rank.r1, .rank.r2, .rank.r3 { color: var(--gold); }
+        .who b { display: block; font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .who span { font-size: .74rem; color: var(--ink2); }
+        .nums { text-align: right; white-space: nowrap; }
+        .nums .r { font-size: .95rem; font-weight: 800; }
+        .nums .k { font-size: .74rem; color: var(--ink2); }
+        .empty { padding: 26px 16px; text-align: center; color: var(--muted); font-size: .86rem; line-height: 1.5; }
+
+        /* ---------------- Stars ---------------- */
+        .stars { position: relative; display: inline-block; font-size: 1em; line-height: 1; letter-spacing: 1px; color: #d7dbe1; white-space: nowrap; }
+        .stars .fill { position: absolute; inset: 0 auto 0 0; overflow: hidden; color: var(--star); }
+
+        /* ---------------- Charts ---------------- */
+        .legend { display: flex; gap: 14px; font-size: .74rem; color: var(--ink2); padding: 0 12px 4px; }
+        .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+        .bars { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 120px; padding: 8px 12px 0; }
+        .bar { position: relative; flex: 1 1 0; height: 100%; display: flex; flex-direction: column-reverse; gap: 2px; cursor: default; }
+        .bar .seg-k { background: var(--s-kudos); }
+        .bar .seg-r { background: var(--s-ratings); }
+        .bar > span { display: block; min-height: 0; }
+        .bar > span:last-child { border-radius: 4px 4px 0 0; }
+        .bar:hover > span { filter: brightness(.9); }
+        .bars-axis { display: flex; justify-content: space-between; padding: 4px 12px 10px; font-size: .66rem; color: var(--muted); border-top: 1px solid #edeff2; margin: 0 12px; padding-left: 0; padding-right: 0; }
+        .tip {
+            position: fixed; z-index: 60; pointer-events: none; display: none;
+            background: #16181d; color: #fff; padding: 7px 9px; border-radius: 6px;
+            font-size: .74rem; line-height: 1.45; box-shadow: 0 6px 18px rgba(0,0,0,.25);
+        }
+        .hbar { display: grid; grid-template-columns: 26px minmax(0, 1fr) 40px; gap: 8px; align-items: center; font-size: .78rem; padding: 3px 0; }
+        .hbar .track { height: 8px; background: #edeff2; border-radius: 4px; overflow: hidden; }
+        .hbar .track span { display: block; height: 100%; background: var(--star); border-radius: 0 4px 4px 0; }
+        .hbar .n { text-align: right; color: var(--ink2); font-variant-numeric: tabular-nums; }
+        details.table { padding: 0 12px 10px; font-size: .76rem; color: var(--ink2); }
+        details.table table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        details.table td, details.table th { padding: 3px 4px; border-bottom: 1px solid #edeff2; text-align: right; }
+        details.table td:first-child, details.table th:first-child { text-align: left; }
+
+        .list-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #edeff2; font-size: .82rem; }
+        .list-row:last-child { border-bottom: 0; }
+        .list-row .icao { font-family: 'JetBrains Mono', monospace; font-weight: 600; width: 46px; }
+        .list-row .grow { flex: 1 1 auto; min-width: 0; color: var(--ink2); }
+        .list-row .right { text-align: right; white-space: nowrap; }
+
+        .quote { padding: 12px; border-bottom: 1px solid #edeff2; }
+        .quote:last-child { border-bottom: 0; }
+        .quote p { margin: 0 0 5px; font-size: .88rem; line-height: 1.5; }
+        .quote .by { font-size: .74rem; color: var(--ink2); }
+        .quote .by a { color: var(--link); font-weight: 600; }
+        .quote .by a:hover { text-decoration: underline; }
+
+        /* ---------------- Controller page ---------------- */
+        .ctl-banner {
+            position: relative; height: 150px; border-radius: 4px 4px 0 0;
+            background: linear-gradient(135deg, #1b2230, #2a3446 60%, #3a4660);
+            background-size: cover; background-position: center;
+        }
+        .ctl-banner::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,.35)); }
+        @media (min-width: 720px) { .ctl-banner { height: 190px; } }
+        .ctl-avatar {
+            position: relative; z-index: 1; width: 96px; height: 96px; margin: -56px 0 0 18px;
+            border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+            background: #2a3446; color: #fff; font-size: 1.6rem; font-weight: 900;
+            border: 4px solid #fff; box-shadow: 0 6px 18px rgba(21,24,29,.25);
+        }
+        .ctl-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .ctl-avatar.pro { border-color: var(--accent, #f5c451); }
+        .ctl-profile-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: .8rem; font-weight: 700; color: var(--link); }
+        .ctl-profile-link:hover { text-decoration: underline; }
+        .ctl-head { display: grid; gap: 18px; padding: 10px 18px 20px; }
+        @media (min-width: 720px) { .ctl-head { grid-template-columns: minmax(0, 1fr) auto; align-items: center; } }
+        .ctl-name { margin: 0; font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 900; letter-spacing: -.01em; overflow-wrap: anywhere; }
+        .ctl-sub { margin-top: 6px; font-size: .84rem; color: var(--ink2); }
+        .ctl-score { display: flex; gap: 22px; align-items: center; }
+        .big { font-size: 2.8rem; font-weight: 900; line-height: 1; letter-spacing: -.03em; }
+        .ctl-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 18px 18px; }
+        .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: .76rem; font-weight: 700; color: var(--ink2); }
+        .chip.gold { background: #fff8e6; border-color: #f0d08a; color: #7a5600; }
+        .back { display: inline-flex; align-items: center; gap: 6px; margin: 16px 0 0; font-size: .82rem; font-weight: 700; color: var(--link); }
+        .back:hover { text-decoration: underline; }
+        .notice { padding: 12px 14px; font-size: .82rem; color: var(--ink2); line-height: 1.55; }
+        .notice a { color: var(--link); font-weight: 600; }
+        .toast {
+            position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; z-index: 70;
+            background: #16181d; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: .84rem; font-weight: 600;
+            transition: opacity .2s ease, transform .2s ease; pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+        .skel { background: linear-gradient(90deg, #dfe3e8 25%, #eef1f4 50%, #dfe3e8 75%); background-size: 200% 100%; animation: sh 1.3s infinite; border-radius: 4px; }
+        @keyframes sh { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+        @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+        .view { display: none; }
+        .view.on { display: block; }
+
+        /* ---------------- Footer ---------------- */
+        .foot { margin-top: auto; background: var(--head); color: #aeb6c2; }
+        .foot-cols { display: grid; grid-template-columns: repeat(2, 1fr); gap: 26px; padding: 32px 0; }
+        @media (min-width: 720px) { .foot-cols { grid-template-columns: repeat(4, 1fr); } }
+        .foot h4 { margin: 0 0 10px; font-size: .62rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #7d8695; }
+        .foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+        .foot li a { font-size: .84rem; color: #ccd2da; }
+        .foot li a:hover { color: #fff; }
+        .foot-base { border-top: 1px solid rgba(255,255,255,.08); padding: 14px 0; text-align: center; font-size: .68rem; color: #79828f; letter-spacing: .06em; }
+    </style>
+</head>
+<body>
+
+    <header class="masthead">
+        <div class="wrap">
+            <div class="masthead-inner">
+                <a class="brand" href="/atc" data-nav="home" aria-label="InFlight ATC — home">
+                    <img class="brand-logo" src="/Images/inflight-mark.png" alt="" onerror="this.onerror=null;this.style.display='none';">
+                    <span class="brand-mark">
+                        <span class="brand-word">InFlight</span>
+                        <span class="brand-sub">RateMyATC</span>
+                    </span>
+                </a>
+                <nav class="mast-nav">
+                    <a class="mast-link" href="/atc" data-nav="home" data-section="numbers">Overview</a>
+                    <a class="mast-link" href="/atc#board" data-nav="home" data-section="board">Board</a>
+                    <a class="mast-link" href="/atc#words" data-nav="home" data-section="words">What pilots say</a>
+                    <a class="mast-link" href="/gallery.html">Spotters</a>
+                </nav>
+                <div class="spacer"></div>
+                <div class="search" role="search">
+                    <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                    <input id="search" type="search" autocomplete="off" spellcheck="false" placeholder="Find a controller…" aria-label="Find a controller by Infinite Flight name" aria-controls="results">
+                    <div id="results" class="results" role="listbox"></div>
+                </div>
+                <a class="btn map-btn" href="/index.html" title="Open the live map">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>
+                    <span class="lbl">Live map</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="wrap">
+
+        <!-- ===================== Overview ===================== -->
+        <div id="home-view" class="view on">
+
+            <!-- The announcement. On the page, not a popup. -->
+            <section class="announce" aria-labelledby="announce-title">
+                <div class="announce-inner">
+                    <div>
+                        <span class="new-pill">★ New · RateMyATC</span>
+                        <h1 id="announce-title">Thank the controllers who open the frequency.</h1>
+                        <p>Infinite Flight controllers volunteer their time — often at fields that would otherwise be uncontrolled. Now you can say thanks in one tap, rate the session, and see who pilots rate highest. Every controller has a page of their own to share.</p>
+                        <div class="announce-ctas">
+                            <a class="btn" href="/index.html">Rate a controller on the live map</a>
+                            <a class="btn ghost" href="#board" data-section="board">See the board</a>
+                        </div>
+                    </div>
+                    <div class="how">
+                        <div class="how-item"><span class="how-ic" aria-hidden="true">👍</span><div><b>Kudos in one tap</b><span>👍 Thumbs up or ☀️ Good Day under any controller on frequency — in the airport window, the ATC board or the app.</span></div></div>
+                        <div class="how-item"><span class="how-ic" aria-hidden="true">★</span><div><b>Rate the session, 1 to 5</b><span>Every star counts toward a controller's public rating. Comments on 4–5★ ratings show on their page.</span></div></div>
+                        <div class="how-item"><span class="how-ic" aria-hidden="true">🔒</span><div><b>Constructive, not public shaming</b><span>A comment on a 1–3★ rating goes privately to that controller — nobody else ever sees it.</span></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Numbers -->
+            <section class="panel" id="numbers" style="margin-top:16px">
+                <div class="panel-head">
+                    <span>RateMyATC in numbers</span>
+                    <div class="seg" role="group" aria-label="Period">
+                        <button type="button" data-days="30" class="on">30 days</button>
+                        <button type="button" data-days="0">All time</button>
+                    </div>
+                </div>
+                <div class="stats" id="stats">
+                    <div class="stat"><div class="v skel" style="height:28px;width:60%"></div><div class="l">Controllers thanked</div></div>
+                    <div class="stat"><div class="v skel" style="height:28px;width:60%"></div><div class="l">Pilots taking part</div></div>
+                    <div class="stat"><div class="v skel" style="height:28px;width:60%"></div><div class="l">Ratings</div></div>
+                    <div class="stat"><div class="v skel" style="height:28px;width:60%"></div><div class="l">Average rating</div></div>
+                    <div class="stat"><div class="v skel" style="height:28px;width:60%"></div><div class="l">Kudos</div></div>
+                    <div class="stat"><div class="v skel" style="height:28px;width:60%"></div><div class="l">Airports</div></div>
+                </div>
+            </section>
+
+            <div class="layout">
+                <div>
+                    <!-- Board -->
+                    <section class="panel" id="board">
+                        <div class="panel-head"><span>The board</span><span id="board-period" class="muted" style="letter-spacing:.06em">Last 30 days</span></div>
+                        <div class="tabs" role="tablist">
+                            <button class="tab active" data-tab="top" role="tab">★ Top rated</button>
+                            <button class="tab" data-tab="kudos" role="tab">👍 Most kudos</button>
+                            <button class="tab" data-tab="rated" role="tab">Most rated</button>
+                        </div>
+                        <div class="board-tools">
+                            <input id="board-filter" type="search" placeholder="Filter this list" aria-label="Filter the board">
+                            <span id="board-note" class="muted" style="font-size:.74rem">Top rated uses a weighted average and needs 3 ratings.</span>
+                        </div>
+                        <div id="board-rows"><div class="empty">Loading the board…</div></div>
+                    </section>
+
+                    <!-- Words -->
+                    <section class="panel" id="words">
+                        <div class="panel-head"><span>What pilots are saying</span><span class="muted" style="letter-spacing:.06em">4–5★ comments &amp; kudos notes</span></div>
+                        <div id="words-list"><div class="empty">Loading…</div></div>
+                    </section>
+                </div>
+
+                <aside>
+                    <section class="panel">
+                        <div class="panel-head"><span>Last 30 days</span></div>
+                        <div class="legend" style="padding-top:10px">
+                            <span><i style="background:var(--s-kudos)"></i>Kudos</span>
+                            <span><i style="background:var(--s-ratings)"></i>Ratings</span>
+                        </div>
+                        <div id="daily"><div class="bars"><div class="skel" style="width:100%;height:100%"></div></div></div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head"><span>How pilots rate</span></div>
+                        <div class="panel-body" id="dist"><div class="skel" style="height:80px"></div></div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head"><span>Busiest fields</span></div>
+                        <div id="airports"><div class="empty">Loading…</div></div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head"><span>By position</span></div>
+                        <div id="positions"><div class="empty">Loading…</div></div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head"><span>Appealing a violation?</span></div>
+                        <div class="notice">Kudos and ratings are for thanks and feedback. Official violation appeals and formal ATC feedback go through the <a href="https://community.infiniteflight.com/t/procedures-for-appealing-violations-and-providing-atc-feedback/795506" target="_blank" rel="noopener">Infinite Flight Community procedure</a>.</div>
+                    </section>
+                </aside>
+            </div>
+        </div>
+
+        <!-- ===================== A controller ===================== -->
+        <div id="ctl-view" class="view">
+            <a class="back" href="/atc" data-nav="home">← All controllers</a>
+            <div id="ctl-body" style="padding:12px 0 28px"></div>
+        </div>
+    </main>
+
+    <footer class="foot">
+        <div class="wrap">
+            <div class="foot-cols">
+                <div>
+                    <h4>RateMyATC</h4>
+                    <ul>
+                        <li><a href="/atc" data-nav="home">Overview</a></li>
+                        <li><a href="/atc#board" data-nav="home" data-section="board">The board</a></li>
+                        <li><a href="/atc#words" data-nav="home" data-section="words">What pilots say</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Flying</h4>
+                    <ul>
+                        <li><a href="/index.html">Live map</a></li>
+                        <li><a href="/month">Your Month</a></li>
+                        <li><a href="/gallery.html">Spotters</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>InFlight</h4>
+                    <ul>
+                        <li><a href="/home.html">Home</a></li>
+                        <li><a href="/privacy.html">Privacy</a></li>
+                        <li><a href="/terms.html">Terms</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Community</h4>
+                    <ul>
+                        <li><a href="https://discord.gg/cNSkZtdJ">Discord</a></li>
+                        <li><a href="https://community.infiniteflight.com/t/procedures-for-appealing-violations-and-providing-atc-feedback/795506" target="_blank" rel="noopener">IFC ATC feedback</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="foot-base">© 2026 InFlight — not affiliated with Infinite Flight LLC</div>
+    </footer>
+
+    <div id="tip" class="tip" role="tooltip"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script type="module">
+        // Pictures and banners: the controller's InFlight profile, matched on
+        // their IF name — the same join the flight window's pilot card uses.
+        import { PilotProfiles } from '/pilotProfiles.js';
+        window.__atcProfiles = PilotProfiles;
+        window.dispatchEvent(new Event('atc-profiles-ready'));
+    </script>
+
+    <script>
+    (function () {
+        'use strict';
+
+        // Public, read-only functions (Inflight-IOS: supabase/migrations/2026101*_atc_*.sql).
+        // The anon key grants exactly what a signed-out reader may see.
+        const SUPABASE_URL = 'https://lcgaoiqwwpyqndaucyzu.supabase.co';
+        const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjZ2FvaXF3d3B5cW5kYXVjeXp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjkyOTksImV4cCI6MjA4NzY0NTI5OX0.9TO21knXR_P9E80pea7gUOu-gTjb17sCGk7BYgRRe3U';
+
+        const POSITIONS = { 0: 'Ground', 1: 'Tower', 2: 'Unicom', 3: 'Clearance', 4: 'Approach', 5: 'Departure', 6: 'Center', 7: 'ATIS' };
+        const CODES = { 0: 'GND', 1: 'TWR', 2: 'UNI', 3: 'DEL', 4: 'APP', 5: 'DEP', 6: 'CTR', 7: 'ATIS' };
+
+        const state = { days: 30, tab: 'top', board: null, filter: '' };
+        const $ = (id) => document.getElementById(id);
+
+        async function rpc(fn, args) {
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+                method: 'POST',
+                headers: { apikey: ANON, Authorization: `Bearer ${ANON}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(args || {})
+            });
+            if (!res.ok) throw new Error(`${fn}: HTTP ${res.status}`);
+            return res.json();
+        }
+
+        const esc = (s) => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        const fmt = (n) => Number(n || 0).toLocaleString();
+
+        function stars(value) {
+            const pct = Math.max(0, Math.min(100, (Number(value) || 0) / 5 * 100));
+            return `<span class="stars" aria-label="${Number(value || 0).toFixed(1)} out of 5">★★★★★<span class="fill" style="width:${pct}%">★★★★★</span></span>`;
+        }
+
+        function ago(iso) {
+            const t = Date.parse(iso);
+            if (!Number.isFinite(t)) return '';
+            const s = Math.max(0, (Date.now() - t) / 1000);
+            if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`;
+            if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+            if (s < 86400 * 30) return `${Math.round(s / 86400)}d ago`;
+            return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function initials(name) {
+            return String(name || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+        }
+        function avatarHTML(name) {
+            return `<span class="av" data-av="${esc(name || '')}" aria-hidden="true">${esc(initials(name))}</span>`;
+        }
+        // Fill every placeholder picture on the page from the profile cache.
+        function profiles() {
+            return window.__atcProfiles
+                ? Promise.resolve(window.__atcProfiles)
+                : new Promise((res) => window.addEventListener('atc-profiles-ready', () => res(window.__atcProfiles), { once: true }));
+        }
+        function hydrateAvatars(root) {
+            const els = [...(root || document).querySelectorAll('.av[data-av]:not([data-av-done])')].slice(0, 60);
+            if (!els.length) return;
+            profiles().then((P) => els.forEach((el) => {
+                el.setAttribute('data-av-done', '1');
+                const name = el.dataset.av;
+                if (!name) return;
+                const apply = (p) => {
+                    if (!p?.avatarUrl || !el.isConnected) return;
+                    const img = new Image();
+                    img.alt = '';
+                    img.onload = () => { if (el.isConnected) { el.textContent = ''; el.appendChild(img); } };
+                    img.src = p.avatarUrl;
+                };
+                const hit = P.peek(name);
+                if (hit !== undefined) apply(hit); else P.byIfUsername(name).then(apply);
+            }));
+        }
+
+        function byLabel(by) {
+            if (by && by.display_name) return esc(by.display_name);
+            if (by && by.handle) return '@' + esc(by.handle);
+            return 'A pilot';
+        }
+
+        // ------------------------------------------------------------------
+        // Addresses. inflight.info/atc/<name> on the site (a Netlify rewrite
+        // to this document); atc.html?c=<name> wherever there is no rewrite.
+        // ------------------------------------------------------------------
+        const pretty = !/\.html$/.test(location.pathname);
+        function controllerPath(name) {
+            return pretty ? `/atc/${encodeURIComponent(name)}` : `atc.html?c=${encodeURIComponent(name)}`;
+        }
+        function homePath() { return pretty ? '/atc' : 'atc.html'; }
+        function routeName() {
+            const q = new URLSearchParams(location.search);
+            if (q.get('c')) return q.get('c');
+            const m = location.pathname.match(/^\/atc\/(.+?)\/?$/);
+            return m ? decodeURIComponent(m[1]) : null;
+        }
+
+        function go(path) {
+            history.pushState({}, '', path);
+            route();
+            window.scrollTo({ top: 0 });
+        }
+
+        document.addEventListener('click', (e) => {
+            const a = e.target.closest('a[data-nav], a[data-ctl], [data-section]');
+            if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+            if (a.dataset.ctl) {
+                e.preventDefault();
+                go(controllerPath(a.dataset.ctl));
+                return;
+            }
+            if (a.dataset.nav === 'home' || a.dataset.section) {
+                e.preventDefault();
+                if (routeName()) go(homePath() + (a.dataset.section ? '#' + a.dataset.section : ''));
+                const target = a.dataset.section && $(a.dataset.section);
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                else window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        });
+        window.addEventListener('popstate', route);
+
+        function ctlLink(name, inner) {
+            if (!name) return inner || 'Controller';
+            return `<a href="${esc(controllerPath(name))}" data-ctl="${esc(name)}">${inner || esc(name)}</a>`;
+        }
+
+        function route() {
+            const name = routeName();
+            $('home-view').classList.toggle('on', !name);
+            $('ctl-view').classList.toggle('on', !!name);
+            if (name) {
+                loadController(name);
+            } else {
+                document.title = 'RateMyATC | InFlight ATC';
+                if (!state.board) loadHome();
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Overview
+        // ------------------------------------------------------------------
+        function loadHome() {
+            loadStats();
+            loadBoard();
+        }
+
+        document.querySelectorAll('[data-days]').forEach((b) => b.addEventListener('click', () => {
+            state.days = Number(b.dataset.days);
+            document.querySelectorAll('[data-days]').forEach((x) => x.classList.toggle('on', x === b));
+            $('board-period').textContent = state.days ? 'Last 30 days' : 'All time';
+            loadStats();
+            loadBoard();
+        }));
+
+        async function loadStats() {
+            let s;
+            try { s = await rpc('atc_site_stats', { p_days: state.days }); }
+            catch (err) { $('stats').innerHTML = `<div class="empty" style="grid-column:1/-1">Couldn't load the numbers. Try again in a moment.</div>`; return; }
+
+            const cell = (v, l) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+            $('stats').innerHTML = [
+                cell(fmt(s.controllers), 'Controllers thanked'),
+                cell(fmt(s.pilots), 'Pilots taking part'),
+                cell(fmt(s.ratings), 'Ratings'),
+                cell(s.rating_avg != null ? `${Number(s.rating_avg).toFixed(2)} <span style="color:var(--star);font-size:1.1rem">★</span>` : '—', 'Average rating'),
+                cell(fmt(s.kudos), 'Kudos'),
+                cell(fmt(s.airports_count), 'Airports')
+            ].join('');
+
+            renderDaily(s.daily || []);
+            renderDist(s.dist || {}, s.ratings || 0);
+            renderAirports(s.airports || []);
+            renderPositions(s.positions || []);
+            renderWords(s.recent_comments || [], s.recent_notes || []);
+        }
+
+        // Stacked bars, kudos under ratings, one per day. Hover for the day.
+        function renderDaily(days) {
+            const max = Math.max(1, ...days.map((d) => (d.kudos || 0) + (d.ratings || 0)));
+            const label = (d) => new Date(d.day + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            const bars = days.map((d) => {
+                const k = d.kudos || 0, r = d.ratings || 0;
+                const hk = (k / max) * 100, hr = (r / max) * 100;
+                return `<div class="bar" data-tip="<b>${esc(label(d))}</b><br>${k} kudos · ${r} ratings">` +
+                    (k ? `<span class="seg-k" style="height:${hk}%"></span>` : '') +
+                    (r ? `<span class="seg-r" style="height:${hr}%"></span>` : '') +
+                    `</div>`;
+            }).join('');
+            const total = days.reduce((a, d) => a + (d.kudos || 0) + (d.ratings || 0), 0);
+            $('daily').innerHTML = (total
+                ? `<div class="bars" aria-label="Kudos and ratings per day, last 30 days">${bars}</div>`
+                : `<div class="empty">Nothing yet this month — be the first to thank a controller.</div>`) +
+                (days.length ? `<div class="bars-axis"><span>${esc(label(days[0]))}</span><span>Today</span></div>` : '') +
+                `<details class="table"><summary>Show as a table</summary><table><thead><tr><th>Day</th><th>Kudos</th><th>Ratings</th></tr></thead><tbody>` +
+                days.slice().reverse().map((d) => `<tr><td>${esc(label(d))}</td><td>${d.kudos || 0}</td><td>${d.ratings || 0}</td></tr>`).join('') +
+                `</tbody></table></details>`;
+        }
+
+        function renderDist(dist, total) {
+            if (!total) { $('dist').innerHTML = `<div class="muted" style="font-size:.82rem">No ratings in this period yet.</div>`; return; }
+            const max = Math.max(1, ...[1, 2, 3, 4, 5].map((n) => dist[n] || 0));
+            $('dist').innerHTML = [5, 4, 3, 2, 1].map((n) => {
+                const c = dist[n] || 0;
+                return `<div class="hbar" title="${c} × ${n}★"><span>${n}★</span><div class="track"><span style="width:${(c / max) * 100}%"></span></div><span class="n">${fmt(c)}</span></div>`;
+            }).join('') + `<div class="muted" style="font-size:.72rem;margin-top:8px">Every star is public. Only 4–5★ comments are.</div>`;
+        }
+
+        function renderAirports(list) {
+            $('airports').innerHTML = list.length ? list.map((a) => `
+                <div class="list-row">
+                    <span class="icao">${esc(a.icao)}</span>
+                    <span class="grow">${a.controllers} controller${a.controllers === 1 ? '' : 's'}</span>
+                    <span class="right">${a.rating_avg != null ? `${Number(a.rating_avg).toFixed(1)} <span style="color:var(--star)">★</span> · ` : ''}👍 ${fmt(a.kudos)}</span>
+                </div>`).join('') : `<div class="empty">No airports yet.</div>`;
+        }
+
+        function renderPositions(list) {
+            $('positions').innerHTML = list.length ? list.map((p) => `
+                <div class="list-row">
+                    <span class="icao">${esc(CODES[p.facility_type] || '—')}</span>
+                    <span class="grow">${esc(POSITIONS[p.facility_type] || 'Other')}</span>
+                    <span class="right">${p.rating_avg != null ? `${Number(p.rating_avg).toFixed(1)} <span style="color:var(--star)">★</span> · ` : ''}${fmt(p.ratings)} rated · 👍 ${fmt(p.kudos)}</span>
+                </div>`).join('') : `<div class="empty">Nothing yet.</div>`;
+        }
+
+        function renderWords(comments, notes) {
+            const items = [
+                ...comments.map((c) => ({ ...c, t: 'c' })),
+                ...notes.map((n) => ({ ...n, t: 'n' }))
+            ].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, 12);
+            $('words-list').innerHTML = items.length ? items.map((x) => `
+                <div class="quote">
+                    <p>${x.t === 'c' ? stars(x.stars) + ' ' : (x.kind === 'good_day' ? '☀️ ' : '👍 ')}${esc(x.t === 'c' ? x.comment : x.note)}</p>
+                    <div class="by">${byLabel(x.by)} → ${ctlLink(x.controller_username)}${x.airport_icao ? ` at <span class="mono">${esc(x.airport_icao)}</span>` : ''} · ${esc(ago(x.created_at))}</div>
+                </div>`).join('') : `<div class="empty">No public comments yet. A note on a kudos or a comment on a 4–5★ rating will show here.</div>`;
+        }
+
+        // ------------------------------------------------------------------
+        // The board
+        // ------------------------------------------------------------------
+        document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
+            state.tabPicked = true;
+            state.tab = t.dataset.tab;
+            document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
+            $('board-note').textContent = state.tab === 'top'
+                ? 'Top rated uses a weighted average and needs 3 ratings.'
+                : state.tab === 'kudos' ? 'Ranked by kudos received.' : 'Ranked by number of ratings.';
+            renderBoard();
+        }));
+        $('board-filter').addEventListener('input', (e) => { state.filter = e.target.value.trim().toLowerCase(); renderBoard(); });
+
+        async function loadBoard() {
+            $('board-rows').innerHTML = `<div class="empty">Loading the board…</div>`;
+            try { state.board = await rpc('atc_leaderboard', { p_days: state.days, p_limit: 100 }); }
+            catch (err) { state.board = null; $('board-rows').innerHTML = `<div class="empty">Couldn't load the board. Try again in a moment.</div>`; return; }
+            // Early days: nobody has the 3 ratings Top rated needs, so open on
+            // kudos rather than on an empty list. Only on first load — a tab
+            // the reader picked stays picked.
+            if (!state.tabPicked && state.tab === 'top' && !(state.board.top_rated || []).length && (state.board.most_kudos || []).length) {
+                document.querySelector('.tab[data-tab="kudos"]').click();
+                state.tabPicked = false;
+            }
+            renderBoard();
+        }
+
+        function renderBoard() {
+            const b = state.board;
+            if (!b) return;
+            const key = state.tab === 'top' ? 'top_rated' : state.tab === 'kudos' ? 'most_kudos' : 'most_rated';
+            const all = b[key] || [];
+            const rows = all.map((r, i) => ({ ...r, rank: i + 1 }))
+                .filter((r) => !state.filter || String(r.username || '').toLowerCase().includes(state.filter));
+            if (!rows.length) {
+                $('board-rows').innerHTML = `<div class="empty">${all.length ? 'Nobody on this list matches.' : state.tab === 'top'
+                    ? 'Controllers appear here once they have 3 ratings.'
+                    : 'Nothing here yet in this period.'}</div>`;
+                return;
+            }
+            $('board-rows').innerHTML = rows.map((r) => `
+                <a class="row" href="${esc(controllerPath(r.username || r.controller_if_id))}" data-ctl="${esc(r.username || r.controller_if_id)}">
+                    <span class="rank r${r.rank}">${r.rank}</span>
+                    <span class="who-wrap">${avatarHTML(r.username)}<span class="who">
+                        <b>${esc(r.username || 'Controller')}</b>
+                        <span>${r.last_airport ? `Last thanked at <span class="mono">${esc(r.last_airport)}</span> · ` : ''}${esc(ago(r.last_at))}</span>
+                    </span></span>
+                    <span class="nums">
+                        ${r.rating_count ? `<div class="r">${Number(r.rating_avg).toFixed(1)} ${stars(r.rating_avg)}</div><div class="k">${fmt(r.rating_count)} rating${r.rating_count === 1 ? '' : 's'}${r.kudos ? ` · 👍 ${fmt(r.kudos)}` : ''}</div>`
+                            : `<div class="r">👍 ${fmt(r.kudos)}</div><div class="k">${fmt(r.thumbs_up)} 👍 · ${fmt(r.good_day)} ☀️</div>`}
+                    </span>
+                </a>`).join('');
+            hydrateAvatars($('board-rows'));
+        }
+
+        // ------------------------------------------------------------------
+        // A controller's page
+        // ------------------------------------------------------------------
+        let ctlRun = 0;
+        async function loadController(name) {
+            const run = ++ctlRun;
+            const body = $('ctl-body');
+            body.innerHTML = `<section class="panel"><div class="ctl-head"><div><div class="skel" style="height:34px;width:240px"></div><div class="skel" style="height:14px;width:160px;margin-top:10px"></div></div></div></section>`;
+
+            let hits;
+            try { hits = await rpc('atc_controller_search', { p_query: name, p_limit: 6 }); }
+            catch (err) { if (run === ctlRun) body.innerHTML = notFound(name, [], true); return; }
+            if (run !== ctlRun) return;
+
+            const lower = name.toLowerCase();
+            const hit = hits.find((h) => String(h.username || '').toLowerCase() === lower || h.controller_if_id === name);
+            if (!hit) { body.innerHTML = notFound(name, hits); hydrateAvatars(body); return; }
+
+            let ratings, kudos;
+            try {
+                [ratings, kudos] = await Promise.all([
+                    rpc('atc_rating_profile', { p_controller_if_id: hit.controller_if_id, p_limit: 20 }),
+                    rpc('atc_commendation_profile', { p_controller_if_id: hit.controller_if_id, p_limit: 30 })
+                ]);
+            } catch (err) { if (run === ctlRun) body.innerHTML = notFound(name, [], true); return; }
+            if (run !== ctlRun) return;
+
+            const display = hit.username || name;
+            document.title = `${display} — RateMyATC | InFlight`;
+            // A renamed controller is shown, and shared, under the newest name.
+            if (hit.username && hit.username !== name && routeName()) history.replaceState({}, '', controllerPath(hit.username));
+            body.innerHTML = controllerHTML(hit, ratings || {}, kudos || {});
+            wireShare(display);
+            decorateController(display, run);
+        }
+
+        // Their InFlight profile, when they have one: banner, picture, a link.
+        async function decorateController(name, run) {
+            const P = await profiles();
+            const p = await P.byIfUsername(name);
+            if (run !== ctlRun || !p) return;
+            const banner = $('ctl-banner');
+            if (banner) banner.style.backgroundImage = p.bannerUrl ? `url("${p.bannerUrl}"), ${p.bannerGradient}` : p.bannerGradient;
+            const av = $('ctl-avatar');
+            if (av) {
+                if (p.isPro) { av.classList.add('pro'); if (p.accent) av.style.setProperty('--accent', p.accent); }
+                if (p.avatarUrl) {
+                    const img = new Image();
+                    img.alt = '';
+                    img.onload = () => { if (av.isConnected) { av.textContent = ''; av.appendChild(img); } };
+                    img.src = p.avatarUrl;
+                }
+            }
+            const link = $('ctl-profile');
+            if (link && p.handle) {
+                link.innerHTML = `<a class="ctl-profile-link" href="/pilot/${encodeURIComponent(p.handle)}">${esc(p.displayName || p.handle)} · @${esc(p.handle)} on InFlight ›</a>`;
+            }
+        }
+
+        function notFound(name, hits, failed) {
+            return `<section class="panel"><div class="panel-head"><span>${failed ? 'Something went wrong' : 'No controller by that name yet'}</span></div>
+                <div class="notice">${failed
+                    ? 'The page couldn’t load just now. Check your connection and try again.'
+                    : `Nobody has thanked or rated <b>${esc(name)}</b> yet. Controllers get a page here as soon as a pilot gives them kudos or a rating on the <a href="/index.html">live map</a>.`}</div>
+                ${hits.length ? `<div class="panel-head" style="border-top:1px solid var(--line)"><span>Did you mean</span></div>` + hits.map((h) => `
+                    <a class="row" href="${esc(controllerPath(h.username))}" data-ctl="${esc(h.username)}" style="grid-template-columns:minmax(0,1fr) auto">
+                        <span class="who-wrap">${avatarHTML(h.username)}<span class="who"><b>${esc(h.username)}</b><span>${h.last_airport ? `Last at <span class="mono">${esc(h.last_airport)}</span>` : ''}</span></span></span>
+                        <span class="nums"><div class="k">${h.rating_count ? `${Number(h.rating_avg).toFixed(1)} ★ · ` : ''}👍 ${fmt(h.kudos)}</div></span>
+                    </a>`).join('') : ''}
+            </section>`;
+        }
+
+        function controllerHTML(hit, r, k) {
+            const count = r.count || 0;
+            const dist = r.dist || {};
+            const maxD = Math.max(1, ...[1, 2, 3, 4, 5].map((n) => dist[n] || 0));
+            const comments = r.comments || [];
+            const notes = (k.recent || []).filter((x) => x.note);
+            const airports = k.airports || [];
+            const since = k.first_at ? new Date(k.first_at).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : null;
+
+            return `
+            <section class="panel">
+                <div class="ctl-banner" id="ctl-banner"></div>
+                <div class="ctl-avatar" id="ctl-avatar" aria-hidden="true">${esc(initials(hit.username))}</div>
+                <div class="ctl-head">
+                    <div>
+                        <span class="chips"><span class="chip gold">★ RateMyATC</span><span class="chip">Infinite Flight controller</span></span>
+                        <h1 class="ctl-name" style="margin-top:10px">${esc(hit.username)}</h1>
+                        <div id="ctl-profile"></div>
+                        <div class="ctl-sub">${hit.last_airport ? `Last thanked at <span class="mono">${esc(hit.last_airport)}</span> · ${esc(ago(hit.last_at))}` : esc(ago(hit.last_at))}${since ? ` · Kudos since ${esc(since)}` : ''}</div>
+                    </div>
+                    <div class="ctl-score">
+                        <div>
+                            <div class="big">${count ? Number(r.avg).toFixed(1) : '—'}</div>
+                            <div style="margin-top:6px;font-size:1.05rem">${stars(r.avg || 0)}</div>
+                            <div class="muted" style="font-size:.74rem;margin-top:4px">${fmt(count)} rating${count === 1 ? '' : 's'}</div>
+                        </div>
+                        <div>
+                            <div class="big">${fmt(k.total)}</div>
+                            <div style="margin-top:6px;font-size:.82rem">👍 ${fmt(k.thumbs_up)} · ☀️ ${fmt(k.good_day)}</div>
+                            <div class="muted" style="font-size:.74rem;margin-top:4px">kudos · ${fmt(k.sessions)} session${k.sessions === 1 ? '' : 's'}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="ctl-actions">
+                    <button class="btn" type="button" id="share-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg>
+                        Share this page
+                    </button>
+                    <button class="btn light" type="button" id="copy-btn">Copy link</button>
+                    <a class="btn light" href="/index.html">Rate them on the live map</a>
+                </div>
+            </section>
+
+            <div class="layout" style="padding-top:0">
+                <div>
+                    <section class="panel">
+                        <div class="panel-head"><span>What pilots said</span><span class="muted" style="letter-spacing:.06em">4–5★ comments</span></div>
+                        ${comments.length ? comments.map((c) => `
+                            <div class="quote">
+                                <p>${stars(c.stars)} ${esc(c.comment)}</p>
+                                <div class="by">${byLabel(c.by)}${c.airport_icao ? ` · <span class="mono">${esc(c.airport_icao)}</span>` : ''}${c.facility_type != null ? ` ${esc(CODES[c.facility_type] || '')}` : ''} · ${esc(ago(c.created_at))}</div>
+                            </div>`).join('') : `<div class="empty">No public comments yet.</div>`}
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head"><span>Kudos notes</span></div>
+                        ${notes.length ? notes.map((n) => `
+                            <div class="quote">
+                                <p>${n.kind === 'good_day' ? '☀️' : '👍'} ${esc(n.note)}</p>
+                                <div class="by">${byLabel(n.by)}${n.airport_icao ? ` · <span class="mono">${esc(n.airport_icao)}</span>` : ''} · ${esc(ago(n.created_at))}</div>
+                            </div>`).join('') : `<div class="empty">${k.total ? 'Kudos so far came without a note.' : 'No kudos yet.'}</div>`}
+                    </section>
+                </div>
+                <aside>
+                    <section class="panel">
+                        <div class="panel-head"><span>Ratings</span></div>
+                        <div class="panel-body">${count ? [5, 4, 3, 2, 1].map((n) => {
+                            const c = dist[n] || 0;
+                            return `<div class="hbar" title="${c} × ${n}★"><span>${n}★</span><div class="track"><span style="width:${(c / maxD) * 100}%"></span></div><span class="n">${fmt(c)}</span></div>`;
+                        }).join('') : '<div class="muted" style="font-size:.82rem">No ratings yet.</div>'}</div>
+                    </section>
+                    <section class="panel">
+                        <div class="panel-head"><span>Thanked at</span></div>
+                        ${airports.length ? airports.map((a) => `
+                            <div class="list-row"><span class="icao">${esc(a.icao)}</span><span class="grow"></span><span class="right">👍 ${fmt(a.count)}</span></div>`).join('') : `<div class="empty">No airports yet.</div>`}
+                    </section>
+                    <section class="panel">
+                        <div class="panel-head"><span>About these ratings</span></div>
+                        <div class="notice">Stars are public. Comments on 1–3★ ratings go privately to the controller and never appear here. Appealing a violation? Use the <a href="https://community.infiniteflight.com/t/procedures-for-appealing-violations-and-providing-atc-feedback/795506" target="_blank" rel="noopener">Infinite Flight Community procedure</a>.</div>
+                    </section>
+                </aside>
+            </div>`;
+        }
+
+        function shareURL(name) {
+            return pretty
+                ? `${location.origin}/atc/${encodeURIComponent(name)}`
+                : new URL(controllerPath(name), location.href).href;
+        }
+
+        function toast(text) {
+            const t = $('toast');
+            t.textContent = text;
+            t.classList.add('show');
+            clearTimeout(t._h);
+            t._h = setTimeout(() => t.classList.remove('show'), 2200);
+        }
+
+        async function copy(url) {
+            try { await navigator.clipboard.writeText(url); toast('Link copied'); }
+            catch (_) { window.prompt('Copy this link:', url); }
+        }
+
+        function wireShare(name) {
+            const url = shareURL(name);
+            $('copy-btn')?.addEventListener('click', () => copy(url));
+            $('share-btn')?.addEventListener('click', async () => {
+                if (navigator.share) {
+                    try { await navigator.share({ title: `${name} on RateMyATC`, text: `See ${name}'s RateMyATC page on InFlight`, url }); return; }
+                    catch (err) { if (err && err.name === 'AbortError') return; }
+                }
+                copy(url);
+            });
+        }
+
+        // ------------------------------------------------------------------
+        // Search
+        // ------------------------------------------------------------------
+        const input = $('search'), box = $('results');
+        let searchTimer = null, searchRun = 0, hl = -1;
+        input.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            const q = input.value.trim();
+            if (q.length < 2) { box.classList.remove('show'); return; }
+            searchTimer = setTimeout(() => search(q), 220);
+        });
+        input.addEventListener('keydown', (e) => {
+            const items = [...box.querySelectorAll('.result')];
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                if (!items.length) return;
+                e.preventDefault();
+                hl = (hl + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+                items.forEach((x, i) => x.classList.toggle('hl', i === hl));
+            } else if (e.key === 'Enter') {
+                const pick = items[hl >= 0 ? hl : 0];
+                if (pick) { e.preventDefault(); pick.click(); }
+            } else if (e.key === 'Escape') {
+                box.classList.remove('show');
+            }
+        });
+        document.addEventListener('click', (e) => { if (!e.target.closest('.search')) box.classList.remove('show'); });
+
+        async function search(q) {
+            const run = ++searchRun;
+            let hits = [];
+            try { hits = await rpc('atc_controller_search', { p_query: q, p_limit: 8 }); } catch (_) { /* shown as empty */ }
+            if (run !== searchRun) return;
+            hl = -1;
+            box.innerHTML = hits.length ? hits.map((h) => `
+                <a class="result" role="option" href="${esc(controllerPath(h.username))}" data-ctl="${esc(h.username)}">
+                    ${avatarHTML(h.username)}<b>${esc(h.username)}</b>
+                    <span class="meta">${h.rating_count ? `${Number(h.rating_avg).toFixed(1)} <span style="color:var(--star)">★</span> · ` : ''}👍 ${fmt(h.kudos)}</span>
+                </a>`).join('') : `<div class="result-empty">No controller called “${esc(q)}” has been thanked or rated yet.</div>`;
+            box.classList.add('show');
+            hydrateAvatars(box);
+        }
+        box.addEventListener('click', (e) => {
+            if (e.target.closest('.result')) { box.classList.remove('show'); input.value = ''; }
+        });
+
+        // ------------------------------------------------------------------
+        // Tooltip for the chart bars
+        // ------------------------------------------------------------------
+        const tip = $('tip');
+        document.addEventListener('mousemove', (e) => {
+            const bar = e.target.closest && e.target.closest('[data-tip]');
+            if (!bar) { tip.style.display = 'none'; return; }
+            tip.innerHTML = bar.dataset.tip;
+            tip.style.display = 'block';
+            const w = tip.offsetWidth;
+            tip.style.left = Math.min(window.innerWidth - w - 8, e.clientX + 12) + 'px';
+            tip.style.top = (e.clientY - 46) + 'px';
+        });
+
+        route();
+        if (!routeName() && location.hash) {
+            setTimeout(() => document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' }), 300);
+        }
+    })();
+    </script>
+</body>
+</html>

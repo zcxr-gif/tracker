@@ -4,11 +4,9 @@
  * Gives a signed-in pilot who has no picture yet the chance to set up their
  * card, instead of leaving it to be found in Settings:
  *
- *   - a popup, shown once per account, after the map is up and nothing else
- *     (first-run, changelog, sign-in) is on screen;
  *   - a dot on the nav's account pill until they have a picture. While the dot
  *     shows, the pill opens this popup rather than the account screen (the
- *     popup links through to the account).
+ *     popup links through to the account). It never opens on its own.
  *
  * The popup hosts the Settings "Picture & banner" editor (pilotCardEditor.js)
  * as it is — picture and the painted banner colours for everyone, a photo
@@ -18,15 +16,7 @@
 import { PilotCardEditor } from './pilotCardEditor.js';
 
 const SEEN_PREFIX = 'inflight_card_prompt_seen:';
-const FIRST_DELAY_MS = 4000;    // after the map is ready
-const RETRY_MS = 4000;          // while something else is on screen
-const GIVE_UP_MS = 120000;      // try again next visit instead
 const PILLS = '#open-auth-btn, #ios-profile-btn';   // desktop nav pill, phone profile orb
-const BLOCKERS = '#fre-overlay, #fre-window-demo, .cl-overlay, #auth-modal-overlay.open, .iadj-overlay, .acs-overlay, .pst-overlay';
-
-function wasSeen(userId) {
-    try { return localStorage.getItem(SEEN_PREFIX + userId) === '1'; } catch (_) { return false; }
-}
 function markSeen(userId) {
     try { localStorage.setItem(SEEN_PREFIX + userId, '1'); } catch (_) { /* private mode */ }
 }
@@ -39,8 +29,6 @@ export const PilotCardPrompt = {
     _user: null,
     _needs: false,
     _root: null,
-    _autoTimer: null,
-    _autoSince: 0,
     _checkRun: 0,
 
     init(supabase) {
@@ -81,7 +69,6 @@ export const PilotCardPrompt = {
 
         if (!user) {
             this._setNeeds(false);
-            this._cancelAuto();
             if (this._root) this.close();
             return;
         }
@@ -94,8 +81,6 @@ export const PilotCardPrompt = {
 
         const needs = !data || !data.avatar_path;
         this._setNeeds(needs);
-        if (needs && !wasSeen(user.id)) this._scheduleAuto();
-        else this._cancelAuto();
     },
 
     _setNeeds(needs) {
@@ -105,32 +90,9 @@ export const PilotCardPrompt = {
         document.querySelectorAll(PILLS).forEach(btn => btn.classList.toggle('pcp-needs-picture', this._needs));
     },
 
-    _scheduleAuto() {
-        if (this._autoTimer || this._root) return;
-        this._autoSince = Date.now();
-        const attempt = () => {
-            this._autoTimer = null;
-            const user = this._user;
-            if (!user || !this._needs || wasSeen(user.id) || this._root) return;
-            const ready = window.__inflightBoot && window.__inflightBoot.state === 'map-ready';
-            if (!ready || document.hidden || document.querySelector(BLOCKERS)) {
-                if (Date.now() - this._autoSince < GIVE_UP_MS) this._autoTimer = setTimeout(attempt, RETRY_MS);
-                return;
-            }
-            this.open();
-        };
-        this._autoTimer = setTimeout(attempt, FIRST_DELAY_MS);
-    },
-
-    _cancelAuto() {
-        clearTimeout(this._autoTimer);
-        this._autoTimer = null;
-    },
-
     open() {
         const user = this._user;
         if (!user || this._root) return;
-        this._cancelAuto();
         markSeen(user.id);
 
         const root = document.createElement('div');

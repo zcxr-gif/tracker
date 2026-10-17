@@ -40,7 +40,9 @@ export const UserProfileUI = {
 
     /* ─────────────────────────── Public API ─────────────────────────── */
 
-    open({ username, userId = null } = {}) {
+    // `focus: 'commendations'` scrolls to the ATC commendations section once
+    // the profile has loaded (the controller rows' "View" button uses it).
+    open({ username, userId = null, focus = null } = {}) {
         if (!username) return;
         this._injectStyles();
         this._buildShell();
@@ -61,6 +63,7 @@ export const UserProfileUI = {
             loadingMore: false,
             expandedFlights: new Set(),
             liveFeature,
+            focus,
         };
 
         const root = document.getElementById('user-profile-sheet');
@@ -360,6 +363,7 @@ export const UserProfileUI = {
                 <span class="ups-status-pill ${isLive ? 'is-live' : 'is-offline'}">
                     <span class="ups-status-dot"></span>${isLive ? 'LIVE — FLYING NOW' : 'OFFLINE'}
                 </span>
+                <span id="ups-kudos-pill-slot">${(window.InflightKudos && d.kudos) ? window.InflightKudos.profilePillHTML(d.kudos) : ''}</span>
             </span>
         `;
         this._decorate(d.username);
@@ -400,6 +404,7 @@ export const UserProfileUI = {
         body.innerHTML = [
             this._renderLiveCard(),
             this._renderStatsSection(),
+            this._renderCommendationsSection(),
             this._renderReplaysSection(),
             this._renderLogbookSection(),
             `<a class="ups-community-link" href="https://community.infiniteflight.com/u/${encodeURIComponent(d.username)}/summary" target="_blank" rel="noopener">
@@ -410,6 +415,34 @@ export const UserProfileUI = {
         ].join('');
 
         this._hydratePhotos();
+        this._hydrateCommendations();
+    },
+
+    // Kudos other pilots left for this user while they controlled ATC.
+    // Filled by atcKudos.js, which owns the data and the markup; the total also
+    // becomes a pill in the header, which sits on the banner when there is one.
+    _renderCommendationsSection() {
+        if (!this._data?.userId || !window.InflightKudos) return '';
+        return `<div class="ups-section" id="ups-commendations"></div>`;
+    },
+
+    _hydrateCommendations() {
+        const el = document.getElementById('ups-commendations');
+        const d = this._data;
+        if (!el || !d?.userId || !window.InflightKudos) return;
+        const p = window.InflightKudos.renderProfileInto(el, d.userId, d.username).then(data => {
+            if (this._data !== d) return data;
+            d.kudos = data;
+            const slot = document.getElementById('ups-kudos-pill-slot');
+            if (slot) slot.innerHTML = window.InflightKudos.profilePillHTML(data);
+            return data;
+        });
+        if (d.focus === 'commendations') {
+            d.focus = null;
+            Promise.resolve(p).then(() => {
+                try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {}
+            });
+        }
     },
 
     // Lazily resolve real aircraft photos for any [data-photo-reg] slot in the

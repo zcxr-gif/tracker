@@ -38,7 +38,6 @@
 
     const savedName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch (_) { return ''; } };
     const saveName = (n) => { try { n ? localStorage.setItem(NAME_KEY, n) : localStorage.removeItem(NAME_KEY); } catch (_) {} };
-    const inviteSeen = () => { try { return localStorage.getItem(INVITE_KEY) === '1'; } catch (_) { return true; } };
     const markInviteSeen = () => { try { localStorage.setItem(INVITE_KEY, '1'); } catch (_) {} };
 
     const norm = (s) => String(s || '').trim().toLowerCase();
@@ -961,20 +960,6 @@
         toastTimer = setTimeout(dismissInvite, 18000);
     }
 
-    function maybeScheduleInvite() {
-        if (window !== window.parent) return;
-        if (inviteSeen()) return;
-        if (savedName()) { markInviteSeen(); return; }
-        if (!document.getElementById('toolbar-submit-photo-btn')) return;
-        const override = Number(window.INFLIGHT_INVITE_DELAY_MS);
-        const delay = Number.isFinite(override) ? override : 18000 + Math.random() * 32000;
-        setTimeout(() => {
-            if (inviteSeen()) return;
-            if (overlayEl && overlayEl.classList.contains('visible')) return;
-            showInvite();
-        }, delay);
-    }
-
     // ---------------------------------------------------------------------
     // Wiring
     // ---------------------------------------------------------------------
@@ -986,7 +971,7 @@
     }
 
     if (typeof document !== 'undefined') {
-        const init = () => { wireToolbar(); maybeScheduleInvite(); };
+        const init = () => { wireToolbar(); };
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
         else init();
         document.addEventListener('keydown', (e) => {

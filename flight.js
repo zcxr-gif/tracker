@@ -12,6 +12,7 @@ import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
+import { atcSummary, peekAtcSummary, atcChipText, atcChipTitle } from './atcSummary.js';
 import { PilotCardPrompt } from './pilotCardPrompt.js';
 import { adjustImage } from './imageAdjuster.js';
 import { AccountSetup } from './accountSetup.js';
@@ -62,6 +63,8 @@ import { runFirstRunExperience } from './firstRunExperience.js';
 import { NetworkBoardUI } from './networkBoard.js';
 import { NearbyRadarUI } from './nearbyRadar.js';
 import { RecentItems } from './recentItems.js';
+import { AtcKudos } from './atcKudos.js';
+import { RateMyAtcBoard } from './rateMyAtcBoard.js';
 // The notification centre. Importing it registers window.InflightNotify, which
 // showNotification() below adapts the app's existing calls onto.
 import './notifications.js';
@@ -81,6 +84,15 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // nothing at all for a free account; see preferenceSync.js for the allowlist of
 // what may travel (and the list of what must never).
 PreferenceSync.init(supabase);
+
+// Kudos: thumbs-up / Good Day buttons on live controllers, the kudos shown in
+// airport windows and on profiles, and the controller's own new-kudos alert.
+// See atcKudos.js.
+AtcKudos.init(supabase);
+// The RateMyATC board (top rated, most kudos, live now). Opened by the
+// `openRateMyAtc` event from the nav orb, toolbar, phone ATC sheet, airport
+// window and profiles.
+RateMyAtcBoard.init(supabase);
 
 // 1. Initialize Desktop Dashboard
 ProfileUI.init(supabase);
@@ -5443,6 +5455,22 @@ function injectCustomStyles() {
             .ac-pilot-go i { font-size: 9px; }
             .ac-info-tab-btn.pilot-tab-btn:hover .ac-pilot-go { opacity: 1; }
 
+            /* RateMyATC: the pilot's record as a controller. */
+            .ac-pilot-atc {
+                flex: 0 0 auto;
+                padding: 2px 7px;
+                border-radius: 999px;
+                font-size: 9px !important;
+                font-weight: 800;
+                letter-spacing: 0.4px;
+                line-height: 1.3;
+                white-space: nowrap;
+                color: #fde68a;
+                background: rgba(20, 16, 4, 0.55);
+                border: 1px solid rgba(250, 204, 21, 0.55);
+                text-shadow: none;
+            }
+
             /* Pro pilots: a small PRO mark by the name, and their profile
                accent on the picture's ring. */
             .ac-pilot-pro {
@@ -5705,7 +5733,7 @@ function injectCustomStyles() {
     /* Set the background size and position */
     background-size: 101% 101%;
     background-position: center;
-    min-height: 160px; /* Increased height to better showcase the airport image */
+    min-height: 124px; /* Compact: the On frequency card below is the window's focus */
     border-bottom: 1px solid var(--border-glass);
     padding: 20px;
     display: flex;
@@ -6400,6 +6428,20 @@ function injectCustomStyles() {
                 font-size: 0.75rem;
             }
         }
+
+        /* Conditions: weather + ATIS collapsed to one summary row. */
+        .apt-cond { margin: 12px 16px 0; border-radius: 12px; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); overflow: hidden; }
+        .apt-cond-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; cursor: pointer; list-style: none; font-size: 0.75rem; color: #d4d4d8; }
+        .apt-cond-summary::-webkit-details-marker { display: none; }
+        .apt-cond-summary:hover { background: rgba(255,255,255,0.03); }
+        .apt-cond-cat { padding: 1px 7px; border: 1px solid; border-radius: 4px; font-size: 0.66rem; font-weight: 800; letter-spacing: .04em; }
+        .apt-cond-item { display: inline-flex; align-items: center; gap: 5px; font-family: monospace; font-size: 0.74rem; }
+        .apt-cond-item i { color: #71717a; }
+        .apt-cond-src { font-family: inherit; color: #a1a1aa; }
+        .apt-cond-chev { margin-left: auto; color: #71717a; transition: transform .2s; }
+        .apt-cond[open] .apt-cond-chev { transform: rotate(180deg); }
+        .apt-cond-body { border-top: 1px solid var(--border-glass); padding-top: 4px; }
+        #apt-info .apt-quick-info-strip { border-bottom: 0; background: none; flex-wrap: wrap; padding: 14px 16px 0; }
 
         .apt-quick-info-strip {
             display: flex;
@@ -15430,6 +15472,9 @@ async function createAirportInfoWindowHTML(icao, requestId) {
         // Hoisted so the INFO-tab Runways section can compute live head/cross
         // wind components against the same METAR the weather panel parsed.
         let metarWind = '';
+        // Hoisted for the collapsed Conditions summary (runway in use and
+        // whether it came from a live ATIS or the wind estimate).
+        let condRwy = '', condAtis = '';
 
         try {
             if (window.WeatherService) {
@@ -15459,6 +15504,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                     if (rawAtisText) {
                         const atisText = Array.isArray(rawAtisText) ? rawAtisText.join(' ') : String(rawAtisText);
                         const atis = parseAtis(atisText);
+                        condAtis = atis.info && atis.info !== '?' ? `ATIS ${atis.info}` : 'ATIS';
                         arrRwy = atis.landing || '---';
                         depRwy = atis.departing || '---';
                         appr = atis.approach || '---';
@@ -15476,6 +15522,7 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                         sourcePill = `<span style="color:#94a3b8;border:1px solid #475569;padding:0 5px;border-radius:3px;font-size:0.6rem;font-weight:700;">ESTIMATED</span>`;
                         extraHtml = `<div class="apt-mini-footer"><i class="fa-solid fa-calculator"></i> Estimated from wind &amp; runways — no ATIS broadcast</div>`;
                     }
+                    condRwy = arrRwy && arrRwy !== '---' ? arrRwy : '';
                     atisModuleHtml = `
                     <div class="apt-mini-module">
                         <div class="apt-mini-header"><span><i class="fa-solid fa-tower-broadcast"></i> ATIS</span>${sourcePill}</div>
@@ -15765,9 +15812,11 @@ async function createAirportInfoWindowHTML(icao, requestId) {
             </div>`;
 
         const airportAtc = activeAtcFacilities.filter(f => f.airportName === icao);
-        let atcHtml = airportAtc.length === 0
-            ? '<div style="padding: 20px; text-align: center; color: #71717a;">No active frequencies.</div>'
-            : `<div style="padding: 12px;">${airportAtc.map(f => `<div class="atc-grid-card" style="padding: 8px;"><div style="display: flex; align-items: center; gap: 12px;"><span class="atc-type-badge ${f.type===1?'atc-type-twr':f.type===0?'atc-type-gnd':(f.type===4||f.type===5)?'atc-type-app':'atc-type-obs'}" style="width: 60px; font-size: 0.65rem;">${atcTypeToString(f.type)}</span><span class="atc-controller" style="font-size: 0.85rem;">${f.username||'Unknown'}</span></div><span class="atc-duration" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${formatAtcDuration(f.startTime)}</span></div>`).join('')}</div>`;
+        // Live-first: every controller at the field, with kudos buttons, sits
+        // right under the stats bar; the ATC tab carries the field's kudos
+        // list and the recorded sessions.
+        const onFrequencyHtml = AtcKudos.onFrequencyHTML(icao, airportAtc);
+        const kudosFeedHtml = AtcKudos.airportFeedHTML(icao);
 
         // --- ATC Replay History (recorded controller sessions for this field) ---
         const atcSessions = await fetchAtcSessionsForAirport(icao);
@@ -15962,18 +16011,30 @@ async function createAirportInfoWindowHTML(icao, requestId) {
 
             ${statsBarHtml}
 
-            ${featureStripHtml}
-
             <div style="flex-grow: 1; overflow-y: auto;">
-                <div id="apt-va-banner" class="va-ad-banner-slot"></div>
-                ${weatherModuleHtml}
-                <div style="padding: 0 16px; margin-bottom: 12px;">${atisModuleHtml}</div>
+                ${onFrequencyHtml}
 
-                <div class="tech-module" style="margin: 16px; border: 1px solid rgba(255,255,255,0.05);">
+                ${(weatherModuleHtml || atisModuleHtml) ? `
+                <details class="apt-cond">
+                    <summary class="apt-cond-summary">
+                        <span class="apt-cond-cat" style="color: ${catColor}; border-color: ${catColor};">${flightCategory}</span>
+                        ${metarWind ? `<span class="apt-cond-item"><i class="fa-solid fa-wind"></i> ${escapeHtml(metarWind)}</span>` : ''}
+                        ${condRwy ? `<span class="apt-cond-item"><i class="fa-solid fa-plane-arrival"></i> ${escapeHtml(condRwy)}</span>` : ''}
+                        <span class="apt-cond-item apt-cond-src">${condAtis ? `<i class="fa-solid fa-tower-broadcast"></i> ${escapeHtml(condAtis)}` : 'Weather'}</span>
+                        <i class="fa-solid fa-chevron-down apt-cond-chev"></i>
+                    </summary>
+                    <div class="apt-cond-body">
+                        ${weatherModuleHtml}
+                        <div style="padding: 0 16px 12px;">${atisModuleHtml}</div>
+                    </div>
+                </details>` : ''}
+
+                <div id="apt-va-banner" class="va-ad-banner-slot"></div>
+
+                <div class="tech-module apt-tabs-module" style="margin: 12px 16px 16px; border: 1px solid rgba(255,255,255,0.05);">
                     <div class="apt-tabs-header">
                         <button class="apt-tab-btn active" data-target="apt-traffic"><i class="fa-solid fa-plane-circle-check"></i> TRAFFIC</button>
-                        <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> FREQS</button>
-                        <button class="apt-tab-btn" data-target="apt-replay"><i class="fa-solid fa-circle-play"></i> REPLAY</button>
+                        <button class="apt-tab-btn" data-target="apt-atc"><i class="fa-solid fa-headset"></i> ATC</button>
                         <button class="apt-tab-btn" data-target="apt-info"><i class="fa-solid fa-circle-info"></i> INFO</button>
                     </div>
 
@@ -15984,14 +16045,13 @@ async function createAirportInfoWindowHTML(icao, requestId) {
                     </div>
 
                     <div id="apt-atc" class="apt-tab-content">
-                        ${atcHtml}
-                    </div>
-
-                    <div id="apt-replay" class="apt-tab-content">
+                        ${kudosFeedHtml}
+                        <div class="apt-section-title" style="padding: 4px 16px 0;"><i class="fa-solid fa-circle-play"></i> Session replays</div>
                         ${atcHistoryHtml}
                     </div>
 
                     <div id="apt-info" class="apt-tab-content">
+                        ${featureStripHtml}
                         <div style="padding: 16px; display: flex; flex-direction: column; gap: 18px;">
                             <div>
                                 <div class="apt-section-title"><i class="fa-solid fa-circle-info"></i> Airport Details</div>
@@ -21083,6 +21143,7 @@ const AtcBoardUI = {
                     <span class="d-atc-ctrl-user">${this._esc(f.username || 'Unknown controller')}</span>
                     ${meta ? `<span class="d-atc-ctrl-meta">${this._esc(meta)}</span>` : ''}
                 </span>
+                ${AtcKudos.controlsHTML(f)}
             </div>`;
     },
 
@@ -25049,6 +25110,7 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
 function decoratePilotTab(btn) {
     const uname = btn?.dataset.username;
     if (!uname || uname === 'N/A') return;
+    decoratePilotAtc(btn, btn.dataset.userId, uname);
     const apply = (profile) => {
         if (!profile || !btn.isConnected) return;
         btn.classList.add('has-profile');
@@ -25078,6 +25140,25 @@ function decoratePilotTab(btn) {
     const cached = PilotProfiles.peek(uname);
     if (cached !== undefined) apply(cached);
     else PilotProfiles.byIfUsername(uname).then(apply);
+}
+
+// A pilot who also controls wears their RateMyATC record on the card:
+// "★ 4.7 ATC" (or their kudos, before anyone has rated them). Looked up by
+// the flight's IF user id, the id kudos and ratings are filed against.
+function decoratePilotAtc(btn, userId, uname) {
+    const apply = (s) => {
+        if (!s || !btn.isConnected || btn.querySelector('.ac-pilot-atc')) return;
+        const chip = document.createElement('span');
+        chip.className = 'ac-pilot-atc';
+        chip.textContent = atcChipText(s);
+        chip.title = atcChipTitle(s);
+        const go = btn.querySelector('.ac-pilot-go');
+        btn.insertBefore(chip, go || null);
+    };
+    const who = { userId, username: uname };
+    const cached = peekAtcSummary(who);
+    if (cached !== undefined) apply(cached);
+    else atcSummary(who).then(apply);
 }
 
 // Every pilot card — desktop window, phone sheet, and any cloned copy of it —
@@ -32961,6 +33042,13 @@ function renderAirportMarkers() {
     // A custom (PRO) tag design is DOM-based, so it forces the classic path.
     const customAtcTag = getAtcTagAppearance();
     const classic = mapFilters.useClassicAirportTags || !!customAtcTag;
+    // Classic tags show the RateMyATC line in their hover panel; fetch counts
+    // for everyone online and redraw once when they arrive.
+    if (classic) {
+        AtcKudos.prefetchOnline(activeAtcFacilities).then(fetched => {
+            if (fetched) renderAirportMarkers();
+        }).catch(() => {});
+    }
 
     // Helper: Identify "Major" airports (Class A/B/C) without explicit class data
     const isMajorAirport = (icao, airport) => {
@@ -33067,7 +33155,11 @@ function renderAirportMarkers() {
 
             const extra = document.createElement('div');
             extra.className = 'apt-tag-extra';
-            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`;
+            // RateMyATC / kudos for the controllers on now, from the cache the
+            // glance layer and airport window share.
+            const kudosLine = AtcKudos.airportTagLine(airportAtc);
+            extra.innerHTML = `<div class="apt-tag-extra-item">Oldest Session</div><div class="apt-tag-extra-val">${durationText}</div>`
+                + (kudosLine ? `<div class="apt-tag-extra-item">RateMyATC</div><div class="apt-tag-extra-val" style="color:#facc15;">${escapeHtml(kudosLine)}</div>` : '');
             el.appendChild(extra);
 
             const base = document.createElement('div');
@@ -33409,13 +33501,22 @@ function updateActiveAirportsGlanceLayer() {
     // Group online facilities by airport (centers have no airport — skip them;
     // they're drawn as FIR sectors elsewhere).
     const byAirport = new Map();
+    const facilitiesAt = new Map();
     (activeAtcFacilities || []).forEach(f => {
         const icao = f.airportName;
         const type = Number(f.type);
         if (!icao || type === 6) return;
         if (!byAirport.has(icao)) byAirport.set(icao, new Set());
         byAirport.get(icao).add(type);
+        if (!facilitiesAt.has(icao)) facilitiesAt.set(icao, []);
+        facilitiesAt.get(icao).push(f);
     });
+
+    // Kudos / RateMyATC line for each tag. Counts come from a cache; when new
+    // ones arrive, redraw once so the line appears without waiting a tick.
+    AtcKudos.prefetchOnline(activeAtcFacilities).then(fetched => {
+        if (fetched) updateActiveAirportsGlanceLayer();
+    }).catch(() => {});
 
     const features = [];
     byAirport.forEach((types, icao) => {
@@ -33439,7 +33540,7 @@ function updateActiveAirportsGlanceLayer() {
         features.push({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [apt.lon, apt.lat] },
-            properties: { icao, codes: codes.join('  '), rank }
+            properties: { icao, codes: codes.join('  '), rank, kudos: AtcKudos.airportTagLine(facilitiesAt.get(icao)) }
         });
     });
 
@@ -33478,11 +33579,22 @@ function updateActiveAirportsGlanceLayer() {
                     // by the top service online (per-section colors, Mapbox v3),
                     // set on a dark glass pill (stretchable 9-slice icon) so the
                     // tag reads as a chip instead of loose halo'd text.
-                    'text-field': [
-                        'format',
-                        ['get', 'icao'], { 'font-scale': 1.15, 'text-color': '#ffffff' },
-                        '\n', {},
-                        ['get', 'codes'], { 'font-scale': 0.8, 'text-color': ACTIVE_APT_COLOR }
+                    // A third, gold line carries the staffed controllers' RateMyATC
+                    // rating and kudos when they have any.
+                    'text-field': ['case',
+                        ['!=', ['coalesce', ['get', 'kudos'], ''], ''],
+                        ['format',
+                            ['get', 'icao'], { 'font-scale': 1.15, 'text-color': '#ffffff' },
+                            '\n', {},
+                            ['get', 'codes'], { 'font-scale': 0.8, 'text-color': ACTIVE_APT_COLOR },
+                            '\n', {},
+                            ['get', 'kudos'], { 'font-scale': 0.78, 'text-color': '#facc15' }
+                        ],
+                        ['format',
+                            ['get', 'icao'], { 'font-scale': 1.15, 'text-color': '#ffffff' },
+                            '\n', {},
+                            ['get', 'codes'], { 'font-scale': 0.8, 'text-color': ACTIVE_APT_COLOR }
+                        ]
                     ],
                     'text-font': mapTextFont(['JetBrains Mono Bold', 'Arial Unicode MS Bold']),
                     // Fixed size — the tag must not grow with zoom.

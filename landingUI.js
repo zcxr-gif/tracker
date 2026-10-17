@@ -915,6 +915,17 @@ export const LandingUI = {
                             </button>
                         </div>
 
+                        <!-- RateMyATC board: top rated controllers, most kudos,
+                             who is on frequency now. Phones reach it from the
+                             ATC sheet's "Rate" segment. -->
+                        <div class="nexus-orb-wrapper desktop-only-tab">
+                            <button class="orb-btn" id="tile-ratemyatc" aria-label="RateMyATC" title="RateMyATC — rate and thank controllers"
+                                    onclick="window.dispatchEvent(new CustomEvent('openRateMyAtc'))">
+                                <i class="fa-solid fa-star"></i>
+                                <span class="tab-label">RateMyATC</span>
+                            </button>
+                        </div>
+
                         <!-- The spotters gallery. Desktop only: phones reach
                              photos from the iOS tab bar's Photos tab. -->
                         <div class="nexus-orb-wrapper desktop-only-tab">
