@@ -96,11 +96,95 @@
 
     // Avatar fills, until there are pictures to put in them.
     const TONES = [
-        'linear-gradient(150deg,#F06347,#B8321C)', 'linear-gradient(150deg,#4b5563,#1f2937)',
+        'linear-gradient(150deg,var(--cc-accent),color-mix(in srgb,var(--cc-accent) 60%,#000))', 'linear-gradient(150deg,#4b5563,#1f2937)',
         'linear-gradient(150deg,#a8a29e,#57534e)', 'linear-gradient(150deg,#44403c,#1c1917)',
         'linear-gradient(150deg,#78716c,#292524)', 'linear-gradient(150deg,#7f1d1d,#3f1212)',
     ];
     const initials = (n) => n.split(/\s+/).map((w) => w[0]).slice(0, 2).join('');
+
+    /* ---------------------------------------------------------------------
+     * The airline's own look: its logo, its name, its flight code and its
+     * colour, off the same branding record the rest of the dashboard paints
+     * from (crew-dashboard.html applyBranding → CrewConsole.brand).
+     *
+     * The colour is the airline's accent — the dark-mode one first, since this
+     * interface is dark — and two shades are worked out from it: one solid
+     * enough to be a card or a button on #212121, one light enough to be text
+     * or a line on it. A navy or near-black livery would otherwise vanish into
+     * the board. Neither is written for an airline that has no accent: the
+     * shell keeps its own orange.
+     * ------------------------------------------------------------------- */
+    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const isHex = (c) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c || '');
+    const https = (u) => /^https:\/\/[^\s"'<>()\\]+$/i.test(String(u || ''));
+
+    function rgb(hex) {
+        let h = hex.slice(1);
+        if (h.length === 3) h = h.replace(/./g, '$&$&');
+        const n = parseInt(h, 16);
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+    function luminance(c) {
+        const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+        return 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+    }
+    /** The colour, moved toward white only as far as it takes to reach `min`. */
+    function lift(hex, min) {
+        const c = rgb(hex);
+        for (let t = 0; t <= 1; t += 0.05) {
+            const m = c.map((v) => Math.round(v + (255 - v) * t));
+            if (luminance(m) >= min) return '#' + m.map((v) => v.toString(16).padStart(2, '0')).join('');
+        }
+        return '#ffffff';
+    }
+
+    let branding = null;
+
+    function brandOf(b) {
+        const r = b || {};
+        const t = (r.theme && typeof r.theme === 'object') ? r.theme : {};
+        const accent = [t.dark && t.dark.accent, r.accent, t.light && t.light.accent].find(isHex) || '';
+        const code = String(r.code || '').trim().toUpperCase();
+        return {
+            name: String(r.name || '').trim(),
+            logo: https(r.logo) ? r.logo : '',
+            code: /^[A-Z0-9]{2,4}$/.test(code) ? code : '',
+            accent,
+        };
+    }
+
+    // "Aeromexico Virtual" → AV, the same rule crewBrand.js draws the tab with.
+    function monogram(name) {
+        const w = name.split(/\s+/).filter(Boolean);
+        return (w.length >= 2 ? w[0][0] + w[1][0] : name.slice(0, 2)).toUpperCase();
+    }
+
+    function logoHtml(br) {
+        if (br.logo) return '<span class="cc-logo has-img"><img src="' + esc(br.logo) + '" alt="' + esc(br.name) + '"></span>';
+        if (br.name) return '<span class="cc-logo is-mono" aria-hidden="true">' + esc(monogram(br.name)) + '</span>';
+        return '<span class="cc-logo" aria-hidden="true"></span>';
+    }
+
+    /** The placeholder content, in this airline's name and flight code. */
+    function content() {
+        const br = brandOf(branding);
+        let json = JSON.stringify(DEMO);
+        if (br.code) json = json.replace(/SKY(?=[ 0-9])/g, br.code);
+        const d = JSON.parse(json);
+        if (br.name) d.card.airline = br.name;
+        d.brand = br;
+        return d;
+    }
+
+    function paintColour(el) {
+        const br = brandOf(branding);
+        const props = ['--cc-accent', '--cc-accent-hi', '--cc-accent-ink'];
+        if (!br.accent) { props.forEach((p) => el.style.removeProperty(p)); return; }
+        const fill = lift(br.accent, 0.035);
+        el.style.setProperty('--cc-accent', fill);
+        el.style.setProperty('--cc-accent-hi', lift(br.accent, 0.2));
+        el.style.setProperty('--cc-accent-ink', luminance(rgb(fill)) > 0.45 ? '#111111' : '#ffffff');
+    }
 
     /* ---------------------------------------------------------------------
      * The chart: dashed rules, two smooth lines, a ring where this week's line
@@ -130,12 +214,12 @@
         const rings = [[1, 1], [3, 0], [5, 0]].map(([i]) => {
             const v = c.now[i + 1] !== undefined ? (c.now[i] + c.now[i + 1]) / 2 : c.now[i];
             return '<circle cx="' + ((x(i, c.now.length) + x(i + 1, c.now.length)) / 2).toFixed(1) + '" cy="' + y(v).toFixed(1)
-                + '" r="4.5" fill="#212121" stroke="#E8553B" stroke-width="1.6"/>';
+                + '" r="4.5" class="cc-ring" stroke-width="1.6"/>';
         }).join('');
         return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + c.title + ', Monday to Friday">'
             + g
-            + '<path d="' + path(c.last) + '" fill="none" stroke="#7a2a1e" stroke-width="2"/>'
-            + '<path d="' + path(c.now) + '" fill="none" stroke="#E8553B" stroke-width="2.2"/>'
+            + '<path d="' + path(c.last) + '" fill="none" class="cc-ln-last" stroke-width="2"/>'
+            + '<path d="' + path(c.now) + '" fill="none" class="cc-ln-now" stroke-width="2.2"/>'
             + rings + '</svg>';
     }
 
@@ -169,7 +253,7 @@
         const p = d.pilot;
         return ''
         + '<aside class="cc-rail" aria-label="Sections">'
-        +   '<span class="cc-logo" aria-hidden="true"></span>'
+        +   logoHtml(d.brand)
         +   '<nav class="cc-rail-nav">'
         +     '<button type="button" class="cc-rail-btn" aria-current="page" title="Home">' + ic('house') + '</button>'
         +     '<button type="button" class="cc-rail-btn" title="Radio">' + ic('voicemail') + '</button>'
@@ -192,8 +276,8 @@
         // A phone's own top bar: the switch out and the inbox, which on a
         // phone is a sheet rather than a column. Hidden on anything wider.
         +   '<div class="cc-mhead">'
-        +     '<span class="cc-logo" aria-hidden="true"></span>'
-        +     '<span class="cc-mtitle">Crew centre</span>'
+        +     logoHtml(d.brand)
+        +     '<span class="cc-mtitle">' + esc(d.brand.name || 'Crew centre') + '</span>'
         +     '<span data-skin-toggle></span>'
         +     '<button type="button" class="cc-rail-btn" title="Conversations" data-cc-inbox>' + ic('message-circle') + '<span class="cc-pip"></span></button>'
         +   '</div>'
@@ -203,7 +287,8 @@
         +     '<div class="cc-top">'
         +       '<div class="cc-stack">'
         +         '<div class="cc-card cc-card-front">'
-        +           '<span class="cc-bank">' + d.card.airline + '</span>'
+        +           '<span class="cc-bank">' + esc(d.card.airline)
+        +             (d.brand.logo ? '<img class="cc-card-logo" src="' + esc(d.brand.logo) + '" alt="">' : '') + '</span>'
         +           '<span class="cc-num">' + d.card.number + '</span>'
         +           '<span class="cc-foot"><span>' + d.card.role + '</span><span>' + d.card.rank + '</span></span>'
         +         '</div>' + backs
@@ -271,8 +356,8 @@
         fonts();
         const el = doc.createElement('div');
         el.id = 'crewConsole';
-        el.innerHTML = html(DEMO);
         doc.body.appendChild(el);
+        render();
 
         // Toggles in a row look pressed one at a time; nothing more yet.
         el.addEventListener('click', (e) => {
@@ -287,15 +372,33 @@
             if (rail) el.querySelectorAll('.cc-rail-nav .cc-rail-btn').forEach((b) => b.toggleAttribute('aria-current', b === rail));
         });
 
-        if (global.CrewSkin) global.CrewSkin.renderToggles();
-        try { if (global.lucide) global.lucide.createIcons(); } catch (_) {}
         // lucide may still be on its way from the CDN.
         global.addEventListener('load', () => { try { if (global.lucide) global.lucide.createIcons(); } catch (_) {} }, { once: true });
+    }
+
+    /** Draw (or redraw) the shell's contents in the current airline's look. */
+    function render() {
+        const el = doc.getElementById('crewConsole');
+        if (!el) return;
+        el.innerHTML = html(content());
+        paintColour(el);
+        if (global.CrewSkin) global.CrewSkin.renderToggles();
+        try { if (global.lucide) global.lucide.createIcons(); } catch (_) {}
+    }
+
+    /**
+     * The airline's branding record, as the dashboard resolves it. Kept even
+     * while the Console is not on, so switching to it later draws it in the
+     * airline's look straight away.
+     */
+    function brand(b) {
+        branding = b && typeof b === 'object' ? b : null;
+        if (mounted) render();
     }
 
     if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', mount, { once: true });
     else mount();
     if (global.CrewSkin) global.CrewSkin.onChange(() => mount());
 
-    global.CrewConsole = { mount, demo: DEMO };
+    global.CrewConsole = { mount, brand, demo: DEMO };
 })(window);

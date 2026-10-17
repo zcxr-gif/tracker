@@ -12305,6 +12305,9 @@
             // Pictures and the designer's CSS. After CrewBrand, which owns the
             // colours, so a stylesheet written against them lands on top.
             if(window.CrewDesign){ CrewDesign.apply(b); paintDesign(); }
+            // The Console interface draws its own shell, so it is handed the
+            // record too: logo, name, flight code and accent.
+            if(window.CrewConsole) CrewConsole.brand(b);
             if(Array.isArray(b.allowedLayouts) && b.allowedLayouts.length){
                 ALLOWED = b.allowedLayouts.filter(l=>LAYOUT_META[l]);
                 if(!ALLOWED.length) ALLOWED=['editorial'];

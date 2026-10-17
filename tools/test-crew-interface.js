@@ -302,7 +302,34 @@ function api(route) {
         await page.close();
     }
 
-    // ---- 9. The Console on a phone -----------------------------------------
+    // ---- 9. The Console wears the airline ---------------------------------
+    console.log('\nConsole in the airline’s colours');
+    state = freshState();
+    {
+        // No accent: the Console keeps its own orange, but still takes the
+        // airline's name and flight code.
+        const { page, errors } = await openDash({ query: '&ui=console' });
+        const accent = () => page.$eval('#crewConsole', (el) => el.style.getPropertyValue('--cc-accent'));
+        check('an airline with no accent keeps the Console’s own colour', (await accent()) === '');
+        check('the card carries the airline’s name', (await page.textContent('#crewConsole .cc-bank')).trim() === 'Test VA');
+        check('the flights carry its code', (await page.textContent('#crewConsole .cc-table .cc-c-flight')).trim().startsWith('TST'));
+        check('its initials stand in for a logo', (await page.textContent('#crewConsole .cc-rail .cc-logo')).trim() === 'TV');
+        check('no page errors', errors.length === 0, errors[0]);
+        await page.close();
+    }
+    state = freshState();
+    state.theme = { light: { accent: '#0E7C66' }, dark: { accent: '#2DD4BF' } };
+    {
+        const { page, errors } = await openDash({ query: '&ui=console' });
+        const accent = await page.$eval('#crewConsole', (el) => el.style.getPropertyValue('--cc-accent'));
+        check('the dark-mode accent is the Console’s colour', accent.toLowerCase() === '#2dd4bf', accent);
+        const ink = await page.$eval('#crewConsole', (el) => el.style.getPropertyValue('--cc-accent-ink'));
+        check('…with ink that can be read on it', ink === '#111111', ink);
+        check('no page errors', errors.length === 0, errors[0]);
+        await page.close();
+    }
+
+    // ---- 10. The Console on a phone ----------------------------------------
     console.log('\nConsole on a phone');
     state = freshState();
     {
