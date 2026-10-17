@@ -53,12 +53,15 @@
         tabs: ['Pilot Approval', 'Fleet', 'Routes', 'Flights', 'Events', 'Awards', 'All sections'],
         tab: 3,
         cta: 'Post a NOTAM',
-        card: { airline: 'Skyward Virtual Airlines', number: '0042 1278 5590 3392', role: 'Crew ID', rank: 'CPT' },
-        ratings: [
-            { label: 'Type rating', code: 'A320 A321 A20N', tag: 'ACTIVE' },
-            { label: 'Type rating', code: 'B738 B38M B739', tag: 'ACTIVE' },
-            { label: 'Expired', code: 'B744 **** 1234', tag: '' },
-            { label: 'Expired', code: 'MD11 **** 5611', tag: '' },
+        // A wallet: the crew ID, then the pilot's type ratings. One is face
+        // on; the rest stand on edge behind it, in the order they come next.
+        // `top` of the crew ID is the airline's name (see content()).
+        cards: [
+            { id: 'crew', top: 'Skyward Virtual Airlines', number: '0042 1278 5590 3392', kind: 'Crew ID', tag: 'CPT' },
+            { id: 'a320', top: 'Airbus', number: 'A320 A321 A20N', kind: 'Type rating', tag: 'ACTIVE' },
+            { id: 'b738', top: 'Boeing', number: 'B738 B38M B739', kind: 'Type rating', tag: 'ACTIVE' },
+            { id: 'b744', top: 'Boeing', number: 'B744 **** 1234', kind: 'Expired', tag: 'LAPSED', expired: true },
+            { id: 'md11', top: 'McDonnell Douglas', number: 'MD11 **** 5611', kind: 'Expired', tag: 'LAPSED', expired: true },
         ],
         chart: {
             title: 'Flight hours',
@@ -171,7 +174,7 @@
         let json = JSON.stringify(DEMO);
         if (br.code) json = json.replace(/SKY(?=[ 0-9])/g, br.code);
         const d = JSON.parse(json);
-        if (br.name) d.card.airline = br.name;
+        if (br.name) d.cards[0].top = br.name;
         d.brand = br;
         return d;
     }
@@ -229,11 +232,51 @@
         + '<path d="M14 100c2-24 17-36 36-36s34 12 36 36Z" fill="#2b1f2e"/>'
         + '<path d="M38 66l12 18 12-18" fill="none" stroke="#e8e2da" stroke-width="3"/></svg>';
 
+    /* ---------------------------------------------------------------------
+     * The cards. `cardAt` is the one face on; the others follow it round in
+     * order, so the first card on edge is always the one that comes next.
+     * Pressing a card on edge brings it to the front; pressing the front one
+     * moves on to the next. Every card carries a view-transition-name, so
+     * where the browser can, each one glides to its new place rather than the
+     * stack being redrawn in a blink.
+     * ------------------------------------------------------------------- */
+    let cardAt = 0;
+
+    function stackHtml(d) {
+        const n = d.cards.length;
+        const at = ((cardAt % n) + n) % n;
+        const logo = d.brand.logo ? '<img class="cc-card-logo" src="' + esc(d.brand.logo) + '" alt="">' : '';
+        const vt = (c) => ' style="view-transition-name:cc-card-' + esc(c.id) + '"';
+        return d.cards.map((_, k) => d.cards[(at + k) % n]).map((c, k) => k === 0
+            ? '<button type="button" class="cc-card cc-card-front' + (c.expired ? ' is-expired' : '') + '" data-card="' + esc(c.id) + '"'
+                + vt(c) + ' aria-label="' + esc(c.kind + ' ' + c.number) + ', show the next card">'
+                + '<span class="cc-bank"><span>' + esc(c.top) + '</span>' + logo + '</span>'
+                + '<span class="cc-num">' + esc(c.number) + '</span>'
+                + '<span class="cc-foot"><span>' + esc(c.kind) + '</span><span>' + esc(c.tag) + '</span></span></button>'
+            : '<button type="button" class="cc-card cc-card-back" data-card="' + esc(c.id) + '"'
+                + vt(c) + ' aria-label="Show ' + esc(c.kind + ' ' + c.number) + '">'
+                + '<b>' + esc(c.number) + '</b><span>' + esc(c.kind) + '<small>' + esc(c.tag) + '</small></span></button>'
+        ).join('');
+    }
+
+    function showCard(id) {
+        const el = doc.querySelector('#crewConsole .cc-stack');
+        if (!el) return;
+        const d = content();
+        const i = d.cards.findIndex((c) => c.id === id);
+        if (i < 0) return;
+        const n = d.cards.length;
+        cardAt = i === ((cardAt % n) + n) % n ? i + 1 : i;   // the front one moves on
+        const swap = () => { el.innerHTML = stackHtml(d); el.scrollLeft = 0; };
+        const still = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (!still && typeof doc.startViewTransition === 'function') {
+            try { doc.startViewTransition(swap); return; } catch (_) {}
+        }
+        swap();
+    }
+
     function html(d) {
         const tabs = d.tabs.map((t, i) => '<button type="button" role="tab" class="cc-tab" aria-selected="' + (i === d.tab) + '">' + t + '</button>').join('');
-
-        const backs = d.ratings.map((r) => '<div class="cc-card cc-card-back" aria-hidden="true">'
-            + '<b>' + r.code + '</b><span>' + r.label + (r.tag ? '<small>' + r.tag + '</small>' : '') + '</span></div>').join('');
 
         const rows = d.flights.map((f) => '<tr>'
             + '<td class="cc-c-flight"><span class="cc-who"><span class="cc-ico">' + ic(f.icon) + '</span>' + f.flight + '</span></td>'
@@ -285,14 +328,7 @@
 
         +   '<section class="cc-board">'
         +     '<div class="cc-top">'
-        +       '<div class="cc-stack">'
-        +         '<div class="cc-card cc-card-front">'
-        +           '<span class="cc-bank">' + esc(d.card.airline)
-        +             (d.brand.logo ? '<img class="cc-card-logo" src="' + esc(d.brand.logo) + '" alt="">' : '') + '</span>'
-        +           '<span class="cc-num">' + d.card.number + '</span>'
-        +           '<span class="cc-foot"><span>' + d.card.role + '</span><span>' + d.card.rank + '</span></span>'
-        +         '</div>' + backs
-        +       '</div>'
+        +       '<div class="cc-stack" role="group" aria-label="Crew ID and type ratings">' + stackHtml(d) + '</div>'
         +       '<div class="cc-chart"><h2 class="cc-h">Analytics</h2>' + chartSvg(d.chart) + '</div>'
         +     '</div>'
         +     '<div class="cc-scroll"><table class="cc-table">'
@@ -366,6 +402,8 @@
             if (e.target.closest('[data-cc-close]')) el.classList.remove('cc-inbox-open');
             const tab = e.target.closest('.cc-tab:not(.cc-tab-cta)');
             if (tab) el.querySelectorAll('.cc-tab').forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
+            const card = e.target.closest('[data-card]');
+            if (card) showCard(card.getAttribute('data-card'));
             const cb = e.target.closest('.cc-cb');
             if (cb) cb.setAttribute('aria-pressed', String(cb.getAttribute('aria-pressed') !== 'true'));
             const rail = e.target.closest('.cc-rail-nav .cc-rail-btn');

@@ -293,6 +293,21 @@ function api(route) {
         check('the dashboard underneath is put away', !(await page.isVisible('body > header.sticky')));
         check('the way out is in its rail', await page.isVisible('#crewConsole [data-skin-toggle] .ifc-toggle'));
 
+        // The cards: the first on edge is the one that comes next, and
+        // pressing it brings it to the front.
+        const order = () => page.$$eval('#crewConsole .cc-stack .cc-card', (els) => els.map((e) => e.getAttribute('data-card')));
+        const before = await order();
+        const next = page.locator('#crewConsole .cc-card-back').first();
+        const nb = await next.boundingBox();
+        await next.click({ position: { x: nb.width - 20, y: nb.height / 2 } });
+        await page.waitForTimeout(700);
+        const after = await order();
+        check('the next card comes to the front', after[0] === before[1], after.join(','));
+        check('…and the one it replaced goes to the back of the line', after[after.length - 1] === before[0], after.join(','));
+        await page.click('#crewConsole .cc-card-front');
+        await page.waitForTimeout(700);
+        check('pressing the front card moves on to the next', (await order())[0] === before[2]);
+
         await page.click('#crewConsole [data-skin-toggle] .ifc-toggle');
         await page.waitForTimeout(700);
         check('…and it leads to the next interface', (await skin(page)) === 'aurora');
