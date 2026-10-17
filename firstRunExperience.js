@@ -28,20 +28,9 @@
 const LEGAL_VERSION = '2026-04-25';
 const STORAGE_KEY = 'inflight_legal_accepted';
 
-// Key for the one-time "which flight info window?" choice. Its mere presence
-// means the user has made the choice at least once; the value records what they
-// picked ('simple' | 'standard' | 'card'). Every user — including ones who
-// accepted the legal docs before this step existed — is asked exactly once.
-const WINDOW_CHOICE_KEY = 'inflight_window_choice';
-
-// The optional "Make it yours" step, offered once, straight after the steps
-// above on a first launch. Never shown to someone who has already been
-// through first-run, so an update doesn't greet regulars with a new popup.
-const PERSONALISE_KEY = 'inflight_personalise_seen';
-
 // Neutral zinc accent — the rest of the app's surfaces use a charcoal/zinc
 // palette (see the simple flight window and the launch splash), so the legal
-// gate and window picker now match instead of standing out as navy/sky-blue.
+// gate now matches instead of standing out as navy/sky-blue.
 const ACCENT = '#d4d4d8';
 
 /** Has the user already agreed to the *current* version of the docs? */
@@ -55,74 +44,10 @@ export function hasAcceptedLegal() {
     }
 }
 
-/** Has the user already picked a flight info window at least once? */
-export function hasChosenWindow() {
-    try {
-        return !!localStorage.getItem(WINDOW_CHOICE_KEY);
-    } catch (_) {
-        return false;
-    }
-}
-
 function persistAcceptance() {
     try {
         localStorage.setItem(STORAGE_KEY, LEGAL_VERSION);
     } catch (_) { /* storage unavailable; nothing we can do */ }
-}
-
-// Map an onboarding choice ('standard' | 'horizon' | 'simple' | 'card') to the
-// canonical flight-window mode used everywhere else ('legacy' | 'horizon' |
-// 'simple' | 'embed'). The picker labels the full avionics panel "Standard";
-// internally that's 'legacy'.
-function choiceToWindowMode(choice) {
-    if (choice === 'horizon') return 'horizon';
-    if (choice === 'simple') return 'simple';
-    if (choice === 'card') return 'embed';
-    return 'legacy';
-}
-
-/**
- * Record the flight-window choice and apply it to the live app immediately so
- * the very next aircraft the user taps respects it.
- * @param {string} choice  'standard' (avionics panel), 'horizon' (the avionics
- *                          window in the calm photo-led skin), 'simple' (card
- *                          window), or 'card' (embed-style FR24 card).
- */
-function persistWindowChoice(choice) {
-    const mode = choiceToWindowMode(choice);
-    try {
-        localStorage.setItem(WINDOW_CHOICE_KEY, choice);
-    } catch (_) { /* storage unavailable */ }
-
-    try {
-        if (window.mapFilters) {
-            // Prefer the shared helper so desktop/mobile resolve the mode
-            // identically and both stores (flightWindowMode + the legacy
-            // useSimpleFlightWindow boolean) stay in sync.
-            if (typeof window.setFlightWindowMode === 'function') {
-                window.setFlightWindowMode(mode);
-            } else {
-                window.mapFilters.flightWindowMode = mode;
-                window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
-                if (typeof window.saveFiltersToLocalStorage === 'function') {
-                    window.saveFiltersToLocalStorage();
-                } else {
-                    try { localStorage.setItem('mapFilters', JSON.stringify(window.mapFilters)); } catch (_) { }
-                }
-            }
-            // The simple window only supports the legacy mobile sheet, mirroring
-            // the dependency enforced by the in-app settings toggle.
-            if (mode === 'simple') {
-                try { localStorage.setItem('mobileDisplayMode', 'legacy'); } catch (_) { }
-            }
-        }
-        // Keep any already-rendered settings controls in sync with the choice.
-        const useSimple = (mode === 'simple');
-        const deskToggle = document.getElementById('filter-toggle-simple-window');
-        if (deskToggle) deskToggle.checked = useSimple;
-        document.querySelectorAll('input[data-setting="useSimpleFlightWindow"]')
-            .forEach((i) => { i.checked = useSimple; });
-    } catch (_) { /* applying the choice is best-effort */ }
 }
 
 /**
@@ -144,112 +69,23 @@ export async function runFirstRunExperience(map, opts = {}) {
     window.__inflightFirstRunPromise = new Promise((r) => { resolveGate = r; });
 
     try {
-        const needLegal = opts.force || !hasAcceptedLegal();
-        const needWindow = opts.force || !hasChosenWindow();
-
-        // Returning users who've done both skip everything.
-        if (!needLegal && !needWindow) return;
+        // Returning users skip everything.
+        if (!opts.force && hasAcceptedLegal()) return;
 
         injectStyles();
 
         // Hide the app's UI chrome (top bar, tab bar, HUD, panels, info windows)
-        // while the onboarding runs so nothing but the map is visible. The class
+        // while the gate runs so nothing but the map is visible. The class
         // lives on <body> so it also catches chrome that boot injects *after*
         // onboarding has already started.
         setChromeHidden(true);
 
-        // Step 1 — legal acceptance (plays the cinematic intro for brand-new users).
-        // Step 2 — pick a flight info window. Whichever runs last fades the chrome
-        // back in beneath its dismissing modal.
-        if (needLegal) {
-            await runLegalStep(map, { restoreChrome: !needWindow });
-        }
-        if (needWindow) {
-            // Let the legal modal's dismiss transition fully finish before the
-            // window picker fades in — back-to-back overlays used to glitch
-            // into each other on first launch.
-            if (needLegal) await new Promise((r) => setTimeout(r, 420));
-            await runWindowChoiceStep({ restoreChrome: true });
-        }
-        // Step 3 — optional: the window's colour and background, and (signed
-        // out) an invitation to an account for a picture and banner.
-        if ((needLegal || needWindow) && !opts.skipPersonalise && !seenPersonalise()
-            && typeof window.buildWindowLookPanel === 'function') {
-            await new Promise((r) => setTimeout(r, 420));
-            await runPersonaliseStep();
-        }
+        // The legal acceptance is the only step: it plays the cinematic intro
+        // for brand-new users and fades the chrome back in as it dismisses.
+        await runLegalStep(map, { restoreChrome: true });
     } finally {
         resolveGate();
     }
-}
-
-function seenPersonalise() {
-    try { return localStorage.getItem(PERSONALISE_KEY) === '1'; } catch (_) { return false; }
-}
-
-function looksSignedIn() {
-    try {
-        for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i) || '';
-            if (k.includes('supabase.auth.token') || (k.startsWith('sb-') && k.endsWith('-auth-token'))) return true;
-        }
-    } catch (_) { /* private mode */ }
-    return false;
-}
-
-/**
- * Step 3: "Make it yours" — optional.
- *
- * The flight window's colour (Horizon) and background — none, the aircraft's
- * photo, or the pilot's own image framed in the adjuster — with a live
- * preview; flight.js's shared panel, so it is the same control as Settings.
- * Signed out, it also offers a free account for a picture, a banner and a
- * window style other pilots see. Skip and Done both just close it.
- */
-function runPersonaliseStep() {
-    return new Promise((resolve) => {
-        try { localStorage.setItem(PERSONALISE_KEY, '1'); } catch (_) { /* private mode */ }
-        const signedIn = looksSignedIn();
-        const overlay = document.createElement('div');
-        overlay.id = 'fre-overlay';
-        overlay.classList.add('fre-overlay-personalise');
-        overlay.setAttribute('role', 'dialog');
-        overlay.setAttribute('aria-modal', 'true');
-        overlay.setAttribute('aria-labelledby', 'fre-personalise-title');
-        overlay.innerHTML = `
-            <div class="fre-card fre-card-wide" role="document">
-                <h1 id="fre-personalise-title" class="fre-title">Make it yours</h1>
-                <p class="fre-sub">Give your flight windows a colour and background of your own — even your own image, framed however you like. Optional, and always in Settings.</p>
-                <div class="fre-look">${window.buildWindowLookPanel('fre', { compact: true })}</div>
-                ${signedIn ? '' : `
-                <div class="fre-account">
-                    <span class="fre-account-ic"><i class="fa-solid fa-id-badge"></i></span>
-                    <span class="fre-account-text">
-                        <b>Your picture, banner and flight window</b>
-                        <span>A free account gives you a pilot card other pilots see on the map, and lets you style the window they see for your flight.</span>
-                    </span>
-                    <button type="button" class="fre-account-btn" data-act="signup">Create account</button>
-                </div>`}
-                <div class="fre-actions">
-                    <button type="button" class="fre-skip" data-act="skip">Skip</button>
-                    <button type="button" class="fre-agree" data-act="done">Done</button>
-                </div>
-            </div>`;
-        document.body.appendChild(overlay);
-        try { window.wireWindowLookPanel(overlay); } catch (_) { /* the panel still shows */ }
-        requestAnimationFrame(() => overlay.classList.add('fre-visible'));
-
-        overlay.addEventListener('click', (e) => {
-            const act = e.target.closest('[data-act]')?.dataset.act;
-            if (!act) return;
-            dismissOverlay(overlay, true, resolve);
-            if (act === 'signup') {
-                setTimeout(() => {
-                    try { window.AuthUI && window.AuthUI.open('signup'); } catch (_) { /* nav still offers it */ }
-                }, 450);
-            }
-        });
-    });
 }
 
 /** Reveal an overlay, then resolve once the given trigger fires; handles the
@@ -291,216 +127,6 @@ function runLegalStep(map, { restoreChrome } = {}) {
             persistAcceptance();
             dismissOverlay(overlay, restoreChrome, resolve);
         });
-    });
-}
-
-/**
- * Step 2: one-time "which flight info window?" picker.
- *
- * Preferred path is a hands-on, live demo — we open four real, randomly chosen
- * flights' info windows (one per style) and let the user flip between the
- * Standard, Horizon, Simple and Card styles before committing, so they *see* each one
- * rather than reading about it. We wait for the live socket to actually deliver
- * flights first. If too few arrive (offline, or the feed is empty) we fall back
- * to the self-contained mockup picker so the gate never stalls the boot.
- *
- * Three *different* flights are used deliberately: handleAircraftClick() bails
- * early when asked to re-open the flight that's already showing, so reusing a
- * single flight would make a switch to another style silently fail to render.
- */
-async function runWindowChoiceStep({ restoreChrome } = {}) {
-    // Wait (reasonably) for the socket to populate live flights before deciding.
-    // One distinct flight per style keeps every switch a genuine re-open.
-    const flights = await waitForLiveFlights(4, 25000);
-    if (flights.length >= 3) {
-        // A fourth flight for Horizon when the feed has one; otherwise it
-        // borrows Standard's, and openStyle() closes the window first so the
-        // re-open isn't swallowed.
-        await runWindowDemoStep(flights[0], flights[1], flights[2], flights[3] || flights[0], { restoreChrome });
-    } else {
-        await runWindowMockupStep({ restoreChrome });
-    }
-}
-
-/**
- * Live picker: opens a real flight window and lets the user flip between the
- * four styles — Standard, Horizon, Simple and Card — each backed by its own
- * flight so every switch is a real re-open (handleAircraftClick bails on a
- * repeat).
- */
-function runWindowDemoStep(standardFlight, simpleFlight, cardFlight, horizonFlight, { restoreChrome } = {}) {
-    return new Promise((resolve) => {
-        const { overlay, segs, continueBtn } = buildWindowDemoBanner();
-        document.body.appendChild(overlay);
-
-        // Don't fight the app's own window system: reveal the full chrome so the
-        // real info window opens and animates exactly as it does in normal use,
-        // with our control banner floating on top.
-        setChromeHidden(false);
-        requestAnimationFrame(() => overlay.classList.add('fre-visible'));
-
-        // Default to the Standard window so the user immediately sees a real
-        // example; tapping a segment opens the other style's flight live.
-        let selected = 'standard';
-        let switching = false;
-        const flightForStyle = { standard: standardFlight, horizon: horizonFlight, simple: simpleFlight, card: cardFlight };
-        let shownFlight = null;
-
-        // Open the chosen style's flight via the real app path. Awaiting the
-        // whole call means the in-app loading guard has cleared before we allow
-        // the next switch, so taps can't race each other.
-        const openStyle = async (choice) => {
-            if (switching) return;
-            switching = true;
-            try {
-                // Preview-only: point both stores at the chosen mode so
-                // handleAircraftClick renders the right window, without
-                // persisting until the user commits with Continue.
-                if (window.mapFilters) {
-                    const mode = choiceToWindowMode(choice);
-                    window.mapFilters.flightWindowMode = mode;
-                    window.mapFilters.useSimpleFlightWindow = (mode === 'simple');
-                }
-                const fp = flightForStyle[choice] || standardFlight;
-                // Same flight as the one showing (Horizon sharing Standard's):
-                // close first, or handleAircraftClick ignores the repeat.
-                if (fp === shownFlight && typeof window.closeAircraftWindow === 'function') {
-                    window.closeAircraftWindow();
-                    await new Promise((r) => setTimeout(r, 320));
-                }
-                if (typeof window.handleAircraftClick === 'function') {
-                    await window.handleAircraftClick(fp);
-                    shownFlight = fp;
-                }
-            } catch (_) { /* best-effort demo */ }
-            switching = false;
-        };
-
-        segs.forEach((btn) => {
-            btn.addEventListener('click', () => {
-                if (switching) return;
-                segs.forEach((b) => b.classList.toggle('fre-seg-active', b === btn));
-                selected = btn.dataset.window;
-                openStyle(selected);
-            });
-        });
-
-        openStyle('standard');
-
-        continueBtn.addEventListener('click', () => {
-            // Tear down the live demo window, then persist the final choice and
-            // dismiss.
-            try { if (typeof window.closeAircraftWindow === 'function') window.closeAircraftWindow(); } catch (_) { }
-            persistWindowChoice(selected);
-            dismissOverlay(overlay, restoreChrome, resolve);
-        });
-    });
-}
-
-/** Fallback picker: static mockups when there are no live flights to demo. */
-function runWindowMockupStep({ restoreChrome } = {}) {
-    return new Promise((resolve) => {
-        const { overlay, continueBtn, choices } = buildWindowChoiceModal();
-        document.body.appendChild(overlay);
-        requestAnimationFrame(() => overlay.classList.add('fre-visible'));
-
-        let selected = null;
-        choices.forEach((btn) => {
-            btn.addEventListener('click', () => {
-                choices.forEach((b) => b.classList.toggle('fre-choice-selected', b === btn));
-                selected = btn.dataset.window;
-                continueBtn.disabled = false;
-            });
-        });
-
-        continueBtn.addEventListener('click', () => {
-            if (continueBtn.disabled || !selected) return;
-            persistWindowChoice(selected);
-            dismissOverlay(overlay, restoreChrome, resolve);
-        });
-    });
-}
-
-/**
- * Pick up to `count` distinct random live flights' properties (the shape
- * handleAircraftClick wants). Prefers en-route flights with a full
- * origin→destination route for the richest-looking example.
- */
-function pickRandomLiveFlights(count) {
-    let flights = [];
-    try {
-        if (typeof window.getLiveFlightData === 'function') {
-            flights = window.getLiveFlightData() || [];
-        }
-    } catch (_) {
-        return [];
-    }
-    if (!flights.length) return [];
-
-    // getLiveFlightData() returns GeoJSON features. Mapbox stores nested
-    // properties as JSON *strings*, so feature.properties.aircraft /
-    // .position arrive serialized. The real map-click handlers parse those
-    // back into objects before calling handleAircraftClick — we must do the
-    // same here, otherwise the Standard window's aircraft type/livery come
-    // back empty and its community plane photo never loads in the demo.
-    const props = flights
-        .map((f) => (f && f.properties) ? f.properties : f)
-        .filter((p) => p && p.flightId)
-        .map((p) => {
-            try {
-                return {
-                    ...p,
-                    position: typeof p.position === 'string' ? JSON.parse(p.position) : p.position,
-                    aircraft: typeof p.aircraft === 'string' ? JSON.parse(p.aircraft) : p.aircraft
-                };
-            } catch (_) {
-                return p;
-            }
-        });
-    if (!props.length) return [];
-
-    // Prefer en-route flights (full route) up front, then top up with any others.
-    const enroute = props.filter((p) => p.departureIcao && p.arrivalIcao);
-    const others = props.filter((p) => !(p.departureIcao && p.arrivalIcao));
-    const ordered = shuffle(enroute).concat(shuffle(others));
-
-    // De-dupe by flightId so the two demo flights are genuinely different.
-    const picked = [];
-    const seen = new Set();
-    for (const p of ordered) {
-        if (seen.has(p.flightId)) continue;
-        seen.add(p.flightId);
-        picked.push(p);
-        if (picked.length >= count) break;
-    }
-    return picked;
-}
-
-/** Fisher–Yates shuffle (returns a new array). */
-function shuffle(arr) {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-}
-
-/**
- * Resolve with up to `minCount` distinct live flights, polling while the live
- * socket fills in. Resolves early as soon as `minCount` are available, and
- * resolves with whatever it has (possibly fewer, possibly none) at timeout.
- */
-function waitForLiveFlights(minCount, timeoutMs) {
-    return new Promise((resolve) => {
-        const start = Date.now();
-        const tick = () => {
-            const flights = pickRandomLiveFlights(minCount);
-            if (flights.length >= minCount) { resolve(flights); return; }
-            if (Date.now() - start >= timeoutMs) { resolve(flights); return; }
-            setTimeout(tick, 400);
-        };
-        tick();
     });
 }
 
@@ -657,145 +283,6 @@ function buildModal() {
     });
 
     return { overlay, agreeBtn, checkbox };
-}
-
-/** One-time picker letting the user choose their flight info window style. */
-function buildWindowChoiceModal() {
-    const overlay = document.createElement('div');
-    overlay.id = 'fre-overlay';
-    overlay.classList.add('fre-overlay-choice');
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-labelledby', 'fre-window-title');
-
-    overlay.innerHTML = `
-        <div class="fre-card" role="document">
-            <h1 id="fre-window-title" class="fre-title">Choose your flight window</h1>
-            <p class="fre-sub">How should flight details look when you tap an aircraft? You can change this anytime in Settings.</p>
-
-            <div class="fre-choices">
-                <button type="button" class="fre-choice" data-window="simple">
-                    <span class="fre-preview fre-preview-simple" aria-hidden="true">
-                        <span class="pv-s-top">
-                            <span class="pv-s-id"><span class="pv-s-call"></span><span class="pv-s-sub"></span></span>
-                            <span class="pv-s-thumb"></span>
-                        </span>
-                        <span class="pv-s-route">
-                            <span class="pv-s-icao"></span>
-                            <i class="fa-solid fa-plane pv-s-plane"></i>
-                            <span class="pv-s-icao"></span>
-                        </span>
-                        <span class="pv-s-bar"><span></span></span>
-                    </span>
-                    <span class="fre-choice-head">
-                        <i class="fa-solid fa-window-maximize fre-choice-ic"></i>
-                        <span class="fre-choice-name">Simple</span>
-                    </span>
-                    <span class="fre-choice-desc">A clean, card-style window with the key flight info at a glance.</span>
-                </button>
-                <button type="button" class="fre-choice" data-window="standard">
-                    <span class="fre-preview fre-preview-standard" aria-hidden="true">
-                        <span class="pv-d-head"></span>
-                        <span class="pv-d-body">
-                            <span class="pv-d-adi"></span>
-                            <span class="pv-d-tiles"><span></span><span></span><span></span><span></span></span>
-                        </span>
-                        <span class="pv-d-tabs"><span></span><span></span><span></span><span></span></span>
-                    </span>
-                    <span class="fre-choice-head">
-                        <i class="fa-solid fa-gauge-high fre-choice-ic"></i>
-                        <span class="fre-choice-name">Standard</span>
-                    </span>
-                    <span class="fre-choice-desc">The full avionics panel with detailed instruments and tabs.</span>
-                </button>
-                <button type="button" class="fre-choice" data-window="horizon">
-                    <span class="fre-preview fre-preview-horizon" aria-hidden="true">
-                        <span class="pv-h-photo">
-                            <span class="pv-h-id"><span class="pv-h-eyebrow"></span><span class="pv-h-call"></span></span>
-                        </span>
-                        <span class="pv-h-route">
-                            <span class="pv-h-icao"></span>
-                            <span class="pv-h-line"><span></span></span>
-                            <span class="pv-h-icao"></span>
-                        </span>
-                        <span class="pv-h-glance"><span></span><span></span><span></span><span></span></span>
-                    </span>
-                    <span class="fre-choice-head">
-                        <i class="fa-solid fa-sun fre-choice-ic"></i>
-                        <span class="fre-choice-name">Horizon</span>
-                    </span>
-                    <span class="fre-choice-desc">The full avionics window, calmer: a big aircraft photo, live numbers first, your own colour.</span>
-                </button>
-                <button type="button" class="fre-choice" data-window="card">
-                    <span class="fre-preview fre-preview-card" aria-hidden="true">
-                        <span class="pv-c-head">
-                            <span class="pv-c-logo"></span>
-                            <span class="pv-c-title"></span>
-                        </span>
-                        <span class="pv-c-route">
-                            <span class="pv-c-end"><span class="pv-c-icao"></span><span class="pv-c-city"></span></span>
-                            <i class="fa-solid fa-plane pv-c-plane"></i>
-                            <span class="pv-c-end"><span class="pv-c-icao"></span><span class="pv-c-city"></span></span>
-                        </span>
-                        <span class="pv-c-bar"><span></span></span>
-                        <span class="pv-c-stats"><span></span><span></span><span></span></span>
-                    </span>
-                    <span class="fre-choice-head">
-                        <i class="fa-solid fa-id-card fre-choice-ic"></i>
-                        <span class="fre-choice-name">Card</span>
-                    </span>
-                    <span class="fre-choice-desc">A sleek, shareable flight card — the same layout as embeds.</span>
-                </button>
-            </div>
-
-            <button type="button" id="fre-window-continue" class="fre-agree" disabled>
-                Continue
-            </button>
-        </div>
-    `;
-
-    const continueBtn = overlay.querySelector('#fre-window-continue');
-    const choices = Array.from(overlay.querySelectorAll('.fre-choice'));
-    return { overlay, continueBtn, choices };
-}
-
-/**
- * Compact, top-docked control banner for the live window demo. It floats above
- * the real (open) flight info window without covering it — only the card itself
- * is interactive, so the user can still poke at the live example underneath.
- */
-function buildWindowDemoBanner() {
-    const overlay = document.createElement('div');
-    overlay.id = 'fre-window-demo';
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-labelledby', 'fre-demo-title');
-
-    overlay.innerHTML = `
-        <div class="fre-demo-card" role="document">
-            <h2 id="fre-demo-title" class="fre-demo-title">Choose your flight window</h2>
-            <p class="fre-demo-sub">This is a live example. Tap each style to compare, then continue — you can change it anytime in Settings.</p>
-            <div class="fre-seg" role="group" aria-label="Flight window style">
-                <button type="button" class="fre-seg-btn fre-seg-active" data-window="standard">
-                    <i class="fa-solid fa-gauge-high" aria-hidden="true"></i><span>Standard</span>
-                </button>
-                <button type="button" class="fre-seg-btn" data-window="horizon">
-                    <i class="fa-solid fa-sun" aria-hidden="true"></i><span>Horizon</span>
-                </button>
-                <button type="button" class="fre-seg-btn" data-window="simple">
-                    <i class="fa-solid fa-window-maximize" aria-hidden="true"></i><span>Simple</span>
-                </button>
-                <button type="button" class="fre-seg-btn" data-window="card">
-                    <i class="fa-solid fa-id-card" aria-hidden="true"></i><span>Card</span>
-                </button>
-            </div>
-            <button type="button" id="fre-demo-continue" class="fre-agree">Continue</button>
-        </div>
-    `;
-
-    const segs = Array.from(overlay.querySelectorAll('.fre-seg-btn'));
-    const continueBtn = overlay.querySelector('#fre-demo-continue');
-    return { overlay, segs, continueBtn };
 }
 
 /**

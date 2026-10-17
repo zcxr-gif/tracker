@@ -8,7 +8,7 @@
 //   - a little ghost hanging on a thread from the top bar, softly glowing;
 //     tap it and a card pops out (the Halloween Pro sale, when it applies)
 //   - a little pumpkin on the logo (desktop) or the server button (phone)
-//   - a one-a-day greeting with a "Turn off" button
+//   - a greeting with a "Turn off" button, shown once and never again
 //
 // All of it sits under the panels (or, for the greeting, briefly above them),
 // never takes a pointer event it does not need, and comes down completely
@@ -161,18 +161,15 @@
         return !!document.getElementById('inflight-pro-loader-overlay');
     }
 
-    function today() {
-        var d = new Date();
-        return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
-    }
-
     function greet() {
         if (!state) return;
         if (splashUp()) { later(greet, 1000); return; }
         try {
-            if (localStorage.getItem(GREETED_KEY) === today()) return;
-            localStorage.setItem(GREETED_KEY, today());
-        } catch (_) { /* private mode: greet anyway */ }
+            // Any stored value means they have been greeted — including the
+            // dates the old once-a-day greeting left behind.
+            if (localStorage.getItem(GREETED_KEY)) return;
+            localStorage.setItem(GREETED_KEY, '1');
+        } catch (_) { return; /* private mode: can't remember it, so don't greet */ }
 
         var el = document.createElement('div');
         el.className = 'hw-hello';
