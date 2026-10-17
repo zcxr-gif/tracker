@@ -231,8 +231,9 @@ function api(route) {
 
         await page.click('header [data-skin-toggle] .ifc-toggle');
         await page.waitForTimeout(700);
-        check('the switch in the top bar flips it', (await skin(page)) === 'aurora');
-        check('…and remembers it on this device', (await stored(page)).mine === 'aurora');
+        // The switch steps through the interfaces in order; Console is next.
+        check('the switch in the top bar flips it', (await skin(page)) === 'console');
+        check('…and remembers it on this device', (await stored(page)).mine === 'console');
         check('…without changing it for the crew',
             !state.savedSettings.some((s) => s.ui), JSON.stringify(state.savedSettings));
         check('no page errors', errors.length === 0, errors[0]);
@@ -278,6 +279,25 @@ function api(route) {
         check('…including the glass it is drawn on', sheet.blurred);
         const scrim = await page.$eval('#cnPanel .cp-scrim', (el) => /blur/.test(getComputedStyle(el).backdropFilter || ''));
         check('…and the dashboard is left legible behind it', scrim);
+        check('no page errors', errors.length === 0, errors[0]);
+        await page.close();
+    }
+
+    // ---- 8. The Console is a shell of its own ------------------------------
+    console.log('\nConsole');
+    state = freshState();
+    {
+        const { page, errors } = await openDash({ query: '&ui=console' });
+        check('it is the interface on', (await skin(page)) === 'console');
+        check('its shell is drawn', await page.isVisible('#crewConsole .cc-board'));
+        check('the dashboard underneath is put away', !(await page.isVisible('body > header.sticky')));
+        check('the way out is in its rail', await page.isVisible('#crewConsole [data-skin-toggle] .ifc-toggle'));
+
+        await page.click('#crewConsole [data-skin-toggle] .ifc-toggle');
+        await page.waitForTimeout(700);
+        check('…and it leads to the next interface', (await skin(page)) === 'aurora');
+        check('the shell steps aside', !(await page.isVisible('#crewConsole')));
+        check('the dashboard is back', await page.isVisible('body > header.sticky'));
         check('no page errors', errors.length === 0, errors[0]);
         await page.close();
     }

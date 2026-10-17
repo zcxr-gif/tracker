@@ -16,6 +16,8 @@
  *   aurora      the second interface — dark-first, glass over an ambient
  *               canvas, depth instead of hairlines, motion with a spring in
  *               it. See crewSkin.css, which does all of the drawing.
+ *   console     a dispatcher's desk, drawn as its own shell over the
+ *               dashboard (crewConsole.js, crewSkin.css §18). Not yet wired.
  *
  * WHO DECIDES — three answers, in this order:
  *
@@ -50,12 +52,19 @@
 (function (global) {
     'use strict';
 
-    const SKINS = ['essential', 'aurora', 'airline'];
+    const SKINS = ['essential', 'console', 'aurora', 'airline'];
 
     const META = {
         essential: {
             name: 'Essential',
             desc: 'Warm paper, hairlines, nothing in the way of the work.',
+        },
+        // A dispatcher's console: a rail, tabs into one dark board, a pilot on
+        // the line and the inbox down the side. Dashboard only for now, and
+        // not yet wired to data — see crewConsole.js and crewSkin.css §18.
+        console: {
+            name: 'Console',
+            desc: 'A dispatcher\u2019s desk — dark, orange, everything on one board.',
         },
         aurora: {
             name: 'Aurora',
@@ -81,6 +90,10 @@
         aurora: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
             + '<path d="M12 3.2 13.6 8 18.4 9.6 13.6 11.2 12 16 10.4 11.2 5.6 9.6 10.4 8Z"/>'
             + '<path d="M18.5 15.5 19.2 17.3 21 18l-1.8.7-.7 1.8-.7-1.8L16 18l1.8-.7Z"/></svg>',
+        // Offering console: a headset.
+        console: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            + '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="13" width="4" height="6" rx="1.5"/>'
+            + '<rect x="17" y="13" width="4" height="6" rx="1.5"/><path d="M19 19c0 1.5-1.5 2.5-4 2.5h-2"/></svg>',
         // Offering airline: a tail fin.
         airline: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
             + '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>',

@@ -1020,3 +1020,251 @@ html:not(.dark) .ifc-prev-aurora{
 .ifc-prev-airline .ifc-bar .ifc-line{ background:rgb(255 255 255 / .6); }
 .ifc-prev-airline .ifc-cell:first-child{ background:#0E1116; }
 .dark .ifc-prev-airline{ --p-bg:#060D1A; --p-surface:#0E1A2E; --p-ink:#EAF0FA; }
+
+/* ============================================================================
+   18. CONSOLE
+
+   Not a coat of paint over the dashboard like the others: a shell of its own
+   (crewConsole.js) laid over it — a rail of icons, a row of tabs that opens
+   into one dark board, the pilot on the line under it and the inbox down the
+   right. Dark only, and orange unless an airline says otherwise.
+
+   The dashboard's own header and main are hidden only when the shell is on
+   this page (html[data-console], set by crewConsole.js in <head>), so a page
+   that does not carry the shell — the pilot home — falls back to essential
+   instead of going blank.
+
+   STATIC FOR NOW. Every figure in the shell is a placeholder; nothing is
+   fetched and no button does anything but look pressed.
+   ========================================================================== */
+
+:root[data-skin="console"][data-console] body > header,
+:root[data-skin="console"][data-console] body > main{ display:none !important; }
+:root[data-skin="console"][data-console] body{ background:#121212; overflow:hidden; }
+:root:not([data-skin="console"]) #crewConsole{ display:none !important; }
+
+#crewConsole{
+    --cc-frame:#181818; --cc-panel:#212121; --cc-raise:#2a2a2a; --cc-line:#303030;
+    --cc-ink:#F4F2F0; --cc-muted:#8E8C8A; --cc-faint:#5E5C5A;
+    --cc-orange:#E8553B; --cc-orange-2:#C9341F;
+    --cc-r:1.75rem;
+    position:fixed; inset:0; z-index:40; overflow:auto;
+    display:grid; grid-template-columns:5.25rem minmax(0,1fr) 23.5rem; gap:.6rem;
+    padding:.6rem; background:var(--cc-frame); color:var(--cc-ink);
+    font-family:'Manrope', 'Inter', system-ui, sans-serif; font-size:15px;
+    -webkit-font-smoothing:antialiased;
+}
+#crewConsole *{ box-sizing:border-box; }
+:where(#crewConsole) button{ font:inherit; color:inherit; background:none; border:0; cursor:pointer; }
+#crewConsole svg.lucide, #crewConsole [data-lucide]{ width:1.3rem; height:1.3rem; stroke-width:1.5; }
+
+/* ---- The rail ------------------------------------------------------------ */
+.cc-rail{ background:#1c1c1c; border-radius:var(--cc-r); display:flex; flex-direction:column;
+    align-items:center; gap:.4rem; padding:1.4rem 0; min-height:0; }
+.cc-logo{ width:3rem; height:3rem; margin-bottom:2.2rem; position:relative; }
+.cc-logo::before{ content:''; position:absolute; inset:.35rem .55rem .55rem; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #ff8a6e, var(--cc-orange) 45%, #8a1f10); }
+.cc-logo::after{ content:''; position:absolute; left:0; right:0; top:1.55rem; height:.55rem; border-radius:50%;
+    border:2px solid #d9d9d9; border-top-color:transparent; transform:rotate(-8deg); }
+.cc-rail-btn{ position:relative; width:3.2rem; height:3.2rem; display:grid; place-items:center;
+    border-radius:1rem; color:#cfcdcb; transition:background .2s, color .2s; }
+.cc-rail-btn:hover{ background:var(--cc-raise); color:#fff; }
+.cc-rail-btn[aria-current="page"]{ color:#fff; }
+.cc-rail-btn .cc-pip{ position:absolute; top:.85rem; right:.8rem; width:.45rem; height:.45rem;
+    border-radius:50%; background:var(--cc-orange); box-shadow:0 0 0 2px #1c1c1c; }
+.cc-rail-nav{ display:flex; flex-direction:column; gap:1.35rem; }
+.cc-rail-foot{ margin-top:auto; display:flex; flex-direction:column; gap:1.35rem; align-items:center; }
+.cc-rail .ifc-toggle{ width:3.2rem; height:3.2rem; border-radius:1rem; color:#cfcdcb; }
+.cc-rail .ifc-toggle:hover{ background:var(--cc-raise); color:#fff; }
+
+/* ---- The middle column --------------------------------------------------- */
+.cc-main{ display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto auto auto; gap:.6rem; min-width:0; align-content:start; }
+
+.cc-tabs{ display:flex; align-items:stretch; gap:.45rem; padding:.55rem 0 0; margin-bottom:-.6rem; overflow-x:auto; scrollbar-width:none; }
+.cc-tabs::-webkit-scrollbar{ display:none; }
+.cc-tab{ flex:0 0 auto; padding:.85rem 1.6rem; border-radius:1.4rem 1.4rem 1.4rem 1.4rem; background:#1e1e1e;
+    color:#6f6d6b; font-weight:600; font-size:.98rem; white-space:nowrap; transition:color .2s; }
+.cc-tab:hover{ color:#bdbbb9; }
+.cc-tab[aria-selected="true"]{ background:var(--cc-panel); color:var(--cc-ink); border-radius:1.4rem 1.4rem 0 0;
+    padding-bottom:1.45rem; min-width:7.5rem; }
+.cc-tab-cta{ margin-left:auto; background:var(--cc-orange); color:#fff; border-radius:1.6rem;
+    padding:.85rem 2.1rem; font-weight:600; align-self:flex-start;
+    box-shadow:0 10px 26px -14px var(--cc-orange); }
+.cc-tab-cta:hover{ background:#f0644a; color:#fff; }
+
+.cc-board{ background:var(--cc-panel); border-radius:var(--cc-r); padding:2.2rem 2.4rem 1.4rem;
+    display:flex; flex-direction:column; gap:1.2rem; }
+.cc-top{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,27rem); gap:2.4rem; align-items:start; }
+
+/* The card stack: one card face on, the rest standing behind it on edge. */
+.cc-stack{ position:relative; height:16.2rem; margin-top:1.4rem; }
+.cc-card{ position:absolute; top:0; height:15.6rem; border-radius:1.6rem; overflow:hidden; }
+.cc-card-front{ left:0; width:25rem; z-index:5; padding:2.2rem 1.9rem 1.6rem;
+    display:flex; flex-direction:column; color:#fff;
+    background:
+        radial-gradient(70% 90% at 75% 70%, rgb(255 255 255 / .14), transparent 60%),
+        radial-gradient(60% 70% at 20% 90%, rgb(120 20 6 / .45), transparent 70%),
+        linear-gradient(120deg, #F06347, #DE4026 55%, #E85A3D);
+    box-shadow:0 30px 50px -30px rgb(232 85 59 / .9); }
+.cc-card-front .cc-bank{ font-size:1rem; font-weight:600; letter-spacing:.01em; }
+.cc-card-front .cc-num{ margin-top:3.1rem; font-size:1.95rem; font-weight:800; letter-spacing:.04em;
+    font-variant-numeric:tabular-nums; white-space:nowrap; }
+.cc-card-front .cc-foot{ margin-top:auto; display:flex; justify-content:space-between; font-weight:500; font-size:1.05rem; }
+.cc-card-back{ width:14rem; padding:1.4rem 1rem 1.4rem .9rem; display:flex; flex-direction:column; gap:.5rem;
+    writing-mode:vertical-rl; color:#fff; font-size:.98rem; white-space:nowrap; }
+.cc-card-back b{ font-size:1.22rem; font-weight:700; letter-spacing:.06em; font-variant-numeric:tabular-nums; }
+.cc-card-back > span{ display:flex; font-weight:500; opacity:.9; }
+.cc-card-back small{ margin-top:auto; font-size:.8rem; }
+.cc-card-back:nth-child(2){ left:16.3rem; z-index:4; transform:translateY(-1.9rem); height:15.4rem;
+    background:linear-gradient(180deg, #8a2c1d, #5a1d14 60%, #3a1a15); }
+.cc-card-back:nth-child(3){ left:21.6rem; z-index:3; transform:translateY(-1.9rem); height:15.4rem;
+    background:linear-gradient(180deg, #4a2620, #2d1c19); }
+.cc-card-back:nth-child(4){ left:26.9rem; z-index:2; transform:translateY(-1.9rem); height:15.4rem;
+    background:linear-gradient(180deg, #2c2826, #242221); color:#9a9896; }
+.cc-card-back:nth-child(5){ left:32.2rem; z-index:1; transform:translateY(-1.9rem); height:15.4rem;
+    background:linear-gradient(180deg, #232323, #212121); color:#4c4a48; }
+
+.cc-h{ font-size:1.9rem; font-weight:700; letter-spacing:-.01em; margin:0; }
+.cc-chart svg{ display:block; width:100%; height:auto; overflow:visible; }
+.cc-chart text{ fill:#77757a; font-size:12px; font-family:inherit; }
+
+/* The table. No borders — the rows are spaced, not ruled. */
+.cc-table{ width:100%; border-collapse:collapse; }
+.cc-table th{ text-align:left; font-weight:500; font-size:.85rem; color:#8a8886; padding:0 .8rem .55rem 0; white-space:nowrap; }
+.cc-table td{ padding:.75rem .8rem .75rem 0; font-size:1.05rem; font-weight:500; white-space:nowrap; }
+.cc-table td.cc-strong{ font-weight:700; }
+.cc-who{ display:flex; align-items:center; gap:1.2rem; font-weight:700; }
+.cc-ico{ width:2.45rem; height:2.45rem; border-radius:50%; background:#fff; color:#1a1a1a;
+    display:grid; place-items:center; flex:0 0 auto; }
+.cc-ico svg.lucide, .cc-ico [data-lucide]{ width:1.15rem; height:1.15rem; stroke-width:1.8; }
+.cc-scroll{ overflow-x:auto; }
+
+/* ---- The pilot on the line ----------------------------------------------- */
+.cc-lower{ display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:.6rem; }
+.cc-panel{ background:var(--cc-panel); border-radius:var(--cc-r); padding:2.4rem; }
+.cc-pilot{ display:flex; gap:2.6rem; align-items:flex-start; }
+.cc-photo{ width:12rem; height:12rem; border-radius:1.6rem; flex:0 0 auto; overflow:hidden; position:relative;
+    background:linear-gradient(150deg, #F06347, #D63A20); }
+.cc-photo svg{ position:absolute; left:50%; bottom:-6%; width:88%; transform:translateX(-50%); }
+.cc-pills{ display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
+.cc-pill{ display:inline-flex; align-items:center; gap:.85rem; height:3.6rem; padding:0 1.6rem; border-radius:1.8rem;
+    background:#fff; color:#1a1a1a; font-size:.88rem; font-weight:500; }
+.cc-pill b{ font-weight:800; }
+.cc-rec{ display:inline-flex; align-items:center; gap:.8rem; height:3.4rem; padding:0 1.7rem; border-radius:1.7rem;
+    background:var(--cc-orange); color:#3a0c04; font-size:.85rem; font-weight:600; }
+.cc-rec::before{ content:''; width:.4rem; height:.4rem; border-radius:50%; background:#3a0c04; animation:ccBlink 1.4s steps(2) infinite; }
+@keyframes ccBlink{ 50%{ opacity:.25; } }
+.cc-name{ font-size:2.35rem; font-weight:800; letter-spacing:-.01em; margin:1.1rem 0 .3rem; line-height:1.1; }
+.cc-tier{ display:flex; align-items:center; gap:.6rem; font-weight:500; font-size:1.05rem; }
+.cc-tier svg.lucide, .cc-tier [data-lucide]{ color:var(--cc-orange); fill:var(--cc-orange); width:1.1rem; height:1.1rem; }
+.cc-addr{ margin-top:2rem; font-size:.85rem; color:#8a8886; }
+
+.cc-ident{ display:grid; grid-template-columns:1fr auto; row-gap:1.2rem; align-content:start; padding:2.6rem 2.6rem 2.2rem; }
+.cc-kv{ font-size:.78rem; color:#8a8886; }
+.cc-kv b{ font-size:1.15rem; color:var(--cc-ink); font-weight:600; margin-left:.25rem; letter-spacing:.01em; }
+.cc-id{ font-size:.72rem; color:#5f5d5b; justify-self:end; }
+.cc-actions{ grid-column:1 / -1; display:flex; gap:.4rem; margin-top:.4rem; flex-wrap:wrap; }
+.cc-btn-w{ display:inline-flex; align-items:center; gap:.9rem; height:3.7rem; padding:0 2rem 0 1.3rem;
+    border-radius:1.9rem; background:#fff; color:#1a1a1a; font-size:.88rem; font-weight:600; }
+.cc-btn-o{ display:inline-flex; align-items:center; gap:.9rem; height:3.7rem; padding:0 1.8rem;
+    border-radius:1.9rem; border:1px solid #4a4846; font-size:.88rem; font-weight:600; }
+
+/* ---- The call bar -------------------------------------------------------- */
+.cc-callbar{ background:var(--cc-panel); border-radius:var(--cc-r); padding:1.1rem 2.1rem 1.1rem 4.2rem;
+    display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+.cc-cb{ display:inline-flex; align-items:center; gap:.85rem; height:4rem; padding:0 1.5rem; border-radius:2rem;
+    font-size:1.08rem; font-weight:500; transition:background .2s; }
+.cc-cb:hover{ background:var(--cc-raise); }
+.cc-cb svg.lucide, .cc-cb [data-lucide]{ width:1.6rem; height:1.6rem; }
+.cc-cb[aria-pressed="true"]{ background:#fff; color:#1a1a1a; }
+.cc-end{ margin-left:auto; display:inline-flex; align-items:center; gap:1rem; height:4.1rem; padding:0 2.4rem;
+    border-radius:2.05rem; background:var(--cc-orange); color:#fff; font-size:1.08rem; font-weight:600;
+    box-shadow:0 12px 28px -14px var(--cc-orange); }
+.cc-end:hover{ background:#f0644a; }
+
+/* ---- Conversations ------------------------------------------------------- */
+.cc-convos{ background:#1c1c1c; border-radius:var(--cc-r); padding:2.3rem 2.1rem 1.6rem; display:flex; flex-direction:column;
+    position:sticky; top:0; height:calc(100vh - 1.2rem); min-height:0; }
+.cc-rail{ position:sticky; top:0; height:calc(100vh - 1.2rem); }
+.cc-convos-head{ display:flex; align-items:center; justify-content:space-between; }
+.cc-convos-head h2{ margin:0; font-size:2.15rem; font-weight:400; letter-spacing:-.01em; display:flex; align-items:flex-start; gap:.6rem; }
+.cc-convos-head h2::after{ content:''; width:.42rem; height:.42rem; border-radius:50%; background:var(--cc-orange); margin-top:.35rem; }
+.cc-search{ display:flex; align-items:center; gap:.9rem; margin-top:2.6rem; padding:.5rem 0 .75rem; border-bottom:1px solid #3c3a38; }
+.cc-search input{ flex:1; min-width:0; background:none; border:0; outline:0; color:var(--cc-ink); font:inherit; font-size:.85rem; }
+.cc-search input::placeholder{ color:#bdbbb9; }
+.cc-count{ display:flex; align-items:center; gap:1.1rem; margin-top:.9rem; font-size:.75rem; color:#cfcdcb; }
+.cc-count span{ margin-right:auto; }
+.cc-convo-scroll{ flex:1; min-height:0; overflow:auto; margin:0 -.4rem; padding:0 .4rem;
+    mask-image:linear-gradient(180deg, #000 85%, transparent); -webkit-mask-image:linear-gradient(180deg, #000 85%, transparent); }
+.cc-sec{ font-size:1.05rem; font-weight:500; margin:1.6rem 0 1.1rem; }
+.cc-help{ background:#fff; color:#1a1a1a; border-radius:1.4rem; padding:1.15rem 1.5rem; overflow:hidden; }
+.cc-help b{ display:block; font-weight:700; font-size:1rem; white-space:nowrap;
+    mask-image:linear-gradient(90deg, #000 75%, transparent); -webkit-mask-image:linear-gradient(90deg, #000 75%, transparent); }
+.cc-help span{ display:block; margin-top:.25rem; font-size:.78rem; color:#3a3836; white-space:nowrap;
+    mask-image:linear-gradient(90deg, #000 75%, transparent); -webkit-mask-image:linear-gradient(90deg, #000 75%, transparent); }
+.cc-div{ border-top:1px solid #3c3a38; margin-top:1.6rem; }
+.cc-msg{ display:grid; grid-template-columns:4.1rem minmax(0,1fr) auto; column-gap:1.1rem; align-items:start; padding:.55rem 0 .9rem; }
+.cc-av{ width:4.1rem; height:4.1rem; border-radius:50%; grid-row:span 2; display:grid; place-items:center;
+    font-weight:700; font-size:1.05rem; color:#fff; }
+.cc-msg-name{ display:flex; align-items:center; gap:.5rem; font-weight:700; font-size:1.08rem; padding-top:.5rem; }
+.cc-msg-name::before{ content:''; width:.32rem; height:.32rem; border-radius:50%; background:#6a6866; }
+.cc-msg.is-new .cc-msg-name::before{ background:var(--cc-orange); }
+.cc-msg time{ font-size:.75rem; font-weight:600; padding-top:.4rem; }
+.cc-msg p{ grid-column:2 / -1; margin:.25rem 0 0; font-size:.82rem; color:#cfcdcb; white-space:nowrap; overflow:hidden; text-overflow:clip; }
+.cc-msg.is-old{ opacity:.35; }
+.cc-start{ margin-top:1rem; height:3.7rem; border-radius:1.85rem; border:1px solid #a8a6a4; font-weight:600; font-size:1.05rem; }
+.cc-start:hover{ background:#262626; }
+
+/* ---- Narrower screens ------------------------------------------------------
+   The picture is a 1920px desk. Below that it gives up the inbox column first,
+   then folds the board and the pilot into one column, then lays the rail
+   along the bottom like an app bar. */
+@media (max-width:1500px){
+    #crewConsole{ font-size:14px; }
+}
+@media (max-width:1400px){
+    .cc-top{ grid-template-columns:minmax(0,1fr); }
+    .cc-stack{ overflow-x:clip; }
+    .cc-chart{ max-width:34rem; }
+}
+@media (max-width:1240px){
+    #crewConsole{ grid-template-columns:5.25rem minmax(0,1fr); }
+    .cc-convos{ grid-column:2; }
+    .cc-convos, .cc-rail{ position:static; height:auto; }
+    .cc-rail{ height:calc(100vh - 1.2rem); position:sticky; }
+    .cc-convo-scroll{ mask-image:none; -webkit-mask-image:none; }
+}
+@media (max-width:980px){
+    .cc-lower{ grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:720px){
+    #crewConsole{ grid-template-columns:minmax(0,1fr); padding:.5rem .5rem 6rem; }
+    .cc-convos{ grid-column:auto; }
+    .cc-rail{ position:fixed; top:auto; height:auto; left:.5rem; right:.5rem; bottom:.5rem; z-index:2; flex-direction:row; overflow-x:auto;
+        padding:.4rem .6rem; border-radius:1.4rem; box-shadow:0 -10px 30px -10px rgb(0 0 0 / .7); }
+    .cc-logo{ display:none; }
+    .cc-rail-nav, .cc-rail-foot{ flex-direction:row; gap:.1rem; }
+    .cc-rail-foot{ margin:0 0 0 auto; }
+    .cc-rail-btn, .cc-rail .ifc-toggle{ width:2.7rem; height:2.7rem; }
+    .cc-board, .cc-panel{ padding:1.4rem 1.1rem; }
+    .cc-stack{ height:12.6rem; margin-top:.4rem; }
+    .cc-card-front{ width:100%; height:12.2rem; padding:1.5rem 1.4rem 1.2rem; }
+    .cc-card-front .cc-num{ font-size:1.4rem; margin-top:2rem; }
+    .cc-card-back{ display:none; }
+    .cc-pilot{ flex-direction:column; gap:1.4rem; }
+    .cc-photo{ width:8rem; height:8rem; }
+    .cc-name{ font-size:1.8rem; }
+    .cc-callbar{ padding:.8rem; }
+    .cc-cb{ padding:0 .9rem; }
+    .cc-end{ margin-left:0; width:100%; justify-content:center; }
+}
+
+/* ---- The chooser's miniature -------------------------------------------- */
+.ifc-prev-console{
+    --p-bg:#181818; --p-surface:#242424; --p-ink:#F4F2F0;
+    --p-card-radius:5px; --p-bar-radius:999px; --p-hero-tint:.95;
+}
+.ifc-prev-console .ifc-bar{ background:transparent; border-color:transparent; }
+.ifc-prev-console .ifc-bar .ifc-line:last-child{ background:#E8553B; height:5px; width:18% !important; }
+.ifc-prev-console .ifc-hero::after{ background:linear-gradient(110deg, #E8553B 0 38%, transparent 38%) !important; }
+.ifc-prev-console .ifc-cell:last-child{ background:#1c1c1c; }
