@@ -561,7 +561,8 @@
             }));
         }
 
-        function byLabel(by) {
+        function byLabel(by, anonymous) {
+            if (anonymous) return 'Anonymous pilot';
             if (by && by.display_name) return esc(by.display_name);
             if (by && by.handle) return '@' + esc(by.handle);
             return 'A pilot';
@@ -719,7 +720,7 @@
             $('words-list').innerHTML = items.length ? items.map((x) => `
                 <div class="quote">
                     <p>${x.t === 'c' ? stars(x.stars) + ' ' : (x.kind === 'good_day' ? '☀️ ' : '👍 ')}${esc(x.t === 'c' ? x.comment : x.note)}</p>
-                    <div class="by">${byLabel(x.by)} → ${ctlLink(x.controller_username)}${x.airport_icao ? ` at <span class="mono">${esc(x.airport_icao)}</span>` : ''} · ${esc(ago(x.created_at))}</div>
+                    <div class="by">${byLabel(x.by, x.anonymous)} → ${ctlLink(x.controller_username)}${x.airport_icao ? ` at <span class="mono">${esc(x.airport_icao)}</span>` : ''} · ${esc(ago(x.created_at))}</div>
                 </div>`).join('') : `<div class="empty">No public comments yet. A note on a kudos or a comment on a 4–5★ rating will show here.</div>`;
         }
 
@@ -901,7 +902,7 @@
                         ${comments.length ? comments.map((c) => `
                             <div class="quote">
                                 <p>${stars(c.stars)} ${esc(c.comment)}</p>
-                                <div class="by">${byLabel(c.by)}${c.airport_icao ? ` · <span class="mono">${esc(c.airport_icao)}</span>` : ''}${c.facility_type != null ? ` ${esc(CODES[c.facility_type] || '')}` : ''} · ${esc(ago(c.created_at))}</div>
+                                <div class="by">${byLabel(c.by, c.anonymous)}${c.airport_icao ? ` · <span class="mono">${esc(c.airport_icao)}</span>` : ''}${c.facility_type != null ? ` ${esc(CODES[c.facility_type] || '')}` : ''} · ${esc(ago(c.created_at))}</div>
                             </div>`).join('') : `<div class="empty">No public comments yet.</div>`}
                     </section>
 

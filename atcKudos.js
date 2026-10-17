@@ -541,6 +541,10 @@ export const AtcKudos = {
                 <label class="atcc-label" for="atcc-rate-note">Comment <span>(optional)</span></label>
                 <textarea id="atcc-rate-note" maxlength="${RATE_MAX}" rows="3" placeholder="What went well, or what could be better?"></textarea>
                 <div class="atcc-meta"><span id="atcc-rate-left">${RATE_MAX}</span> left</div>
+                <label class="atcc-anon" for="atcc-anon">
+                    <input type="checkbox" id="atcc-anon">
+                    <span>Post my comment anonymously</span>
+                </label>
                 <p class="atcc-visibility" id="atcc-visibility"></p>
                 <p class="atcc-policy">
                     Stars are public. To appeal a violation, use the
@@ -555,6 +559,14 @@ export const AtcKudos = {
         const ta = root.querySelector('#atcc-rate-note');
         const left = root.querySelector('#atcc-rate-left');
         ta.addEventListener('input', () => { left.textContent = String(RATE_MAX - ta.value.length); });
+        // Anonymous follows the stars (on for 1–3★, off for 4–5★) until the
+        // pilot touches it; after that it is their choice and stays put.
+        root.querySelector('#atcc-anon').addEventListener('change', (e) => {
+            if (!this._rate) return;
+            this._rate.anonymous = e.target.checked;
+            this._rate.anonTouched = true;
+            this._pickStars(this._rate.stars);
+        });
         root.classList.add('is-open');
         this._escHandler = (e) => { if (e.key === 'Escape') this._closeCompose(); };
         document.addEventListener('keydown', this._escHandler);
@@ -564,6 +576,9 @@ export const AtcKudos = {
     _pickStars(n) {
         if (!this._rate) return;
         this._rate.stars = n;
+        if (!this._rate.anonTouched) this._rate.anonymous = n > 0 && n <= 3;
+        const anon = document.getElementById('atcc-anon');
+        if (anon) anon.checked = !!this._rate.anonymous;
         document.querySelectorAll('#atcc-compose .atcc-star-btn').forEach(b =>
             b.classList.toggle('is-on', Number(b.dataset.atccStars) <= n));
         const labels = ['Tap a star', 'Poor', 'Below average', 'OK', 'Good', 'Excellent'];
@@ -574,8 +589,8 @@ export const AtcKudos = {
             vis.className = 'atcc-visibility' + (n && n <= 3 ? ' is-private' : n ? ' is-public' : '');
             vis.innerHTML = !n ? ''
                 : n <= 3
-                    ? '<i class="fa-solid fa-lock"></i> Your comment goes <b>privately to the controller only</b>. It is never shown publicly and your name is not attached. Your stars still count publicly.'
-                    : '<i class="fa-solid fa-globe"></i> Your comment will be <b>shown publicly</b> on their profile with your stars.';
+                    ? `<i class="fa-solid fa-lock"></i> Your comment goes <b>privately to the controller only</b> and is never shown publicly. ${this._rate.anonymous ? 'Your name is not attached.' : 'They will see your name.'} Your stars still count publicly.`
+                    : `<i class="fa-solid fa-globe"></i> Your comment will be <b>shown publicly</b> on their profile with your stars${this._rate.anonymous ? ', without your name' : ', with your name'}.`;
         }
         const submit = document.getElementById('atcc-rate-submit');
         if (submit) submit.disabled = !n;
@@ -597,6 +612,7 @@ export const AtcKudos = {
             p_session_started_at: new Date(c.f.startTime).toISOString(),
             p_stars: c.stars,
             p_comment: comment || null,
+            p_anonymous: !!c.anonymous,
         });
         if (error) {
             if (errEl) { errEl.textContent = error.message || 'Could not submit that. Try again.'; errEl.hidden = false; }
@@ -605,7 +621,7 @@ export const AtcKudos = {
         }
         this._closeCompose();
         this._notify(comment && c.stars <= 3
-            ? `Rated ${c.stars}★. Your comment was sent privately to ${c.f.username || 'the controller'}.`
+            ? `Rated ${c.stars}★. Your comment was sent privately to ${c.f.username || 'the controller'}${c.anonymous ? ', anonymously' : ''}.`
             : `Rated ${c.stars}★ — thanks for the feedback!`, 'success');
         await this._refreshAfterChange(c.f);
     },
@@ -736,7 +752,7 @@ export const AtcKudos = {
                     <div class="atcc-note-head"><span>${[FACILITY[c.facility_type]?.[1], c.airport_icao].filter(Boolean).map(x => this._esc(x)).join(' · ')}</span>
                         <span class="atcc-note-time">${this._esc(this._ago(c.created_at))}</span></div>
                     <p class="atcc-note-text">${this._esc(c.comment)}</p>
-                    <span class="atcc-note-by">— ${this._esc(this._byName(c.by))}</span>
+                    <span class="atcc-note-by">— ${c.anonymous ? 'anonymous pilot' : this._esc(this._byName(c.by))}</span>
                 </div>
             </div>`).join('');
         return `
@@ -795,9 +811,9 @@ export const AtcKudos = {
                             <div class="atcc-note-head"><span>${[FACILITY[f.facility_type]?.[1], f.airport_icao].filter(Boolean).map(x => this._esc(x)).join(' · ')}</span>
                                 <span class="atcc-note-time">${this._esc(this._ago(f.created_at))}</span></div>
                             <p class="atcc-note-text">${this._esc(f.comment)}</p>
-                            <span class="atcc-note-by">— anonymous pilot</span>
+                            <span class="atcc-note-by">— ${f.anonymous === false ? this._esc(this._byName(f.by)) : 'anonymous pilot'}</span>
                         </div>
-                    </div>`).join('') : '<p class="atcc-empty">No private feedback. Comments on 1–3 star ratings land here, anonymously.</p>'}
+                    </div>`).join('') : '<p class="atcc-empty">No private feedback. Comments on 1–3 star ratings land here — anonymous unless the pilot chose to sign them.</p>'}
             </div>`;
     },
 
@@ -1141,6 +1157,8 @@ export const AtcKudos = {
             #atcc-rate-note:focus { outline: none; border-color: #facc15; }
             .atcc-visibility { margin: 10px 0 0; padding: 0; font-size: 0.74rem; line-height: 1.45; color: #a1a1aa; }
             .atcc-visibility:empty { display: none; }
+            .atcc-anon { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 0.78rem; color: #d4d4d8; cursor: pointer; user-select: none; }
+            .atcc-anon input { width: 15px; height: 15px; accent-color: #facc15; margin: 0; }
             .atcc-visibility.is-private { padding: 8px 10px; border-radius: 8px; background: rgba(167,139,250,0.1); border: 1px solid rgba(167,139,250,0.3); color: #ddd6fe; }
             .atcc-visibility.is-public { padding: 8px 10px; border-radius: 8px; background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.25); color: #bbf7d0; }
 
