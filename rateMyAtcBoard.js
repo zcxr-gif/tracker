@@ -21,7 +21,13 @@
  * supabase/migrations/20261016000100_atc_leaderboard.sql. Rows link to the
  * controller's profile and the kudos/rate buttons are atcKudos.js's own, so
  * every interaction here behaves exactly as it does elsewhere.
+ *
+ * Each row wears the controller's InFlight profile when they have one — their
+ * picture, and their banner behind the row — matched on their IF name, the
+ * same unverified join the flight window's pilot card uses.
  */
+
+import { PilotProfiles } from './pilotProfiles.js';
 
 const TABS = [
     { id: 'top', label: 'Top rated', icon: 'fa-star' },
@@ -188,6 +194,38 @@ export const RateMyAtcBoard = {
             return;
         }
         body.innerHTML = rows.map(r => this._rowHTML(r, list.indexOf(r) + 1)).join('');
+        this._hydrateProfiles(body);
+    },
+
+    _avatarHTML(username) {
+        const ini = String(username || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+        return `<span class="rma-avatar" data-rma-user="${esc(username || '')}" aria-hidden="true">${esc(ini)}</span>`;
+    },
+
+    // Pictures and banners for the rows on screen. Cached by PilotProfiles,
+    // so switching tabs or periods does not ask again.
+    _hydrateProfiles(body) {
+        body.querySelectorAll('.rma-avatar[data-rma-user]').forEach((av) => {
+            const name = av.dataset.rmaUser;
+            if (!name) return;
+            const apply = (p) => {
+                if (!p || !av.isConnected) return;
+                const row = av.closest('.rma-row');
+                if (row) {
+                    row.classList.add('has-profile');
+                    row.style.setProperty('--rma-banner', p.bannerUrl ? `url("${p.bannerUrl}"), ${p.bannerGradient}` : p.bannerGradient);
+                }
+                if (p.avatarUrl) {
+                    const img = new Image();
+                    img.alt = '';
+                    img.onload = () => { if (av.isConnected) { av.textContent = ''; av.appendChild(img); } };
+                    img.src = p.avatarUrl;
+                }
+            };
+            const hit = PilotProfiles.peek(name);
+            if (hit !== undefined) apply(hit);
+            else PilotProfiles.byIfUsername(name).then(apply);
+        });
     },
 
     _rowHTML(r, rank) {
@@ -204,6 +242,7 @@ export const RateMyAtcBoard = {
         return `
             <div class="rma-row${rank <= 3 ? ' is-podium' : ''}">
                 <span class="rma-rank">${medal}</span>
+                ${this._avatarHTML(r.username)}
                 <span class="rma-main">
                     <button type="button" class="rma-name" data-atcc-act="profile"
                             data-atcc-user="${name}" data-atcc-id="${esc(r.controller_if_id)}">${name}</button>
@@ -235,6 +274,7 @@ export const RateMyAtcBoard = {
             return `
                 <div class="rma-row is-live">
                     <span class="atcc-type atcc-type-${cls}">${abbr}</span>
+                    ${this._avatarHTML(f.username)}
                     <span class="rma-main">
                         <button type="button" class="rma-name" data-atcc-act="profile"
                                 data-atcc-user="${name}" data-atcc-id="${esc(f.userId)}">${name}</button>
@@ -247,6 +287,7 @@ export const RateMyAtcBoard = {
                     ${kudos ? kudos.controlsHTML(f, { view: false }) : ''}
                 </div>`;
         }).join('');
+        this._hydrateProfiles(body);
     },
 
     _stars(avg) {
@@ -310,6 +351,12 @@ export const RateMyAtcBoard = {
             .rma-row.is-podium { background: linear-gradient(90deg, rgba(250,204,21,0.07), transparent 70%); }
             .rma-rank { flex: 0 0 34px; text-align: center; font-size: 1.25rem; }
             .rma-rank-n { font-size: 0.8rem; font-weight: 800; color: #71717a; }
+            .rma-avatar { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 50%; overflow: hidden;
+                display: grid; place-items: center; background: #3f3f46; color: #e4e4e7; font-size: 0.7rem; font-weight: 800;
+                border: 1.5px solid rgba(255,255,255,0.75); box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
+            .rma-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+            .rma-row.has-profile { background-image: linear-gradient(90deg, rgba(24,24,27,0.94) 0%, rgba(24,24,27,0.78) 60%, rgba(24,24,27,0.62) 100%), var(--rma-banner);
+                background-size: cover; background-position: center; }
             .rma-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
             .rma-name { padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font-family: inherit;
                 font-size: 0.92rem; font-weight: 700; color: #f4f4f5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

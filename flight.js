@@ -12,6 +12,7 @@ import { LiveTraffic3D } from './liveTraffic3D.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
+import { atcSummary, peekAtcSummary, atcChipText, atcChipTitle } from './atcSummary.js';
 import { PilotCardPrompt } from './pilotCardPrompt.js';
 import { adjustImage } from './imageAdjuster.js';
 import { AccountSetup } from './accountSetup.js';
@@ -5453,6 +5454,22 @@ function injectCustomStyles() {
             }
             .ac-pilot-go i { font-size: 9px; }
             .ac-info-tab-btn.pilot-tab-btn:hover .ac-pilot-go { opacity: 1; }
+
+            /* RateMyATC: the pilot's record as a controller. */
+            .ac-pilot-atc {
+                flex: 0 0 auto;
+                padding: 2px 7px;
+                border-radius: 999px;
+                font-size: 9px !important;
+                font-weight: 800;
+                letter-spacing: 0.4px;
+                line-height: 1.3;
+                white-space: nowrap;
+                color: #fde68a;
+                background: rgba(20, 16, 4, 0.55);
+                border: 1px solid rgba(250, 204, 21, 0.55);
+                text-shadow: none;
+            }
 
             /* Pro pilots: a small PRO mark by the name, and their profile
                accent on the picture's ring. */
@@ -25093,6 +25110,7 @@ function buildHeroPhotoCarousel(panel, photos, fallbackPath) {
 function decoratePilotTab(btn) {
     const uname = btn?.dataset.username;
     if (!uname || uname === 'N/A') return;
+    decoratePilotAtc(btn, btn.dataset.userId, uname);
     const apply = (profile) => {
         if (!profile || !btn.isConnected) return;
         btn.classList.add('has-profile');
@@ -25122,6 +25140,25 @@ function decoratePilotTab(btn) {
     const cached = PilotProfiles.peek(uname);
     if (cached !== undefined) apply(cached);
     else PilotProfiles.byIfUsername(uname).then(apply);
+}
+
+// A pilot who also controls wears their RateMyATC record on the card:
+// "★ 4.7 ATC" (or their kudos, before anyone has rated them). Looked up by
+// the flight's IF user id, the id kudos and ratings are filed against.
+function decoratePilotAtc(btn, userId, uname) {
+    const apply = (s) => {
+        if (!s || !btn.isConnected || btn.querySelector('.ac-pilot-atc')) return;
+        const chip = document.createElement('span');
+        chip.className = 'ac-pilot-atc';
+        chip.textContent = atcChipText(s);
+        chip.title = atcChipTitle(s);
+        const go = btn.querySelector('.ac-pilot-go');
+        btn.insertBefore(chip, go || null);
+    };
+    const who = { userId, username: uname };
+    const cached = peekAtcSummary(who);
+    if (cached !== undefined) apply(cached);
+    else atcSummary(who).then(apply);
 }
 
 // Every pilot card — desktop window, phone sheet, and any cloned copy of it —

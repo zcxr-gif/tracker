@@ -52,6 +52,10 @@
                     text: 'Staffed airports on the map show their controllers’ rating and kudos under the frequencies, e.g. “Rated 4.7 · 12 kudos”.'
                 },
                 {
+                    tag: 'new', icon: 'fa-plane-up',
+                    text: 'Pilots who also control wear their RateMyATC record on the pilot card in every flight window — “★ 4.7 ATC”. Controllers with an InFlight profile show their picture and banner on the board and on their RateMyATC page.'
+                },
+                {
                     tag: 'new', icon: 'fa-id-badge',
                     text: 'Profiles show a controller’s RateMyATC stars, comments and kudos. Control on Infinite Flight? Put your IF username on your profile and a gold badge lets you know when pilots thank or rate you — private feedback included.'
                 },

@@ -11,11 +11,15 @@
  * posts OPEN_PILOT_PROFILE and flight.js opens UserProfileUI, exactly as the
  * primary window's card does.
  *
+ * A pilot who also controls gets their RateMyATC record on the card
+ * ("★ 4.7 ATC"), found by name — these windows are not handed the IF user id.
+ *
  * Both paint functions are idempotent per username: the windows re-render on
  * every telemetry tick and must not rebuild (or flash) the card each time.
  */
 
 import { PilotProfiles } from './pilotProfiles.js';
+import { atcSummary, peekAtcSummary, atcChipText, atcChipTitle } from './atcSummary.js';
 
 function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -85,6 +89,11 @@ function injectStyles() {
             font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; opacity: 0.75;
         }
         .ipc:hover .ipc-go { opacity: 1; }
+        .ipc-atc {
+            flex: 0 0 auto; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+            font-size: 9px; font-weight: 800; letter-spacing: 0.4px; line-height: 1.3; color: #fde68a;
+            background: rgba(20, 16, 4, 0.55); border: 1px solid rgba(250, 204, 21, 0.55);
+        }
         .ipc-mini { width: 18px; height: 18px; font-size: 7px; }
         @keyframes ipc-fade { from { opacity: 0; } to { opacity: 1; } }
     `;
@@ -111,6 +120,17 @@ export function paintPilotCard(host, username) {
         </button>`;
     const card = host.querySelector('.ipc');
     card.addEventListener('click', (e) => { e.stopPropagation(); openProfile(name); });
+    const atc = (s) => {
+        if (!s || host.dataset.ipcUser !== name || !card.isConnected || card.querySelector('.ipc-atc')) return;
+        const chip = document.createElement('span');
+        chip.className = 'ipc-atc';
+        chip.textContent = atcChipText(s);
+        chip.title = atcChipTitle(s);
+        card.insertBefore(chip, card.querySelector('.ipc-go'));
+    };
+    const known = peekAtcSummary({ username: name });
+    if (known !== undefined) atc(known);
+    else atcSummary({ username: name }).then(atc);
     lookup(name, (profile) => {
         if (!profile || host.dataset.ipcUser !== name || !card.isConnected) return;
         const banner = card.querySelector('.ipc-banner');

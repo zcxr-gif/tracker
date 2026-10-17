@@ -179,6 +179,14 @@
         }
         .row:last-child { border-bottom: 0; }
         .row:hover { background: #fafbfc; }
+        .av {
+            flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%; overflow: hidden;
+            display: grid; place-items: center; background: #c9ced6; color: #3a414c;
+            font-size: .72rem; font-weight: 800; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(21,24,29,.25);
+        }
+        .av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .who-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .result .av { width: 28px; height: 28px; font-size: .62rem; border-width: 1.5px; }
         .rank { font-size: .95rem; font-weight: 900; color: var(--muted); text-align: center; }
         .rank.r1, .rank.r2, .rank.r3 { color: var(--gold); }
         .who b { display: block; font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -231,7 +239,24 @@
         .quote .by a:hover { text-decoration: underline; }
 
         /* ---------------- Controller page ---------------- */
-        .ctl-head { display: grid; gap: 18px; padding: 20px 18px; }
+        .ctl-banner {
+            position: relative; height: 150px; border-radius: 4px 4px 0 0;
+            background: linear-gradient(135deg, #1b2230, #2a3446 60%, #3a4660);
+            background-size: cover; background-position: center;
+        }
+        .ctl-banner::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,.35)); }
+        @media (min-width: 720px) { .ctl-banner { height: 190px; } }
+        .ctl-avatar {
+            position: relative; z-index: 1; width: 96px; height: 96px; margin: -56px 0 0 18px;
+            border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+            background: #2a3446; color: #fff; font-size: 1.6rem; font-weight: 900;
+            border: 4px solid #fff; box-shadow: 0 6px 18px rgba(21,24,29,.25);
+        }
+        .ctl-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .ctl-avatar.pro { border-color: var(--accent, #f5c451); }
+        .ctl-profile-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: .8rem; font-weight: 700; color: var(--link); }
+        .ctl-profile-link:hover { text-decoration: underline; }
+        .ctl-head { display: grid; gap: 18px; padding: 10px 18px 20px; }
         @media (min-width: 720px) { .ctl-head { grid-template-columns: minmax(0, 1fr) auto; align-items: center; } }
         .ctl-name { margin: 0; font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 900; letter-spacing: -.01em; overflow-wrap: anywhere; }
         .ctl-sub { margin-top: 6px; font-size: .84rem; color: var(--ink2); }
@@ -452,6 +477,14 @@
     <div id="tip" class="tip" role="tooltip"></div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+    <script type="module">
+        // Pictures and banners: the controller's InFlight profile, matched on
+        // their IF name — the same join the flight window's pilot card uses.
+        import { PilotProfiles } from '/pilotProfiles.js';
+        window.__atcProfiles = PilotProfiles;
+        window.dispatchEvent(new Event('atc-profiles-ready'));
+    </script>
+
     <script>
     (function () {
         'use strict';
@@ -495,6 +528,37 @@
             if (s < 86400) return `${Math.round(s / 3600)}h ago`;
             if (s < 86400 * 30) return `${Math.round(s / 86400)}d ago`;
             return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function initials(name) {
+            return String(name || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+        }
+        function avatarHTML(name) {
+            return `<span class="av" data-av="${esc(name || '')}" aria-hidden="true">${esc(initials(name))}</span>`;
+        }
+        // Fill every placeholder picture on the page from the profile cache.
+        function profiles() {
+            return window.__atcProfiles
+                ? Promise.resolve(window.__atcProfiles)
+                : new Promise((res) => window.addEventListener('atc-profiles-ready', () => res(window.__atcProfiles), { once: true }));
+        }
+        function hydrateAvatars(root) {
+            const els = [...(root || document).querySelectorAll('.av[data-av]:not([data-av-done])')].slice(0, 60);
+            if (!els.length) return;
+            profiles().then((P) => els.forEach((el) => {
+                el.setAttribute('data-av-done', '1');
+                const name = el.dataset.av;
+                if (!name) return;
+                const apply = (p) => {
+                    if (!p?.avatarUrl || !el.isConnected) return;
+                    const img = new Image();
+                    img.alt = '';
+                    img.onload = () => { if (el.isConnected) { el.textContent = ''; el.appendChild(img); } };
+                    img.src = p.avatarUrl;
+                };
+                const hit = P.peek(name);
+                if (hit !== undefined) apply(hit); else P.byIfUsername(name).then(apply);
+            }));
         }
 
         function byLabel(by) {
@@ -703,15 +767,16 @@
             $('board-rows').innerHTML = rows.map((r) => `
                 <a class="row" href="${esc(controllerPath(r.username || r.controller_if_id))}" data-ctl="${esc(r.username || r.controller_if_id)}">
                     <span class="rank r${r.rank}">${r.rank}</span>
-                    <span class="who">
+                    <span class="who-wrap">${avatarHTML(r.username)}<span class="who">
                         <b>${esc(r.username || 'Controller')}</b>
                         <span>${r.last_airport ? `Last thanked at <span class="mono">${esc(r.last_airport)}</span> · ` : ''}${esc(ago(r.last_at))}</span>
-                    </span>
+                    </span></span>
                     <span class="nums">
                         ${r.rating_count ? `<div class="r">${Number(r.rating_avg).toFixed(1)} ${stars(r.rating_avg)}</div><div class="k">${fmt(r.rating_count)} rating${r.rating_count === 1 ? '' : 's'}${r.kudos ? ` · 👍 ${fmt(r.kudos)}` : ''}</div>`
                             : `<div class="r">👍 ${fmt(r.kudos)}</div><div class="k">${fmt(r.thumbs_up)} 👍 · ${fmt(r.good_day)} ☀️</div>`}
                     </span>
                 </a>`).join('');
+            hydrateAvatars($('board-rows'));
         }
 
         // ------------------------------------------------------------------
@@ -730,7 +795,7 @@
 
             const lower = name.toLowerCase();
             const hit = hits.find((h) => String(h.username || '').toLowerCase() === lower || h.controller_if_id === name);
-            if (!hit) { body.innerHTML = notFound(name, hits); return; }
+            if (!hit) { body.innerHTML = notFound(name, hits); hydrateAvatars(body); return; }
 
             let ratings, kudos;
             try {
@@ -747,6 +812,30 @@
             if (hit.username && hit.username !== name && routeName()) history.replaceState({}, '', controllerPath(hit.username));
             body.innerHTML = controllerHTML(hit, ratings || {}, kudos || {});
             wireShare(display);
+            decorateController(display, run);
+        }
+
+        // Their InFlight profile, when they have one: banner, picture, a link.
+        async function decorateController(name, run) {
+            const P = await profiles();
+            const p = await P.byIfUsername(name);
+            if (run !== ctlRun || !p) return;
+            const banner = $('ctl-banner');
+            if (banner) banner.style.backgroundImage = p.bannerUrl ? `url("${p.bannerUrl}"), ${p.bannerGradient}` : p.bannerGradient;
+            const av = $('ctl-avatar');
+            if (av) {
+                if (p.isPro) { av.classList.add('pro'); if (p.accent) av.style.setProperty('--accent', p.accent); }
+                if (p.avatarUrl) {
+                    const img = new Image();
+                    img.alt = '';
+                    img.onload = () => { if (av.isConnected) { av.textContent = ''; av.appendChild(img); } };
+                    img.src = p.avatarUrl;
+                }
+            }
+            const link = $('ctl-profile');
+            if (link && p.handle) {
+                link.innerHTML = `<a class="ctl-profile-link" href="/pilot/${encodeURIComponent(p.handle)}">${esc(p.displayName || p.handle)} · @${esc(p.handle)} on InFlight ›</a>`;
+            }
         }
 
         function notFound(name, hits, failed) {
@@ -756,7 +845,7 @@
                     : `Nobody has thanked or rated <b>${esc(name)}</b> yet. Controllers get a page here as soon as a pilot gives them kudos or a rating on the <a href="/index.html">live map</a>.`}</div>
                 ${hits.length ? `<div class="panel-head" style="border-top:1px solid var(--line)"><span>Did you mean</span></div>` + hits.map((h) => `
                     <a class="row" href="${esc(controllerPath(h.username))}" data-ctl="${esc(h.username)}" style="grid-template-columns:minmax(0,1fr) auto">
-                        <span class="who"><b>${esc(h.username)}</b><span>${h.last_airport ? `Last at <span class="mono">${esc(h.last_airport)}</span>` : ''}</span></span>
+                        <span class="who-wrap">${avatarHTML(h.username)}<span class="who"><b>${esc(h.username)}</b><span>${h.last_airport ? `Last at <span class="mono">${esc(h.last_airport)}</span>` : ''}</span></span></span>
                         <span class="nums"><div class="k">${h.rating_count ? `${Number(h.rating_avg).toFixed(1)} ★ · ` : ''}👍 ${fmt(h.kudos)}</div></span>
                     </a>`).join('') : ''}
             </section>`;
@@ -773,10 +862,13 @@
 
             return `
             <section class="panel">
+                <div class="ctl-banner" id="ctl-banner"></div>
+                <div class="ctl-avatar" id="ctl-avatar" aria-hidden="true">${esc(initials(hit.username))}</div>
                 <div class="ctl-head">
                     <div>
                         <span class="chips"><span class="chip gold">★ RateMyATC</span><span class="chip">Infinite Flight controller</span></span>
                         <h1 class="ctl-name" style="margin-top:10px">${esc(hit.username)}</h1>
+                        <div id="ctl-profile"></div>
                         <div class="ctl-sub">${hit.last_airport ? `Last thanked at <span class="mono">${esc(hit.last_airport)}</span> · ${esc(ago(hit.last_at))}` : esc(ago(hit.last_at))}${since ? ` · Kudos since ${esc(since)}` : ''}</div>
                     </div>
                     <div class="ctl-score">
@@ -909,10 +1001,11 @@
             hl = -1;
             box.innerHTML = hits.length ? hits.map((h) => `
                 <a class="result" role="option" href="${esc(controllerPath(h.username))}" data-ctl="${esc(h.username)}">
-                    <b>${esc(h.username)}</b>
+                    ${avatarHTML(h.username)}<b>${esc(h.username)}</b>
                     <span class="meta">${h.rating_count ? `${Number(h.rating_avg).toFixed(1)} <span style="color:var(--star)">★</span> · ` : ''}👍 ${fmt(h.kudos)}</span>
                 </a>`).join('') : `<div class="result-empty">No controller called “${esc(q)}” has been thanked or rated yet.</div>`;
             box.classList.add('show');
+            hydrateAvatars(box);
         }
         box.addEventListener('click', (e) => {
             if (e.target.closest('.result')) { box.classList.remove('show'); input.value = ''; }
