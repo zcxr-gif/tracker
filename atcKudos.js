@@ -328,6 +328,7 @@ export const AtcKudos = {
         if (act === 'pick') return this._pickKind(btn.dataset.atccKind);
         if (act === 'profile') return this.openProfile(btn.dataset.atccUser, btn.dataset.atccId);
         if (act === 'inbox') return this._openInbox();
+        if (act === 'share-page') return this._sharePage(btn.dataset.atccUser);
         if (act === 'board') {
             window.dispatchEvent(new CustomEvent('openRateMyAtc', { detail: { tab: btn.dataset.atccTab || 'top' } }));
             return;
@@ -716,7 +717,7 @@ export const AtcKudos = {
     _ratingBlockHTML(rating, username) {
         const count = Number(rating?.count || 0);
         if (!count) {
-            return `<div class="ups-section-title">RateMyATC ${this._boardLink()}</div>
+            return `<div class="ups-section-title">RateMyATC ${this._boardLink()}${this._pageLink(username)}</div>
                 <div class="ups-empty is-inline"><p>No ratings yet. Pilots can rate ${this._esc(username || 'this controller')}
                     with ★ next to their name while they are on frequency.</p></div>`;
         }
@@ -739,7 +740,7 @@ export const AtcKudos = {
                 </div>
             </div>`).join('');
         return `
-            <div class="ups-section-title">RateMyATC <span class="ups-section-count">${count.toLocaleString()}</span> ${this._boardLink()}</div>
+            <div class="ups-section-title">RateMyATC <span class="ups-section-count">${count.toLocaleString()}</span> ${this._boardLink()}${this._pageLink(username)}</div>
             <div class="atcc-rating">
                 <div class="atcc-rating-big">
                     <span class="atcc-rating-avg">${Number(rating.avg).toFixed(1)}</span>
@@ -753,6 +754,32 @@ export const AtcKudos = {
 
     _boardLink() {
         return '<button type="button" class="atcc-board-link is-inline" data-atcc-act="board">See the board ›</button>';
+    },
+
+    // The controller's own page on inflight.info/atc — the link to share.
+    pageURL(username) {
+        return `${location.origin}/atc/${encodeURIComponent(username)}`;
+    },
+
+    _pageLink(username) {
+        if (!username) return '';
+        return `<button type="button" class="atcc-board-link is-inline" data-atcc-act="share-page" data-atcc-user="${this._esc(username)}"
+                    title="Share ${this._esc(username)}'s RateMyATC page"><i class="fa-solid fa-arrow-up-from-bracket"></i> Share</button>`;
+    },
+
+    async _sharePage(username) {
+        if (!username) return;
+        const url = this.pageURL(username);
+        if (navigator.share) {
+            try { await navigator.share({ title: `${username} on RateMyATC`, url }); return; }
+            catch (err) { if (err && err.name === 'AbortError') return; }
+        }
+        try {
+            await navigator.clipboard.writeText(url);
+            this._notify(`Link to ${username}'s RateMyATC page copied.`, 'success');
+        } catch (_) {
+            window.open(url, '_blank', 'noopener');
+        }
     },
 
     _privateFeedbackHTML(inbox) {
@@ -996,6 +1023,7 @@ export const AtcKudos = {
                 cursor: pointer; white-space: nowrap; }
             .atcc-board-link:hover { background: rgba(250,204,21,0.2); }
             .atcc-board-link.is-inline { margin-left: auto; font-size: 0.62rem; padding: 2px 8px; text-transform: none; letter-spacing: 0; }
+            .atcc-board-link.is-inline + .atcc-board-link.is-inline { margin-left: 6px; }
             .atcc-of-total i { margin-right: 3px; }
             .atcc-of-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
             .atcc-of-row + .atcc-of-row { border-top: 1px solid rgba(255,255,255,0.06); }

@@ -40,6 +40,10 @@
                     text: 'The RateMyATC board: top-rated controllers, most kudos and who’s on frequency now, over 30 days or all time. Open it from the ★ on the map toolbar, the ATC sheet or an airport’s On frequency card.'
                 },
                 {
+                    tag: 'new', icon: 'fa-share-nodes', action: 'atc-page',
+                    text: 'The RateMyATC page at inflight.info/atc: the board, the numbers, what pilots are saying — and a page for every controller at inflight.info/atc/their-name, with a Share button. Controllers, put yours in your IFC profile.'
+                },
+                {
                     tag: 'improved', icon: 'fa-tower-broadcast',
                     text: 'The airport window, decluttered: who’s on frequency comes first, weather and ATIS fold into one line that opens on tap, and four tabs become three — Traffic, ATC and Info.'
                 },
@@ -820,6 +824,8 @@
         'account-email': { label: 'Change email', run: () => window.openAccountEmail && window.openAccountEmail() },
         // Opened inside the click itself, or the browser treats it as a popup.
         'ios-app': { label: 'Get it on the App Store', now: true, run: () => window.InflightAppPromo && window.InflightAppPromo.open() },
+        // Opened inside the click itself, or the browser treats it as a popup.
+        'atc-page': { label: 'Open the RateMyATC page', now: true, run: () => window.open('/atc', '_blank', 'noopener') },
         'ratemyatc': { label: 'Open the RateMyATC board', run: () => window.dispatchEvent(new CustomEvent('openRateMyAtc', { detail: { tab: 'top' } })) },
     };
     function runAction(id) {

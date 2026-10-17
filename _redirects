@@ -30,6 +30,12 @@
 # people paste, and /month.html reads like a file rather than a place.
 /month     /month.html  200
 
+# RateMyATC — the ATC page, and each controller's own page at
+# /atc/<their Infinite Flight name>, which is the link pilots share. One
+# document for both; atc.html reads the name from the path.
+/atc       /atc.html  200
+/atc/*     /atc.html  200
+
 # Your Profile Card — the stats card a pilot puts on their IFC profile. Same
 # reasoning: it is a place people are sent to, not a file they open.
 /card      /profile-card.html  200

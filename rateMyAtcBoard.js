@@ -76,7 +76,10 @@ export const RateMyAtcBoard = {
                                 <span class="rma-sub" id="rma-sub">The controllers pilots rate and thank most</span>
                             </span>
                         </div>
-                        <button type="button" class="rma-x" data-rma="close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                        <span class="rma-head-actions">
+                            <a class="rma-page" href="/atc" target="_blank" rel="noopener" title="Open the full RateMyATC page">Full page <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+                            <button type="button" class="rma-x" data-rma="close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+                        </span>
                     </header>
                     <nav class="rma-tabs" role="tablist">
                         ${TABS.map(t => `<button type="button" class="rma-tab" role="tab" data-rma-tab="${t.id}">
@@ -277,6 +280,11 @@ export const RateMyAtcBoard = {
                 background: linear-gradient(135deg, #facc15, #f97316); color: #1c1917; box-shadow: 0 6px 18px rgba(249,115,22,0.35); }
             .rma-head h2 { margin: 0; font-size: 1.15rem; font-weight: 800; color: #fff; letter-spacing: -.01em; }
             .rma-sub { display: block; font-size: 0.74rem; color: #a1a1aa; }
+            .rma-head-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+            .rma-page { padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(250,204,21,0.4); background: rgba(250,204,21,0.1);
+                color: #fde68a; font-size: 0.72rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
+            .rma-page:hover { background: rgba(250,204,21,0.2); }
+            .rma-page i { font-size: 0.62rem; margin-left: 3px; }
             .rma-x { width: 32px; height: 32px; border-radius: 50%; border: 0; background: rgba(255,255,255,0.07); color: #a1a1aa; cursor: pointer; }
             .rma-tabs { display: flex; gap: 6px; padding: 6px 18px 0; border-bottom: 1px solid rgba(255,255,255,0.07); }
             .rma-tab { flex: 1 1 0; padding: 10px 6px; border: 0; border-bottom: 2px solid transparent; background: none; color: #a1a1aa;
