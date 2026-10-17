@@ -152,12 +152,12 @@
             + '<b>' + r.code + '</b><span>' + r.label + (r.tag ? '<small>' + r.tag + '</small>' : '') + '</span></div>').join('');
 
         const rows = d.flights.map((f) => '<tr>'
-            + '<td><span class="cc-who"><span class="cc-ico">' + ic(f.icon) + '</span>' + f.flight + '</span></td>'
-            + '<td>' + f.route + '</td>'
-            + '<td>' + f.when[0] + ' <b>' + f.when[1] + '</b></td>'
-            + '<td>' + f.block + '</td>'
-            + '<td>' + f.ac + '</td>'
-            + '<td>' + f.status + '</td></tr>').join('');
+            + '<td class="cc-c-flight"><span class="cc-who"><span class="cc-ico">' + ic(f.icon) + '</span>' + f.flight + '</span></td>'
+            + '<td class="cc-c-route">' + f.route + '</td>'
+            + '<td class="cc-c-when">' + f.when[0] + ' <b>' + f.when[1] + '</b></td>'
+            + '<td class="cc-c-block">' + f.block + '</td>'
+            + '<td class="cc-c-ac">' + f.ac + '</td>'
+            + '<td class="cc-c-status">' + f.status + '</td></tr>').join('');
 
         const groups = d.convos.groups.map((g, gi) => '<div class="cc-sec">' + g.name + '</div>'
             + g.items.map((m) => '<div class="cc-msg' + (m.fresh ? ' is-new' : '') + (m.old ? ' is-old' : '') + '">'
@@ -173,7 +173,7 @@
         +   '<nav class="cc-rail-nav">'
         +     '<button type="button" class="cc-rail-btn" aria-current="page" title="Home">' + ic('house') + '</button>'
         +     '<button type="button" class="cc-rail-btn" title="Radio">' + ic('voicemail') + '</button>'
-        +     '<button type="button" class="cc-rail-btn" title="Inbox">' + ic('inbox') + '<span class="cc-pip"></span></button>'
+        +     '<button type="button" class="cc-rail-btn" title="Inbox" data-cc-inbox>' + ic('inbox') + '<span class="cc-pip"></span></button>'
         +     '<button type="button" class="cc-rail-btn" title="Schedule">' + ic('calendar') + '</button>'
         +     '<button type="button" class="cc-rail-btn" title="Statistics">' + ic('chart-no-axes-column') + '</button>'
         +     '<button type="button" class="cc-rail-btn" title="All sections">' + ic('layout-grid') + '</button>'
@@ -189,6 +189,14 @@
         + '</aside>'
 
         + '<div class="cc-main">'
+        // A phone's own top bar: the switch out and the inbox, which on a
+        // phone is a sheet rather than a column. Hidden on anything wider.
+        +   '<div class="cc-mhead">'
+        +     '<span class="cc-logo" aria-hidden="true"></span>'
+        +     '<span class="cc-mtitle">Crew centre</span>'
+        +     '<span data-skin-toggle></span>'
+        +     '<button type="button" class="cc-rail-btn" title="Conversations" data-cc-inbox>' + ic('message-circle') + '<span class="cc-pip"></span></button>'
+        +   '</div>'
         +   '<nav class="cc-tabs" role="tablist">' + tabs + '<button type="button" class="cc-tab cc-tab-cta">' + d.cta + '</button></nav>'
 
         +   '<section class="cc-board">'
@@ -223,7 +231,7 @@
         +       '<span class="cc-kv" style="grid-column:1/-1">Discord: <b>' + p.discord + '</b></span>'
         +       '<div class="cc-actions">'
         +         '<button type="button" class="cc-btn-w">' + ic('info') + 'See all pilot’s information</button>'
-        +         '<button type="button" class="cc-btn-o">' + ic('refresh-cw') + 'Refresh</button>'
+        +         '<button type="button" class="cc-btn-o">' + ic('refresh-cw') + '<span class="cc-lbl">Refresh</span></button>'
         +       '</div>'
         +     '</section>'
         +   '</div>'
@@ -239,7 +247,7 @@
         + '</div>'
 
         + '<aside class="cc-convos" aria-label="Conversations">'
-        +   '<div class="cc-convos-head"><h2>Conversations</h2><button type="button" title="Close">' + ic('x') + '</button></div>'
+        +   '<div class="cc-convos-head"><h2>Conversations</h2><button type="button" title="Close" data-cc-close>' + ic('x') + '</button></div>'
         +   '<label class="cc-search">' + ic('search') + '<input type="search" placeholder="Search by assigned to you"></label>'
         +   '<div class="cc-count"><span>' + d.convos.count + ' conversations</span>' + ic('arrow-up-down') + ic('settings-2') + '</div>'
         +   '<div class="cc-convo-scroll">'
@@ -268,6 +276,9 @@
 
         // Toggles in a row look pressed one at a time; nothing more yet.
         el.addEventListener('click', (e) => {
+            // The inbox sheet (phones only; on a wide screen it is always up).
+            if (e.target.closest('[data-cc-inbox]')) el.classList.add('cc-inbox-open');
+            if (e.target.closest('[data-cc-close]')) el.classList.remove('cc-inbox-open');
             const tab = e.target.closest('.cc-tab:not(.cc-tab-cta)');
             if (tab) el.querySelectorAll('.cc-tab').forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
             const cb = e.target.closest('.cc-cb');

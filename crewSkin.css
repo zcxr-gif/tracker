@@ -1237,26 +1237,128 @@ html:not(.dark) .ifc-prev-aurora{
 @media (max-width:980px){
     .cc-lower{ grid-template-columns:minmax(0,1fr); }
 }
+/* ---- Phones ----------------------------------------------------------------
+   Not the desk squeezed: the same pieces arranged the way a phone app is.
+   A top bar with the way out and the inbox; the topics as chips; the crew ID
+   and its ratings as a row you swipe; flights as a list, not a table; the
+   pilot's photo beside their name; the call bar as a phone's call screen;
+   the inbox as a sheet that slides up; the rail as a tab bar. */
+.cc-mhead{ display:none; }
 @media (max-width:720px){
-    #crewConsole{ grid-template-columns:minmax(0,1fr); padding:.5rem .5rem 6rem; }
-    .cc-convos{ grid-column:auto; }
-    .cc-rail{ position:fixed; top:auto; height:auto; left:.5rem; right:.5rem; bottom:.5rem; z-index:2; flex-direction:row; overflow-x:auto;
-        padding:.4rem .6rem; border-radius:1.4rem; box-shadow:0 -10px 30px -10px rgb(0 0 0 / .7); }
-    .cc-logo{ display:none; }
-    .cc-rail-nav, .cc-rail-foot{ flex-direction:row; gap:.1rem; }
-    .cc-rail-foot{ margin:0 0 0 auto; }
-    .cc-rail-btn, .cc-rail .ifc-toggle{ width:2.7rem; height:2.7rem; }
-    .cc-board, .cc-panel{ padding:1.4rem 1.1rem; }
-    .cc-stack{ height:12.6rem; margin-top:.4rem; }
-    .cc-card-front{ width:100%; height:12.2rem; padding:1.5rem 1.4rem 1.2rem; }
-    .cc-card-front .cc-num{ font-size:1.4rem; margin-top:2rem; }
-    .cc-card-back{ display:none; }
-    .cc-pilot{ flex-direction:column; gap:1.4rem; }
-    .cc-photo{ width:8rem; height:8rem; }
-    .cc-name{ font-size:1.8rem; }
-    .cc-callbar{ padding:.8rem; }
-    .cc-cb{ padding:0 .9rem; }
-    .cc-end{ margin-left:0; width:100%; justify-content:center; }
+    #crewConsole{ grid-template-columns:minmax(0,1fr); gap:.5rem;
+        padding:0 .5rem calc(5.4rem + env(safe-area-inset-bottom)); font-size:14px; }
+
+    /* The top bar. */
+    .cc-mhead{ display:flex; align-items:center; gap:.3rem; position:sticky; top:0; z-index:3;
+        margin:0 -.5rem; padding:calc(.5rem + env(safe-area-inset-top)) .6rem .5rem 1rem;
+        background:color-mix(in srgb, var(--cc-frame) 88%, transparent);
+        -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); }
+    .cc-mhead .cc-logo{ width:2.3rem; height:2.3rem; margin:0 .4rem 0 0; transform:scale(.8); transform-origin:left center; }
+    .cc-mtitle{ font-weight:700; font-size:1.1rem; margin-right:auto; }
+    .cc-mhead .ifc-toggle, .cc-mhead .cc-rail-btn{ width:3.1rem; height:3.1rem; border-radius:1rem; color:#cfcdcb; }
+    .cc-mhead .cc-pip{ box-shadow:0 0 0 2px var(--cc-frame); }
+
+    /* The rail, as a tab bar. The way out lives in the top bar instead. */
+    .cc-rail{ position:fixed; top:auto; height:auto; left:.5rem; right:.5rem; z-index:4;
+        bottom:calc(.5rem + env(safe-area-inset-bottom)); flex-direction:row; padding:.35rem .4rem;
+        border-radius:1.5rem; background:rgb(28 28 28 / .92); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+        box-shadow:0 -10px 30px -10px rgb(0 0 0 / .7); }
+    .cc-rail .cc-logo, .cc-rail-foot{ display:none; }
+    .cc-rail-nav{ flex:1; flex-direction:row; justify-content:space-between; gap:0; }
+    .cc-rail-btn{ width:3.1rem; height:3.1rem; }
+    .cc-rail-nav .cc-rail-btn[aria-current="page"]{ background:var(--cc-raise); }
+    .cc-rail-nav .cc-rail-btn[aria-current="page"]::after{ content:''; position:absolute; bottom:.35rem; width:.3rem; height:.3rem;
+        border-radius:50%; background:var(--cc-orange); }
+
+    /* The topics, as chips. The call to action leads the row so it is seen. */
+    .cc-tabs{ margin:0 -.5rem; padding:.1rem .5rem .2rem; gap:.4rem; }
+    .cc-tab{ padding:.6rem 1.05rem; border-radius:999px; font-size:.9rem; }
+    .cc-tab[aria-selected="true"]{ border-radius:999px; padding-bottom:.6rem; min-width:0; background:#fff; color:#1a1a1a; }
+    .cc-tab-cta{ order:-1; margin-left:0; padding:.6rem 1.15rem; }
+
+    .cc-board, .cc-panel{ padding:1.3rem 1.1rem; border-radius:1.5rem; }
+    .cc-board{ gap:1.4rem; }
+
+    /* The crew ID and its ratings: a row to swipe through, each card stood
+       on its own rather than tucked behind the one in front. */
+    .cc-stack{ display:flex; gap:.5rem; height:auto; margin:0 -1.1rem; padding:0 1.1rem;
+        overflow-x:auto; scroll-snap-type:x mandatory; scroll-padding:0 1.1rem; scrollbar-width:none; }
+    .cc-stack::-webkit-scrollbar{ display:none; }
+    .cc-card{ position:relative; left:auto !important; transform:none !important; flex:0 0 auto; scroll-snap-align:start; height:12.4rem !important; }
+    .cc-card-front{ width:calc(100% - 3rem); padding:1.4rem 1.3rem 1.2rem; border-radius:1.3rem; box-shadow:none; }
+    .cc-card-front .cc-num{ font-size:1.32rem; margin-top:1.7rem; letter-spacing:.03em; }
+    .cc-card-front .cc-foot{ font-size:.95rem; }
+    .cc-card-back{ width:5.4rem; padding:1.1rem .7rem; border-radius:1.3rem; font-size:.85rem; }
+    .cc-card-back b{ font-size:1.02rem; }
+    .cc-h{ font-size:1.5rem; }
+
+    /* Flights: a list. Flight and block on top, route and status under it,
+       when and on what under that — the icon stays in the gutter. */
+    .cc-table thead{ display:none; }
+    .cc-table, .cc-table tbody{ display:block; }
+    .cc-table tr{ display:grid; grid-template-columns:2.6rem minmax(0,1fr) auto; column-gap:.85rem; row-gap:.15rem;
+        grid-template-areas:"ico fl bl" "ico rt st" "ico wh ac"; padding:.8rem 0; border-top:1px solid var(--cc-line); }
+    .cc-table tr:first-child{ border-top:0; padding-top:0; }
+    .cc-table td{ padding:0; font-size:.9rem; white-space:normal; }
+    .cc-c-flight{ display:contents; }
+    .cc-c-flight .cc-who{ display:contents; }
+    .cc-c-flight .cc-ico{ grid-area:ico; align-self:start; width:2.6rem; height:2.6rem; }
+    .cc-table .cc-c-flight{ font-weight:700; }
+    .cc-table .cc-c-flight .cc-who{ font-size:1rem; }
+    .cc-c-route{ grid-area:rt; color:#cfcdcb; }
+    .cc-c-when{ grid-area:wh; font-size:.8rem !important; color:var(--cc-muted); }
+    .cc-c-when b{ font-weight:600; color:#cfcdcb; }
+    .cc-c-block{ grid-area:bl; text-align:right; font-weight:700 !important; font-variant-numeric:tabular-nums; }
+    .cc-c-status{ grid-area:st; text-align:right; font-size:.78rem !important; color:var(--cc-orange); font-weight:600 !important; }
+    .cc-c-ac{ grid-area:ac; text-align:right; font-size:.8rem !important; color:var(--cc-muted); }
+    .cc-scroll{ overflow:visible; }
+
+    /* The pilot: photo beside the name, the call pills under both. */
+    .cc-pilot{ display:grid; grid-template-columns:5.6rem minmax(0,1fr); column-gap:1rem; row-gap:0;
+        grid-template-areas:"photo name" "photo tier" "pills pills" "addr addr"; }
+    .cc-pilot > div:not(.cc-photo){ display:contents; }
+    .cc-photo{ grid-area:photo; width:5.6rem; height:5.6rem; border-radius:1.1rem; }
+    .cc-name{ grid-area:name; align-self:end; font-size:1.35rem; margin:0 0 .2rem; }
+    .cc-tier{ grid-area:tier; align-self:start; font-size:.92rem; }
+    .cc-pills{ grid-area:pills; margin-top:1.1rem; gap:.5rem; flex-wrap:nowrap; }
+    .cc-pill{ flex:1; justify-content:center; height:3rem; padding:0 1rem; font-size:.82rem; }
+    .cc-rec{ height:3rem; padding:0 1.2rem; }
+    .cc-addr{ grid-area:addr; margin-top:1rem; }
+
+    .cc-ident{ padding:1.3rem 1.1rem; row-gap:.8rem; }
+    .cc-actions{ flex-wrap:nowrap; gap:.5rem; }
+    .cc-btn-w{ flex:1; justify-content:center; height:3.2rem; padding:0 1rem; }
+    .cc-btn-o{ flex:0 0 3.2rem; height:3.2rem; padding:0; justify-content:center; }
+    .cc-btn-o .cc-lbl{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+
+    /* The call bar, as a phone's own call screen: round keys with a word under
+       each, and the red button across the bottom. */
+    .cc-callbar{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:.6rem .3rem; padding:1.1rem .8rem .9rem; border-radius:1.5rem; }
+    .cc-cb{ flex-direction:column; gap:.45rem; height:auto; padding:0; border-radius:0; font-size:.72rem; color:#cfcdcb; }
+    .cc-cb:hover{ background:none; }
+    #crewConsole .cc-cb svg.lucide, #crewConsole .cc-cb [data-lucide]{ box-sizing:content-box; width:1.35rem; height:1.35rem; padding:.85rem;
+        border-radius:50%; background:var(--cc-raise); color:#fff; }
+    .cc-cb[aria-pressed="true"]{ background:none; color:#fff; }
+    #crewConsole .cc-cb[aria-pressed="true"] svg.lucide, #crewConsole .cc-cb[aria-pressed="true"] [data-lucide]{ background:#fff; color:#1a1a1a; }
+    .cc-end{ grid-column:1 / -1; margin:.4rem 0 0; width:100%; height:3.4rem; justify-content:center; font-size:1rem; }
+
+    /* The inbox: a sheet from the bottom, over everything, closed by its X. */
+    .cc-convos{ position:fixed; inset:0; z-index:6; height:100dvh; border-radius:0; grid-column:auto;
+        padding:calc(1.2rem + env(safe-area-inset-top)) 1.2rem calc(1rem + env(safe-area-inset-bottom));
+        transform:translateY(100%); visibility:hidden;
+        transition:transform .38s cubic-bezier(.22,1,.36,1), visibility 0s linear .38s; }
+    #crewConsole.cc-inbox-open .cc-convos{ transform:none; visibility:visible; transition:transform .38s cubic-bezier(.22,1,.36,1); }
+    .cc-convos-head h2{ font-size:1.8rem; }
+    .cc-convos-head button{ width:2.8rem; height:2.8rem; display:grid; place-items:center; border-radius:50%; background:var(--cc-raise); }
+    .cc-search{ margin-top:1.4rem; }
+    .cc-convo-scroll{ mask-image:none; -webkit-mask-image:none; }
+    .cc-av{ width:3.3rem; height:3.3rem; font-size:.9rem; }
+    .cc-msg{ grid-template-columns:3.3rem minmax(0,1fr) auto; }
+    .cc-msg-name{ font-size:1rem; padding-top:.3rem; }
+    .cc-msg p{ text-overflow:ellipsis; }
+}
+@media (max-width:720px) and (prefers-reduced-motion: reduce){
+    .cc-convos, #crewConsole.cc-inbox-open .cc-convos{ transition:none; }
 }
 
 /* ---- The chooser's miniature -------------------------------------------- */

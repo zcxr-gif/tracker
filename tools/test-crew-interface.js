@@ -302,6 +302,30 @@ function api(route) {
         await page.close();
     }
 
+    // ---- 9. The Console on a phone -----------------------------------------
+    console.log('\nConsole on a phone');
+    state = freshState();
+    {
+        const { page, errors } = await openDash({ query: '&ui=console' });
+        await page.setViewportSize({ width: 390, height: 844 });
+        // Long enough for the inbox column to finish sliding away as the
+        // window narrows into a phone.
+        await page.waitForTimeout(700);
+        const sheetUp = () => page.$eval('#crewConsole .cc-convos', (el) => getComputedStyle(el).visibility === 'visible');
+        check('the way out is in its top bar', await page.isVisible('#crewConsole .cc-mhead [data-skin-toggle] .ifc-toggle'));
+        check('the page does not scroll sideways',
+            await page.$eval('#crewConsole', (el) => el.scrollWidth <= el.clientWidth));
+        check('the inbox starts put away', !(await sheetUp()));
+        await page.click('#crewConsole .cc-mhead [data-cc-inbox]');
+        await page.waitForTimeout(500);
+        check('…comes up as a sheet', await sheetUp());
+        await page.click('#crewConsole [data-cc-close]');
+        await page.waitForTimeout(500);
+        check('…and goes away again', !(await sheetUp()));
+        check('no page errors', errors.length === 0, errors[0]);
+        await page.close();
+    }
+
     await browser.close();
     server.close();
     console.log(failures ? `\n${failures} check(s) failed\n` : '\nAll checks passed\n');
