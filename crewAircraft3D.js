@@ -14,7 +14,7 @@
    MATCHING takes whatever the airline typed — an ICAO code ("B38M", "A20N"),
    a name ("Boeing 737-800", "Embraer 175", "A321neo") — and finds its
    family. Where there is no model of the type itself, a close relative of
-   the same shape stands in (an A330 is drawn as a 787, an A220 as an E190)
+   the same shape stands in (an A350 is drawn as an A330, an A220 as an E190)
    and `exact` is false. A type with nothing close — a turboprop, a bizjet —
    gets no model.
 
@@ -38,7 +38,14 @@
 
     const THREE_URL = 'https://unpkg.com/three@0.126.0/build/three.min.js';
     const GLTF_URL = 'https://unpkg.com/three@0.126.0/examples/js/loaders/GLTFLoader.js';
+    // The models are meshopt-compressed (tools/aircraft-models/pack.mjs):
+    // about a quarter of the bytes for the same detail.
+    const MESHOPT_URL = 'https://unpkg.com/three@0.126.0/examples/js/libs/meshopt_decoder.js';
     const BASE = '/models/fleet/';
+    // Bumped whenever the model files change. They are cached for a day
+    // (_headers), and a reader holding yesterday's file would otherwise keep
+    // seeing it — the rougher one, as it happens, the first time this mattered.
+    const MODEL_VERSION = '3';
 
     // Family → file. `yaw` turns a model built facing another way round to
     // the common frame, nose toward −X (the FlightGear ones already are; the
@@ -52,6 +59,7 @@
         b772: { file: '777-200er.glb', label: 'Boeing 777-200', len: 63.7 },
         b773: { file: '777-300er.glb', label: 'Boeing 777-300', len: 73.9 },
         b787: { file: '787.glb', label: 'Boeing 787', len: 56.7 },
+        a330: { file: 'a330.glb', label: 'Airbus A330', len: 63.7 },
         a380: { file: 'a380.glb', label: 'Airbus A380', len: 72.7, yaw: -Math.PI / 2 },
         crj7: { file: 'crj700.glb', label: 'Bombardier CRJ700', len: 32.3 },
         crj9: { file: 'crj900.glb', label: 'Bombardier CRJ900', len: 36.2 },
@@ -71,13 +79,15 @@
         [/B74[0-9A-Z]|747/, 'b747', true],
         [/B73[0-9A-Z]|B3[789X]M|B37M|737/, 'b737', true],
         [/A3(18|19|20|21)|A(19|20|21)N|A3(18|19|20|21)NEO/, 'a320', true],
+        [/A33[0-9]|A330/, 'a330', true],
         [/MD11|MD-11/, 'md11', true],
         [/CRJ(9|10|X)|CRJ900|CRJ1000/, 'crj9', true],
         [/CRJ(1|2|7)|CRJ700|CRJ200|CRJ100/, 'crj7', true],
         [/E(RJ)?17[05]|EMBRAER17[05]|E1?7[05]E2|E75L|E75S|E170|E175/, 'e175', true],
         [/E(RJ)?19[05]|EMBRAER19[05]|E29[05]|E190|E195|EJET/, 'e190', true],
         // Close relatives of the same shape, where there is no model of the type.
-        [/A3[34][0-9]|A33[0-9]|A34[0-9]|A35[0-9K]|A350|A330|A340|B76[0-9]|767|B75[0-9]|757/, 'b787', false],
+        [/A34[0-9]|A35[0-9K]|A350|A340/, 'a330', false],
+        [/B76[0-9]|767|B75[0-9]|757/, 'b787', false],
         [/DC10|DC-10|MD10/, 'md11', false],
         [/A22[0-9]|BCS[13]|CS[13]00|A220/, 'e190', false],
         [/B71[0-9]|717|MD8[0-9]|MD90|DC9/, 'crj9', false],
@@ -88,7 +98,7 @@
         const s = String(name || '').toUpperCase().replace(/[\s\-_.·]+/g, '');
         if (!s) return null;
         for (const [re, id, exact] of RULES) {
-            if (re.test(s)) return Object.assign({ id, exact, url: BASE + MODELS[id].file }, MODELS[id]);
+            if (re.test(s)) return Object.assign({ id, exact, url: BASE + MODELS[id].file + '?v=' + MODEL_VERSION }, MODELS[id]);
         }
         return null;
     }
@@ -112,9 +122,11 @@
             try {
                 if (!global.THREE) await script(THREE_URL);
                 if (global.THREE && !global.THREE.GLTFLoader) await script(GLTF_URL);
+                if (!global.MeshoptDecoder) await script(MESHOPT_URL);
+                if (global.MeshoptDecoder && global.MeshoptDecoder.ready) await global.MeshoptDecoder.ready;
             } catch (_) { /* offline, blocked: no model */ }
             const T = global.THREE;
-            if (!T || !T.WebGLRenderer || !T.GLTFLoader) { threeP = null; return null; }
+            if (!T || !T.WebGLRenderer || !T.GLTFLoader || !global.MeshoptDecoder) { threeP = null; return null; }
             return T;
         })();
         return threeP;
@@ -146,56 +158,86 @@
         const box = new T.Box3();
         meshes.forEach(({ pos }) => { for (let i = 0; i < pos.length; i += 3) box.expandByPoint(new T.Vector3(pos[i], pos[i + 1], pos[i + 2])); });
         const L = box.max.x - box.min.x;
-        const ys = [];
+        // The radius from the fuselage's WIDTH on that slice, and its crown
+        // from the highest point: neither is moved by what hangs beneath it.
+        // (A detailed model has thousands of vertices in gear bays and door
+        // seams under the nose; a percentile of heights sinks into them.)
+        const ys = [], zs = [];
         meshes.forEach(({ pos }) => {
             for (let i = 0; i < pos.length; i += 3) {
-                const u = pos[i];
-                if (u > -0.38 * L && u < -0.22 * L && Math.abs(pos[i + 2]) < 0.06 * L) ys.push(pos[i + 1]);
+                const u = pos[i], az = Math.abs(pos[i + 2]);
+                if (u > -0.38 * L && u < -0.22 * L && az < 0.075 * L) { ys.push(pos[i + 1]); zs.push(az); }
             }
         });
-        const top = ys.length ? pct(ys, 0.97) : box.max.y * 0.4;
-        const bot = ys.length ? pct(ys, 0.06) : box.min.y * 0.4;
-        return { L, top, bot, r: Math.max((top - bot) / 2, L * 0.02), cy: (top + bot) / 2, maxY: box.max.y, minY: box.min.y };
+        if (!ys.length) {
+            const r0 = L * 0.05;
+            return { L, top: r0, bot: -r0, r: r0, cy: 0, maxY: box.max.y, minY: box.min.y };
+        }
+        const r = Math.max(pct(zs, 0.995), L * 0.02);
+        const top = pct(ys, 0.995);
+        const cy = top - r;
+        return { L, top, bot: cy - r, r, cy, maxY: box.max.y, minY: box.min.y };
+    }
+
+    // A compressed attribute comes back from r126 as its raw integers; this
+    // is what turns them back into the numbers they stand for. (The GPU does
+    // it by itself; only code reading the values needs telling.)
+    function unpack(a) {
+        if (!a.normalized) return 1;
+        const arr = a.isInterleavedBufferAttribute ? a.data.array : a.array;
+        return arr instanceof Int8Array ? 1 / 127 : arr instanceof Uint8Array ? 1 / 255
+            : arr instanceof Int16Array ? 1 / 32767 : arr instanceof Uint16Array ? 1 / 65535 : 1;
     }
 
     function load(T, m) {
         if (cache.has(m.url)) return cache.get(m.url);
         const p = new Promise((resolve) => {
-            new T.GLTFLoader().load(m.url, (g) => {
+            const loader = new T.GLTFLoader();
+            loader.setMeshoptDecoder(global.MeshoptDecoder);
+            loader.load(m.url, (g) => {
                 const obj = g.scene;
                 obj.updateMatrixWorld(true);
-                const box = new T.Box3().setFromObject(obj);
-                const c = box.getCenter(new T.Vector3());
-                const size = box.getSize(new T.Vector3());
-                obj.position.sub(c);
-                obj.updateMatrixWorld(true);
-                // Every vertex in the model's own (centred) frame, for the
-                // livery — read once, kept.
+                // Every vertex in the model's own frame, read once and kept:
+                // the bounds come from these (r126's own Box3 would read the
+                // compressed integers as they are), and so does the livery.
                 const meshes = [];
                 const v = new T.Vector3();
                 const nm = new T.Matrix3();
-                // Measured in the common frame (nose toward −X), the same frame
-                // the livery shader paints in once the yaw is applied below.
-                const yaw = new T.Matrix4().makeRotationY(m.yaw || 0);
+                const box = new T.Box3();
                 obj.traverse((o) => {
                     if (!o.isMesh) return;
                     const a = o.geometry.getAttribute('position');
                     const na = o.geometry.getAttribute('normal');
+                    const ka = unpack(a), kn = na ? unpack(na) : 1;
                     nm.getNormalMatrix(o.matrixWorld);
                     const pos = new Float32Array(a.count * 3);
                     const nrm = new Float32Array(a.count * 3);
                     for (let i = 0; i < a.count; i++) {
-                        v.set(a.getX(i), a.getY(i), a.getZ(i)).applyMatrix4(o.matrixWorld).applyMatrix4(yaw);
+                        v.set(a.getX(i) * ka, a.getY(i) * ka, a.getZ(i) * ka).applyMatrix4(o.matrixWorld);
+                        box.expandByPoint(v);
                         pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
-                        // Quantised normals come back raw from r126; only
-                        // their direction is wanted, so normalise.
                         if (na) {
-                            v.set(na.getX(i), na.getY(i), na.getZ(i)).applyMatrix3(nm).transformDirection(yaw);
+                            v.set(na.getX(i) * kn, na.getY(i) * kn, na.getZ(i) * kn).applyMatrix3(nm).normalize();
                             nrm[i * 3] = v.x; nrm[i * 3 + 1] = v.y; nrm[i * 3 + 2] = v.z;
                         }
                     }
                     meshes.push({ mesh: o, pos, nrm });
                 });
+                const c = box.getCenter(new T.Vector3());
+                const size = box.getSize(new T.Vector3());
+                // Centred, then turned into the common frame (nose toward −X),
+                // the same frame the livery shader paints in once the yaw is
+                // applied to the model below.
+                const yaw = new T.Matrix4().makeRotationY(m.yaw || 0);
+                meshes.forEach(({ pos, nrm }) => {
+                    for (let i = 0; i < pos.length; i += 3) {
+                        v.set(pos[i] - c.x, pos[i + 1] - c.y, pos[i + 2] - c.z).applyMatrix4(yaw);
+                        pos[i] = v.x; pos[i + 1] = v.y; pos[i + 2] = v.z;
+                        v.set(nrm[i], nrm[i + 1], nrm[i + 2]).transformDirection(yaw);
+                        nrm[i] = v.x; nrm[i + 1] = v.y; nrm[i + 2] = v.z;
+                    }
+                });
+                obj.position.sub(c);
                 const shape = measure(T, meshes);
                 shape.k = 1 / Math.max(size.x, size.y, size.z, 1e-6);
                 findEngines({ shape, meshes });
@@ -231,12 +273,36 @@
         // radius, and how far it runs fore and aft. The livery paints
         // everything inside it, intake lip included, which a test on the
         // way a surface faces would miss.
-        const us = [], ys = [], zs = [];
-        for (let i = 0; i < hit.length; i += 3) { us.push(hit[i]); ys.push(hit[i + 1]); zs.push(hit[i + 2]); }
-        const ey = pct(ys, 0.5), ez = pct(zs, 0.5);
-        const rad = [];
-        for (let i = 0; i < ys.length; i++) rad.push(Math.hypot(ys[i] - ey, zs[i] - ez));
-        S.engine = { u: pct(us, 0.5), y: ey, z: ez, r: pct(rad, 0.9) * 1.12, u0: pct(us, 0.03), u1: pct(us, 0.97) };
+        // One engine a side, or two (a 747, an A380). Split the hits into two
+        // groups along the wing (1-D k-means); two engines when the groups sit
+        // well apart — one engine cut in half never does, its halves are an
+        // engine's width apart at most.
+        const zsAll = [];
+        for (let i = 0; i < hit.length; i += 3) zsAll.push(hit[i + 2]);
+        let c1 = pct(zsAll, 0.25), c2 = pct(zsAll, 0.75);
+        for (let it = 0; it < 12; it++) {
+            let s1 = 0, n1 = 0, s2 = 0, n2 = 0;
+            zsAll.forEach((z) => { if (Math.abs(z - c1) <= Math.abs(z - c2)) { s1 += z; n1++; } else { s2 += z; n2++; } });
+            if (n1) c1 = s1 / n1;
+            if (n2) c2 = s2 / n2;
+        }
+        const at = (c1 + c2) / 2;
+        const groups = Math.abs(c2 - c1) > 1.4 * r ? [(z) => z < at, (z) => z >= at] : [() => true];
+        const pods = groups.map((inGroup) => {
+            const us = [], ys = [], zs = [];
+            for (let i = 0; i < hit.length; i += 3) if (inGroup(hit[i + 2])) { us.push(hit[i]); ys.push(hit[i + 1]); zs.push(hit[i + 2]); }
+            if (us.length < 15) return null;
+            const ey = pct(ys, 0.5), ez = pct(zs, 0.5);
+            const rad = [];
+            for (let i = 0; i < ys.length; i++) rad.push(Math.hypot(ys[i] - ey, zs[i] - ez));
+            // Capped: a nacelle is never wider than the fuselage it hangs
+            // beside, and a stray hit on the wing root must not swell it until
+            // it swallows the fuselage.
+            return { u: pct(us, 0.5), y: ey, z: ez, r: Math.min(pct(rad, 0.85) * 1.15, 0.8 * r), u0: pct(us, 0.05), u1: pct(us, 0.95) };
+        }).filter(Boolean);
+        if (!pods.length) return;
+        S.engine = pods[0];                 // the inner one: where the contrails start
+        S.engine2 = pods[1] || null;
     }
 
     /* ---------------------------------------------------------------------
@@ -263,8 +329,13 @@
     const LIVERY_FRAG_HEAD = `
         uniform vec3 uWhite, uWing, uGear, uPaint, uDark, uLite, uGlass;
         uniform float uL, uTop, uBot, uR, uCy, uMaxY, uUnit;
-        uniform vec4 uEng;     // nacelle axis: height, span, radius (0: none)
-        uniform vec2 uEngU;    // nacelle from, to (fore and aft)
+        uniform vec4 uEng;     // inner nacelle axis: height, span, radius (0: none)
+        uniform vec2 uEngU;    // inner nacelle from, to (fore and aft)
+        uniform vec4 uEng2;    // outer nacelle, on a four-engined aeroplane
+        uniform vec2 uEngU2;
+        bool lvPod(vec4 e, vec2 eu, float u, float y, float az, float L) {
+            return e.z > 0.0 && u > eu.x - 0.02 * L && u < eu.y + 0.02 * L && length(vec2(y - e.x, az - e.y)) < e.z;
+        }
         varying vec3 vLiv;
         varying vec3 vLivN;
         float lvEdge(float e, float x, float w) { return smoothstep(e - w, e + w, x); }
@@ -280,8 +351,7 @@
             // The gear.
             if (az < 1.95 * r && y < uBot - 0.25 * r) return uGear;
             // The engines: inside the nacelle's cylinder, either side.
-            if (uEng.z > 0.0 && u > uEngU.x - 0.02 * L && u < uEngU.y + 0.02 * L
-                && length(vec2(y - uEng.x, az - uEng.y)) < uEng.z) return uLite;
+            if (az > 1.3 * r && (lvPod(uEng, uEngU, u, y, az, L) || lvPod(uEng2, uEngU2, u, y, az, L))) return uLite;
             // Wings and tail planes, softly edged against the fuselage.
             float wing = lvEdge(1.28 * r, az, aaz);
             // The fuselage: belly, cheatline, crown.
@@ -316,6 +386,7 @@
             uPaint: { value: new T.Color() }, uDark: { value: new T.Color() }, uLite: { value: new T.Color() },
             uGlass: { value: new T.Color() },
             uEng: { value: new T.Vector4() }, uEngU: { value: new T.Vector2() },
+            uEng2: { value: new T.Vector4() }, uEngU2: { value: new T.Vector2() },
             uL: { value: 1 }, uTop: { value: 0 }, uBot: { value: 0 }, uR: { value: 1 }, uCy: { value: 0 }, uMaxY: { value: 1 }, uUnit: { value: 1 },
         };
         mat.extensions = { derivatives: true };
@@ -348,6 +419,9 @@
         const e = shape.engine;
         u.uEng.value.set(e ? e.y : 0, e ? e.z : 0, e ? e.r : 0, 0);
         u.uEngU.value.set(e ? e.u0 : 0, e ? e.u1 : 0);
+        const e2 = shape.engine2;
+        u.uEng2.value.set(e2 ? e2.y : 0, e2 ? e2.z : 0, e2 ? e2.r : 0, 0);
+        u.uEngU2.value.set(e2 ? e2.u0 : 0, e2 ? e2.u1 : 0);
     }
 
     // A soft sky for the paint to reflect: bright above, warm at the horizon,

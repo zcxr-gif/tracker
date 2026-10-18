@@ -7,16 +7,17 @@ model, and the tools that did it are in `tools/aircraft-models/`.
 
 ## FlightGear (GPL)
 
-From the FlightGear flight simulator's aircraft, via the FGMEMBERS mirrors on
-GitHub. Converted from AC3D to glTF by `tools/aircraft-models/ac2glb.mjs`:
+From the FlightGear flight simulator's aircraft, on GitHub (the FGMEMBERS
+mirrors, and the IDG team's own repositories for their A320 and MD-11). Converted from AC3D to glTF by `tools/aircraft-models/ac2glb.mjs`:
 exterior only (flight deck, cabin, lights and ground equipment left out),
 textures not carried, geometry at the source's full detail with smoothed
-normals. Licensed under the GNU GPL as each repository states; the licence
+normals; then compressed for the web by `pack.mjs` (meshopt, positions at
+16 bits, normals at 12). Licensed under the GNU GPL as each repository states; the licence
 texts are alongside (`LICENSE-GPL-2.0.txt`, `LICENSE-GPL-3.0.txt`).
 
 | File | Aircraft | Source (commit) | Authors | Licence |
 |---|---|---|---|---|
-| `a320.glb` | Airbus A320-200 | [FGMEMBERS/A320-family](https://github.com/FGMEMBERS/A320-family) `0003814`, `XMLs/A320-211.xml` | Ampere K Hardraade (3D), Skyop | GPL-2.0 |
+| `a320.glb` | Airbus A320-200 (CFM) | [legoboyvdlp/A320-family](https://github.com/legoboyvdlp/A320-family) `fec1ecb`, `Models/A320-200-CFM.xml` | Josh Davidson, Jonathan Redpath, merspieler, Matthew Maring, Thorsten Herrmann, Semir Gebran (IDG) | GPL-2.0 |
 | `737.glb` | Boeing 737-300 | [FGMEMBERS/737-300](https://github.com/FGMEMBERS/737-300) `832d669`, `Models/737-300.ac` | Innis Cunningham, Heiko Schulz, Emmanuel Baranger (3D); Jarvum, e-pilot, Skyop, Soitanen | GPL-3.0 |
 | `747.glb` | Boeing 747-400 | [FGMEMBERS/747-400](https://github.com/FGMEMBERS/747-400) `887ff47`, `Models/747-400.xml` | Gijs de Rooy, Jonathan Redpath, Ivan Ngeow, Markus Bulik and others | GPL-2.0 |
 | `777-200er.glb` | Boeing 777-200ER | [FGMEMBERS/777](https://github.com/FGMEMBERS/777) `371a354`, `Models/777-200ER.ac` | Syd Adams (3D), Karla, and the authors in the repo's `AUTHORS` | see note |
@@ -26,7 +27,8 @@ texts are alongside (`LICENSE-GPL-2.0.txt`, `LICENSE-GPL-3.0.txt`).
 | `crj900.glb` | Bombardier CRJ900 | [FGMEMBERS/CRJ700-family](https://github.com/FGMEMBERS/CRJ700-family) `4862db2`, `Models/CRJ900.xml` | Ryan Miller | GPL-2.0+ |
 | `e175.glb` | Embraer 175 | [FGMEMBERS/E-jet-family](https://github.com/FGMEMBERS/E-jet-family) `45be9f8`, `Models/erj175.ac` | Narendran Muraleedharan and contributors | GPL-2.0 |
 | `e190.glb` | Embraer 190 | [FGMEMBERS/E-jet-family](https://github.com/FGMEMBERS/E-jet-family) `45be9f8`, `Models/erj190.ac` | Narendran Muraleedharan and contributors | GPL-2.0 |
-| `md11.glb` | McDonnell Douglas MD-11 | [FGMEMBERS/MD-11](https://github.com/FGMEMBERS/MD-11) `63ba452`, `Models/MD-11.xml` | FlightGear contributors (see repo) | GPL-2.0+ |
+| `md11.glb` | McDonnell Douglas MD-11 (GE) | [Octal450/MD-11](https://github.com/Octal450/MD-11) `c2edac5`, `Models/MD-11-GE.xml` | Josh Davidson and the IDG MD-11 contributors | GPL-2.0 |
+| `a330.glb` | Airbus A330-300 (CF6) | [FGMEMBERS/A330-300](https://github.com/FGMEMBERS/A330-300) `7d93076`, `Models/A330-303.xml` | TheOmegaHangar (from their A330-200) and contributors | GPL-2.0 |
 
 **Note on the 777.** The FGMEMBERS/777 repository carries an `AUTHORS` file
 but no licence file of its own. It is distributed with FlightGear's aircraft,
@@ -38,7 +40,7 @@ remove the two 777 files if that is not good enough.
 
 | File | Aircraft | Source | Author | Licence | Changes |
 |---|---|---|---|---|---|
-| `a380.glb` | Airbus A380-800 | [sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25](https://sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25) (via `models/airbus_a380_-_800.glb`) | Nobilis 2 | [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) | Textures removed (`tools/aircraft-models/strip.mjs`) |
+| `a380.glb` | Airbus A380-800 | [sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25](https://sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25) (via `models/airbus_a380_-_800.glb`) | Nobilis 2 | [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) | Textures removed (`tools/aircraft-models/strip.mjs`), compressed (`pack.mjs`) |
 
 ## Not used
 

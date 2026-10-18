@@ -16,7 +16,13 @@ node ac2glb.mjs out.glb "path/to/A320-family/XMLs/A320-211.xml::path/to/A320-fam
 
 # An existing glTF: textures off
 node strip.mjs in.glb out.glb
+
+# Last, for every model: compress for the web (meshopt; three.js decodes it)
+node pack.mjs in.glb ../../models/fleet/out.glb
 ```
+
+After changing any model, bump `MODEL_VERSION` in crewAircraft3D.js: the files
+are cached for a day, and a reader would otherwise keep the old one.
 
 `ac2glb.mjs` keeps the outside of the aeroplane only and carries no textures:
 the crew centre paints its own livery on every model, per pixel, in the

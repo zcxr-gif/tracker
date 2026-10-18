@@ -375,7 +375,7 @@ function api(route) {
         await page.waitForFunction(() => !!window.CrewAircraft3D, null, { timeout: 5000 }).catch(() => {});
         const matched = await page.evaluate(() => window.CrewAircraft3D && ['B38M', 'Airbus A321neo', 'B77W', 'Embraer 175', 'CRJ-900', 'A388', 'A359', 'ATR 72']
             .map((n) => { const m = window.CrewAircraft3D.match(n); return m ? m.file + (m.exact ? '' : '~') : '-'; }).join(' '));
-        check('fleet types find their models', matched === '737.glb a320.glb 777-300er.glb e175.glb crj900.glb a380.glb 787.glb~ -', matched);
+        check('fleet types find their models', matched === '737.glb a320.glb 777-300er.glb e175.glb crj900.glb a380.glb a330.glb~ -', matched);
 
         await page.click('#crewConsole [data-skin-toggle] .ifc-toggle');
         await page.waitForTimeout(700);
