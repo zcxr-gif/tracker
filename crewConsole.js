@@ -70,6 +70,11 @@
             { id: 'ac-b748', top: 'Opens at Commander', number: 'Boeing 747-8', aircraft: 'Boeing 747-8', meta: '2 routes', locked: true,
                 left: '402 h to go', right: 'LOCKED', label: 'Next aircraft', tag: '402 h' },
         ],
+        hero: {
+            greeting: 'Good evening, Brandon.', rank: 'Captain', hours: 1248, flights: 214,
+            next: { name: 'Senior Captain', at: 1300, from: 750 }, aircraft: 'Boeing 787-9',
+            caption: 'Last flown · SKY1278 · MMMX → LEMD', member: '',
+        },
         chart: {
             title: 'Flight hours',
             days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
@@ -406,11 +411,51 @@
         };
     }
 
+    function greeting(name) {
+        const h = new Date().getHours();
+        const part = h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+        const first = String(name || '').trim().split(/\s+/)[0];
+        return part + (first ? ', ' + first : '') + '.';
+    }
+
+    // The hero: who is here, how far they have come, what they fly.
+    function heroLive(list, cards) {
+        const me = live.me || {};
+        const p = me.pilot;
+        const s = session();
+        const hours = num(p && p.hours);
+        const steps = ladder();
+        const rank = (arr(me.badges).find((b) => b.kind === 'rank') || {}).name || rankName(p && rankFor(hours));
+        const nextRank = p ? steps.find((r) => num(r.minHours) > hours) : null;
+        const cur = p ? rankFor(hours) : null;
+        const mine = p ? list.filter((x) => String(x.memberId) === String(p.memberId)) : [];
+        // What to draw: their own last aircraft, else the next one they are
+        // flying towards, else what the airline flies most.
+        const routes = arr(live.routes && live.routes.routes);
+        const counts = {};
+        routes.forEach((r) => { if (r.aircraft) counts[r.aircraft] = (counts[r.aircraft] || 0) + 1; });
+        const common = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || '';
+        const nextAc = (cards.find((c) => c.aircraft) || {}).aircraft || '';
+        const last = mine[0];
+        const aircraft = (last && last.aircraftName) || common || nextAc;
+        const caption = last && last.aircraftName
+            ? 'Last flown · ' + [last.flightNumber || last.callsign, (last.origin || '—') + ' → ' + (last.destination || '—')].filter(Boolean).join(' · ')
+            : aircraft === common && common ? 'The airline’s workhorse' : aircraft ? 'Next to unlock' : '';
+        return {
+            greeting: greeting((p && p.name) || s.name),
+            rank: rank || (p ? '' : String(s.role || 'staff').replace(/^./, (c) => c.toUpperCase())),
+            hours: p ? hours : null, flights: p ? mine.length : null,
+            next: nextRank ? { name: nextRank.name, at: num(nextRank.minHours), from: num(cur && cur.minHours) } : null,
+            aircraft, caption, member: p ? String(p.memberId || '') : '',
+        };
+    }
+
     function liveContent(br) {
         const list = flightRows();
         const cards = [crewCard(br)].concat(unlockCards());
         const pilot = pilotPanel(list);
         return {
+            hero: heroLive(list, cards),
             tabs: DEMO.tabs, tab: DEMO.tab, cta: DEMO.cta,
             cards,
             chart: weekChart(list),
@@ -532,12 +577,22 @@
         return viewerP;
     }
     function model() {
+        // The livery is the airline's own colour, as it is — a navy livery
+        // is navy paint on a white aeroplane, not the lifted shade the dark
+        // board uses for text.
+        const accent = brandOf(branding).accent;
         const front = doc.querySelector('#crewConsole .cc-card-front[data-aircraft]');
-        if (!front) return;
-        const host = front.querySelector('.cc-ac3d-host');
-        viewer().then((V) => V && V.attach(host, front.getAttribute('data-aircraft')))
-            .then((ok) => { if (ok) front.classList.add('has-model'); })
-            .catch(() => {});
+        if (front) {
+            viewer().then((V) => V && V.attach(front.querySelector('.cc-ac3d-host'), front.getAttribute('data-aircraft'), { accent }))
+                .then((ok) => { if (ok) front.classList.add('has-model'); })
+                .catch(() => {});
+        }
+        const sky = doc.querySelector('#crewConsole .cc-hero-plane[data-hero-aircraft]');
+        if (sky) {
+            viewer().then((V) => V && V.hero(sky, sky.getAttribute('data-hero-aircraft'), { accent }))
+                .then((ok) => { if (ok) sky.closest('.cc-hero').classList.add('has-model'); })
+                .catch(() => {});
+        }
     }
 
     function showCard(id) {
@@ -581,6 +636,38 @@
         if (name === '@top') { const el = doc.getElementById('crewConsole'); if (el) el.scrollTo({ top: 0, behavior: 'smooth' }); return; }
         const fn = global[name];
         if (typeof fn === 'function') { try { fn(arg); } catch (_) {} }
+    }
+
+    /* The hero: the aeroplane in the airline's livery, flying, over a sky lit
+     * in the airline's colour — and the pilot's own place in it. */
+    function heroHtml(d) {
+        const h = d.hero;
+        if (!h) return '';
+        const n = h.next;
+        const pct = n && n.at > n.from ? Math.max(0, Math.min(100, ((num(h.hours) - n.from) / (n.at - n.from)) * 100)) : 100;
+        const left = n ? Math.max(0, Math.ceil(n.at - num(h.hours))) : 0;
+        const stat = (v, k) => (v == null ? '' : '<span class="cc-hstat"><b>' + esc(v) + '</b>' + esc(k) + '</span>');
+        return '<div class="cc-hero">'
+            + '<div class="cc-sky" aria-hidden="true"><i class="cc-stars"></i><i class="cc-cloud c1"></i><i class="cc-cloud c2"></i><i class="cc-cloud c3"></i><i class="cc-glow"></i></div>'
+            + '<div class="cc-hero-plane"' + (h.aircraft ? ' data-hero-aircraft="' + esc(h.aircraft) + '"' : '') + '></div>'
+            + '<div class="cc-hero-copy">'
+            +   '<span class="cc-eyebrow">' + esc((d.brand.name || 'Crew centre').toUpperCase()) + '</span>'
+            +   '<h1 class="cc-hero-title">' + esc(h.greeting) + '</h1>'
+            +   '<div class="cc-hstats">'
+            +     (h.rank ? '<span class="cc-hstat cc-hrank">' + ic('sparkle') + esc(h.rank) + '</span>' : '')
+            +     stat(h.hours == null ? null : Math.round(h.hours).toLocaleString(), ' hours')
+            +     stat(h.flights, ' recent flights')
+            +   '</div>'
+            +   (n ? '<div class="cc-hprog"><div class="cc-hprog-row"><span>Next: <b>' + esc(n.name) + '</b></span><span>' + left.toLocaleString() + ' h to go</span></div>'
+                + '<div class="cc-hbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + Math.round(pct) + '" aria-label="Progress to ' + esc(n.name) + '"><i style="width:' + pct.toFixed(1) + '%"></i></div></div>' : '')
+            +   '<div class="cc-hcta">'
+            +     '<button type="button" class="cc-hbtn is-main" data-cc-act="openSchedule">' + ic('plane-takeoff') + 'Book a flight</button>'
+            +     '<button type="button" class="cc-hbtn" data-cc-act="openPirepForm">' + ic('clipboard-pen') + 'File a flight</button>'
+            +     (h.member ? '<button type="button" class="cc-hbtn" data-cc-act="openLogbook" data-cc-arg="' + esc(h.member) + '">' + ic('book-open') + 'Logbook</button>' : '')
+            +   '</div>'
+            + '</div>'
+            + (h.aircraft ? '<div class="cc-hero-tag"><b>' + esc(h.aircraft) + '</b>' + (h.caption ? '<span>' + esc(h.caption) + '</span>' : '') + '</div>' : '')
+            + '</div>';
     }
 
     function html(d) {
@@ -640,6 +727,7 @@
         +   '<nav class="cc-tabs" role="tablist">' + tabs + '<button type="button" class="cc-tab cc-tab-cta" data-cc-act="openNotices">' + esc(d.cta) + '</button></nav>'
 
         +   '<section class="cc-board">'
+        +     heroHtml(d)
         +     '<div class="cc-top">'
         +       '<div class="cc-stack" role="group" aria-label="Crew ID and the aircraft that open next">' + stackHtml(d) + '</div>'
         +       '<div class="cc-chart"><h2 class="cc-h">Analytics</h2>' + chartSvg(d.chart) + '</div>'

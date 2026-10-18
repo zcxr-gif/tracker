@@ -335,6 +335,10 @@ function api(route) {
         const behind = await page.$$eval('#crewConsole .cc-card-back b', (els) => els.map((e) => e.textContent.trim()));
         check('behind it, the aircraft that open next, soonest first', behind.join('|') === 'Boeing 787-9|Airbus A380', behind.join('|'));
         check('a type already open on another route is not “next”', !behind.includes('Boeing 737-800'));
+        // The hero: who is here, how far they have come, and the aeroplane.
+        check('the hero greets the member by name', /, Rae\.$/.test((await page.textContent('#crewConsole .cc-hero-title')).trim()));
+        check('…with their progress to the next rank', /Senior Captain/.test(await page.textContent('#crewConsole .cc-hprog')));
+        check('…and an aeroplane to fly in it', !!(await page.getAttribute('#crewConsole .cc-hero-plane', 'data-hero-aircraft')));
         check('the table is the latest flight reports', (await page.textContent('#crewConsole .cc-table tbody tr:first-child .cc-c-flight')).trim() === 'TST601');
         check('the panel shows the pilot behind the latest one', (await page.textContent('#crewConsole .cc-name')).trim() === 'Luis Herrera');
         await page.click('#crewConsole .cc-table tbody tr:nth-child(2)');

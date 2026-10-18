@@ -1106,6 +1106,71 @@ html:not(.dark) .ifc-prev-aurora{
     display:flex; flex-direction:column; gap:1.2rem; }
 .cc-top{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,27rem); gap:2.4rem; align-items:start; }
 
+/* ---- The hero ---------------------------------------------------------------
+   The aeroplane in the airline's livery (crewAircraft3D.js), flying through
+   a sky lit in the airline's colour: stars up top, a sunset glow on the
+   horizon, cloud drifting past the way the ground does at altitude. The
+   words sit on the left over a shade that keeps them readable whatever the
+   colour; the aeroplane has the right. */
+.cc-hero{ position:relative; min-height:21rem; border-radius:1.5rem; overflow:hidden; isolation:isolate;
+    margin:-.6rem -.8rem .4rem; background:#0c0f16; }
+.cc-sky{ position:absolute; inset:0; z-index:-2;
+    background:
+        radial-gradient(60% 75% at 82% 92%, color-mix(in srgb, var(--cc-accent) 55%, #ffb36b) 0%, transparent 60%),
+        radial-gradient(40% 50% at 70% 18%, color-mix(in srgb, var(--cc-accent-hi) 30%, transparent), transparent 70%),
+        linear-gradient(180deg, color-mix(in srgb, var(--cc-accent) 22%, #070a12) 0%, color-mix(in srgb, var(--cc-accent) 30%, #10131b) 58%, color-mix(in srgb, var(--cc-accent) 62%, #1b1512) 100%); }
+.cc-stars{ position:absolute; inset:0 0 45% 0; opacity:.45;
+    background-image:
+        radial-gradient(1px 1px at 12% 22%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 27% 61%, #fff 50%, transparent 51%),
+        radial-gradient(1.2px 1.2px at 41% 14%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 58% 38%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 66% 9%, #fff 50%, transparent 51%), radial-gradient(1.4px 1.4px at 79% 27%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 88% 52%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 94% 12%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 6% 48%, #fff 50%, transparent 51%), radial-gradient(1.2px 1.2px at 35% 33%, #fff 50%, transparent 51%);
+    animation:ccTwinkle 6s ease-in-out infinite alternate; }
+@keyframes ccTwinkle{ to{ opacity:.25; } }
+.cc-cloud{ position:absolute; border-radius:50%; filter:blur(22px); background:rgb(255 255 255 / .16); will-change:transform; }
+.cc-cloud.c1{ width:46%; height:30%; bottom:-8%; left:30%; animation:ccDrift 38s linear infinite; }
+.cc-cloud.c2{ width:34%; height:22%; bottom:6%; left:72%; background:color-mix(in srgb, var(--cc-accent-hi) 22%, rgb(255 255 255 / .14)); animation:ccDrift 52s linear infinite -18s; }
+.cc-cloud.c3{ width:60%; height:26%; bottom:-14%; left:-10%; background:rgb(255 255 255 / .1); animation:ccDrift 64s linear infinite -30s; }
+@keyframes ccDrift{ from{ transform:translateX(40%); } to{ transform:translateX(-140%); } }
+.cc-glow{ position:absolute; left:45%; right:0; bottom:22%; height:1px;
+    background:linear-gradient(90deg, transparent, color-mix(in srgb, var(--cc-accent-hi) 70%, #fff) 60%, transparent); opacity:.35; }
+.cc-hero::after{ content:''; position:absolute; inset:0; z-index:-1;
+    background:linear-gradient(90deg, rgb(8 10 14 / .78) 0%, rgb(8 10 14 / .45) 38%, transparent 62%); }
+.cc-hero-plane{ position:absolute; top:-4%; right:-3%; bottom:-6%; width:66%; z-index:0; }
+.cc-hero3d{ display:block; width:100%; height:100%; }
+.cc-hero-copy{ position:relative; z-index:1; max-width:min(30rem, 48%); padding:2.4rem 0 2.2rem 2.6rem; display:flex; flex-direction:column; gap:1rem; }
+.cc-eyebrow{ font-size:.74rem; font-weight:800; letter-spacing:.22em; color:color-mix(in srgb, var(--cc-accent-hi) 55%, #fff); }
+.cc-hero-title{ margin:0; font-size:2.7rem; line-height:1.05; font-weight:800; letter-spacing:-.02em; color:#fff; text-wrap:balance; }
+.cc-hstats{ display:flex; flex-wrap:wrap; gap:.5rem; }
+.cc-hstat{ display:inline-flex; align-items:center; gap:.4rem; padding:.42rem .8rem; border-radius:999px; font-size:.82rem; color:#e9e7e4;
+    background:rgb(255 255 255 / .08); box-shadow:inset 0 0 0 1px rgb(255 255 255 / .1); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); }
+.cc-hstat b{ color:#fff; font-weight:800; }
+.cc-hrank{ color:#fff; font-weight:700; }
+.cc-hrank svg.lucide{ width:.95rem !important; height:.95rem !important; color:var(--cc-accent-hi); fill:var(--cc-accent-hi); }
+.cc-hprog{ display:flex; flex-direction:column; gap:.45rem; max-width:24rem; }
+.cc-hprog-row{ display:flex; justify-content:space-between; font-size:.8rem; color:#cfcdcb; }
+.cc-hprog-row b{ color:#fff; }
+.cc-hbar{ height:.42rem; border-radius:999px; background:rgb(255 255 255 / .12); overflow:hidden; }
+.cc-hbar i{ display:block; height:100%; border-radius:inherit;
+    background:linear-gradient(90deg, var(--cc-accent), var(--cc-accent-hi) 70%, #fff);
+    box-shadow:0 0 18px color-mix(in srgb, var(--cc-accent-hi) 70%, transparent); }
+.cc-hcta{ display:flex; flex-wrap:wrap; gap:.55rem; margin-top:.3rem; }
+.cc-hbtn{ display:inline-flex; align-items:center; gap:.55rem; height:2.9rem; padding:0 1.2rem; border-radius:1.45rem;
+    font-size:.9rem; font-weight:700; color:#fff; box-shadow:inset 0 0 0 1px rgb(255 255 255 / .22);
+    background:rgb(255 255 255 / .06); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); transition:background .2s, transform .2s; }
+.cc-hbtn:hover{ background:rgb(255 255 255 / .14); transform:translateY(-1px); }
+.cc-hbtn.is-main{ background:#fff; color:#141414; box-shadow:0 12px 30px -14px rgb(0 0 0 / .8); }
+.cc-hbtn.is-main:hover{ background:#fff; }
+.cc-hbtn svg.lucide{ width:1.05rem !important; height:1.05rem !important; }
+.cc-hero-tag{ position:absolute; right:1.4rem; bottom:1.2rem; z-index:1; display:flex; flex-direction:column; align-items:flex-end; gap:.15rem;
+    text-align:right; color:#fff; text-shadow:0 1px 12px rgb(0 0 0 / .6); }
+.cc-hero-tag b{ font-size:1rem; font-weight:800; letter-spacing:.01em; }
+.cc-hero-tag span{ font-size:.75rem; color:#e3e1de; opacity:.85; }
+@media (prefers-reduced-motion: reduce){
+    .cc-stars, .cc-cloud{ animation:none; }
+}
+
 /* The card stack: one card face on, the rest standing behind it on edge. */
 .cc-stack{ position:relative; height:16.2rem; margin-top:1.4rem; }
 .cc-card{ position:absolute; top:0; height:15.6rem; border-radius:1.6rem; overflow:hidden;
@@ -1119,7 +1184,7 @@ html:not(.dark) .ifc-prev-aurora{
 .cc-card-front.is-locked{ filter:saturate(.55) brightness(.82); }
 .cc-card-front .cc-bank svg.lucide{ width:1.05rem; height:1.05rem; flex:0 0 auto; }
 /* The aircraft itself, in 3D, behind the words (crewAircraft3D.js). */
-.cc-ac3d-host{ position:absolute; right:-3%; bottom:12%; width:60%; height:66%; z-index:0; }
+.cc-ac3d-host{ position:absolute; right:-5%; bottom:8%; width:64%; height:74%; z-index:0; }
 .cc-ac3d{ display:block; width:100%; height:100%; cursor:grab; touch-action:pan-y; }
 .cc-ac3d:active{ cursor:grabbing; }
 .cc-card-front > span:not(.cc-ac3d-host){ position:relative; z-index:1; }
@@ -1317,6 +1382,15 @@ html:not(.dark) .ifc-prev-aurora{
     .cc-rail-nav .cc-rail-btn[aria-current="page"]{ background:var(--cc-raise); }
     .cc-rail-nav .cc-rail-btn[aria-current="page"]::after{ content:''; position:absolute; bottom:.35rem; width:.3rem; height:.3rem;
         border-radius:50%; background:var(--cc-accent-hi); }
+
+    /* The hero: the aeroplane on top, the words under it. */
+    .cc-hero{ margin:-.3rem -.3rem .2rem; min-height:0; display:flex; flex-direction:column; }
+    .cc-hero-plane{ position:relative; top:auto; right:auto; bottom:auto; width:auto; height:12.5rem; margin:0 -8% -1.5rem; }
+    .cc-hero::after{ background:linear-gradient(180deg, transparent 0%, transparent 34%, rgb(8 10 14 / .55) 62%, rgb(8 10 14 / .8) 100%); }
+    .cc-hero-copy{ max-width:none; padding:0 1.1rem 1.3rem; gap:.75rem; }
+    .cc-hero-title{ font-size:1.75rem; }
+    .cc-hero-tag{ top:1rem; right:1rem; bottom:auto; }
+    .cc-hbtn{ height:2.6rem; padding:0 .95rem; font-size:.84rem; }
 
     /* The topics, as chips. The call to action leads the row so it is seen. */
     .cc-tabs{ margin:0 -.5rem; padding:.1rem .5rem .2rem; gap:.4rem; }
