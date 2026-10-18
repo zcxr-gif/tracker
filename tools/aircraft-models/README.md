@@ -14,10 +14,10 @@ node ac2glb.mjs out.glb path/to/Models/787-8.ac
 # is the aircraft's root, which "Aircraft/<name>/…" paths resolve against
 node ac2glb.mjs out.glb "path/to/A320-family/XMLs/A320-211.xml::path/to/A320-family"
 
-# An existing glTF: textures off, simplified
+# An existing glTF: textures off
 node strip.mjs in.glb out.glb
 ```
 
-`ac2glb.mjs` keeps the outside of the aeroplane only and carries no textures;
-the crew centre draws every model in one plain finish, so a livery would not
-be seen anyway.
+`ac2glb.mjs` keeps the outside of the aeroplane only and carries no textures:
+the crew centre paints its own livery on every model, per pixel, in the
+airline's colour (crewAircraft3D.js). Geometry is kept at full detail.

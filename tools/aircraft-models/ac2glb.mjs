@@ -214,17 +214,14 @@ async function main() {
     doc.createScene('scene').addChild(node);
     doc.getRoot().getAsset().generator = 'ac2glb (FlightGear AC3D → glTF)';
     await MeshoptSimplifier.ready;
-    const ratio = Math.min(1, 40000 / Math.max(tris, 1));
+    // Full detail: only a model past 160k triangles is thinned at all.
+    const ratio = Math.min(1, 160000 / Math.max(tris, 1));
     await doc.transform(
-        weld({ tolerance: 0.0005 }),
+        weld(),
         dedup(),
         ...(ratio < 1 ? [simplify({ simplifier: MeshoptSimplifier, ratio, error: 0.0015 })] : []),
         prune(),
-        // Normals only: three.js r126 measures a model from its raw position
-        // values, so quantised positions would fit the camera to the wrong box.
-        quantize({ pattern: /^NORMAL$/, quantizeNormal: 8 }),
     );
-    doc.createExtension(KHRMeshQuantization).setRequired(true);
     await new NodeIO().registerExtensions([KHRMeshQuantization]).write(out, doc);
     console.log(out, Math.round(tris), 'tris in,', Math.round(fs.statSync(out).size / 1024), 'KB out');
 }

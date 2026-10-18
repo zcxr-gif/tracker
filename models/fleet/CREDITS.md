@@ -10,8 +10,8 @@ model, and the tools that did it are in `tools/aircraft-models/`.
 From the FlightGear flight simulator's aircraft, via the FGMEMBERS mirrors on
 GitHub. Converted from AC3D to glTF by `tools/aircraft-models/ac2glb.mjs`:
 exterior only (flight deck, cabin, lights and ground equipment left out),
-textures not carried, mesh simplified to about 40,000 triangles, normals
-quantised. Licensed under the GNU GPL as each repository states; the licence
+textures not carried, geometry at the source's full detail with smoothed
+normals. Licensed under the GNU GPL as each repository states; the licence
 texts are alongside (`LICENSE-GPL-2.0.txt`, `LICENSE-GPL-3.0.txt`).
 
 | File | Aircraft | Source (commit) | Authors | Licence |
@@ -38,7 +38,7 @@ remove the two 777 files if that is not good enough.
 
 | File | Aircraft | Source | Author | Licence | Changes |
 |---|---|---|---|---|---|
-| `a380.glb` | Airbus A380-800 | [sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25](https://sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25) (via `models/airbus_a380_-_800.glb`) | Nobilis 2 | [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) | Textures removed, mesh simplified (`tools/aircraft-models/strip.mjs`) |
+| `a380.glb` | Airbus A380-800 | [sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25](https://sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25) (via `models/airbus_a380_-_800.glb`) | Nobilis 2 | [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) | Textures removed (`tools/aircraft-models/strip.mjs`) |
 
 ## Not used
 
