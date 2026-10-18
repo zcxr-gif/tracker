@@ -362,6 +362,16 @@ function api(route) {
         await page.click('#crewConsole .cc-card-front');
         await page.waitForTimeout(700);
         check('pressing the front card moves on to the next', (await order())[0] === before[2]);
+        // An aircraft card face on carries its type for the 3D model, and the
+        // matcher finds every family from what an airline might type. (The
+        // model itself needs WebGL and three.js, which this page does not
+        // have: the card must simply go without, quietly.)
+        check('an aircraft card names its aircraft for the model',
+            !!(await page.getAttribute('#crewConsole .cc-card-front', 'data-aircraft')));
+        await page.waitForFunction(() => !!window.CrewAircraft3D, null, { timeout: 5000 }).catch(() => {});
+        const matched = await page.evaluate(() => window.CrewAircraft3D && ['B38M', 'Airbus A321neo', 'B77W', 'Embraer 175', 'CRJ-900', 'A388', 'A359', 'ATR 72']
+            .map((n) => { const m = window.CrewAircraft3D.match(n); return m ? m.file + (m.exact ? '' : '~') : '-'; }).join(' '));
+        check('fleet types find their models', matched === '737.glb a320.glb 777-300er.glb e175.glb crj900.glb a380.glb 787.glb~ -', matched);
 
         await page.click('#crewConsole [data-skin-toggle] .ifc-toggle');
         await page.waitForTimeout(700);

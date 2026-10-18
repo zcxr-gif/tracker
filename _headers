@@ -66,3 +66,7 @@
 /crew-feed.js
   Access-Control-Allow-Origin: *
   Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+
+# The fleet's 3D models (models/fleet/). Regenerated rarely, by hand.
+/models/fleet/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800

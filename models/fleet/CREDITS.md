@@ -1,0 +1,47 @@
+# Fleet models — where they come from
+
+The 3D aircraft the crew centre draws on the Console's aircraft cards
+(`crewAircraft3D.js`). Every one is an open model with its licence stated by
+its authors; none is drawn or painted by us. What we changed is listed per
+model, and the tools that did it are in `tools/aircraft-models/`.
+
+## FlightGear (GPL)
+
+From the FlightGear flight simulator's aircraft, via the FGMEMBERS mirrors on
+GitHub. Converted from AC3D to glTF by `tools/aircraft-models/ac2glb.mjs`:
+exterior only (flight deck, cabin, lights and ground equipment left out),
+textures not carried, mesh simplified to about 40,000 triangles, normals
+quantised. Licensed under the GNU GPL as each repository states; the licence
+texts are alongside (`LICENSE-GPL-2.0.txt`, `LICENSE-GPL-3.0.txt`).
+
+| File | Aircraft | Source (commit) | Authors | Licence |
+|---|---|---|---|---|
+| `a320.glb` | Airbus A320-200 | [FGMEMBERS/A320-family](https://github.com/FGMEMBERS/A320-family) `0003814`, `XMLs/A320-211.xml` | Ampere K Hardraade (3D), Skyop | GPL-2.0 |
+| `737.glb` | Boeing 737-300 | [FGMEMBERS/737-300](https://github.com/FGMEMBERS/737-300) `832d669`, `Models/737-300.ac` | Innis Cunningham, Heiko Schulz, Emmanuel Baranger (3D); Jarvum, e-pilot, Skyop, Soitanen | GPL-3.0 |
+| `747.glb` | Boeing 747-400 | [FGMEMBERS/747-400](https://github.com/FGMEMBERS/747-400) `887ff47`, `Models/747-400.xml` | Gijs de Rooy, Jonathan Redpath, Ivan Ngeow, Markus Bulik and others | GPL-2.0 |
+| `777-200er.glb` | Boeing 777-200ER | [FGMEMBERS/777](https://github.com/FGMEMBERS/777) `371a354`, `Models/777-200ER.ac` | Syd Adams (3D), Karla, and the authors in the repo's `AUTHORS` | see note |
+| `777-300er.glb` | Boeing 777-300ER | [FGMEMBERS/777](https://github.com/FGMEMBERS/777) `371a354`, `Models/777-300ER.ac` | as above | see note |
+| `787.glb` | Boeing 787-8 | [FGMEMBERS/787-8](https://github.com/FGMEMBERS/787-8) `b79677d`, `Models/787-8.ac` | FlightGear contributors (see repo) | GPL-2.0 |
+| `crj700.glb` | Bombardier CRJ700 | [FGMEMBERS/CRJ700-family](https://github.com/FGMEMBERS/CRJ700-family) `4862db2`, `Models/CRJ700.xml` | Ryan Miller | GPL-2.0+ |
+| `crj900.glb` | Bombardier CRJ900 | [FGMEMBERS/CRJ700-family](https://github.com/FGMEMBERS/CRJ700-family) `4862db2`, `Models/CRJ900.xml` | Ryan Miller | GPL-2.0+ |
+| `e175.glb` | Embraer 175 | [FGMEMBERS/E-jet-family](https://github.com/FGMEMBERS/E-jet-family) `45be9f8`, `Models/erj175.ac` | Narendran Muraleedharan and contributors | GPL-2.0 |
+| `e190.glb` | Embraer 190 | [FGMEMBERS/E-jet-family](https://github.com/FGMEMBERS/E-jet-family) `45be9f8`, `Models/erj190.ac` | Narendran Muraleedharan and contributors | GPL-2.0 |
+| `md11.glb` | McDonnell Douglas MD-11 | [FGMEMBERS/MD-11](https://github.com/FGMEMBERS/MD-11) `63ba452`, `Models/MD-11.xml` | FlightGear contributors (see repo) | GPL-2.0+ |
+
+**Note on the 777.** The FGMEMBERS/777 repository carries an `AUTHORS` file
+but no licence file of its own. It is distributed with FlightGear's aircraft,
+which are GPL-licensed as a condition of being hosted there, and is treated as
+GPL-2.0 here — but the repository does not say so in its own words. Replace or
+remove the two 777 files if that is not good enough.
+
+## Sketchfab (CC-BY-4.0)
+
+| File | Aircraft | Source | Author | Licence | Changes |
+|---|---|---|---|---|---|
+| `a380.glb` | Airbus A380-800 | [sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25](https://sketchfab.com/3d-models/airbus-a380-800-cfd1092a207b4085a32fbb89c6b32f25) (via `models/airbus_a380_-_800.glb`) | Nobilis 2 | [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) | Textures removed, mesh simplified (`tools/aircraft-models/strip.mjs`) |
+
+## Not used
+
+`models/airbus_a320.glb`, `models/airbus_A350-900.glb` and
+`models/boeing_737-8_max.glb` (already in the repository) carry no author or
+licence in their metadata, so the crew centre does not draw them.

@@ -61,13 +61,13 @@
         cards: [
             { id: 'crew', top: 'Skyward Virtual Airlines', number: '0042 1278 5590 3392', meta: 'SKY1278 · 1,248 h',
                 left: 'Brandon Ashton Warren', right: 'Captain', label: 'Crew ID', tag: 'CPT' },
-            { id: 'ac-b77w', top: 'Opens at Senior Captain', number: 'Boeing 777-300ER', meta: '6 routes', locked: true,
+            { id: 'ac-b77w', top: 'Opens at Senior Captain', number: 'Boeing 777-300ER', aircraft: 'Boeing 777-300ER', meta: '6 routes', locked: true,
                 left: '52 h to go', right: 'LOCKED', label: 'Next aircraft', tag: '52 h' },
-            { id: 'ac-b789', top: 'Opens at Senior Captain', number: 'Boeing 787-9', meta: '4 routes', locked: true,
+            { id: 'ac-b789', top: 'Opens at Senior Captain', number: 'Boeing 787-9', aircraft: 'Boeing 787-9', meta: '4 routes', locked: true,
                 left: '52 h to go', right: 'LOCKED', label: 'Next aircraft', tag: '52 h' },
-            { id: 'ac-a359', top: 'Opens at Commander', number: 'Airbus A350-900', meta: '3 routes', locked: true,
+            { id: 'ac-a359', top: 'Opens at Commander', number: 'Airbus A350-900', aircraft: 'Airbus A350-900', meta: '3 routes', locked: true,
                 left: '402 h to go', right: 'LOCKED', label: 'Next aircraft', tag: '402 h' },
-            { id: 'ac-b748', top: 'Opens at Commander', number: 'Boeing 747-8', meta: '2 routes', locked: true,
+            { id: 'ac-b748', top: 'Opens at Commander', number: 'Boeing 747-8', aircraft: 'Boeing 747-8', meta: '2 routes', locked: true,
                 left: '402 h to go', right: 'LOCKED', label: 'Next aircraft', tag: '402 h' },
         ],
         chart: {
@@ -327,7 +327,7 @@
             const h = Math.ceil(a.hours);
             return {
                 id: 'ac-' + i + '-' + a.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase(),
-                top: a.rank ? 'Opens at ' + a.rank : 'Locked', number: a.name,
+                top: a.rank ? 'Opens at ' + a.rank : 'Locked', number: a.name, aircraft: a.name,
                 meta: a.routes + ' route' + (a.routes === 1 ? '' : 's'), locked: true,
                 left: h > 0 ? h.toLocaleString() + ' h to go' : 'Needs a sign-off', right: 'LOCKED',
                 label: 'Next aircraft', tag: h > 0 ? h.toLocaleString() + ' h' : rankName(a.rank),
@@ -502,7 +502,9 @@
         const more = n > 1 ? ', show the next card' : '';
         return d.cards.map((_, k) => d.cards[(at + k) % n]).map((c, k) => k === 0
             ? '<button type="button" class="cc-card cc-card-front' + (c.locked ? ' is-locked' : '') + '" data-card="' + esc(c.id) + '"'
+                + (c.aircraft ? ' data-aircraft="' + esc(c.aircraft) + '"' : '')
                 + vt(c) + ' aria-label="' + esc(c.label + ': ' + c.number + (c.top ? ', ' + c.top : '')) + more + '">'
+                + (c.aircraft ? '<span class="cc-ac3d-host"></span>' : '')
                 + '<span class="cc-bank">' + (c.locked ? ic('lock') : '') + '<span>' + esc(c.top) + '</span>' + logo + '</span>'
                 + '<span class="cc-num">' + esc(c.number) + '</span>'
                 + (c.meta ? '<span class="cc-meta">' + esc(c.meta) + '</span>' : '')
@@ -513,6 +515,31 @@
         ).join('');
     }
 
+    /* The aircraft on the card face on, in 3D (crewAircraft3D.js — fetched,
+     * with three.js, only once an aircraft card is actually face on). */
+    let viewerP = null;
+    function viewer() {
+        if (global.CrewAircraft3D) return Promise.resolve(global.CrewAircraft3D);
+        if (!viewerP) {
+            viewerP = new Promise((resolve) => {
+                const s = doc.createElement('script');
+                s.src = '/crewAircraft3D.js';
+                s.onload = () => resolve(global.CrewAircraft3D || null);
+                s.onerror = () => { viewerP = null; resolve(null); };
+                doc.head.appendChild(s);
+            });
+        }
+        return viewerP;
+    }
+    function model() {
+        const front = doc.querySelector('#crewConsole .cc-card-front[data-aircraft]');
+        if (!front) return;
+        const host = front.querySelector('.cc-ac3d-host');
+        viewer().then((V) => V && V.attach(host, front.getAttribute('data-aircraft')))
+            .then((ok) => { if (ok) front.classList.add('has-model'); })
+            .catch(() => {});
+    }
+
     function showCard(id) {
         const el = doc.querySelector('#crewConsole .cc-stack');
         if (!el) return;
@@ -521,7 +548,7 @@
         if (i < 0) return;
         const n = d.cards.length;
         cardAt = i === ((cardAt % n) + n) % n ? i + 1 : i;   // the front one moves on
-        const swap = () => { el.innerHTML = stackHtml(d); el.scrollLeft = 0; icons(); };
+        const swap = () => { el.innerHTML = stackHtml(d); el.scrollLeft = 0; icons(); model(); };
         const still = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (!still && typeof doc.startViewTransition === 'function') {
             try { doc.startViewTransition(swap); return; } catch (_) {}
@@ -721,6 +748,7 @@
         paintColour(el);
         if (global.CrewSkin) global.CrewSkin.renderToggles();
         icons();
+        model();
     }
 
     /**
