@@ -1114,8 +1114,11 @@ html:not(.dark) .ifc-prev-aurora{
 /* The next card leans out a little when pointed at — it is the one to press. */
 .cc-stack .cc-card-back{ transition:transform .25s cubic-bezier(.22,1,.36,1), filter .25s; }
 .cc-stack .cc-card-back:hover{ transform:translateY(-2.6rem); filter:brightness(1.15); }
-/* A lapsed rating, face on, is the airline's card gone pale. */
-.cc-card-front.is-expired{ filter:saturate(.3) brightness(.8); }
+/* An aircraft not yet open, face on: the airline's card, darkened, with a
+   lock — something to fly towards rather than something held. */
+.cc-card-front.is-locked{ filter:saturate(.55) brightness(.82); }
+.cc-card-front .cc-bank svg.lucide{ width:1.05rem; height:1.05rem; flex:0 0 auto; }
+.cc-card-front .cc-meta{ margin-top:.55rem; font-size:.88rem; font-weight:600; opacity:.85; letter-spacing:.02em; }
 ::view-transition-group(.cc-card){ animation-duration:.5s; animation-timing-function:cubic-bezier(.22,1,.36,1); }
 .cc-card-front{ left:0; width:25rem; z-index:5; padding:2.2rem 1.9rem 1.6rem;
     display:flex; flex-direction:column; color:var(--cc-accent-ink);
@@ -1127,7 +1130,7 @@ html:not(.dark) .ifc-prev-aurora{
 .cc-card-front .cc-bank{ display:flex; align-items:center; gap:.8rem; }
 .cc-card-logo{ margin-left:auto; height:2.1rem; max-width:6rem; object-fit:contain; background:#fff; border-radius:.45rem; padding:.2rem .35rem; }
 .cc-card-front .cc-bank{ font-size:1rem; font-weight:600; letter-spacing:.01em; }
-.cc-card-front .cc-num{ margin-top:3.1rem; font-size:1.95rem; font-weight:800; letter-spacing:.04em;
+.cc-card-front .cc-num{ margin-top:2.4rem; overflow:hidden; text-overflow:ellipsis; font-size:1.95rem; font-weight:800; letter-spacing:.04em;
     font-variant-numeric:tabular-nums; white-space:nowrap; }
 .cc-card-front .cc-foot{ margin-top:auto; display:flex; justify-content:space-between; font-weight:500; font-size:1.05rem; }
 .cc-card-back{ width:14rem; padding:1.4rem 1rem 1.4rem .9rem; display:flex; flex-direction:column; gap:.5rem;
@@ -1161,6 +1164,15 @@ html:not(.dark) .ifc-prev-aurora{
     display:grid; place-items:center; flex:0 0 auto; }
 .cc-ico svg.lucide, .cc-ico [data-lucide]{ width:1.15rem; height:1.15rem; stroke-width:1.8; }
 .cc-scroll{ overflow-x:auto; }
+.cc-table tbody tr[data-cc-pilot]{ cursor:pointer; }
+.cc-table tbody tr[data-cc-pilot]:hover td{ color:#fff; }
+.cc-table tbody tr.is-picked .cc-ico{ box-shadow:0 0 0 3px var(--cc-accent-hi); }
+.cc-table tr.cc-empty td{ color:var(--cc-muted); font-weight:500; padding:1.2rem 0; }
+#crewConsole button:disabled{ opacity:.45; cursor:default; }
+.cc-count-pill{ display:inline-grid; place-items:center; min-width:1.6rem; height:1.6rem; padding:0 .45rem; border-radius:999px;
+    background:var(--cc-accent-ink); color:var(--cc-accent); font-size:.8rem; font-weight:800; }
+.cc-note{ margin:1.2rem 0 0; font-size:.85rem; color:var(--cc-muted); line-height:1.45; }
+.cc-msg{ cursor:pointer; }
 
 /* ---- The pilot on the line ----------------------------------------------- */
 .cc-lower{ display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:.6rem; }
@@ -1168,6 +1180,7 @@ html:not(.dark) .ifc-prev-aurora{
 .cc-pilot{ display:flex; gap:2.6rem; align-items:flex-start; }
 .cc-photo{ width:12rem; height:12rem; border-radius:1.6rem; flex:0 0 auto; overflow:hidden; position:relative;
     background:linear-gradient(150deg, color-mix(in srgb, var(--cc-accent) 88%, #fff), color-mix(in srgb, var(--cc-accent) 85%, #000)); }
+.cc-photo.is-initials{ display:grid; place-items:center; color:var(--cc-accent-ink); font-size:3.4rem; font-weight:800; letter-spacing:.02em; }
 .cc-photo svg{ position:absolute; left:50%; bottom:-6%; width:88%; transform:translateX(-50%); }
 .cc-pills{ display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
 .cc-pill{ display:inline-flex; align-items:center; gap:.85rem; height:3.6rem; padding:0 1.6rem; border-radius:1.8rem;
@@ -1177,6 +1190,8 @@ html:not(.dark) .ifc-prev-aurora{
     background:var(--cc-accent); color:var(--cc-accent-ink); font-size:.85rem; font-weight:600; }
 .cc-rec::before{ content:''; width:.4rem; height:.4rem; border-radius:50%; background:currentColor; animation:ccBlink 1.4s steps(2) infinite; }
 @keyframes ccBlink{ 50%{ opacity:.25; } }
+.cc-rec.is-quiet{ background:var(--cc-raise); color:#cfcdcb; }
+.cc-rec.is-quiet::before{ animation:none; }
 .cc-name{ font-size:2.35rem; font-weight:800; letter-spacing:-.01em; margin:1.1rem 0 .3rem; line-height:1.1; }
 .cc-tier{ display:flex; align-items:center; gap:.6rem; font-weight:500; font-size:1.05rem; }
 .cc-tier svg.lucide, .cc-tier [data-lucide]{ color:var(--cc-accent-hi); fill:var(--cc-accent-hi); width:1.1rem; height:1.1rem; }
@@ -1220,7 +1235,7 @@ html:not(.dark) .ifc-prev-aurora{
 .cc-convo-scroll{ flex:1; min-height:0; overflow:auto; margin:0 -.4rem; padding:0 .4rem;
     mask-image:linear-gradient(180deg, #000 85%, transparent); -webkit-mask-image:linear-gradient(180deg, #000 85%, transparent); }
 .cc-sec{ font-size:1.05rem; font-weight:500; margin:1.6rem 0 1.1rem; }
-.cc-help{ background:#fff; color:#1a1a1a; border-radius:1.4rem; padding:1.15rem 1.5rem; overflow:hidden; }
+.cc-help{ display:block; width:100%; text-align:left; background:#fff; color:#1a1a1a; border-radius:1.4rem; padding:1.15rem 1.5rem; overflow:hidden; cursor:pointer; }
 .cc-help b{ display:block; font-weight:700; font-size:1rem; white-space:nowrap;
     mask-image:linear-gradient(90deg, #000 75%, transparent); -webkit-mask-image:linear-gradient(90deg, #000 75%, transparent); }
 .cc-help span{ display:block; margin-top:.25rem; font-size:.78rem; color:#3a3836; white-space:nowrap;
@@ -1311,7 +1326,9 @@ html:not(.dark) .ifc-prev-aurora{
     .cc-stack::-webkit-scrollbar{ display:none; }
     .cc-card{ position:relative; left:auto !important; transform:none !important; flex:0 0 auto; scroll-snap-align:start; height:12.4rem !important; }
     .cc-card-front{ width:calc(100% - 3rem); padding:1.4rem 1.3rem 1.2rem; border-radius:1.3rem; box-shadow:none; }
-    .cc-card-front .cc-num{ font-size:1.32rem; margin-top:1.7rem; letter-spacing:.03em; }
+    .cc-card-front .cc-num{ font-size:1.32rem; margin-top:1.2rem; letter-spacing:.03em; }
+    .cc-card-front .cc-meta{ margin-top:.3rem; font-size:.78rem; }
+    .cc-card-front .cc-bank > span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
     .cc-card-front .cc-foot{ font-size:.95rem; }
     .cc-card-back{ width:5.4rem; padding:1.1rem .7rem; border-radius:1.3rem; font-size:.85rem; }
     .cc-card-back b{ font-size:1.02rem; }
@@ -1337,6 +1354,9 @@ html:not(.dark) .ifc-prev-aurora{
     .cc-c-status{ grid-area:st; text-align:right; font-size:.78rem !important; color:var(--cc-accent-hi); font-weight:600 !important; }
     .cc-c-ac{ grid-area:ac; text-align:right; font-size:.8rem !important; color:var(--cc-muted); }
     .cc-scroll{ overflow:visible; }
+    .cc-table tr.cc-empty{ display:block; padding:0; }
+    .cc-table tr.cc-empty td{ display:block; }
+    .cc-photo.is-initials{ font-size:2rem; }
 
     /* The pilot: photo beside the name, the call pills under both. */
     .cc-pilot{ display:grid; grid-template-columns:5.6rem minmax(0,1fr); column-gap:1rem; row-gap:0;

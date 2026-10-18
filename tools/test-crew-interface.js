@@ -51,12 +51,45 @@ const freshState = () => ({
     ui: '',                 // what the crew record says the crew's interface is
     theme: null,            // the VA's own brand palette, when it has one
     savedSettings: [],      // every /settings POST body, in order
+    live: false,            // the crew centre's own data, for the Console's front page
 });
+
+// What the Console's front page reads, when a scenario asks for it: a pilot
+// record, a rank ladder with routes above it, a week of flight reports, the
+// roster behind them — and an inbox that, for a staff login, is not theirs.
+const day = (d, h) => { const t = new Date(); t.setDate(t.getDate() - d); t.setHours(h, 0, 0, 0); return t.toISOString(); };
+const LIVE = {
+    '/me/badges': () => ({ badges: [{ kind: 'rank', name: 'Captain' }], pilot: { memberId: 'm-7f3a91c2', name: 'Rae Okafor', callsign: 'TST142', hours: 312.4 } }),
+    '/routes': () => ({
+        ranks: [{ name: 'Cadet', minHours: 0 }, { name: 'Captain', minHours: 300 }, { name: 'Senior Captain', minHours: 750 }, { name: 'Commander', minHours: 1500 }],
+        routes: [
+            { origin: 'EGLL', destination: 'KJFK', aircraft: 'Boeing 737-800', minRank: '', locked: false },
+            { origin: 'EGLL', destination: 'RJAA', aircraft: 'Boeing 787-9', minRank: 'Senior Captain', locked: true, hoursUntilUnlock: 437.6 },
+            { origin: 'EGLL', destination: 'VHHH', aircraft: 'Boeing 787-9', minRank: 'Senior Captain', locked: true, hoursUntilUnlock: 437.6 },
+            { origin: 'EGLL', destination: 'OMDB', aircraft: 'Airbus A380', minRank: 'Commander', locked: true, hoursUntilUnlock: 1187.6 },
+            // Locked on this route, open on another: flyable now, so not "next".
+            { origin: 'EGLL', destination: 'KLAX', aircraft: 'Boeing 737-800', minRank: 'Commander', locked: true, hoursUntilUnlock: 1187.6 },
+        ],
+    }),
+    '/pireps': () => ({ canReview: true, pireps: [
+        { id: 'p1', memberId: 'm-1', pilotName: 'Luis Herrera', callsign: 'TST601', flightNumber: 'TST601', origin: 'EGLL', destination: 'KJFK', aircraftName: 'Boeing 737-800', durationMin: 432, status: 'pending', flownAt: day(0, 9) },
+        { id: 'p2', memberId: 'm-2', pilotName: 'Ana Ruiz', callsign: 'TST044', flightNumber: 'TST044', origin: 'KJFK', destination: 'EGLL', aircraftName: 'Boeing 737-800', durationMin: 410, status: 'approved', flownAt: day(1, 18) },
+    ] }),
+    '/roster': () => ({ roster: [
+        { id: 'm-1', name: 'Luis Herrera', callsign: 'TST601', hours: 842, rank: { name: 'Senior Captain' }, ifcUsername: 'luis.h', discordUsername: 'luish' },
+        { id: 'm-2', name: 'Ana Ruiz', callsign: 'TST044', hours: 120, ifcUsername: 'ana.r' },
+    ] }),
+};
 
 function api(route) {
     const p = new URL(route.request().url()).pathname;
     const method = route.request().method();
     const json = (b, s = 200) => route.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(b) });
+    if (state.live) {
+        const hit = Object.keys(LIVE).find((k) => p.endsWith(k));
+        if (hit && method === 'GET') return json(LIVE[hit]());
+        if (p.endsWith('/inbox') && method === 'GET') return json({ error: 'Pilots only.' }, 401);
+    }
 
     if (p.includes('/api/va-ads/by-slug/')) {
         const b = { name: 'Test VA', code: 'TST' };
@@ -286,12 +319,34 @@ function api(route) {
     // ---- 8. The Console is a shell of its own ------------------------------
     console.log('\nConsole');
     state = freshState();
+    state.live = true;
     {
         const { page, errors } = await openDash({ query: '&ui=console' });
         check('it is the interface on', (await skin(page)) === 'console');
         check('its shell is drawn', await page.isVisible('#crewConsole .cc-board'));
         check('the dashboard underneath is put away', !(await page.isVisible('body > header.sticky')));
         check('the way out is in its rail', await page.isVisible('#crewConsole [data-skin-toggle] .ifc-toggle'));
+
+        // The front page is the crew centre's own data, not the placeholder.
+        const front = (sel) => page.textContent('#crewConsole .cc-card-front ' + sel).then((t) => t.trim());
+        check('the front card is the member’s own crew ID', (await front('.cc-num')) === 'M7F3 A91C 2', await front('.cc-num'));
+        const foot = await page.$$eval('#crewConsole .cc-card-front .cc-foot span', (els) => els.map((e) => e.textContent.trim()));
+        check('…in their name and rank', foot.join('|') === 'Rae Okafor|Captain', foot.join('|'));
+        const behind = await page.$$eval('#crewConsole .cc-card-back b', (els) => els.map((e) => e.textContent.trim()));
+        check('behind it, the aircraft that open next, soonest first', behind.join('|') === 'Boeing 787-9|Airbus A380', behind.join('|'));
+        check('a type already open on another route is not “next”', !behind.includes('Boeing 737-800'));
+        check('the table is the latest flight reports', (await page.textContent('#crewConsole .cc-table tbody tr:first-child .cc-c-flight')).trim() === 'TST601');
+        check('the panel shows the pilot behind the latest one', (await page.textContent('#crewConsole .cc-name')).trim() === 'Luis Herrera');
+        await page.click('#crewConsole .cc-table tbody tr:nth-child(2)');
+        await page.waitForTimeout(200);
+        check('a flight row puts its pilot in the panel', (await page.textContent('#crewConsole .cc-name')).trim() === 'Ana Ruiz');
+        check('the review button counts what is waiting', (await page.textContent('#crewConsole .cc-end')).replace(/\s+/g, ' ').trim() === 'Review flights 1');
+        check('a staff login is told it has no inbox', /no inbox of their own/.test(await page.textContent('#crewConsole .cc-convos')));
+        await page.click('#crewConsole .cc-tabs [data-cc-act="openRoutes"]');
+        await page.waitForTimeout(600);
+        check('a tab opens the dashboard’s own panel over the Console', await page.isVisible('#routes'));
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(600);
 
         // The cards: the first on edge is the one that comes next, and
         // pressing it brings it to the front.
@@ -320,6 +375,7 @@ function api(route) {
     // ---- 9. The Console wears the airline ---------------------------------
     console.log('\nConsole in the airline’s colours');
     state = freshState();
+    state.live = true;
     {
         // No accent: the Console keeps its own orange, but still takes the
         // airline's name and flight code.
@@ -327,7 +383,6 @@ function api(route) {
         const accent = () => page.$eval('#crewConsole', (el) => el.style.getPropertyValue('--cc-accent'));
         check('an airline with no accent keeps the Console’s own colour', (await accent()) === '');
         check('the card carries the airline’s name', (await page.textContent('#crewConsole .cc-bank')).trim() === 'Test VA');
-        check('the flights carry its code', (await page.textContent('#crewConsole .cc-table .cc-c-flight')).trim().startsWith('TST'));
         check('its initials stand in for a logo', (await page.textContent('#crewConsole .cc-rail .cc-logo')).trim() === 'TV');
         check('no page errors', errors.length === 0, errors[0]);
         await page.close();
