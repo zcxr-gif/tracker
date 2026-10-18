@@ -45,26 +45,28 @@
     // Bumped whenever the model files change. They are cached for a day
     // (_headers), and a reader holding yesterday's file would otherwise keep
     // seeing it — the rougher one, as it happens, the first time this mattered.
-    const MODEL_VERSION = '3';
+    const MODEL_VERSION = '4';
 
     // Family → file. `yaw` turns a model built facing another way round to
     // the common frame, nose toward −X (the FlightGear ones already are; the
     // A380 arrived nose toward +Z).
     // `len` is the real aeroplane's length in metres: what tells the livery
     // how far apart to space the cabin windows on a model of any scale.
+    // `windows`: the model has its cabin windows cut in the skin (and no
+    // glass in them), so the livery paints none of its own.
     const MODELS = {
         a320: { file: 'a320.glb', label: 'Airbus A320', len: 37.57 },
-        b737: { file: '737.glb', label: 'Boeing 737', len: 33.4 },
+        b737: { file: '737.glb', label: 'Boeing 737', len: 39.5 },
         b747: { file: '747.glb', label: 'Boeing 747', len: 70.6 },
         b772: { file: '777-200er.glb', label: 'Boeing 777-200', len: 63.7 },
         b773: { file: '777-300er.glb', label: 'Boeing 777-300', len: 73.9 },
-        b787: { file: '787.glb', label: 'Boeing 787', len: 56.7 },
+        b787: { file: '787.glb', label: 'Boeing 787', len: 62.8 },
         a330: { file: 'a330.glb', label: 'Airbus A330', len: 63.7 },
         a380: { file: 'a380.glb', label: 'Airbus A380', len: 72.7, yaw: -Math.PI / 2 },
         crj7: { file: 'crj700.glb', label: 'Bombardier CRJ700', len: 32.3 },
         crj9: { file: 'crj900.glb', label: 'Bombardier CRJ900', len: 36.2 },
-        e175: { file: 'e175.glb', label: 'Embraer 175', len: 31.7 },
-        e190: { file: 'e190.glb', label: 'Embraer 190', len: 36.2 },
+        e175: { file: 'e175.glb', label: 'Embraer 175', len: 31.7, windows: true },
+        e190: { file: 'e190.glb', label: 'Embraer 190', len: 36.2, windows: true },
         md11: { file: 'md11.glb', label: 'McDonnell Douglas MD-11', len: 61.6 },
     };
 
@@ -221,7 +223,7 @@
                             nrm[i * 3] = v.x; nrm[i * 3 + 1] = v.y; nrm[i * 3 + 2] = v.z;
                         }
                     }
-                    meshes.push({ mesh: o, pos, nrm });
+                    meshes.push({ mesh: o, pos, nrm, glass: !!(o.material && o.material.name === 'glass') });
                 });
                 const c = box.getCenter(new T.Vector3());
                 const size = box.getSize(new T.Vector3());
@@ -241,6 +243,23 @@
                 const shape = measure(T, meshes);
                 shape.k = 1 / Math.max(size.x, size.y, size.z, 1e-6);
                 findEngines({ shape, meshes });
+                // A model with its own window glass (the fuselage has holes
+                // where it goes) shows its real windows; the livery paints
+                // only those it lacks.
+                let cabin = 0, nose = 0;
+                meshes.forEach(({ pos, glass }) => {
+                    if (!glass) return;
+                    for (let i = 0; i < pos.length; i += 3) {
+                        // In the sides of the fuselage, at window height: not
+                        // a beacon's glass on its crown or a wingtip light's.
+                        const az = Math.abs(pos[i + 2]), y = pos[i + 1] - shape.cy;
+                        if (az > 1.2 * shape.r || az < 0.55 * shape.r || y < -0.2 * shape.r) continue;
+                        if (pos[i] > -0.39 * shape.L && pos[i] < 0.31 * shape.L) cabin++;
+                        else if (pos[i] <= -0.4 * shape.L) nose++;
+                    }
+                });
+                shape.ownWindows = cabin > 24;
+                shape.ownCockpit = nose > 6;
                 const template = new T.Group();
                 template.add(obj);
                 template.scale.setScalar(shape.k);
@@ -298,7 +317,7 @@
             // Capped: a nacelle is never wider than the fuselage it hangs
             // beside, and a stray hit on the wing root must not swell it until
             // it swallows the fuselage.
-            return { u: pct(us, 0.5), y: ey, z: ez, r: Math.min(pct(rad, 0.85) * 1.15, 0.8 * r), u0: pct(us, 0.05), u1: pct(us, 0.95) };
+            return { u: pct(us, 0.5), y: ey, z: ez, r: Math.min(pct(rad, 0.85) * 1.3, 0.8 * r), u0: pct(us, 0.05), u1: pct(us, 0.95) };
         }).filter(Boolean);
         if (!pods.length) return;
         S.engine = pods[0];                 // the inner one: where the contrails start
@@ -328,13 +347,13 @@
     `;
     const LIVERY_FRAG_HEAD = `
         uniform vec3 uWhite, uWing, uGear, uPaint, uDark, uLite, uGlass;
-        uniform float uL, uTop, uBot, uR, uCy, uMaxY, uUnit;
+        uniform float uL, uTop, uBot, uR, uCy, uMaxY, uUnit, uWin, uCk;
         uniform vec4 uEng;     // inner nacelle axis: height, span, radius (0: none)
         uniform vec2 uEngU;    // inner nacelle from, to (fore and aft)
         uniform vec4 uEng2;    // outer nacelle, on a four-engined aeroplane
         uniform vec2 uEngU2;
         bool lvPod(vec4 e, vec2 eu, float u, float y, float az, float L) {
-            return e.z > 0.0 && u > eu.x - 0.02 * L && u < eu.y + 0.02 * L && length(vec2(y - e.x, az - e.y)) < e.z;
+            return e.z > 0.0 && u > eu.x - 0.02 * L && u < eu.y + 0.05 * L && length(vec2(y - e.x, az - e.y)) < e.z;
         }
         varying vec3 vLiv;
         varying vec3 vLivN;
@@ -367,10 +386,10 @@
             float pane = smoothstep(0.30 - fw, 0.30 + fw, f) * (1.0 - smoothstep(0.66 - fw, 0.66 + fw, f));
             float row = 1.0 - lvEdge(0.07 * r, abs(y - (uCy + 0.27 * r)), ay);
             float cabin = step(-0.39 * L, u) * step(u, 0.31 * L);
-            c = mix(c, uGlass, pane * row * cabin);
+            c = mix(c, uGlass, pane * row * cabin * uWin);
             // Cockpit glass, a band across the nose.
             float ck = step(-0.475 * L, u) * step(u, -0.44 * L) * (1.0 - lvEdge(0.085 * r, abs(y - (uCy + 0.36 * r)), ay));
-            c = mix(c, uGlass, ck);
+            c = mix(c, uGlass, ck * uCk);
             return mix(c, uWing, wing);
         }
     `;
@@ -388,6 +407,7 @@
             uEng: { value: new T.Vector4() }, uEngU: { value: new T.Vector2() },
             uEng2: { value: new T.Vector4() }, uEngU2: { value: new T.Vector2() },
             uL: { value: 1 }, uTop: { value: 0 }, uBot: { value: 0 }, uR: { value: 1 }, uCy: { value: 0 }, uMaxY: { value: 1 }, uUnit: { value: 1 },
+            uWin: { value: 1 }, uCk: { value: 1 },
         };
         mat.extensions = { derivatives: true };
         mat.onBeforeCompile = (sh) => {
@@ -395,14 +415,16 @@
             sh.vertexShader = LIVERY_VERT_HEAD + sh.vertexShader
                 .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n' + LIVERY_VERT_BODY);
             sh.fragmentShader = LIVERY_FRAG_HEAD + sh.fragmentShader
-                .replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb = livery();');
+                // A face seen from behind is the inside of the aeroplane, seen
+                // through a window cut in the skin: dark, like the glass.
+                .replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb = gl_FrontFacing ? livery() : uGlass;');
         };
         return { mat, u };
     }
 
     // Colours are written as the airline wrote them (sRGB) and converted: the
     // renderer works in linear light, and a navy taken as linear comes out slate.
-    function setLivery(T, u, shape, unit, accent) {
+    function setLivery(T, u, shape, unit, accent, ownWindows) {
         const lin = (c) => new T.Color(c).convertSRGBToLinear();
         const paintC = lin(isHex(accent) ? accent : '#E8553B');
         u.uWhite.value.copy(lin(0xf5f4f1));
@@ -416,6 +438,8 @@
         u.uLite.value.copy(paintC.clone().lerp(lin(0xffffff), 0.04));
         u.uL.value = shape.L; u.uTop.value = shape.top; u.uBot.value = shape.bot;
         u.uR.value = shape.r; u.uCy.value = shape.cy; u.uMaxY.value = shape.maxY; u.uUnit.value = unit;
+        u.uWin.value = shape.ownWindows || ownWindows ? 0 : 1;
+        u.uCk.value = shape.ownCockpit ? 0 : 1;
         const e = shape.engine;
         u.uEng.value.set(e ? e.y : 0, e ? e.z : 0, e ? e.r : 0, 0);
         u.uEngU.value.set(e ? e.u0 : 0, e ? e.u1 : 0);
@@ -482,7 +506,12 @@
         const rig = new T.Group();                     // turns (card) or flies (hero)
         scene.add(rig);
         const { mat: material, u: liveryU } = liveryMaterial(T, kind);
-        const st = { T, kind, renderer, canvas, scene, camera, rig, material, liveryU, model: null, url: '', trails: null, frame: 0, last: 0, t: 0, drag: null, moved: false };
+        // Window glass, where a model has its own: dark, and glossy enough
+        // to catch the sky.
+        const glass = new T.MeshPhysicalMaterial({
+            color: 0x05080d, roughness: 0.08, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 0.75,
+        });
+        const st = { T, kind, renderer, canvas, scene, camera, rig, material, glass, liveryU, model: null, url: '', trails: null, frame: 0, last: 0, t: 0, drag: null, moved: false };
         if (kind === 'card') {
             rig.rotation.y = -0.5;
             // Drag to turn it. A drag is not a press: the card under it does
@@ -589,10 +618,10 @@
         if (!model || !host.isConnected) return false;
         const accent = (opts && opts.accent) || '';
         if (st.url !== m.url || st.accent !== accent) {
-            setLivery(T, st.liveryU, model.shape, model.shape.L / (m.len || model.shape.L), accent);
+            setLivery(T, st.liveryU, model.shape, model.shape.L / (m.len || model.shape.L), accent, !!m.windows);
             if (st.model) st.rig.remove(st.model);
             const obj = model.template.clone();
-            obj.traverse((o) => { if (o.isMesh) o.material = st.material; });
+            obj.traverse((o) => { if (o.isMesh) o.material = o.material && o.material.name === 'glass' ? st.glass : st.material; });
             st.model = obj;
             st.shape = model.shape;
             st.url = m.url;

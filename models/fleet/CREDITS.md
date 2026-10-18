@@ -9,20 +9,21 @@ model, and the tools that did it are in `tools/aircraft-models/`.
 
 From the FlightGear flight simulator's aircraft, on GitHub (the FGMEMBERS
 mirrors, and the IDG team's own repositories for their A320 and MD-11). Converted from AC3D to glTF by `tools/aircraft-models/ac2glb.mjs`:
-exterior only (flight deck, cabin, lights and ground equipment left out),
+exterior only (flight deck, cabin, lights, landing gear and ground equipment
+left out, so the aeroplane is shown in flight), window glass kept as glass,
 textures not carried, geometry at the source's full detail with smoothed
 normals; then compressed for the web by `pack.mjs` (meshopt, positions at
-16 bits, normals at 12). Licensed under the GNU GPL as each repository states; the licence
+16 bits, normals at 12). `tools/aircraft-models/build.sh` rebuilds the lot. Licensed under the GNU GPL as each repository states; the licence
 texts are alongside (`LICENSE-GPL-2.0.txt`, `LICENSE-GPL-3.0.txt`).
 
 | File | Aircraft | Source (commit) | Authors | Licence |
 |---|---|---|---|---|
 | `a320.glb` | Airbus A320-200 (CFM) | [legoboyvdlp/A320-family](https://github.com/legoboyvdlp/A320-family) `fec1ecb`, `Models/A320-200-CFM.xml` | Josh Davidson, Jonathan Redpath, merspieler, Matthew Maring, Thorsten Herrmann, Semir Gebran (IDG) | GPL-2.0 |
-| `737.glb` | Boeing 737-300 | [FGMEMBERS/737-300](https://github.com/FGMEMBERS/737-300) `832d669`, `Models/737-300.ac` | Innis Cunningham, Heiko Schulz, Emmanuel Baranger (3D); Jarvum, e-pilot, Skyop, Soitanen | GPL-3.0 |
+| `737.glb` | Boeing 737-800 | [FGMEMBERS/737-800YV](https://github.com/FGMEMBERS/737-800YV) `2393ec1`, `Models/737-800.xml` | Gabriel Hernandez (YV3399), Joshua Davidson, Jonathan Redpath, RenanMsV; Innis Cunningham (3D), D-ECHO and ACJZA (3D improvements) | GPL-2.0 |
 | `747.glb` | Boeing 747-400 | [FGMEMBERS/747-400](https://github.com/FGMEMBERS/747-400) `887ff47`, `Models/747-400.xml` | Gijs de Rooy, Jonathan Redpath, Ivan Ngeow, Markus Bulik and others | GPL-2.0 |
 | `777-200er.glb` | Boeing 777-200ER | [FGMEMBERS/777](https://github.com/FGMEMBERS/777) `371a354`, `Models/777-200ER.ac` | Syd Adams (3D), Karla, and the authors in the repo's `AUTHORS` | see note |
 | `777-300er.glb` | Boeing 777-300ER | [FGMEMBERS/777](https://github.com/FGMEMBERS/777) `371a354`, `Models/777-300ER.ac` | as above | see note |
-| `787.glb` | Boeing 787-8 | [FGMEMBERS/787-8](https://github.com/FGMEMBERS/787-8) `b79677d`, `Models/787-8.ac` | FlightGear contributors (see repo) | GPL-2.0 |
+| `787.glb` | Boeing 787-9 | [FGMEMBERS/787-9](https://github.com/FGMEMBERS/787-9) `f58fce9`, `Models/787-9.ac` | Narendran Muraleedharan, Dwayne Gable, Nicky Ivy, Jonathan Redpath | GPL-2.0 |
 | `crj700.glb` | Bombardier CRJ700 | [FGMEMBERS/CRJ700-family](https://github.com/FGMEMBERS/CRJ700-family) `4862db2`, `Models/CRJ700.xml` | Ryan Miller | GPL-2.0+ |
 | `crj900.glb` | Bombardier CRJ900 | [FGMEMBERS/CRJ700-family](https://github.com/FGMEMBERS/CRJ700-family) `4862db2`, `Models/CRJ900.xml` | Ryan Miller | GPL-2.0+ |
 | `e175.glb` | Embraer 175 | [FGMEMBERS/E-jet-family](https://github.com/FGMEMBERS/E-jet-family) `45be9f8`, `Models/erj175.ac` | Narendran Muraleedharan and contributors | GPL-2.0 |
