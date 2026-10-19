@@ -30,8 +30,10 @@
  *   - phone, where the window is a sheet on the bottom edge: on the sheet's
  *     top right-hand corner, riding it down while it is pulled, and faded
  *     as it opens towards the full window (gone by about two thirds of the
- *     way). When an upright column would not fit above a tall peek, it lies
- *     on its side along the sheet's top instead;
+ *     way). Upright in one column when that fits above the peek; when it
+ *     does not, the window's buttons stand upright beside the map controls
+ *     instead of above them; and only if even that is too tall does it lie
+ *     on its side along the sheet's top;
  *   - desktop: beside the window, on the side facing the map, level with its
  *     top.
  *
@@ -116,6 +118,10 @@ export const FlightWindowControls = (() => {
                 transition: opacity .22s ease;
             }
             .fw-controls.vertical { flex-direction: column; }
+            /* Two upright columns side by side, standing on the same edge. */
+            .fw-controls.pair { flex-direction: row; align-items: flex-end; }
+            .fw-controls .fw-main { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+            .fw-controls.horizontal .fw-main { flex-direction: row-reverse; }
             /* On its side the groups run right to left and wrap upwards. */
             .fw-controls.horizontal { flex-direction: row-reverse; flex-wrap: wrap-reverse; justify-content: flex-start; }
             #aircraft-info-window.fw-actions-out .overview-actions { display: none !important; }
@@ -234,9 +240,12 @@ export const FlightWindowControls = (() => {
             actionRows[a.key] = b;
         }
 
+        const main = document.createElement('div');
+        main.className = 'fw-main';
+        main.appendChild(column);
+        main.appendChild(modelsBtn);
         root.appendChild(actions);
-        root.appendChild(column);
-        root.appendChild(modelsBtn);
+        root.appendChild(main);
         // Taps on the column are the column's, never the map's.
         for (const type of ['mousedown', 'touchstart', 'dblclick', 'wheel']) {
             root.addEventListener(type, (e) => e.stopPropagation(), { passive: true });
@@ -434,18 +443,23 @@ export const FlightWindowControls = (() => {
         }
 
         const rowsShown = 1 + (turned ? 1 : 0) + (collapsed ? 0 : (modelsOn ? 4 : 3));
-        const columnHeight = rowsShown * ROW + 8 + (host.models.available() ? WIDTH + 8 : 0)
-            + (actionCount ? actionCount * ROW + 16 : 0);
-        let left, top, opacity = 1, vertical = true;
+        const mainHeight = rowsShown * ROW + 8 + (host.models.available() ? WIDTH + 8 : 0);
+        const actionsHeight = actionCount ? actionCount * ROW + 8 : 0;
+        let left, top, opacity = 1, layout = 'vertical';
         if (mobile) {
-            // Lying on its side along the top of a peek too tall for it.
-            vertical = r.top - c.top - columnHeight - GAP >= TOP_ROOM;
-            if (root.classList.contains('vertical') !== vertical) {
-                root.classList.toggle('vertical', vertical);
-                root.classList.toggle('horizontal', !vertical);
+            // One column if it fits above the peek; else the window's buttons
+            // upright beside the map controls; on its side only as a last
+            // resort.
+            const room = r.top - c.top - GAP - TOP_ROOM;
+            if (mainHeight + (actionsHeight ? actionsHeight + 8 : 0) <= room) layout = 'vertical';
+            else if (Math.max(mainHeight, actionsHeight) <= room) layout = 'pair';
+            else layout = 'horizontal';
+            if (!root.classList.contains(layout)) {
+                root.classList.remove('vertical', 'pair', 'horizontal');
+                root.classList.add(layout);
                 lastKey = '';
             }
-            root.style.maxWidth = vertical ? '' : `${Math.max(c.width - 24, WIDTH)}px`;
+            root.style.maxWidth = layout === 'horizontal' ? `${Math.max(c.width - 24, WIDTH)}px` : '';
             left = c.width - 12 - (root.offsetWidth || WIDTH);
             top = r.top - c.top - GAP - (root.offsetHeight || WIDTH);
             // Faded over the first part of the opening, so nothing is left
@@ -463,7 +477,8 @@ export const FlightWindowControls = (() => {
             if (left < 4 || left + WIDTH > c.width - 4) opacity = 0;
         }
 
-        const key = [turned, collapsed, modelsOn, pathOn, following, chasing, vertical, actionSig].join('|');
+        const vertical = layout !== 'horizontal';
+        const key = [turned, collapsed, modelsOn, pathOn, following, chasing, layout, actionSig].join('|');
         if (key !== lastKey) {
             lastKey = key;
             actions.hidden = !actionCount;
@@ -478,8 +493,8 @@ export const FlightWindowControls = (() => {
                 row.title = real.title || a.title;
                 row.setAttribute('aria-label', row.title);
             }
-            root.classList.toggle('vertical', vertical);
-            root.classList.toggle('horizontal', !vertical);
+            root.classList.remove('vertical', 'pair', 'horizontal');
+            root.classList.add(layout);
             rows.compass.hidden = !turned;
             for (const k of ['frame', 'follow', 'path']) rows[k].hidden = collapsed;
             rows.chase.hidden = collapsed || !modelsOn;
