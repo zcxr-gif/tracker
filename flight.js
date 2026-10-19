@@ -9,6 +9,7 @@ import { applyTerrainMode, removeTerrainMode } from './terrainMode.js';
 import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
+import { AircraftEngine } from './aircraftEngine.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
@@ -1434,6 +1435,7 @@ let mapFilters = {
         },
         show3DPath: false,
         live3DTraffic: false, // 3D elevated dot view for live traffic (toolbar/settings toggle)
+        aircraftModels3D: false, // FlightGear 3D aircraft in airline liveries (aircraftEngine.js)
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
@@ -1594,6 +1596,7 @@ let mapFilters = {
     // Exposed so the current mobile settings panel (MobileSettingsUI.js) can
     // drive the 3D live-traffic dot view through the canonical toggle path.
     window.setLive3DTraffic = setLive3DTraffic;
+    window.setAircraftModels3D = setAircraftModels3D;
 
     const departureHubs = []; // Empty array
     let ALL_AVAILABLE_ROUTES = []; // Empty array
@@ -1840,6 +1843,35 @@ function setLive3DTraffic(on) {
     if (btn) btn.classList.toggle('active', on);
     const toggle = document.getElementById('set-3d-traffic');
     if (toggle) toggle.checked = on;
+}
+
+// The 3D aircraft (aircraftEngine.js): FlightGear's AI models in airline
+// liveries in place of the flat icons. Mapbox only — the free MapLibre map
+// has no globe-aware custom layers.
+function setAircraftModels3D(on) {
+    on = !!on && !window.__FREE_MAP__;
+    mapFilters.aircraftModels3D = on;
+    try { saveFiltersToLocalStorage(); } catch (_) {}
+    AircraftEngine.setVisible(on);
+    const toggle = document.getElementById('set-3d-aircraft');
+    if (toggle) toggle.checked = on;
+}
+
+// Flights the 3D engine is drawing, whose flat icons are hidden through
+// feature-state. Kept here as well, so a rebuilt source (style switch) can
+// be given the states again.
+const modelledFlightIds = new Set();
+const MODELLED_ICON_OPACITY = ['case', ['boolean', ['feature-state', 'model'], false], 0, 1];
+
+function setFlightModelled(flightId, on) {
+    if (on) modelledFlightIds.add(flightId); else modelledFlightIds.delete(flightId);
+    const f = currentMapFeatures[flightId];
+    if (!f || f.id == null || !sectorOpsMap || !sectorOpsMap.getSource('sector-ops-live-flights-source')) return;
+    try { sectorOpsMap.setFeatureState({ source: 'sector-ops-live-flights-source', id: f.id }, { model: on }); } catch (_) {}
+}
+
+function reapplyModelledFlights() {
+    for (const id of modelledFlightIds) setFlightModelled(id, true);
 }
 
 // --- PREMIUM PLANE COLOR EXPRESSION ---
@@ -13991,6 +14023,7 @@ function handleSocketFlightUpdate(data) {
 
     // Push the new positions to the 3D dot field (no-op unless it's showing).
     if (isMapReady && LiveTraffic3D.isVisible()) LiveTraffic3D.refresh();
+    if (isMapReady && AircraftEngine.isVisible()) AircraftEngine.refresh();
 
     const landingVisible = localStorage.getItem('landingUI_visible') !== 'false';
     if (landingVisible && !currentFlightInWindow && !currentAirportInWindow) {
@@ -16983,6 +17016,8 @@ function updateTrafficLegendUI() {
         // restore it on close if it was on.
         const wasLive3D = (typeof LiveTraffic3D !== 'undefined') && LiveTraffic3D.isVisible();
         if (wasLive3D) { try { LiveTraffic3D.setVisible(false); } catch (_) {} }
+        const wasModels3D = AircraftEngine.isVisible();
+        if (wasModels3D) { try { AircraftEngine.setVisible(false); } catch (_) {} }
 
         AtcReplay.open({
             map: sectorOpsMap,
@@ -16990,6 +17025,7 @@ function updateTrafficLegendUI() {
             meta: { airportName: apt, username: user, userId: uid || null, apiBase: ACARS_SOCKET_URL },
             onClose: () => {
                 if (wasLive3D) { try { LiveTraffic3D.setVisible(true); } catch (_) {} }
+                if (wasModels3D) { try { AircraftEngine.setVisible(true); } catch (_) {} }
                 if (isMobile) {
                     // Re-run the full open flow so the sheet's content mutates and
                     // MobileUIHandler animates it back in (a bare openWindow on an
@@ -17564,6 +17600,16 @@ function initializeAircraftLayer() {
         LiveTraffic3D.init(sectorOpsMap, () => Object.values(currentMapFeatures), () => currentFlightInWindow);
         if (mapFilters.live3DTraffic) LiveTraffic3D.setVisible(true);
 
+        // 3D aircraft, drawn where MapAnimator glides each icon so the labels
+        // stay on them.
+        AircraftEngine.init(sectorOpsMap, {
+            features: () => currentMapFeatures,
+            pose: (id, now) => (mapAnimator ? mapAnimator.pose(id, now) : null),
+            selected: () => currentFlightInWindow,
+            onModelled: setFlightModelled
+        });
+        if (mapFilters.aircraftModels3D) setAircraftModels3D(true);
+
         const initialIconSize = parseFloat(mapFilters.planeIconSize) || 0.15;
 
         if (!sectorOpsMap.getLayer('sector-ops-live-flights-layer')) {
@@ -17584,7 +17630,9 @@ function initializeAircraftLayer() {
                     // logged-in user (gold) and watchlist pilots (purple)
                     // are colored correctly on first render, not just after
                     // a traffic-highlight toggle.
-                    'icon-color': getPremiumColorExpression()
+                    'icon-color': getPremiumColorExpression(),
+                    // Hidden while its 3D model is drawn (aircraftEngine.js).
+                    'icon-opacity': MODELLED_ICON_OPACITY
                 }
             });
 
@@ -17605,7 +17653,8 @@ function initializeAircraftLayer() {
                         'icon-ignore-placement': true,
                         'icon-rotation-alignment': 'map',
                         'icon-rotate': ['get', 'heading']
-                    }
+                    },
+                    'paint': { 'icon-opacity': MODELLED_ICON_OPACITY }
                 }, 'sector-ops-live-flights-layer');
             }
 
@@ -17623,7 +17672,8 @@ function initializeAircraftLayer() {
                     'icon-rotate': ['get', 'heading']
                 },
                 'paint': {
-                    'icon-color': SELECTED_AIRCRAFT_COLOR
+                    'icon-color': SELECTED_AIRCRAFT_COLOR,
+                    'icon-opacity': MODELLED_ICON_OPACITY
                 }
             });
 
@@ -17631,6 +17681,7 @@ function initializeAircraftLayer() {
             // switch, a return from playback — is marked straight away rather
             // than waiting for the next tap.
             markSelectedAircraft(currentFlightInWindow);
+            reapplyModelledFlights();
 
             // Bootstrap pilot-relation colors. Covers the case where flight
             // features were already cached (or where ProfileUI populated
@@ -17669,6 +17720,29 @@ function initializeAircraftLayer() {
                 };
                 sectorOpsMap.on('click', 'sector-ops-live-flights-layer', onLiveFlightClick);
                 sectorOpsMap.on('click', 'sector-ops-live-flights-natural-layer', onLiveFlightClick);
+
+                // A 3D aircraft is drawn at its height, so in a tilted view it
+                // can be well away from its (hidden) icon: a tap on the model
+                // opens it too, unless the tap was on an icon already.
+                sectorOpsMap.on('click', async (e) => {
+                    if (!AircraftEngine.isVisible()) return;
+                    const flightId = AircraftEngine.hitTest(e.point);
+                    const feature = flightId != null ? currentMapFeatures[flightId] : null;
+                    if (!feature) return;
+                    const onIcon = sectorOpsMap.queryRenderedFeatures(e.point, {
+                        layers: ['sector-ops-live-flights-layer', 'sector-ops-live-flights-natural-layer']
+                            .filter((id) => sectorOpsMap.getLayer(id))
+                    });
+                    if (onIcon.length) return;
+                    const props = feature.properties;
+                    const flightProps = {
+                        ...props,
+                        position: typeof props.position === 'string' ? JSON.parse(props.position) : props.position,
+                        aircraft: typeof props.aircraft === 'string' ? JSON.parse(props.aircraft) : props.aircraft
+                    };
+                    const sessionId = await getValidSessionId();
+                    handleAircraftClick(flightProps, sessionId, e);
+                });
 
                 const hoverPopup = new mapboxgl.Popup({
                     closeButton: false,
@@ -20060,6 +20134,11 @@ renderCategory(catId) {
                                 <label class="toggle-switch"><input type="checkbox" id="set-3d-traffic" ${mapFilters.live3DTraffic ? 'checked' : ''}><span class="toggle-slider"></span></label>
                             </div>
 
+                            <div class="settings-row">
+                                <div class="row-label" title="FlightGear's AI aircraft (GNU GPL v2), in airline liveries"><i class="fa-solid fa-plane"></i> 3D Aircraft</div>
+                                <label class="toggle-switch"><input type="checkbox" id="set-3d-aircraft" ${mapFilters.aircraftModels3D ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                            </div>
+
                             <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
                                 <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                                     <div class="row-label"><i class="fa-solid fa-plane-up"></i> Aircraft Scale</div>
@@ -20734,6 +20813,10 @@ renderCategory(catId) {
         const live3dToggle = document.getElementById('set-3d-traffic');
         if (live3dToggle) {
             live3dToggle.addEventListener('change', (e) => setLive3DTraffic(e.target.checked));
+        }
+        const models3dToggle = document.getElementById('set-3d-aircraft');
+        if (models3dToggle) {
+            models3dToggle.addEventListener('change', (e) => setAircraftModels3D(e.target.checked));
         }
 
         // Plane Size Input

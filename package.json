@@ -26,7 +26,9 @@
     "test:design": "node tools/test-crew-design.js",
     "test:view-switch": "node tools/test-crew-view-switch.js",
     "test:entrance": "node tools/test-crew-entrance.js",
-    "test:featured": "node tools/test-crew-featured.js"
+    "test:featured": "node tools/test-crew-featured.js",
+    "build:fg-aircraft": "node tools/build-fg-aircraft.mjs",
+    "test:fg-aircraft": "node tools/test-fg-aircraft.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",

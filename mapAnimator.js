@@ -528,6 +528,18 @@ export class MapAnimator {
         this._write(r, m, now);
     }
 
+    /**
+     * Where a flight's icon is on its glide at `now` — [lon, lat, heading] —
+     * so the 3D aircraft (aircraftEngine.js) are drawn where the labels are.
+     * Null until the flight has been through a flush.
+     */
+    pose(flightId, now = performance.now()) {
+        const r = this._render.get(String(flightId));
+        if (!r || !r.m) return null;
+        const pos = this._position(r.m, now);
+        return [pos[0], pos[1], this._heading(r.m, now)];
+    }
+
     _setReportedVelocity(m, p, lat) {
         const kt = Number(p.speed) || 0;
         if (kt < MapAnimator.MIN_GLIDE_KT) { m.vLon = 0; m.vLat = 0; return; }
