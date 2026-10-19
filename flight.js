@@ -10,6 +10,7 @@ import { NatTracksLayer } from './natTracksLayer.js';
 import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { AircraftEngine } from './aircraftEngine.js';
+import { FlightWindowControls } from './flightWindowControls.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
@@ -1436,6 +1437,7 @@ let mapFilters = {
         show3DPath: false,
         live3DTraffic: false, // 3D elevated dot view for live traffic (toolbar/settings toggle)
         aircraftModels3D: false, // FlightGear 3D aircraft in airline liveries (aircraftEngine.js)
+        showFlownPath: true, // the open flight's flown path (flightWindowControls.js)
         showNatTracks: true,
         showNatLabels: false,
         showVaOnly: false,
@@ -17609,6 +17611,49 @@ function initializeAircraftLayer() {
             onModelled: setFlightModelled
         });
         if (mapFilters.aircraftModels3D) setAircraftModels3D(true);
+
+        // The map controls for the open flight, standing outside its window
+        // the way the iOS app's do (flightWindowControls.js).
+        FlightWindowControls.init(sectorOpsMap, {
+            container: document.getElementById('sector-ops-map-fullscreen') || sectorOpsMap.getContainer(),
+            windowEl: () => aircraftInfoWindow || document.getElementById('aircraft-info-window'),
+            selected: () => currentFlightInWindow,
+            aircraft: (id) => {
+                const pose = mapAnimator ? mapAnimator.pose(id) : null;
+                if (pose) return pose;
+                const f = currentMapFeatures[id];
+                if (!f || !f.geometry) return null;
+                return [f.geometry.coordinates[0], f.geometry.coordinates[1], Number(f.properties.heading) || 0];
+            },
+            route: (id) => {
+                const out = [];
+                const { flightProps, plan } = cachedFlightDataForStatsView || {};
+                if (plan && flightProps && String(flightProps.flightId) === String(id)) {
+                    out.push(...flattenWaypointsFromPlan(plan.flightPlanItems));
+                }
+                // Both ends of the route, plan or no plan.
+                const p = (currentMapFeatures[id] || {}).properties || {};
+                for (const icao of [p.departureIcao, p.arrivalIcao]) {
+                    const ap = icao && typeof airportsData !== 'undefined' ? airportsData[String(icao).toUpperCase()] : null;
+                    if (ap && ap.lat != null && ap.lon != null) out.push([ap.lon, ap.lat]);
+                }
+                return out;
+            },
+            trail: (id) => (liveTrailCache.get(id) || [])
+                .map((pt) => [pt.longitude != null ? pt.longitude : pt.lon, pt.latitude != null ? pt.latitude : pt.lat])
+                .filter((pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1])),
+            flownPathLayer: (id) => `flown-path-${id}`,
+            flownPath: {
+                isOn: () => mapFilters.showFlownPath !== false,
+                set: (on) => { mapFilters.showFlownPath = !!on; try { saveFiltersToLocalStorage(); } catch (_) {} }
+            },
+            models: {
+                available: () => !window.__FREE_MAP__,
+                isOn: () => !!mapFilters.aircraftModels3D,
+                set: setAircraftModels3D
+            },
+            isMobile: () => !!(window.MobileUIHandler && window.MobileUIHandler.isMobile && window.MobileUIHandler.isMobile())
+        });
 
         const initialIconSize = parseFloat(mapFilters.planeIconSize) || 0.15;
 
