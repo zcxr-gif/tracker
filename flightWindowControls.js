@@ -18,6 +18,13 @@
  *   - a chevron that folds the middle of the column away.
  * And under it, on a button of its own, 3D/2D for the 3D aircraft.
  *
+ * Above them, a second piece of glass with the window's own buttons — pin
+ * (desktop), "this is my flight", path info, replay and the trip card —
+ * moved off its photograph. Each one presses the window's real button, so
+ * every flow behind them is the window's own. While the column is showing,
+ * the window's copies are hidden (`fw-actions-out`); when it fades away over
+ * a sheet opened all the way, they come back inside the window.
+ *
  * Where it stands is read from the window on every frame, so it follows it
  * exactly however the window moves:
  *   - phone, where the window is a sheet on the bottom edge: on the sheet's
@@ -55,12 +62,24 @@ export const FlightWindowControls = (() => {
     // a follow brings the map back to it.
     const FOLLOW_SLACK_PX = 36;
 
+    // The window's header buttons, in the order they stood there. `phone`
+    // false: hidden on narrow screens, as the window hides it.
+    const ACTIONS = [
+        { key: 'pin', sel: '.aircraft-window-pin-btn', icon: 'fa-solid fa-thumbtack', title: 'Pin flight', phone: false },
+        { key: 'trackme', sel: '.aircraft-window-trackme-btn', icon: 'fa-solid fa-bell', title: 'This is my flight' },
+        { key: 'pathinfo', sel: '.aircraft-window-pathinfo-btn', icon: 'fa-solid fa-route', title: 'Path info' },
+        { key: 'replay', sel: '.aircraft-window-replay-btn:not(.simple-proxy)', icon: 'fa-solid fa-circle-play', title: 'Replay flight' },
+        { key: 'share', sel: '.aircraft-window-share-btn', icon: 'fa-solid fa-camera', title: 'Trip card' },
+    ];
+
     let map = null;
     let host = null;
     let root = null;
     let column = null;
     let rows = {};
     let modelsBtn = null;
+    let actions = null;
+    const actionRows = {};
     let frame = null;
 
     let following = false;
@@ -97,7 +116,9 @@ export const FlightWindowControls = (() => {
                 transition: opacity .22s ease;
             }
             .fw-controls.vertical { flex-direction: column; }
-            .fw-controls.horizontal { flex-direction: row-reverse; }
+            /* On its side the groups run right to left and wrap upwards. */
+            .fw-controls.horizontal { flex-direction: row-reverse; flex-wrap: wrap-reverse; justify-content: flex-start; }
+            #aircraft-info-window.fw-actions-out .overview-actions { display: none !important; }
             .fw-controls.shown { pointer-events: auto; }
             .fw-controls.faded { pointer-events: none; }
             .fw-controls .fw-glass {
@@ -193,6 +214,27 @@ export const FlightWindowControls = (() => {
         modelsBtn.className = 'fw-models fw-glass';
         modelsBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleModels(); haptic(); });
 
+        actions = document.createElement('div');
+        actions.className = 'fw-stack fw-glass fw-actions';
+        for (const a of ACTIONS) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = `fw-row fw-act-${a.key}`;
+            b.innerHTML = `<i class="${a.icon}"></i>`;
+            b.title = a.title;
+            b.setAttribute('aria-label', a.title);
+            b.hidden = true;
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const real = host.windowEl() && host.windowEl().querySelector(a.sel);
+                if (real) real.click();
+                lastKey = '';
+            });
+            actions.appendChild(b);
+            actionRows[a.key] = b;
+        }
+
+        root.appendChild(actions);
         root.appendChild(column);
         root.appendChild(modelsBtn);
         // Taps on the column are the column's, never the map's.
@@ -359,6 +401,7 @@ export const FlightWindowControls = (() => {
         const id = host.selected();
         const up = id != null && isWindowUp(win);
         if (!up) {
+            if (win) win.classList.remove('fw-actions-out');
             root.classList.remove('shown');
             root.style.opacity = '0';
             if (following && id == null) { following = false; chasing = false; }
@@ -379,16 +422,32 @@ export const FlightWindowControls = (() => {
         // Placement, from the window as it is drawn this frame.
         const r = win.getBoundingClientRect();
         const c = host.container.getBoundingClientRect();
+        // The window's buttons this flight has, as the window draws them now.
+        const narrow = window.matchMedia('(max-width: 768px)').matches;
+        let actionSig = '';
+        let actionCount = 0;
+        for (const a of ACTIONS) {
+            const real = a.phone === false && narrow ? null : win.querySelector(a.sel);
+            const icon = real && real.querySelector('i');
+            if (real) actionCount++;
+            actionSig += real ? `${a.key}:${icon ? icon.className : ''}:${real.classList.contains('on')}:${real.title};` : '';
+        }
+
         const rowsShown = 1 + (turned ? 1 : 0) + (collapsed ? 0 : (modelsOn ? 4 : 3));
-        const columnHeight = rowsShown * ROW + 8 + (host.models.available() ? WIDTH + 8 : 0);
+        const columnHeight = rowsShown * ROW + 8 + (host.models.available() ? WIDTH + 8 : 0)
+            + (actionCount ? actionCount * ROW + 16 : 0);
         let left, top, opacity = 1, vertical = true;
         if (mobile) {
             // Lying on its side along the top of a peek too tall for it.
             vertical = r.top - c.top - columnHeight - GAP >= TOP_ROOM;
-            const ownHeight = vertical ? columnHeight : WIDTH;
-            const ownWidth = vertical ? WIDTH : root.offsetWidth || WIDTH;
-            left = c.width - 12 - ownWidth;
-            top = r.top - c.top - GAP - ownHeight;
+            if (root.classList.contains('vertical') !== vertical) {
+                root.classList.toggle('vertical', vertical);
+                root.classList.toggle('horizontal', !vertical);
+                lastKey = '';
+            }
+            root.style.maxWidth = vertical ? '' : `${Math.max(c.width - 24, WIDTH)}px`;
+            left = c.width - 12 - (root.offsetWidth || WIDTH);
+            top = r.top - c.top - GAP - (root.offsetHeight || WIDTH);
             // Faded over the first part of the opening, so nothing is left
             // hanging half there over a window that has nearly arrived.
             const peekTop = window.innerHeight - (window.MobileUIHandler?.getPeekHeight?.() || 320);
@@ -404,9 +463,21 @@ export const FlightWindowControls = (() => {
             if (left < 4 || left + WIDTH > c.width - 4) opacity = 0;
         }
 
-        const key = [turned, collapsed, modelsOn, pathOn, following, chasing, vertical].join('|');
+        const key = [turned, collapsed, modelsOn, pathOn, following, chasing, vertical, actionSig].join('|');
         if (key !== lastKey) {
             lastKey = key;
+            actions.hidden = !actionCount;
+            for (const a of ACTIONS) {
+                const row = actionRows[a.key];
+                const real = a.phone === false && narrow ? null : win.querySelector(a.sel);
+                row.hidden = !real;
+                if (!real) continue;
+                const icon = real.querySelector('i');
+                if (icon) row.firstElementChild.className = icon.className;
+                row.classList.toggle('on', real.classList.contains('on'));
+                row.title = real.title || a.title;
+                row.setAttribute('aria-label', row.title);
+            }
             root.classList.toggle('vertical', vertical);
             root.classList.toggle('horizontal', !vertical);
             rows.compass.hidden = !turned;
@@ -440,6 +511,8 @@ export const FlightWindowControls = (() => {
         root.style.opacity = String(opacity);
         root.classList.add('shown');
         root.classList.toggle('faded', opacity < 0.5);
+        // The window's own copies of the buttons, only while these are usable.
+        win.classList.toggle('fw-actions-out', actionCount > 0 && opacity >= 0.5);
 
         // The open flight's flown path, as the switch says, whenever its
         // layer is (re)built.
