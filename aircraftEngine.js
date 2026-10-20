@@ -28,12 +28,26 @@
  * ready to draw, so nothing ever blinks out while a model downloads. Taps
  * are answered from where each aeroplane was last drawn (`hitTest`).
  *
+ * ## The open aircraft's path, in the air
+ *
+ * As the iOS app's AircraftPath: the flown path at the heights it was
+ * flown, ending on the model as it is drawn — a line a few pixels wide in
+ * the colour of each stretch's altitude, over a darker halo, and a
+ * translucent curtain hanging from it to the ground that says how high and
+ * over what from any angle. The map's flat line stays under it as its
+ * shadow. Every point is projected on the CPU and the ribbon widened in
+ * screen space, so it is the same width in every world and at every tilt.
+ *
  * Public API:
- *   init(map, { features, pose, selected, onModelled })
+ *   init(map, { features, pose, selected, onModelled, path, pathOn, pathColour })
  *     features()            -> the live feature cache (currentMapFeatures)
  *     pose(id, nowMs)       -> [lon, lat, heading] as the icon is drawn, or null
  *     selected()            -> the open flight's id
  *     onModelled(id, bool)  -> show/hide that flight's flat icon
+ *     path(id)              -> its trail: [{ latitude, longitude, altitude
+ *                              (ft), groundSpeed (kt) }, …], oldest first
+ *     pathOn()              -> whether the flown path is shown
+ *     pathColour(feet)      -> [r, g, b] 0…1, the path's colour at a height
  *   setVisible(on), isVisible(), refresh(), hitTest({x, y}) -> flightId|null
  * ===================================================================
  */
@@ -55,7 +69,6 @@ export const AircraftEngine = (() => {
     const LIVERY_MIN_PX = 22;
     // Liveries kept on the GPU at once, beyond the plain ones.
     const MAX_LIVERIES = 48;
-    const SELECTED_TINT = [1.0, 0.72, 0.16, 0.38];
 
     // --- Size (iOS AircraftModelStyle) ---------------------------------
     // How long an A320 is drawn on screen, in pixels, at each zoom, while
@@ -533,6 +546,12 @@ void main() {
                         b.textures = [];
                     }
                 }
+                if (pathMesh) {
+                    gl3.scene.remove(pathMesh.mesh);
+                    pathMesh.geometry.dispose();
+                    for (const m of pathMesh.materials) m.dispose();
+                    pathMesh = null;
+                }
                 gl3.renderer = null;
             },
             render(gl, matrix, projection, globeToMerc, transition, centerInMerc, ppmRatio) {
@@ -582,6 +601,7 @@ void main() {
 
         for (const b of batches.values()) { b.list.length = 0; b.gearList.length = 0; }
         const nextDrawn = [];
+        let head = null;
         let fastest = 0;
         let flipSet = false;
 
@@ -726,14 +746,17 @@ void main() {
                 R[1] * SUN[0] + R[4] * SUN[1] + R[7] * SUN[2],
                 R[2] * SUN[0] + R[5] * SUN[1] + R[8] * SUN[2]];
             const sky = [R[6], R[7], R[8]];
-            const tint = tr.id === selectedId ? SELECTED_TINT : NO_TINT;
-
-            const entry = { flatM, globeM, sun, sky, tint };
+            const entry = { flatM, globeM, sun, sky, tint: NO_TINT };
             batch.list.push(entry);
             const gearDown = att.onGround || (heightM < 900 && att.speedKt < 200);
             if (gearDown) batch.gearList.push(entry);
 
             nextDrawn.push({ id: tr.id, x: centre[0], y: centre[1], r: Math.max(screenLength * 0.5, 10) });
+            // The open aircraft's path ends on the middle of the model as it
+            // is drawn on this frame, however large that is.
+            if (tr.id === selectedId) {
+                head = { lon, lat, alt: alt + (s.geometry.height || 0) * mag * 0.5, ground };
+            }
             if (!att.onGround || att.speedKt > 3) fastest = Math.max(fastest, att.speedKt * KT * ppm);
         }
         drawn = nextDrawn;
@@ -754,6 +777,8 @@ void main() {
             }
         }
 
+        drawPath(selectedId, head, { PA, PG, phase, eye, width, height, terrain, t });
+
         renderer.resetState();
         // On the globe Mapbox's depth buffer holds nothing a custom layer can
         // be tested against, and everything is drawn under the models anyway
@@ -772,6 +797,251 @@ void main() {
     }
 
     const NO_TINT = [0, 0, 0, 0];
+
+    // --- The open aircraft's path (iOS AircraftPath) ---------------------
+
+    const PATH_LINE_PX = 3.4;
+    const PATH_HALO_PX = 7;
+    const PATH_HALO = [0.03, 0.05, 0.09, 0.55];
+    const PATH_CURTAIN = 0.24;
+    // Most points projected a frame; older stretches are thinned to fit,
+    // the latest kept whole.
+    const PATH_MAX_POINTS = 1800;
+    const PATH_KEEP_RECENT = 300;
+    const FEET = 0.3048;
+
+    let pathCache = null;   // { id, trail, length, last, pts }
+    let pathMesh = null;    // { mesh, geometry, materials }
+
+    // The trail as heights above the field the aeroplane last stood on, as
+    // iOS FlownPathProfile.heights: on the ground 0; in the air above the
+    // last field before (or, before any, the first after); a sample with no
+    // height filled between its neighbours.
+    function pathPoints(id, trail) {
+        const n = trail.length;
+        const lastPt = trail[n - 1];
+        if (pathCache && pathCache.id === id && pathCache.trail === trail
+            && pathCache.length === n && pathCache.last === lastPt) return pathCache.pts;
+
+        // Thin the older part of a long trail.
+        const idx = [];
+        if (n > PATH_MAX_POINTS) {
+            const older = n - PATH_KEEP_RECENT;
+            const stride = Math.ceil(older / (PATH_MAX_POINTS - PATH_KEEP_RECENT));
+            for (let i = 0; i < older; i += stride) idx.push(i);
+            for (let i = older; i < n; i++) idx.push(i);
+        } else {
+            for (let i = 0; i < n; i++) idx.push(i);
+        }
+
+        const raw = idx.map((i) => {
+            const p = trail[i] || {};
+            const lon = Number(p.longitude != null ? p.longitude : p.lon);
+            const lat = Number(p.latitude != null ? p.latitude : p.lat);
+            const ft = p.altitude != null ? Number(p.altitude) : NaN;
+            const gs = Number(p.groundSpeed != null ? p.groundSpeed : p.gs) || 0;
+            return { lon, lat, ft, gs };
+        }).filter((p) => Number.isFinite(p.lon) && Number.isFinite(p.lat));
+
+        const known = raw.map((p) => Number.isFinite(p.ft));
+        const airborne = raw.map((p) => !(p.gs < 40 && p.ft < 10000));
+        let firstGround = null;
+        for (let i = 0; i < raw.length; i++) {
+            if (known[i] && !airborne[i]) { firstGround = raw[i].ft; break; }
+        }
+        let lastGround = null;
+        const h = new Array(raw.length).fill(null);
+        const sea = new Array(raw.length).fill(null);
+        for (let i = 0; i < raw.length; i++) {
+            if (!known[i]) continue;
+            if (!airborne[i]) { lastGround = raw[i].ft; h[i] = 0; }
+            else h[i] = Math.max(raw[i].ft - (lastGround != null ? lastGround : (firstGround || 0)), 0) * FEET;
+            sea[i] = raw[i].ft * FEET;
+        }
+        fillGaps(h);
+        fillGaps(sea);
+
+        const pts = raw.map((p, i) => {
+            const ft = Number.isFinite(p.ft) ? p.ft : (sea[i] || 0) / FEET;
+            const c = (opts.pathColour && opts.pathColour(ft)) || [0.22, 0.74, 0.97];
+            return { lon: p.lon, lat: p.lat, h: h[i] || 0, sea: sea[i] || 0, colour: c, ground: 0, groundAt: -1 };
+        });
+        pathCache = { id, trail, length: n, last: lastPt, pts };
+        return pts;
+    }
+
+    function fillGaps(values) {
+        const first = values.findIndex((v) => v != null);
+        if (first < 0) { values.fill(0); return; }
+        for (let i = 0; i < first; i++) values[i] = values[first];
+        let prev = first;
+        for (let i = first + 1; i < values.length; i++) {
+            if (values[i] == null) continue;
+            for (let g = prev + 1; g < i; g++) {
+                values[g] = values[prev] + (values[i] - values[prev]) * (g - prev) / (i - prev);
+            }
+            prev = i;
+        }
+        for (let i = prev + 1; i < values.length; i++) values[i] = values[prev];
+    }
+
+    function ensurePathMesh() {
+        if (pathMesh || !gl3) return pathMesh;
+        const { THREE, scene } = gl3;
+        const vertex = `
+precision highp float;
+attribute vec3 position;
+attribute vec4 color;
+varying vec4 vColor;
+void main() { gl_Position = vec4(position, 1.0); vColor = color; }`;
+        const fragment = `
+precision mediump float;
+varying vec4 vColor;
+void main() { gl_FragColor = vColor; }`;
+        // All three in the transparent pass, in this order — curtain, halo,
+        // line — so the line is drawn over its halo rather than under it.
+        const make = (depthWrite) => new THREE.RawShaderMaterial({
+            vertexShader: vertex, fragmentShader: fragment, side: THREE.DoubleSide,
+            transparent: true, depthWrite
+        });
+        const geometry = new THREE.BufferGeometry();
+        const materials = [make(false), make(false), make(true)]; // curtain, halo, line
+        const mesh = new THREE.Mesh(geometry, materials);
+        mesh.frustumCulled = false;
+        // Under the aeroplanes, so the line meets the model rather than
+        // painting over it.
+        mesh.renderOrder = -1;
+        scene.add(mesh);
+        pathMesh = { mesh, geometry, materials, capacity: 0 };
+        return pathMesh;
+    }
+
+    function hidePath() {
+        if (pathMesh) pathMesh.mesh.visible = false;
+    }
+
+    function drawPath(id, head, f) {
+        const trail = id && opts.path && (!opts.pathOn || opts.pathOn()) ? opts.path(id) : null;
+        if (!trail || trail.length < 1) { hidePath(); return; }
+        const pts = pathPoints(id, trail);
+        if (!pts.length) { hidePath(); return; }
+
+        const { PA, PG, phase, eye, width, height, terrain, t } = f;
+
+        // A point at an altitude to NDC, through each world, blended after the
+        // divide as the models are; null behind the camera or the globe.
+        const ndc = (lon, lat, alt) => {
+            lat = Math.min(Math.max(lat, -85), 85);
+            const mx = (lon + 180) / 360;
+            const my = (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + lat * DEG / 2))) / 360;
+            const sm = 1 / (CIRCUMFERENCE * Math.cos(lat * DEG));
+            const c = apply(PA, mx, my, alt * sm);
+            if (c[3] <= 1e-9) return null;
+            let x = c[0] / c[3], y = c[1] / c[3], z = c[2] / c[3];
+            if (PG && phase < 1) {
+                const la = lat * DEG, lo = lon * DEG;
+                const r = GLOBE_RADIUS + alt * ECEF_PER_METRE;
+                const up = [Math.cos(la) * Math.sin(lo), -Math.sin(la), Math.cos(la) * Math.cos(lo)];
+                const pos = [up[0] * r, up[1] * r, up[2] * r];
+                if (eye && up[0] * (eye[0] - pos[0]) + up[1] * (eye[1] - pos[1]) + up[2] * (eye[2] - pos[2]) < 0) return null;
+                const g = apply(PG, pos[0], pos[1], pos[2]);
+                if (g[3] <= 1e-9) return null;
+                x = g[0] / g[3] + (x - g[0] / g[3]) * phase;
+                y = g[1] / g[3] + (y - g[1] / g[3]) * phase;
+                z = g[2] / g[3] + (z - g[2] / g[3]) * phase;
+            }
+            return [x, y, z, (x + 1) / 2 * width, (1 - y) / 2 * height];
+        };
+
+        // The ground under each point, asked of the terrain now and then
+        // rather than every frame, and the altitude drawn over it — as the
+        // models are (iOS AircraftFrame.altitude).
+        const points = pts.map((p) => {
+            let ground = 0, alt = p.h;
+            if (terrain) {
+                if (t - p.groundAt > 3) {
+                    try { p.ground = map.queryTerrainElevation([p.lon, p.lat]) || 0; } catch (_) { p.ground = 0; }
+                    p.groundAt = t;
+                }
+                ground = p.ground;
+                const hugging = ground + p.h;
+                const flown = Math.max(p.sea, ground);
+                const share = Math.min(Math.max((p.h - 30) / 120, 0), 1);
+                alt = hugging + (flown - hugging) * share;
+            }
+            return { lon: p.lon, lat: p.lat, alt, ground, colour: p.colour };
+        });
+        // On to the aeroplane, when it is drawn on this frame.
+        if (head) {
+            const last = points[points.length - 1];
+            points.push({ lon: head.lon, lat: head.lat, alt: head.alt, ground: head.ground, colour: last.colour });
+        }
+
+        const tops = points.map((p) => ndc(p.lon, p.lat, p.alt));
+        const bottoms = points.map((p) => ndc(p.lon, p.lat, p.ground));
+
+        const pos = [];
+        const col = [];
+        const curtain = [], halo = [], line = [];
+        const lineAt = [], haloAt = [], curtainAt = [];
+        const push = (x, y, z, c) => { pos.push(x, y, z); col.push(c[0], c[1], c[2], c[3]); return pos.length / 3 - 1; };
+
+        for (let i = 0; i < points.length; i++) {
+            const top = tops[i];
+            if (!top) { lineAt.push(null); haloAt.push(null); curtainAt.push(null); continue; }
+            // The line's direction on screen here, from its neighbours.
+            let dx = 0, dy = 0;
+            const after = tops[i + 1], before = tops[i - 1];
+            if (after) { dx += after[3] - top[3]; dy += after[4] - top[4]; }
+            if (before) { dx += top[3] - before[3]; dy += top[4] - before[4]; }
+            const len = Math.hypot(dx, dy);
+            if (len < 1e-6) { lineAt.push(null); haloAt.push(null); curtainAt.push(null); continue; }
+            const nx = -dy / len, ny = dx / len;
+            const off = (px) => [2 * nx * px / width, -2 * ny * px / height];
+            const c = points[i].colour;
+            const core = [c[0], c[1], c[2], 1];
+            const oh = off(PATH_HALO_PX / 2), ol = off(PATH_LINE_PX / 2);
+            haloAt.push([push(top[0] + oh[0], top[1] + oh[1], top[2], PATH_HALO), push(top[0] - oh[0], top[1] - oh[1], top[2], PATH_HALO)]);
+            lineAt.push([push(top[0] + ol[0], top[1] + ol[1], top[2], core), push(top[0] - ol[0], top[1] - ol[1], top[2], core)]);
+            const bottom = bottoms[i];
+            curtainAt.push(bottom
+                ? [push(top[0], top[1], top[2], [c[0], c[1], c[2], PATH_CURTAIN]), push(bottom[0], bottom[1], bottom[2], [c[0], c[1], c[2], 0])]
+                : null);
+        }
+        const quad = (out, a, b) => { if (a && b) out.push(a[0], a[1], b[0], a[1], b[1], b[0]); };
+        for (let i = 0; i < points.length - 1; i++) {
+            quad(curtain, curtainAt[i], curtainAt[i + 1]);
+            quad(halo, haloAt[i], haloAt[i + 1]);
+            quad(line, lineAt[i], lineAt[i + 1]);
+        }
+        if (!line.length) { hidePath(); return; }
+
+        const pm = ensurePathMesh();
+        if (!pm) return;
+        const { THREE } = gl3;
+        const g = pm.geometry;
+        const vcount = pos.length / 3;
+        if (vcount > pm.capacity) {
+            pm.capacity = Math.max(vcount, pm.capacity * 2, 256);
+            g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pm.capacity * 3), 3).setUsage(THREE.DynamicDrawUsage));
+            g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pm.capacity * 4), 4).setUsage(THREE.DynamicDrawUsage));
+        }
+        g.attributes.position.array.set(pos);
+        g.attributes.color.array.set(col);
+        g.attributes.position.needsUpdate = true;
+        g.attributes.color.needsUpdate = true;
+        const index = new Uint32Array(curtain.length + halo.length + line.length);
+        index.set(curtain, 0);
+        index.set(halo, curtain.length);
+        index.set(line, curtain.length + halo.length);
+        g.setIndex(new THREE.BufferAttribute(index, 1));
+        g.clearGroups();
+        g.addGroup(0, curtain.length, 0);
+        g.addGroup(curtain.length, halo.length, 1);
+        g.addGroup(curtain.length + halo.length, line.length, 2);
+        g.setDrawRange(0, index.length);
+        pm.mesh.visible = true;
+    }
 
     function invert4(m) {
         const inv = new Float64Array(16);

@@ -333,7 +333,7 @@ export function fetchFile(url) {
  * along −X, the roof +Y and the right wing −Z: (x, y, z) → (−z, y, x).
  *
  * Resolves `{ parts: [{ textureIndex, gear, position, normal, uv, color }],
- *             length }`.
+ *             length, height }`, in metres.
  */
 const geometryCache = new Map();
 export function loadGeometry(model) {
@@ -356,7 +356,7 @@ export function loadGeometry(model) {
                 const name = String(part.texture || '').split(/[\\/]/).pop();
                 return { ...part, textureIndex: name ? model.textures.indexOf(name) : -1 };
             });
-            return { parts, length: ac.max[0] - ac.min[0] };
+            return { parts, length: ac.max[0] - ac.min[0], height: ac.max[1] - ac.min[1] };
         });
     p.catch(() => geometryCache.delete(model.id));
     geometryCache.set(model.id, p);

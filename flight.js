@@ -17545,7 +17545,15 @@ function initializeAircraftLayer() {
             features: () => currentMapFeatures,
             pose: (id, now) => (mapAnimator ? mapAnimator.pose(id, now) : null),
             selected: () => currentFlightInWindow,
-            onModelled: setFlightModelled
+            onModelled: setFlightModelled,
+            // The open flight's path in the air, as the iOS app draws it
+            // beside the 3D aircraft; the flat line stays as its shadow.
+            path: (id) => liveTrailCache.get(id) || liveTrailCache.get(String(id)) || null,
+            pathOn: () => mapFilters.showFlownPath !== false,
+            pathColour: (feet) => {
+                const m = String(flownAltColor(feet)).match(/\d+/g) || [56, 189, 248];
+                return [m[0] / 255, m[1] / 255, m[2] / 255];
+            }
         });
         if (mapFilters.aircraftModels3D) setAircraftModels3D(true);
 
