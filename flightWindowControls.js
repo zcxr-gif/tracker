@@ -14,7 +14,8 @@
  *     or the map is dragged away;
  *   - the flown path: on or off, and framed the moment it goes on;
  *   - the camera (with the 3D aircraft on): locked on to the aeroplane. It
- *     starts behind the tail and stays in the middle of the screen; zooming
+ *     starts behind the tail and stays in the middle of the part of the map
+ *     the window and these controls leave free; zooming
  *     zooms into it, a drag or a twist goes round it, and the camera turns
  *     with it so the view you chose holds as it turns;
  *   - a chevron that folds the middle of the column away.
@@ -294,7 +295,15 @@ export const FlightWindowControls = (() => {
         const r = win.getBoundingClientRect();
         const m = map.getContainer().getBoundingClientRect();
         if (host.isMobile()) {
-            pad.bottom = Math.max(pad.bottom, m.bottom - r.top + 20 + extra);
+            // Above the sheet, and above these controls where they lie across
+            // the map along its top.
+            let top = r.top;
+            for (const el of [root, leftRoot]) {
+                if (el && el.classList.contains('horizontal') && el.classList.contains('shown')) {
+                    top = Math.min(top, el.getBoundingClientRect().top);
+                }
+            }
+            pad.bottom = Math.max(pad.bottom, m.bottom - top + 16 + extra);
         } else if (r.left + r.width / 2 > m.left + m.width / 2) {
             pad.right = Math.max(pad.right, m.right - r.left + WIDTH + 2 * GAP + extra);
         } else {
@@ -397,7 +406,7 @@ export const FlightWindowControls = (() => {
         const pitch = Math.max(map.getPitch(), 62);
         map.easeTo({
             center: aimAt(plane, plane[2], pitch), bearing: plane[2], pitch,
-            zoom: Math.max(map.getZoom(), 12), padding: { top: 0, bottom: 0, left: 0, right: 0 },
+            zoom: Math.max(map.getZoom(), 12), padding: freePadding(),
             duration: 900, essential: true
         });
     }
@@ -465,7 +474,7 @@ export const FlightWindowControls = (() => {
         chaseOffset = norm(chaseOffset - dx * 0.35);
         const bearing = plane[2] + chaseOffset;
         const pitch = Math.min(Math.max(map.getPitch() - dy * 0.3, 0), 85);
-        map.jumpTo({ center: aimAt(plane, bearing, pitch), bearing, pitch });
+        map.jumpTo({ center: aimAt(plane, bearing, pitch), bearing, pitch, padding: freePadding() });
     }
 
     function onOrbitEnd(e) {
@@ -510,10 +519,14 @@ export const FlightWindowControls = (() => {
         }
         const want = plane[2] + chaseOffset;
         const target = aimAt(plane, want, map.getPitch());
+        // In the middle of the map the window leaves free, not of the screen.
+        const padding = freePadding();
+        const now = map.getPadding();
+        const padMoved = ['top', 'bottom', 'left', 'right'].some((k) => Math.abs((now[k] || 0) - padding[k]) > 1);
         const p = map.project(target);
         const mid = map.project(map.getCenter());
-        if (Math.hypot(p.x - mid.x, p.y - mid.y) < 0.25 && Math.abs(norm(map.getBearing() - want)) < 0.05) return;
-        map.jumpTo({ center: target, bearing: want });
+        if (!padMoved && Math.hypot(p.x - mid.x, p.y - mid.y) < 0.25 && Math.abs(norm(map.getBearing() - want)) < 0.05) return;
+        map.jumpTo({ center: target, bearing: want, padding });
     }
 
     function toggleModels() {
