@@ -17533,6 +17533,10 @@ function initializeAircraftLayer() {
             // the pilot has switched smooth motion off.
             mapAnimator.setGlideGate(() => mapFilters.smoothMotion !== false
                 && !(typeof LiveTraffic3D !== 'undefined' && LiveTraffic3D.isVisible()));
+            // The open flight is carried whatever the gate says, as the iOS
+            // app carries the one it follows: the camera, its 3D model and
+            // its flown path's head all ride on it.
+            mapAnimator.setFocus(() => currentFlightInWindow);
         }
 
         // 3D live-traffic dot field (toggled from the map toolbar / Settings).
