@@ -53,6 +53,7 @@
  */
 
 import { loadThree } from './threeLoader.js';
+import { FlownHead } from './flownHead.js';
 import {
     designatorForName, chooseModel, loadGeometry, loadTexture, texturePath, forgetTexture
 } from './aircraftModels.js';
@@ -755,7 +756,7 @@ void main() {
             // The open aircraft's path ends on the middle of the model as it
             // is drawn on this frame, however large that is.
             if (tr.id === selectedId) {
-                head = { lon, lat, alt: alt + (s.geometry.height || 0) * mag * 0.5, ground };
+                head = { lon, lat, heading, alt: alt + (s.geometry.height || 0) * mag * 0.5, ground };
             }
             if (!att.onGround || att.speedKt > 3) fastest = Math.max(fastest, att.speedKt * KT * ppm);
         }
@@ -971,9 +972,13 @@ void main() { gl_FragColor = vColor; }`;
             }
             return { lon: p.lon, lat: p.lat, alt, ground, colour: p.colour };
         });
-        // On to the aeroplane, when it is drawn on this frame.
+        // On to the aeroplane, when it is drawn on this frame — from the
+        // last breadcrumb it has passed, not from one it has yet to reach,
+        // so the path never runs out in front of it (see flownHead.js).
         if (head) {
-            const last = points[points.length - 1];
+            const colour = points[points.length - 1].colour;
+            points.length = FlownHead.trimAhead(points, [head.lon, head.lat, head.heading], (p) => [p.lon, p.lat]);
+            const last = points[points.length - 1] || { colour };
             points.push({ lon: head.lon, lat: head.lat, alt: head.alt, ground: head.ground, colour: last.colour });
         }
 

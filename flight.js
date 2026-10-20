@@ -11,6 +11,7 @@ import { FlownPath3D } from './flownPath3D.js';
 import { LiveTraffic3D } from './liveTraffic3D.js';
 import { AircraftEngine } from './aircraftEngine.js';
 import { FlightWindowControls } from './flightWindowControls.js';
+import { FlownHead } from './flownHead.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
@@ -13874,7 +13875,7 @@ function handleSocketFlightUpdate(data) {
                     const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
                     const source = layerId ? sectorOpsMap.getSource(layerId) : null;
                     if (source) {
-                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan);
+                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan, flightId);
                         source.setData(newRouteData);
                         updateTaxiOverlay(flightId, localTrail);
                         // Progress fractions shift as the line grows — re-apply
@@ -17556,6 +17557,17 @@ function initializeAircraftLayer() {
             }
         });
         if (mapFilters.aircraftModels3D) setAircraftModels3D(true);
+
+        // The open flight's flown path, grown to the aeroplane as it is drawn
+        // on every frame, as the iOS app's is (flownHead.js).
+        FlownHead.init(sectorOpsMap, {
+            selected: () => currentFlightInWindow,
+            pose: (id) => (mapAnimator ? mapAnimator.pose(id) : null),
+            flownLayer: (id) => (sectorOpsLiveFlightPathLayers[id] && sectorOpsLiveFlightPathLayers[id].flown) || `flown-path-${id}`,
+            rebuild: (id) => redrawFlownPath(id),
+            colour: (alt) => flownAltColor(alt),
+            anchor: () => getUnderAircraftAnchor()
+        });
 
         // The map controls for the open flight, standing outside its window
         // the way the iOS app's do (flightWindowControls.js).
@@ -22474,7 +22486,7 @@ function onAtcDataReceived(newAtcData) {
 if (flightProps) {
     const localTrail = liveTrailCache.get(flightId) || [];
     const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
-    const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan);
+    const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan, flightId);
 
     sectorOpsMap.addSource(`flown-path-${flightId}`, {
         type: 'geojson',
@@ -23768,23 +23780,30 @@ function updateTaxiOverlay(flightId, trail) {
 // Rebuild every flown trail on the map (a taxiway layout just arrived).
 function redrawAllFlownPaths() {
     if (!sectorOpsMap || typeof sectorOpsLiveFlightPathLayers === 'undefined') return;
-    for (const flightId of Object.keys(sectorOpsLiveFlightPathLayers)) {
-        const layerId = sectorOpsLiveFlightPathLayers[flightId] && sectorOpsLiveFlightPathLayers[flightId].flown;
-        const src = layerId && sectorOpsMap.getSource(layerId);
-        const trail = liveTrailCache.get(flightId);
-        const f = currentMapFeatures[flightId];
-        if (!src || !trail || !f) continue;
-        const pos = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], alt_ft: f.properties && f.properties.altitude };
-        const plan = flightId === currentFlightInWindow && typeof cachedFlightDataForStatsView !== 'undefined' && cachedFlightDataForStatsView
-            ? cachedFlightDataForStatsView.plan : null;
-        const data = generateAltitudeColoredRoute(trail, pos, plan);
-        src.setData(data);
-        applyFlownPathGradient(layerId, data);
-        if (flightId === currentFlightInWindow) updateTaxiOverlay(flightId, trail);
-    }
+    for (const flightId of Object.keys(sectorOpsLiveFlightPathLayers)) redrawFlownPath(flightId);
 }
 
-function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
+function redrawFlownPath(flightId) {
+    if (!sectorOpsMap || typeof sectorOpsLiveFlightPathLayers === 'undefined') return;
+    const layerId = sectorOpsLiveFlightPathLayers[flightId] && sectorOpsLiveFlightPathLayers[flightId].flown;
+    const src = layerId && sectorOpsMap.getSource(layerId);
+    const trail = liveTrailCache.get(flightId);
+    const f = currentMapFeatures[flightId];
+    if (!src || !trail || !f) return;
+    const pos = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], alt_ft: f.properties && f.properties.altitude };
+    const plan = flightId === currentFlightInWindow && typeof cachedFlightDataForStatsView !== 'undefined' && cachedFlightDataForStatsView
+        ? cachedFlightDataForStatsView.plan : null;
+    const data = generateAltitudeColoredRoute(trail, pos, plan, flightId);
+    src.setData(data);
+    applyFlownPathGradient(layerId, data);
+    if (flightId === currentFlightInWindow) updateTaxiOverlay(flightId, trail);
+}
+
+// `flightId`, when it is the open flight, ends the line on the last
+// breadcrumb the aeroplane has passed as it is drawn, and hands that end to
+// FlownHead, which joins it to the aeroplane every frame (the iOS app's
+// flown head — see flownHead.js).
+function generateAltitudeColoredRoute(trailPoints, currentPosition, plan, flightId) {
     const allPoints = [...(trailPoints || [])];
 
     // The trail history (route API) and the live position (flight feed) come
@@ -23814,7 +23833,35 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         });
     }
 
+    // The open flight's line stops where the aeroplane is drawn: whatever it
+    // has yet to reach is the flown head's to draw, not the line's.
+    const isOpen = flightId != null && String(flightId) === String(currentFlightInWindow);
+    const pose = isOpen && mapAnimator ? mapAnimator.pose(flightId) : null;
+    if (pose) {
+        allPoints.length = FlownHead.trimAhead(allPoints, pose, (p) => {
+            const lon = (p.longitude != null) ? p.longitude : p.lon;
+            const lat = (p.latitude != null) ? p.latitude : p.lat;
+            return Number.isFinite(lon) && Number.isFinite(lat) ? [lon, lat] : null;
+        });
+    }
+    const noteEnd = (lon, lat, alt) => {
+        if (!isOpen) return;
+        FlownHead.noteEnd(flightId, Number.isFinite(lon) && Number.isFinite(lat) ? {
+            lon, lat, alt,
+            trail: trailPoints || [],
+            kept: Math.min(allPoints.length, (trailPoints || []).length)
+        } : null);
+    };
+
     if (allPoints.length < 2) {
+        const only = allPoints[0];
+        if (only) {
+            noteEnd((only.longitude != null) ? only.longitude : only.lon,
+                (only.latitude != null) ? only.latitude : only.lat,
+                (only.altitude != null) ? only.altitude : (only.alt || 0));
+        } else {
+            noteEnd(NaN, NaN, 0);
+        }
         return { type: 'FeatureCollection', features: [] };
     }
 
@@ -23888,6 +23935,8 @@ function generateAltitudeColoredRoute(trailPoints, currentPosition, plan) {
         }]
     };
     fc.__altGradient = buildFlownPathGradient(smoothedPoints);
+    const tip = coordinates[coordinates.length - 1];
+    noteEnd(tip[0], tip[1], raw[raw.length - 1].alt);
     return fc;
 }
 
@@ -24475,7 +24524,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             : sortedRoutePoints;
 
         // Generate the segmented FeatureCollection using our new function
-        const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan);
+        const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan, flightProps.flightId);
 
         if (!sectorOpsMap.getSource(flownLayerId)) {
             sectorOpsMap.addSource(flownLayerId, {
