@@ -70,9 +70,12 @@ export const FlightWindowControls = (() => {
     const GAP = 10;
     // Room kept between a phone column and the top of the screen.
     const TOP_ROOM = 70;
-    // How far off the middle of the free map the aeroplane may drift before
-    // a follow brings the map back to it.
-    const FOLLOW_SLACK_PX = 36;
+    // After a zoom, a twist or an ease, the aeroplane has flown on from the
+    // middle: the camera glides back on to it over this long, not in a jump.
+    const SETTLE_MS = 600;
+    // Locked on, the camera turns with the aeroplane through this much
+    // smoothing (seconds), so a turn reported in steps is ridden as one.
+    const CHASE_HEADING_TAU = 1.2;
 
     // The window's header buttons, in the order they stood there. `phone`
     // false: hidden on narrow screens, as the window hides it.
@@ -100,6 +103,12 @@ export const FlightWindowControls = (() => {
     // The camera's bearing relative to the aeroplane's heading: 0 is behind
     // the tail. What a drag or a twist round the aeroplane changes.
     let chaseOffset = 0;
+    // The aeroplane's heading as the locked-on camera turns with it.
+    let chaseHeading = null;
+    let chaseHeadingT = 0;
+    // The gap between the camera and the aeroplane when the camera last let
+    // go of it, being eased out: { lon, lat, t0 }. null while it is let go.
+    let settle = null;
     // A one-finger (or mouse) drag going round the aeroplane.
     let orbit = null;
     // The map's own gestures as they were before the camera locked on.
@@ -436,6 +445,8 @@ export const FlightWindowControls = (() => {
         chasing = on;
         lastKey = '';
         orbit = null;
+        settle = null;
+        chaseHeading = null;
         if (on) {
             savedHandlers = {
                 dragPan: map.dragPan.isEnabled(),
@@ -494,7 +505,7 @@ export const FlightWindowControls = (() => {
         const plane = host.aircraft(host.selected());
         if (!plane) return;
         chaseOffset = norm(chaseOffset - dx * 0.35);
-        const bearing = plane[2] + chaseOffset;
+        const bearing = (chaseHeading === null ? plane[2] : chaseHeading) + chaseOffset;
         const pitch = Math.min(Math.max(map.getPitch() - dy * 0.3, 0), 85);
         map.jumpTo({ center: aimAt(plane, bearing, pitch), bearing, pitch, padding: freePadding() });
     }
@@ -525,6 +536,50 @@ export const FlightWindowControls = (() => {
 
     function norm(deg) {
         return ((deg + 540) % 360) - 180;
+    }
+
+    // Where to put the map's centre this frame to hold `target` there: the
+    // target itself, once any gap left by the last time the camera let go
+    // (a zoom, a twist, an ease, all of which the aeroplane flies on
+    // through) has been eased out.
+    function settled(target) {
+        const now = performance.now();
+        if (!settle) {
+            const c = map.getCenter();
+            settle = { lon: norm(c.lng - target[0]), lat: c.lat - target[1], t0: now };
+        }
+        const u = Math.min(Math.max((now - settle.t0) / SETTLE_MS, 0), 1);
+        const w = 1 - u * u * (3 - 2 * u);
+        if (w <= 0) return target;
+        return [target[0] + settle.lon * w, target[1] + settle.lat * w];
+    }
+
+    // The map on `target` with `padding` (and `bearing`, if given), unless
+    // it is already there.
+    function holdAt(target, padding, bearing) {
+        const now = map.getPadding();
+        const padMoved = ['top', 'bottom', 'left', 'right'].some((k) => Math.abs((now[k] || 0) - padding[k]) > 1);
+        const p = map.project(target);
+        const mid = map.project(map.getCenter());
+        const turned = bearing != null && Math.abs(norm(map.getBearing() - bearing)) >= 0.05;
+        if (!padMoved && !turned && Math.hypot(p.x - mid.x, p.y - mid.y) < 0.25) return;
+        const opts = { center: target, padding };
+        if (bearing != null) opts.bearing = bearing;
+        map.jumpTo(opts);
+    }
+
+    // The aeroplane's heading smoothed for the locked-on camera to turn with.
+    function smoothHeading(heading) {
+        const now = performance.now();
+        if (chaseHeading === null) {
+            chaseHeading = heading;
+        } else {
+            const dt = Math.min(Math.max((now - chaseHeadingT) / 1000, 0), 0.25);
+            const k = 1 - Math.exp(-dt / CHASE_HEADING_TAU);
+            chaseHeading = (chaseHeading + norm(heading - chaseHeading) * k + 360) % 360;
+        }
+        chaseHeadingT = now;
+        return chaseHeading;
     }
 
     // Mapbox's camera always looks at a point on the ground, and the
@@ -559,20 +614,15 @@ export const FlightWindowControls = (() => {
         const limit = chaseZoomLimit(plane);
         const allowed = map.isMoving() && map.getZoom() > limit ? map.getZoom() : limit;
         if (Math.abs(map.getMaxZoom() - allowed) > 0.02) map.setMaxZoom(allowed);
+        const heading = smoothHeading(plane[2]);
         if (map.isMoving() || orbit) {
-            if (!orbit) chaseOffset = norm(map.getBearing() - plane[2]);
+            settle = null;
+            if (!orbit) chaseOffset = norm(map.getBearing() - heading);
             return;
         }
-        const want = plane[2] + chaseOffset;
-        const target = aimAt(plane, want, map.getPitch());
+        const want = heading + chaseOffset;
         // In the middle of the map the window leaves free, not of the screen.
-        const padding = freePadding();
-        const now = map.getPadding();
-        const padMoved = ['top', 'bottom', 'left', 'right'].some((k) => Math.abs((now[k] || 0) - padding[k]) > 1);
-        const p = map.project(target);
-        const mid = map.project(map.getCenter());
-        if (!padMoved && Math.hypot(p.x - mid.x, p.y - mid.y) < 0.25 && Math.abs(norm(map.getBearing() - want)) < 0.05) return;
-        map.jumpTo({ center: target, bearing: want, padding });
+        holdAt(settled(aimAt(plane, want, map.getPitch())), freePadding(), want);
     }
 
     function toggleModels() {
@@ -588,22 +638,23 @@ export const FlightWindowControls = (() => {
         lastKey = '';
     }
 
+    // Following: the aeroplane held in the middle of the free map every
+    // frame, gliding with it — except while the map's own gestures or an
+    // ease are under way, which a jump would cut short; the gap they leave
+    // is glided out after (see settled).
     function recentre(force) {
         const id = host.selected();
         if (!following || chasing || id == null) return;
         const plane = host.aircraft(id);
         if (!plane) return;
         const padding = freePadding();
-        if (!force) {
-            if (map.isMoving()) return;
-            const p = map.project(aimAt(plane, map.getBearing(), map.getPitch()));
-            const c = map.getContainer();
-            const cx = padding.left + (c.clientWidth - padding.left - padding.right) / 2;
-            const cy = padding.top + (c.clientHeight - padding.top - padding.bottom) / 2;
-            const drift = Math.hypot(p.x - cx, p.y - cy);
-            if (drift < FOLLOW_SLACK_PX) return;
+        if (force) {
+            settle = null;
+            map.easeTo({ center: aimAt(plane, map.getBearing(), map.getPitch()), padding, duration: 800, essential: true });
+            return;
         }
-        map.easeTo({ center: aimAt(plane, map.getBearing(), map.getPitch()), padding, duration: force ? 800 : 700, essential: true });
+        if (map.isMoving()) { settle = null; return; }
+        holdAt(settled(aimAt(plane, map.getBearing(), map.getPitch())), padding);
     }
 
     // --- Every frame -------------------------------------------------------

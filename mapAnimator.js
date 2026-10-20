@@ -467,15 +467,16 @@ export class MapAnimator {
                 fixLon: lon, fixLat: lat, fixMs, t0: now,
                 vLon: 0, vLat: 0,
                 offLon: 0, offLat: 0, offT0: 0,
+                iconLon: 0, iconLat: 0, iconT0: 0,
                 hFrom: heading, hTo: heading, hT0: 0
             };
             this._setReportedVelocity(m, p, lat);
         } else if (m.fixMs !== fixMs || m.fixLon !== lon || m.fixLat !== lat) {
-            // Where the plane is on screen, before taking the new report. The
-            // last drawn point, not the extrapolated one: after a pause (camera
-            // move, hidden tab) the two differ, and easing from the drawn point
-            // is what keeps the plane from jumping.
-            const drawn = Number.isFinite(r.drawT) ? [r.drawLon, r.drawLat] : this._position(m, now);
+            // Where the plane is drawn as a 3D model, before taking the new
+            // report: its pose, which never pauses. The icon's own lag behind
+            // it (after a camera move, a hidden tab) is eased out separately
+            // below, so neither jumps.
+            const drawn = this._position(m, now);
             const drawnHeading = this._heading(m, now);
 
             // Ground track from consecutive reports captures wind and turns
@@ -511,10 +512,15 @@ export class MapAnimator {
                 m.offLon = offLon; m.offLat = offLat;
             }
             m.offT0 = now;
+            this._noteIconLag(r, m, now);
 
             m.hFrom = drawnHeading;
             m.hTo = heading;
             m.hT0 = now;
+        } else if (glide && now - r.drawT > Math.max(250, this._glideInterval * 2.5)) {
+            // A flush after glide was held (the moveend one): the icon eases
+            // on from where it stopped, as a resumed glide frame would.
+            this._noteIconLag(r, m, now);
         }
 
         if (!glide) {
@@ -522,6 +528,7 @@ export class MapAnimator {
             // exactly what is on screen if it switches on later.
             m.t0 = now;
             m.offLon = 0; m.offLat = 0;
+            m.iconLon = 0; m.iconLat = 0;
             m.hFrom = heading; m.hTo = heading;
         }
 
@@ -555,6 +562,8 @@ export class MapAnimator {
         return [m.fixLon + m.vLon * dt, m.fixLat + m.vLat * dt];
     }
 
+    // Where the plane is drawn as a 3D model (and aimed at by a following
+    // camera): continuous, whatever the icon pushes are doing.
     _position(m, now) {
         const b = this._base(m, now);
         let lon = b[0], lat = b[1];
@@ -566,13 +575,40 @@ export class MapAnimator {
         return [wrapLon(lon), Math.max(-85, Math.min(85, lat))];
     }
 
+    // Where the flat icon is drawn: the pose, plus whatever the icon still
+    // lags behind it after its pushes were held.
+    _iconPosition(m, now) {
+        const pos = this._position(m, now);
+        const w = 1 - smoothstep((now - m.iconT0) / MapAnimator.CORRECTION_MS);
+        if (w > 0 && (m.iconLon !== 0 || m.iconLat !== 0)) {
+            pos[0] = wrapLon(pos[0] + m.iconLon * w);
+            pos[1] = Math.max(-85, Math.min(85, pos[1] + m.iconLat * w));
+        }
+        return pos;
+    }
+
+    // Starts easing out the gap between where the icon was last drawn and
+    // the pose, so the icon glides back onto the model rather than jumping.
+    _noteIconLag(r, m, now) {
+        m.iconLon = 0; m.iconLat = 0;
+        if (!Number.isFinite(r.drawT)) return false;
+        const pos = this._position(m, now);
+        const oLon = angleDelta(pos[0], r.drawLon);
+        const oLat = r.drawLat - pos[1];
+        const tiny = 1e-6; // ~0.1 m: nothing to ease
+        if ((Math.abs(oLon) <= tiny && Math.abs(oLat) <= tiny)
+            || Math.abs(oLon) > MapAnimator.SNAP_DEG || Math.abs(oLat) > MapAnimator.SNAP_DEG) return false;
+        m.iconLon = oLon; m.iconLat = oLat; m.iconT0 = now;
+        return true;
+    }
+
     _heading(m, now) {
         const u = smoothstep((now - m.hT0) / MapAnimator.HEADING_MS);
         return (m.hFrom + angleDelta(m.hFrom, m.hTo) * u + 360) % 360;
     }
 
     _write(r, m, now) {
-        const pos = this._position(m, now);
+        const pos = this._iconPosition(m, now);
         const c = r.feature.geometry.coordinates;
         c[0] = pos[0];
         c[1] = pos[1];
@@ -589,6 +625,7 @@ export class MapAnimator {
 
     _isEasing(m, now) {
         return ((m.offLon !== 0 || m.offLat !== 0) && now - m.offT0 < MapAnimator.CORRECTION_MS)
+            || ((m.iconLon !== 0 || m.iconLat !== 0) && now - m.iconT0 < MapAnimator.CORRECTION_MS)
             || (m.hFrom !== m.hTo && now - m.hT0 < MapAnimator.HEADING_MS);
     }
 
@@ -669,22 +706,16 @@ export class MapAnimator {
         for (const r of movers) {
             const m = r.m;
             // Glide was paused (camera move, hidden tab, a load in flight):
-            // continue from where the plane was last drawn and ease onto its
-            // track, instead of jumping by however far it travelled meanwhile.
+            // the icon continues from where it was last drawn and eases back
+            // onto the pose, instead of jumping by however far it travelled
+            // meanwhile. Only the icon: the pose (the 3D model, and a camera
+            // following it) kept moving and must not be pulled back.
             // "Stale" is relative to the current push interval: at low
             // on-screen speeds pushes are legitimately ~1 s apart, and a fixed
             // threshold treated every one of them as a resume — each started a
             // new 1.2 s ease that forced 30 pushes a second for a single plane.
             if (now - r.drawT > Math.max(250, this._glideInterval * 2.5)) {
-                const b = this._base(m, now);
-                const oLon = angleDelta(b[0], r.drawLon);
-                const oLat = r.drawLat - b[1];
-                const tiny = 1e-6; // ~0.1 m: nothing to ease
-                if ((Math.abs(oLon) > tiny || Math.abs(oLat) > tiny)
-                    && Math.abs(oLon) <= MapAnimator.SNAP_DEG && Math.abs(oLat) <= MapAnimator.SNAP_DEG) {
-                    m.offLon = oLon; m.offLat = oLat; m.offT0 = now;
-                    easing = true;
-                }
+                if (this._noteIconLag(r, m, now)) easing = true;
             }
             this._write(r, m, now);
         }
