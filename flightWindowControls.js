@@ -27,15 +27,19 @@
  *
  * Where it stands is read from the window on every frame, so it follows it
  * exactly however the window moves:
- *   - phone, where the window is a sheet on the bottom edge: on the sheet's
- *     top right-hand corner, riding it down while it is pulled, and faded
- *     as it opens towards the full window (gone by about two thirds of the
- *     way). Upright in one column when that fits above the peek; when it
- *     does not, the window's buttons stand upright beside the map controls
- *     instead of above them; and only if even that is too tall does it lie
- *     on its side along the sheet's top;
+ *   - phone, where the window is a sheet on the bottom edge: the map
+ *     controls on the sheet's top right-hand corner and the window's buttons
+ *     on its top left-hand one, both riding it down while it is pulled and
+ *     faded as it opens towards the full window (gone by about two thirds of
+ *     the way). Each lies on its side along the sheet only when it is too
+ *     tall to stand above the peek;
  *   - desktop: beside the window, on the side facing the map, level with its
- *     top.
+ *     top — the window's buttons first, the map controls under them.
+ *
+ * With no flight open the corner keeps the map's own controls, as the iOS
+ * app's does: the compass while the map is turned (or tilted, with the 3D
+ * aircraft off) and 3D/2D — over the weather and ATC bubbles on a phone, in
+ * the bottom right-hand corner on desktop.
  *
  * Public API:
  *   init(map, host)  host: {
@@ -81,6 +85,7 @@ export const FlightWindowControls = (() => {
     let rows = {};
     let modelsBtn = null;
     let actions = null;
+    let leftRoot = null;
     const actionRows = {};
     let frame = null;
 
@@ -118,8 +123,8 @@ export const FlightWindowControls = (() => {
                 transition: opacity .22s ease;
             }
             .fw-controls.vertical { flex-direction: column; }
-            /* Two upright columns side by side, standing on the same edge. */
-            .fw-controls.pair { flex-direction: row; align-items: flex-end; }
+            .fw-controls.horizontal.fw-left { flex-direction: row; }
+            .fw-controls.horizontal.fw-left .fw-stack { flex-direction: row; }
             .fw-controls .fw-main { display: flex; flex-direction: column; align-items: center; gap: 8px; }
             .fw-controls.horizontal .fw-main { flex-direction: row-reverse; }
             /* On its side the groups run right to left and wrap upwards. */
@@ -244,13 +249,22 @@ export const FlightWindowControls = (() => {
         main.className = 'fw-main';
         main.appendChild(column);
         main.appendChild(modelsBtn);
-        root.appendChild(actions);
         root.appendChild(main);
+
+        // The window's buttons stand on their own, at the other corner.
+        leftRoot = document.createElement('div');
+        leftRoot.className = 'fw-controls fw-left vertical';
+        leftRoot.setAttribute('role', 'toolbar');
+        leftRoot.setAttribute('aria-label', 'Flight actions');
+        leftRoot.appendChild(actions);
+
         // Taps on the column are the column's, never the map's.
-        for (const type of ['mousedown', 'touchstart', 'dblclick', 'wheel']) {
-            root.addEventListener(type, (e) => e.stopPropagation(), { passive: true });
+        for (const el of [root, leftRoot]) {
+            for (const type of ['mousedown', 'touchstart', 'dblclick', 'wheel']) {
+                el.addEventListener(type, (e) => e.stopPropagation(), { passive: true });
+            }
+            host.container.appendChild(el);
         }
-        host.container.appendChild(root);
     }
 
     function haptic() {
@@ -296,7 +310,10 @@ export const FlightWindowControls = (() => {
     function northUp() {
         // Facing north and riding behind the tail cannot both hold.
         chasing = false;
-        map.easeTo({ bearing: 0, duration: 500 });
+        // Level as well, unless the 3D aircraft are what the tilt is for.
+        const opts = { bearing: 0, duration: 500, essential: true };
+        if (!host.models.isOn()) opts.pitch = 0;
+        map.easeTo(opts);
     }
 
     function frameCoordinates(points, maxZoom) {
@@ -409,13 +426,8 @@ export const FlightWindowControls = (() => {
         const win = host.windowEl();
         const id = host.selected();
         const up = id != null && isWindowUp(win);
-        if (!up) {
-            if (win) win.classList.remove('fw-actions-out');
-            root.classList.remove('shown');
-            root.style.opacity = '0';
-            if (following && id == null) { following = false; chasing = false; }
-            return;
-        }
+        if (!up && win) win.classList.remove('fw-actions-out');
+        if (following && !up) { following = false; chasing = false; }
         if (followFlight !== null && id !== followFlight) {
             // Another aeroplane opened: the follow was for the last one.
             following = false; chasing = false; followFlight = null;
@@ -424,67 +436,98 @@ export const FlightWindowControls = (() => {
         const modelsOn = !!host.models.isOn();
         if (!modelsOn && chasing) chasing = false;
         const bearing = map.getBearing();
-        const turned = Math.abs(bearing) > 0.5;
+        // The compass: a turned map, or a tilted one that is not tilted for
+        // the 3D aircraft.
+        const turned = Math.abs(bearing) > 0.5 || (!modelsOn && map.getPitch() > 1);
         const pathOn = !!host.flownPath.isOn();
         const mobile = host.isMobile();
-
-        // Placement, from the window as it is drawn this frame.
-        const r = win.getBoundingClientRect();
         const c = host.container.getBoundingClientRect();
+
         // The window's buttons this flight has, as the window draws them now.
         const narrow = window.matchMedia('(max-width: 768px)').matches;
         let actionSig = '';
         let actionCount = 0;
-        for (const a of ACTIONS) {
-            const real = a.phone === false && narrow ? null : win.querySelector(a.sel);
-            const icon = real && real.querySelector('i');
-            if (real) actionCount++;
-            actionSig += real ? `${a.key}:${icon ? icon.className : ''}:${real.classList.contains('on')}:${real.title};` : '';
+        if (up) {
+            for (const a of ACTIONS) {
+                const real = a.phone === false && narrow ? null : win.querySelector(a.sel);
+                const icon = real && real.querySelector('i');
+                if (real) actionCount++;
+                actionSig += real ? `${a.key}:${icon ? icon.className : ''}:${real.classList.contains('on')}:${real.title};` : '';
+            }
         }
 
-        const rowsShown = 1 + (turned ? 1 : 0) + (collapsed ? 0 : (modelsOn ? 4 : 3));
-        const mainHeight = rowsShown * ROW + 8 + (host.models.available() ? WIDTH + 8 : 0);
+        const flightRows = up && !collapsed ? (modelsOn ? 4 : 3) : 0;
+        const rowsShown = (up ? 1 : 0) + (turned ? 1 : 0) + flightRows;
+        const modelsShown = host.models.available();
+        const mainHeight = (rowsShown ? rowsShown * ROW + 8 : 0) + (modelsShown ? WIDTH + (rowsShown ? 8 : 0) : 0);
         const actionsHeight = actionCount ? actionCount * ROW + 8 : 0;
-        let left, top, opacity = 1, layout = 'vertical';
-        if (mobile) {
-            // One column if it fits above the peek; else the window's buttons
-            // upright beside the map controls; on its side only as a last
-            // resort.
-            const room = r.top - c.top - GAP - TOP_ROOM;
-            if (mainHeight + (actionsHeight ? actionsHeight + 8 : 0) <= room) layout = 'vertical';
-            else if (Math.max(mainHeight, actionsHeight) <= room) layout = 'pair';
-            else layout = 'horizontal';
-            if (!root.classList.contains(layout)) {
-                root.classList.remove('vertical', 'pair', 'horizontal');
-                root.classList.add(layout);
-                lastKey = '';
+
+        let layout = 'vertical', leftLayout = 'vertical';
+        let left = 0, top = 0, opacity = 1;
+        let aLeft = 0, aTop = 0;
+        let shown = true;
+
+        if (up) {
+            const r = win.getBoundingClientRect();
+            if (mobile) {
+                // Each stands upright above the peek if it fits, and lies on
+                // its side along the sheet's top only when it does not.
+                const room = r.top - c.top - GAP - TOP_ROOM;
+                layout = mainHeight <= room ? 'vertical' : 'horizontal';
+                leftLayout = actionsHeight <= room ? 'vertical' : 'horizontal';
+                setLayout(root, layout);
+                setLayout(leftRoot, leftLayout);
+                const half = `${Math.max(c.width / 2 - 18, WIDTH)}px`;
+                root.style.maxWidth = layout === 'horizontal' ? half : '';
+                leftRoot.style.maxWidth = leftLayout === 'horizontal' ? half : '';
+                left = c.width - 12 - (root.offsetWidth || WIDTH);
+                top = r.top - c.top - GAP - (root.offsetHeight || WIDTH);
+                aLeft = 12;
+                aTop = r.top - c.top - GAP - (leftRoot.offsetHeight || WIDTH);
+                // Faded over the first part of the opening, so nothing is left
+                // hanging half there over a window that has nearly arrived.
+                const peekTop = window.innerHeight - (window.MobileUIHandler?.getPeekHeight?.() || 320);
+                const fullTop = window.innerHeight - r.height;
+                const span = Math.max(peekTop - fullTop, 1);
+                const openness = Math.min(Math.max((peekTop - r.top) / span, 0), 1);
+                opacity = Math.max(0, 1 - openness * 1.6);
+                if (Math.min(top, aTop) < 8) opacity = 0;
+            } else {
+                setLayout(root, 'vertical');
+                setLayout(leftRoot, 'vertical');
+                root.style.maxWidth = leftRoot.style.maxWidth = '';
+                const onRight = r.left + r.width / 2 > c.left + c.width / 2;
+                left = aLeft = onRight ? r.left - c.left - GAP - WIDTH : r.right - c.left + GAP;
+                aTop = r.top - c.top;
+                top = aTop + (actionCount ? (leftRoot.offsetHeight || actionsHeight) + 8 : 0);
+                if (left < 4 || left + WIDTH > c.width - 4) opacity = 0;
             }
-            root.style.maxWidth = layout === 'horizontal' ? `${Math.max(c.width - 24, WIDTH)}px` : '';
-            left = c.width - 12 - (root.offsetWidth || WIDTH);
-            top = r.top - c.top - GAP - (root.offsetHeight || WIDTH);
-            // Faded over the first part of the opening, so nothing is left
-            // hanging half there over a window that has nearly arrived.
-            const peekTop = window.innerHeight - (window.MobileUIHandler?.getPeekHeight?.() || 320);
-            const fullTop = window.innerHeight - r.height;
-            const span = Math.max(peekTop - fullTop, 1);
-            const openness = Math.min(Math.max((peekTop - r.top) / span, 0), 1);
-            opacity = Math.max(0, 1 - openness * 1.6);
-            if (top < 8) opacity = 0;
         } else {
-            const onRight = r.left + r.width / 2 > c.left + c.width / 2;
-            left = onRight ? r.left - c.left - GAP - WIDTH : r.right - c.left + GAP;
-            top = r.top - c.top;
-            if (left < 4 || left + WIDTH > c.width - 4) opacity = 0;
+            // No flight open: the map's own controls stay in the corner.
+            setLayout(root, 'vertical');
+            root.style.maxWidth = '';
+            const busy = mobile && host.container.classList.contains('mobile-window-open');
+            shown = !busy && (turned || modelsShown);
+            const ownHeight = root.offsetHeight || mainHeight;
+            const bubbles = mobile ? document.getElementById('ios-map-bubbles') : null;
+            const b = bubbles && bubbles.getBoundingClientRect();
+            if (b && b.width > 0 && b.height > 0) {
+                left = b.right - c.left - WIDTH - Math.max((b.width - WIDTH) / 2, 0);
+                top = b.top - c.top - GAP - ownHeight;
+            } else {
+                left = c.width - 16 - WIDTH;
+                top = c.height - (mobile ? 120 : 40) - ownHeight;
+            }
         }
 
         const vertical = layout !== 'horizontal';
-        const key = [turned, collapsed, modelsOn, pathOn, following, chasing, layout, actionSig].join('|');
+        const key = [up, turned, collapsed, modelsOn, pathOn, following, chasing, layout, leftLayout, actionSig].join('|');
         if (key !== lastKey) {
             lastKey = key;
             actions.hidden = !actionCount;
             for (const a of ACTIONS) {
                 const row = actionRows[a.key];
-                const real = a.phone === false && narrow ? null : win.querySelector(a.sel);
+                const real = up && !(a.phone === false && narrow) ? win.querySelector(a.sel) : null;
                 row.hidden = !real;
                 if (!real) continue;
                 const icon = real.querySelector('i');
@@ -493,11 +536,11 @@ export const FlightWindowControls = (() => {
                 row.title = real.title || a.title;
                 row.setAttribute('aria-label', row.title);
             }
-            root.classList.remove('vertical', 'pair', 'horizontal');
-            root.classList.add(layout);
+            column.hidden = rowsShown === 0;
             rows.compass.hidden = !turned;
-            for (const k of ['frame', 'follow', 'path']) rows[k].hidden = collapsed;
-            rows.chase.hidden = collapsed || !modelsOn;
+            for (const k of ['frame', 'follow', 'path']) rows[k].hidden = !up || collapsed;
+            rows.chase.hidden = !up || collapsed || !modelsOn;
+            rows.collapse.hidden = !up;
             rows.follow.classList.toggle('on', following);
             rows.follow.title = following ? 'Stop following this aircraft' : 'Centre on this aircraft and follow it';
             rows.path.classList.toggle('on', pathOn);
@@ -510,7 +553,7 @@ export const FlightWindowControls = (() => {
                 : `<i class="fa-solid fa-chevron-${collapsed ? 'left' : 'right'}"></i>`;
             rows.collapse.title = collapsed ? 'Show map controls' : 'Hide map controls';
             rows.collapse.setAttribute('aria-label', rows.collapse.title);
-            modelsBtn.hidden = !host.models.available();
+            modelsBtn.hidden = !modelsShown;
             modelsBtn.textContent = modelsOn ? '2D' : '3D';
             modelsBtn.classList.toggle('on', modelsOn);
             modelsBtn.title = modelsOn ? 'Back to flat aircraft' : 'Show the aircraft in 3D';
@@ -521,13 +564,11 @@ export const FlightWindowControls = (() => {
             if (svg) svg.style.transform = `rotate(${-bearing}deg)`;
         }
 
-        root.style.left = `${Math.round(left)}px`;
-        root.style.top = `${Math.round(top)}px`;
-        root.style.opacity = String(opacity);
-        root.classList.add('shown');
-        root.classList.toggle('faded', opacity < 0.5);
+        place(root, left, top, shown ? opacity : 0);
+        place(leftRoot, aLeft, aTop, up && actionCount ? opacity : 0);
         // The window's own copies of the buttons, only while these are usable.
-        win.classList.toggle('fw-actions-out', actionCount > 0 && opacity >= 0.5);
+        if (up) win.classList.toggle('fw-actions-out', actionCount > 0 && opacity >= 0.5);
+        if (!up) return;
 
         // The open flight's flown path, as the switch says, whenever its
         // layer is (re)built.
@@ -538,6 +579,21 @@ export const FlightWindowControls = (() => {
         }
 
         recentre(false);
+    }
+
+    function setLayout(el, layout) {
+        if (el.classList.contains(layout)) return;
+        el.classList.remove('vertical', 'horizontal');
+        el.classList.add(layout);
+        lastKey = '';
+    }
+
+    function place(el, left, top, opacity) {
+        el.style.left = `${Math.round(left)}px`;
+        el.style.top = `${Math.round(top)}px`;
+        el.style.opacity = String(opacity);
+        el.classList.toggle('shown', opacity > 0);
+        el.classList.toggle('faded', opacity < 0.5);
     }
 
     // --- Public ------------------------------------------------------------
