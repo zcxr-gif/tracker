@@ -15,7 +15,8 @@
  *   - the flown path: on or off, and framed the moment it goes on;
  *   - the camera (with the 3D aircraft on): locked on to the aeroplane. It
  *     starts behind the tail and stays in the middle of the part of the map
- *     the window and these controls leave free; zooming
+ *     the window and these controls leave free; zooming (more finely than
+ *     usual, and never so far that the camera passes it)
  *     zooms into it, a drag or a twist goes round it, and the camera turns
  *     with it so the view you chose holds as it turns;
  *   - a chevron that folds the middle of the column away.
@@ -103,6 +104,17 @@ export const FlightWindowControls = (() => {
     let orbit = null;
     // The map's own gestures as they were before the camera locked on.
     let savedHandlers = null;
+    // Mapbox's own wheel zoom rates, put back when the camera lets go.
+    const WHEEL_ZOOM_RATE = 1 / 450;
+    const TRACKPAD_ZOOM_RATE = 1 / 100;
+    // Locked on, the wheel zooms this much more finely: all the way from
+    // far off to alongside a cruising airliner is about one zoom level.
+    const CHASE_ZOOM_SLOWER = 4;
+    // Closest the camera comes to the aeroplane, as a share of how far the
+    // map's centre is beyond it and in metres: Mapbox clips anything nearer
+    // than about 1.3% of the distance to the centre.
+    const CHASE_CLEARANCE_SHARE = 0.03;
+    const CHASE_CLEARANCE_MIN_M = 250;
     let followFlight = null;
     let collapsed = false;
     let lastKey = '';
@@ -401,12 +413,16 @@ export const FlightWindowControls = (() => {
         following = true;
         followFlight = host.selected();
         setChasing(true);
-        // Behind the tail, the aeroplane in the middle of the screen.
+        // Behind the tail, the aeroplane in the middle of the free map, and
+        // close to it: just short of the nearest the camera may come. The
+        // limit is set before the move, so the move is never cut short by it.
         chaseOffset = 0;
         const pitch = Math.max(map.getPitch(), 62);
+        const limit = chaseZoomLimit(plane, pitch);
+        map.setMaxZoom(Math.max(limit, map.getZoom()));
         map.easeTo({
             center: aimAt(plane, plane[2], pitch), bearing: plane[2], pitch,
-            zoom: Math.max(map.getZoom(), 12), padding: freePadding(),
+            zoom: limit - 0.2, padding: freePadding(),
             duration: 900, essential: true
         });
     }
@@ -427,8 +443,11 @@ export const FlightWindowControls = (() => {
                 touchZoomRotate: map.touchZoomRotate.isEnabled(),
                 doubleClickZoom: map.doubleClickZoom.isEnabled()
             };
+            savedHandlers.maxZoom = map.getMaxZoom();
             map.dragPan.disable();
             if (savedHandlers.scrollZoom) map.scrollZoom.enable({ around: 'center' });
+            map.scrollZoom.setWheelZoomRate(WHEEL_ZOOM_RATE / CHASE_ZOOM_SLOWER);
+            map.scrollZoom.setZoomRate(TRACKPAD_ZOOM_RATE / CHASE_ZOOM_SLOWER);
             if (savedHandlers.touchZoomRotate) map.touchZoomRotate.enable({ around: 'center' });
             map.doubleClickZoom.disable();
             map.getCanvasContainer().addEventListener('pointerdown', onOrbitStart);
@@ -439,6 +458,9 @@ export const FlightWindowControls = (() => {
             if (h.scrollZoom) map.scrollZoom.enable();
             if (h.touchZoomRotate) map.touchZoomRotate.enable();
             if (h.doubleClickZoom) map.doubleClickZoom.enable();
+            map.scrollZoom.setWheelZoomRate(WHEEL_ZOOM_RATE);
+            map.scrollZoom.setZoomRate(TRACKPAD_ZOOM_RATE);
+            map.setMaxZoom(h.maxZoom);
             map.getCanvasContainer().removeEventListener('pointerdown', onOrbitStart);
             window.removeEventListener('pointermove', onOrbitMove);
             window.removeEventListener('pointerup', onOrbitEnd);
@@ -505,6 +527,25 @@ export const FlightWindowControls = (() => {
         return ((deg + 540) % 360) - 180;
     }
 
+    // Mapbox's camera always looks at a point on the ground, and the
+    // aeroplane is on the line of sight to it, `height / cos(tilt)` short of
+    // it. Zoom in far enough and the camera passes the aeroplane, or comes
+    // inside the distance Mapbox clips at, and the aeroplane is gone. So
+    // while locked on, the deepest zoom is the one that leaves the camera a
+    // safe distance short of it.
+    function chaseZoomLimit(plane, atPitch = map.getPitch()) {
+        const h = Math.max(Number(host.height ? host.height(host.selected()) : 0) || 0, 0);
+        const pitch = Math.min(atPitch, 85) * Math.PI / 180;
+        const beyond = h / Math.max(Math.cos(pitch), 0.05);
+        const nearest = beyond + Math.max(beyond * CHASE_CLEARANCE_SHARE, CHASE_CLEARANCE_MIN_M);
+        const tr = map.transform;
+        const height = map.getContainer().clientHeight || 600;
+        const cameraPx = (tr && tr.cameraToCenterDistance) || 0.5 / Math.tan(0.6435 / 2) * height;
+        const lat = plane[1] * Math.PI / 180;
+        const zoom = Math.log2(cameraPx * 40075016.686 * Math.max(Math.cos(lat), 0.01) / (512 * nearest));
+        return Math.min(Math.max(zoom, 3), savedHandlers ? savedHandlers.maxZoom : 22);
+    }
+
     // Every frame while the camera is locked on: the aeroplane back in the
     // middle and the camera turned with it — except while the map's own
     // gestures are under way (a pinch, a twist, a wheel easing out), which
@@ -513,6 +554,11 @@ export const FlightWindowControls = (() => {
     function holdChase() {
         const plane = host.aircraft(host.selected());
         if (!plane) return;
+        // Lowering the limit under the current zoom moves the camera, which
+        // would cut a move or a gesture short: that waits until it is over.
+        const limit = chaseZoomLimit(plane);
+        const allowed = map.isMoving() && map.getZoom() > limit ? map.getZoom() : limit;
+        if (Math.abs(map.getMaxZoom() - allowed) > 0.02) map.setMaxZoom(allowed);
         if (map.isMoving() || orbit) {
             if (!orbit) chaseOffset = norm(map.getBearing() - plane[2]);
             return;
