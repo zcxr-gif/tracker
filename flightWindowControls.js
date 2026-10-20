@@ -13,8 +13,10 @@
  *   - follow: the map on the aeroplane, and kept there until pressed again
  *     or the map is dragged away;
  *   - the flown path: on or off, and framed the moment it goes on;
- *   - chase (with the 3D aircraft on): behind the tail, the map turning as
- *     the aeroplane turns;
+ *   - the camera (with the 3D aircraft on): locked on to the aeroplane. It
+ *     starts behind the tail and stays in the middle of the screen; zooming
+ *     zooms into it, a drag or a twist goes round it, and the camera turns
+ *     with it so the view you chose holds as it turns;
  *   - a chevron that folds the middle of the column away.
  * And under it, on a button of its own, 3D/2D for the 3D aircraft.
  *
@@ -91,6 +93,13 @@ export const FlightWindowControls = (() => {
 
     let following = false;
     let chasing = false;
+    // The camera's bearing relative to the aeroplane's heading: 0 is behind
+    // the tail. What a drag or a twist round the aeroplane changes.
+    let chaseOffset = 0;
+    // A one-finger (or mouse) drag going round the aeroplane.
+    let orbit = null;
+    // The map's own gestures as they were before the camera locked on.
+    let savedHandlers = null;
     let followFlight = null;
     let collapsed = false;
     let lastKey = '';
@@ -205,7 +214,7 @@ export const FlightWindowControls = (() => {
         row('frame', '<i class="fa-solid fa-expand"></i>', 'Show the whole flight', showWholeFlight);
         row('follow', '<i class="fa-solid fa-location-arrow"></i>', 'Centre on this aircraft and follow it', toggleFollow);
         row('path', PATH_SVG, 'Hide the flown path', toggleFlownPath);
-        row('chase', '<i class="fa-solid fa-video"></i>', 'Chase this aircraft from behind', toggleChase);
+        row('chase', '<i class="fa-solid fa-video"></i>', 'Lock the camera on this aircraft', toggleChase);
 
         const collapse = document.createElement('button');
         collapse.type = 'button';
@@ -309,7 +318,7 @@ export const FlightWindowControls = (() => {
 
     function northUp() {
         // Facing north and riding behind the tail cannot both hold.
-        chasing = false;
+        setChasing(false);
         // Level as well, unless the 3D aircraft are what the tilt is for.
         const opts = { bearing: 0, duration: 500, essential: true };
         if (!host.models.isOn()) opts.pitch = 0;
@@ -322,7 +331,7 @@ export const FlightWindowControls = (() => {
         // Framing pulls the camera away from the aeroplane: following stands
         // down.
         following = false;
-        chasing = false;
+        setChasing(false);
         if (pts.length === 1) {
             map.easeTo({ center: pts[0], zoom: Math.max(map.getZoom(), 8), padding: freePadding(), duration: 900 });
             return;
@@ -355,7 +364,7 @@ export const FlightWindowControls = (() => {
 
     function toggleFollow() {
         following = !following;
-        if (!following) chasing = false;
+        if (!following) setChasing(false);
         followFlight = host.selected();
         // Either way round the map goes to the aeroplane now: follow on its own
         // only acts once the aeroplane drifts off the middle, which from a map
@@ -375,14 +384,121 @@ export const FlightWindowControls = (() => {
     }
 
     function toggleChase() {
-        chasing = !chasing;
-        if (chasing) {
-            following = true;
-            followFlight = host.selected();
-            if (map.getPitch() < 50) map.easeTo({ pitch: 62, duration: 600 });
-        }
-        recentre(true);
+        if (chasing) { setChasing(false); return; }
+        const plane = host.aircraft(host.selected());
+        if (!plane) return;
+        following = true;
+        followFlight = host.selected();
+        setChasing(true);
+        // Behind the tail, the aeroplane in the middle of the screen.
+        chaseOffset = 0;
+        map.easeTo({
+            center: [plane[0], plane[1]], bearing: plane[2], pitch: Math.max(map.getPitch(), 62),
+            zoom: Math.max(map.getZoom(), 12), padding: { top: 0, bottom: 0, left: 0, right: 0 },
+            duration: 900, essential: true
+        });
+    }
+
+    // Locks the camera on, or lets it go: zooming and twisting pivot on the
+    // middle of the screen, where the aeroplane is, and a one-finger drag
+    // goes round it instead of sliding the map away.
+    function setChasing(on) {
+        on = !!on;
+        if (on === chasing) return;
+        chasing = on;
         lastKey = '';
+        orbit = null;
+        if (on) {
+            savedHandlers = {
+                dragPan: map.dragPan.isEnabled(),
+                scrollZoom: map.scrollZoom.isEnabled(),
+                touchZoomRotate: map.touchZoomRotate.isEnabled(),
+                doubleClickZoom: map.doubleClickZoom.isEnabled()
+            };
+            map.dragPan.disable();
+            if (savedHandlers.scrollZoom) map.scrollZoom.enable({ around: 'center' });
+            if (savedHandlers.touchZoomRotate) map.touchZoomRotate.enable({ around: 'center' });
+            map.doubleClickZoom.disable();
+            map.getCanvasContainer().addEventListener('pointerdown', onOrbitStart);
+        } else if (savedHandlers) {
+            const h = savedHandlers;
+            savedHandlers = null;
+            if (h.dragPan) map.dragPan.enable();
+            if (h.scrollZoom) map.scrollZoom.enable();
+            if (h.touchZoomRotate) map.touchZoomRotate.enable();
+            if (h.doubleClickZoom) map.doubleClickZoom.enable();
+            map.getCanvasContainer().removeEventListener('pointerdown', onOrbitStart);
+            window.removeEventListener('pointermove', onOrbitMove);
+            window.removeEventListener('pointerup', onOrbitEnd);
+            window.removeEventListener('pointercancel', onOrbitEnd);
+        }
+    }
+
+    // --- Going round the aeroplane -----------------------------------------
+
+    const activePointers = new Set();
+
+    function onOrbitStart(e) {
+        if (!chasing || (e.pointerType === 'mouse' && e.button !== 0)) return;
+        activePointers.add(e.pointerId);
+        // Two fingers are the map's own pinch and twist, already pivoting on
+        // the aeroplane.
+        if (activePointers.size > 1) { orbit = null; return; }
+        orbit = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        window.addEventListener('pointermove', onOrbitMove);
+        window.addEventListener('pointerup', onOrbitEnd);
+        window.addEventListener('pointercancel', onOrbitEnd);
+    }
+
+    function onOrbitMove(e) {
+        if (!orbit || e.pointerId !== orbit.id || activePointers.size > 1) return;
+        const dx = e.clientX - orbit.x, dy = e.clientY - orbit.y;
+        orbit.x = e.clientX; orbit.y = e.clientY;
+        if (!dx && !dy) return;
+        // Across turns the camera round the aeroplane; up and down leans it
+        // between overhead and the horizon.
+        const plane = host.aircraft(host.selected());
+        if (!plane) return;
+        chaseOffset = norm(chaseOffset - dx * 0.35);
+        map.jumpTo({
+            center: [plane[0], plane[1]],
+            bearing: plane[2] + chaseOffset,
+            pitch: Math.min(Math.max(map.getPitch() - dy * 0.3, 0), 85)
+        });
+    }
+
+    function onOrbitEnd(e) {
+        activePointers.delete(e.pointerId);
+        if (orbit && e.pointerId === orbit.id) orbit = null;
+        if (!activePointers.size) {
+            window.removeEventListener('pointermove', onOrbitMove);
+            window.removeEventListener('pointerup', onOrbitEnd);
+            window.removeEventListener('pointercancel', onOrbitEnd);
+        }
+    }
+
+    function norm(deg) {
+        return ((deg + 540) % 360) - 180;
+    }
+
+    // Every frame while the camera is locked on: the aeroplane back in the
+    // middle and the camera turned with it — except while the map's own
+    // gestures are under way (a pinch, a twist, a wheel easing out), which
+    // a jump would cut short. Those pivot on the middle anyway; a twist is
+    // read back as the new place round the aeroplane.
+    function holdChase() {
+        const plane = host.aircraft(host.selected());
+        if (!plane) return;
+        if (map.isMoving() || orbit) {
+            if (!orbit) chaseOffset = norm(map.getBearing() - plane[2]);
+            return;
+        }
+        const want = plane[2] + chaseOffset;
+        const c = map.getCenter();
+        const p = map.project([plane[0], plane[1]]);
+        const mid = map.project(c);
+        if (Math.hypot(p.x - mid.x, p.y - mid.y) < 0.25 && Math.abs(norm(map.getBearing() - want)) < 0.05) return;
+        map.jumpTo({ center: [plane[0], plane[1]], bearing: want });
     }
 
     function toggleModels() {
@@ -392,7 +508,7 @@ export const FlightWindowControls = (() => {
         // down flat.
         if (on && map.getPitch() < 40) map.easeTo({ pitch: 55, duration: 700 });
         if (!on) {
-            chasing = false;
+            setChasing(false);
             if (map.getPitch() > 0) map.easeTo({ pitch: 0, duration: 700 });
         }
         lastKey = '';
@@ -400,7 +516,7 @@ export const FlightWindowControls = (() => {
 
     function recentre(force) {
         const id = host.selected();
-        if (!following || id == null) return;
+        if (!following || chasing || id == null) return;
         const plane = host.aircraft(id);
         if (!plane) return;
         const padding = freePadding();
@@ -411,12 +527,9 @@ export const FlightWindowControls = (() => {
             const cx = padding.left + (c.clientWidth - padding.left - padding.right) / 2;
             const cy = padding.top + (c.clientHeight - padding.top - padding.bottom) / 2;
             const drift = Math.hypot(p.x - cx, p.y - cy);
-            const turn = chasing ? Math.abs(((plane[2] - map.getBearing() + 540) % 360) - 180) : 0;
-            if (drift < FOLLOW_SLACK_PX && turn < 4) return;
+            if (drift < FOLLOW_SLACK_PX) return;
         }
-        const opts = { center: [plane[0], plane[1]], padding, duration: force ? 800 : 700, essential: true };
-        if (chasing) opts.bearing = plane[2];
-        map.easeTo(opts);
+        map.easeTo({ center: [plane[0], plane[1]], padding, duration: force ? 800 : 700, essential: true });
     }
 
     // --- Every frame -------------------------------------------------------
@@ -427,14 +540,14 @@ export const FlightWindowControls = (() => {
         const id = host.selected();
         const up = id != null && isWindowUp(win);
         if (!up && win) win.classList.remove('fw-actions-out');
-        if (following && !up) { following = false; chasing = false; }
+        if (following && !up) { following = false; setChasing(false); }
         if (followFlight !== null && id !== followFlight) {
             // Another aeroplane opened: the follow was for the last one.
-            following = false; chasing = false; followFlight = null;
+            following = false; setChasing(false); followFlight = null;
         }
 
         const modelsOn = !!host.models.isOn();
-        if (!modelsOn && chasing) chasing = false;
+        if (!modelsOn && chasing) setChasing(false);
         const bearing = map.getBearing();
         // The compass: a turned map, or a tilted one that is not tilted for
         // the 3D aircraft.
@@ -546,7 +659,7 @@ export const FlightWindowControls = (() => {
             rows.path.classList.toggle('on', pathOn);
             rows.path.title = pathOn ? 'Hide the flown path' : 'Show the flown path';
             rows.chase.classList.toggle('on', chasing);
-            rows.chase.title = chasing ? 'Stop chasing this aircraft' : 'Chase this aircraft from behind';
+            rows.chase.title = chasing ? 'Let go of this aircraft' : 'Lock the camera on this aircraft';
             for (const k of ['follow', 'path', 'chase']) rows[k].setAttribute('aria-label', rows[k].title);
             rows.collapse.innerHTML = vertical
                 ? `<i class="fa-solid fa-chevron-${collapsed ? 'up' : 'down'}"></i>`
@@ -578,7 +691,8 @@ export const FlightWindowControls = (() => {
             if (map.getLayoutProperty(layer, 'visibility') !== want) map.setLayoutProperty(layer, 'visibility', want);
         }
 
-        recentre(false);
+        if (chasing) holdChase();
+        else recentre(false);
     }
 
     function setLayout(el, layout) {
@@ -605,7 +719,7 @@ export const FlightWindowControls = (() => {
         build();
         // Dragging the map away is letting go of the aeroplane.
         map.on('dragstart', () => {
-            if (following) { following = false; chasing = false; lastKey = ''; }
+            if (following) { following = false; setChasing(false); lastKey = ''; }
         });
         frame = requestAnimationFrame(tick);
     }
