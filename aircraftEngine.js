@@ -634,14 +634,17 @@ void main() {
             // under the aeroplane, so a taxi sits on it; in the air the true
             // altitude is drawn, never below the ground (iOS AircraftFrame).
             let alt = heightM;
+            let ground = 0;
             if (terrain) {
-                let ground = 0;
                 try { ground = map.queryTerrainElevation([lon, lat]) || 0; } catch (_) {}
                 const hugging = ground + heightM;
                 const flown = Math.max(att.seaMetres(t), ground);
                 const share = Math.min(Math.max((heightM - 30) / 120, 0), 1);
                 alt = hugging + (flown - hugging) * share;
             }
+            // How far above the ground under it the model is drawn — what a
+            // camera aiming at it needs (see heightOf).
+            tr.drawnHeight = alt - ground;
 
             // Flat: east, north and up in metres to Mapbox's mercator units.
             const mx = (lon + 180) / 360;
@@ -886,6 +889,17 @@ void main() {
 
     function isVisible() { return visible; }
 
+    /**
+     * How high above the ground under it a flight's model is drawn, in
+     * metres: the last frame's, or its reported height if it has not been
+     * drawn yet. 0 for a flight the engine has no track of.
+     */
+    function heightOf(id) {
+        const tr = tracks.get(String(id));
+        if (!tr) return 0;
+        return Number.isFinite(tr.drawnHeight) ? tr.drawnHeight : tr.attitude.heightMetres(now());
+    }
+
     /** The flight drawn under a screen point, nearest first, or null. */
     function hitTest(point) {
         if (!visible || !point) return null;
@@ -900,5 +914,5 @@ void main() {
     // Exposed for tests.
     const _internals = { magnification, farLength, attitudeMatrix, Attitude };
 
-    return { init, setVisible, isVisible, refresh, hitTest, _internals };
+    return { init, setVisible, isVisible, refresh, hitTest, heightOf, _internals };
 })();

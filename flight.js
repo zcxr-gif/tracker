@@ -17576,6 +17576,9 @@ function initializeAircraftLayer() {
                 }
                 return out;
             },
+            // How high the 3D model is drawn, so the camera can aim at the
+            // aircraft rather than the ground under it.
+            height: (id) => (AircraftEngine.isVisible() ? AircraftEngine.heightOf(id) : 0),
             trail: (id) => (liveTrailCache.get(id) || [])
                 .map((pt) => [pt.longitude != null ? pt.longitude : pt.lon, pt.latitude != null ? pt.latitude : pt.lat])
                 .filter((pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1])),

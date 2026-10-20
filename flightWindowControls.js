@@ -51,6 +51,8 @@
  *     aircraft(id)     [lon, lat, heading] where it is drawn now, or null
  *     route(id)        [[lon, lat], …] filed plan, or []
  *     trail(id)        [[lon, lat], …] flown so far, or []
+ *     height(id)       metres above the ground the aircraft is drawn at (0
+ *                      for a flat icon)
  *     flownPathLayer(id)  the 2D flown-path layer id
  *     flownPath: { isOn(), set(on) }
  *     models:    { available(), isOn(), set(on) }
@@ -392,8 +394,9 @@ export const FlightWindowControls = (() => {
         setChasing(true);
         // Behind the tail, the aeroplane in the middle of the screen.
         chaseOffset = 0;
+        const pitch = Math.max(map.getPitch(), 62);
         map.easeTo({
-            center: [plane[0], plane[1]], bearing: plane[2], pitch: Math.max(map.getPitch(), 62),
+            center: aimAt(plane, plane[2], pitch), bearing: plane[2], pitch,
             zoom: Math.max(map.getZoom(), 12), padding: { top: 0, bottom: 0, left: 0, right: 0 },
             duration: 900, essential: true
         });
@@ -460,11 +463,9 @@ export const FlightWindowControls = (() => {
         const plane = host.aircraft(host.selected());
         if (!plane) return;
         chaseOffset = norm(chaseOffset - dx * 0.35);
-        map.jumpTo({
-            center: [plane[0], plane[1]],
-            bearing: plane[2] + chaseOffset,
-            pitch: Math.min(Math.max(map.getPitch() - dy * 0.3, 0), 85)
-        });
+        const bearing = plane[2] + chaseOffset;
+        const pitch = Math.min(Math.max(map.getPitch() - dy * 0.3, 0), 85);
+        map.jumpTo({ center: aimAt(plane, bearing, pitch), bearing, pitch });
     }
 
     function onOrbitEnd(e) {
@@ -475,6 +476,20 @@ export const FlightWindowControls = (() => {
             window.removeEventListener('pointerup', onOrbitEnd);
             window.removeEventListener('pointercancel', onOrbitEnd);
         }
+    }
+
+    // The ground point to centre the map on so that the aircraft itself —
+    // drawn at its height, not at the ground under it — is in the middle of
+    // the screen: along the line of sight, beyond it by height × tan(tilt).
+    function aimAt(plane, bearing, pitch) {
+        const h = Math.max(Number(host.height ? host.height(host.selected()) : 0) || 0, 0);
+        if (!h || pitch < 0.5) return [plane[0], plane[1]];
+        const d = h * Math.tan(Math.min(pitch, 85) * Math.PI / 180);
+        const b = bearing * Math.PI / 180;
+        const lat = plane[1] * Math.PI / 180;
+        const dLat = (d * Math.cos(b)) / 111320;
+        const dLon = (d * Math.sin(b)) / (111320 * Math.max(Math.cos(lat), 0.01));
+        return [plane[0] + dLon, plane[1] + dLat];
     }
 
     function norm(deg) {
@@ -494,11 +509,11 @@ export const FlightWindowControls = (() => {
             return;
         }
         const want = plane[2] + chaseOffset;
-        const c = map.getCenter();
-        const p = map.project([plane[0], plane[1]]);
-        const mid = map.project(c);
+        const target = aimAt(plane, want, map.getPitch());
+        const p = map.project(target);
+        const mid = map.project(map.getCenter());
         if (Math.hypot(p.x - mid.x, p.y - mid.y) < 0.25 && Math.abs(norm(map.getBearing() - want)) < 0.05) return;
-        map.jumpTo({ center: [plane[0], plane[1]], bearing: want });
+        map.jumpTo({ center: target, bearing: want });
     }
 
     function toggleModels() {
@@ -522,14 +537,14 @@ export const FlightWindowControls = (() => {
         const padding = freePadding();
         if (!force) {
             if (map.isMoving()) return;
-            const p = map.project([plane[0], plane[1]]);
+            const p = map.project(aimAt(plane, map.getBearing(), map.getPitch()));
             const c = map.getContainer();
             const cx = padding.left + (c.clientWidth - padding.left - padding.right) / 2;
             const cy = padding.top + (c.clientHeight - padding.top - padding.bottom) / 2;
             const drift = Math.hypot(p.x - cx, p.y - cy);
             if (drift < FOLLOW_SLACK_PX) return;
         }
-        map.easeTo({ center: [plane[0], plane[1]], padding, duration: force ? 800 : 700, essential: true });
+        map.easeTo({ center: aimAt(plane, map.getBearing(), map.getPitch()), padding, duration: force ? 800 : 700, essential: true });
     }
 
     // --- Every frame -------------------------------------------------------
