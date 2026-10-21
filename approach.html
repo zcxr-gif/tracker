@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Approach | InFlight</title>
+
+    <meta name="description" content="Approach — an endless radar ATC game at real airports. Vector arrivals onto the ILS, climb departures out through their gates, and keep everyone three miles apart.">
+    <link rel="canonical" href="https://inflight.info/approach">
+    <meta name="theme-color" content="#16181d">
+    <link rel="icon" href="/Images/inflight.png">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="InFlight">
+    <meta property="og:title" content="Approach — endless radar ATC by InFlight">
+    <meta property="og:description" content="Work the radar at JFK, LAX, ATL or any airport in the world. Traffic never stops.">
+    <meta property="og:url" content="https://inflight.info/approach">
+    <meta property="og:image" content="https://inflight.info/Images/og-banner.png">
+    <meta name="twitter:card" content="summary_large_image">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* ==================================================================
+           Approach — the endless radar ATC game. One document: a start
+           screen that picks the airport, and the game itself (a canvas
+           scope plus a side panel of strips, the selected aircraft's
+           clearance card and the frequency). Everything that moves lives in
+           approachGame.js. Paths are absolute because this is served at
+           /approach.
+           ================================================================== */
+        :root {
+            color-scheme: dark;
+            --head:    #16181d;
+            --page:    #0c0f14;
+            --panel:   #12161d;
+            --panel2:  #181d26;
+            --line:    rgba(255,255,255,.09);
+            --ink:     #eef1f5;
+            --ink2:    #b4bcc8;
+            --muted:   #7d8694;
+            --gold:    #f2c14e;
+            --arr:     #4fd1ff;
+            --dep:     #f2c14e;
+            --bad:     #ff5468;
+            --good:    #3ddc97;
+            --link:    #5aa9ff;
+            --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            background: var(--page); color: var(--ink);
+            min-height: 100vh; min-height: 100dvh;
+            display: flex; flex-direction: column;
+            -webkit-font-smoothing: antialiased;
+        }
+        button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+        button:disabled { opacity: .4; cursor: default; }
+        a { color: inherit; text-decoration: none; }
+        input, select { font: inherit; color: inherit; }
+        .mono { font-family: var(--mono); }
+        [hidden] { display: none !important; }
+
+        /* ---------------- Masthead ---------------- */
+        .mast {
+            display: flex; align-items: center; gap: 12px;
+            height: 54px; padding: 0 16px; flex: 0 0 auto;
+            background: var(--head); border-bottom: 1px solid var(--line);
+        }
+        .brand { display: inline-flex; align-items: center; gap: 10px; }
+        .brand img { width: 30px; height: 30px; object-fit: contain; }
+        .brand-mark { display: flex; flex-direction: column; line-height: 1; }
+        .brand-word { font-size: .98rem; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+        .brand-sub { margin-top: 3px; font-size: .52rem; font-weight: 700; letter-spacing: .43em; text-transform: uppercase; color: var(--gold); }
+        .mast .spacer { flex: 1; }
+        .mast-link { padding: 7px 11px; border-radius: 7px; font-size: .8rem; font-weight: 600; color: #c3cad4; }
+        .mast-link:hover { color: #fff; background: rgba(255,255,255,.08); }
+
+        /* ---------------- Start screen ---------------- */
+        .start { flex: 1; overflow: auto; padding: 28px 16px 48px; }
+        .start-inner { max-width: 980px; margin: 0 auto; }
+        .start h1 { margin: 0; font-size: clamp(1.9rem, 5vw, 2.8rem); font-weight: 900; letter-spacing: -.02em; }
+        .start h1 span { color: var(--gold); }
+        .lede { margin: 8px 0 26px; color: var(--ink2); max-width: 640px; line-height: 1.5; }
+        .start h2 { margin: 26px 0 10px; font-size: .74rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+        .featured { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+        .ap-card {
+            text-align: left; padding: 12px 14px; border-radius: 12px;
+            background: var(--panel); border: 1px solid var(--line);
+            display: flex; flex-direction: column; gap: 3px; min-width: 0;
+        }
+        .ap-card:hover { border-color: rgba(255,255,255,.22); }
+        .ap-card.on { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+        .ap-card .icao { font-family: var(--mono); font-weight: 700; font-size: 1.05rem; }
+        .ap-card .nm { font-size: .8rem; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ap-card .best { font-size: .72rem; color: var(--muted); }
+        .search-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .search-row input {
+            flex: 1 1 280px; min-width: 0; height: 42px; padding: 0 14px; border-radius: 10px;
+            background: var(--panel); border: 1px solid var(--line);
+        }
+        .search-row input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+        .results { margin-top: 10px; }
+        .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+        .seg button { padding: 8px 16px; border-radius: 7px; font-size: .86rem; font-weight: 600; color: var(--ink2); }
+        .seg button.on { background: var(--panel2); color: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.12); }
+        .go-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 28px; }
+        .go {
+            height: 48px; padding: 0 28px; border-radius: 12px; font-weight: 800; font-size: 1rem;
+            background: var(--gold); color: #1a1408;
+        }
+        .go-note { color: var(--ink2); font-size: .9rem; }
+        .howto { margin-top: 34px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+        .howto div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: .86rem; line-height: 1.5; color: var(--ink2); }
+        .howto b { color: var(--ink); display: block; margin-bottom: 4px; font-size: .9rem; }
+        .howto code, .keys code { font-family: var(--mono); font-size: .78rem; background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+        .loading { color: var(--muted); padding: 10px 0; }
+
+        /* ---------------- Game ---------------- */
+        .game { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: minmax(0, 1fr); min-height: 0; height: calc(100vh - 54px); height: calc(100dvh - 54px); overflow: hidden; }
+        .scope-wrap { position: relative; min-width: 0; min-height: 0; background: #060b0f; overflow: hidden; }
+        #scope { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+        .hud {
+            position: absolute; left: 12px; top: 12px; pointer-events: none;
+            font-family: var(--mono); font-size: .76rem; line-height: 1.55; color: #9fc7bd;
+            background: rgba(6,11,15,.72); border: 1px solid rgba(120,200,180,.15); border-radius: 8px; padding: 8px 10px;
+        }
+        .hud b { color: #e6fff6; font-weight: 700; }
+        .zoom { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 6px; }
+        .zoom button {
+            width: 36px; height: 36px; border-radius: 8px; font-size: 1.1rem; font-weight: 700;
+            background: rgba(18,22,29,.85); border: 1px solid var(--line); color: var(--ink2);
+        }
+        .zoom button:hover { color: #fff; }
+        .toast {
+            position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+            padding: 8px 14px; border-radius: 9px; font-weight: 700; font-size: .86rem;
+            background: rgba(18,22,29,.94); border: 1px solid var(--line); pointer-events: none;
+            opacity: 0; transition: opacity .25s; max-width: calc(100% - 120px); text-align: center;
+        }
+        .toast.show { opacity: 1; }
+        .toast.bad { border-color: var(--bad); color: #ffd3d9; }
+        .toast.good { border-color: var(--good); color: #d6ffef; }
+        .paused-tag {
+            position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+            font-family: var(--mono); font-weight: 700; letter-spacing: .3em; color: var(--gold);
+            background: rgba(6,11,15,.8); padding: 6px 14px; border-radius: 8px; pointer-events: none;
+        }
+
+        .side { display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--panel); border-left: 1px solid var(--line); }
+        .side section { border-bottom: 1px solid var(--line); padding: 10px 12px; flex: 0 0 auto; }
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; text-align: center; }
+        .stat .v { font-family: var(--mono); font-weight: 700; font-size: 1.05rem; }
+        .stat .k { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+        .stat.score .v { color: var(--gold); }
+        .ctrls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+        .ctrls .seg button { padding: 5px 10px; font-size: .78rem; font-family: var(--mono); }
+        .chip { padding: 6px 10px; border-radius: 8px; font-size: .78rem; font-weight: 600; background: var(--panel2); border: 1px solid var(--line); color: var(--ink2); }
+        .chip:hover { color: #fff; }
+        .chip.on { color: var(--gold); border-color: rgba(242,193,78,.5); }
+        .ctrls .spacer { flex: 1; }
+
+        .card-empty { color: var(--muted); font-size: .84rem; line-height: 1.5; }
+        .card-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+        .card-head .cs { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; }
+        .card-head .radio { color: var(--ink2); font-size: .82rem; }
+        .badge { font-size: .62rem; font-weight: 800; letter-spacing: .1em; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; }
+        .badge.arr { background: rgba(79,209,255,.15); color: var(--arr); }
+        .badge.dep { background: rgba(242,193,78,.15); color: var(--dep); }
+        .card-status { margin: 4px 0 10px; font-family: var(--mono); font-size: .76rem; color: var(--ink2); line-height: 1.5; }
+        .row { display: grid; grid-template-columns: 62px 1fr; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .row > label { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+        .stepper { display: flex; align-items: center; gap: 4px; }
+        .stepper button { height: 32px; min-width: 38px; padding: 0 6px; border-radius: 7px; background: var(--panel2); border: 1px solid var(--line); font-family: var(--mono); font-size: .78rem; color: var(--ink2); }
+        .stepper button:hover { color: #fff; }
+        .stepper .val { flex: 1; text-align: center; font-family: var(--mono); font-weight: 700; font-size: 1rem; padding: 4px 0; border-radius: 7px; }
+        .stepper .val.dirty { color: var(--gold); background: rgba(242,193,78,.08); }
+        .send-row { display: flex; gap: 6px; margin: 8px 0 10px; }
+        .btn { height: 36px; padding: 0 12px; border-radius: 8px; font-weight: 700; font-size: .84rem; background: var(--panel2); border: 1px solid var(--line); }
+        .btn:hover { border-color: rgba(255,255,255,.25); }
+        .btn.primary { background: var(--gold); color: #1a1408; border-color: transparent; flex: 1; }
+        .btn.ils { font-family: var(--mono); font-size: .78rem; color: var(--arr); }
+        .btn.warn { color: #ffb4be; }
+        .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+        .btn-row select { height: 36px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--line); padding: 0 8px; font-size: .8rem; flex: 1; min-width: 0; }
+
+        .side .strips { flex: 1 1 auto; overflow: auto; min-height: 90px; }
+        .side #card { flex: 0 0 auto; max-height: 55%; overflow: auto; }
+        .strip-h { font-size: .64rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 700; margin: 4px 0 6px; display: flex; justify-content: space-between; }
+        .strip {
+            width: 100%; display: grid; grid-template-columns: 4px 1fr auto; gap: 8px; align-items: center;
+            padding: 6px 8px 6px 0; margin-bottom: 4px; border-radius: 7px; text-align: left;
+            background: var(--panel2); border: 1px solid transparent; font-family: var(--mono); font-size: .74rem;
+        }
+        .strip .bar { align-self: stretch; border-radius: 7px 0 0 7px; }
+        .strip.arr .bar { background: var(--arr); }
+        .strip.dep .bar { background: var(--dep); }
+        .strip.sel { border-color: rgba(255,255,255,.5); }
+        .strip.conf { border-color: var(--bad); }
+        .strip .l0, .strip .l1, .strip .l2 { display: block; }
+        .strip .l1 { font-weight: 700; color: var(--ink); }
+        .strip .l2 { color: var(--muted); font-size: .68rem; }
+        .strip .r { text-align: right; color: var(--ink2); }
+        .strip-none { color: var(--muted); font-size: .76rem; margin-bottom: 8px; }
+
+        .comms { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; }
+        .log { height: 120px; overflow: auto; font-size: .76rem; line-height: 1.45; display: flex; flex-direction: column; gap: 3px; }
+        .log .m-atc { color: #ffe3a1; }
+        .log .m-pilot { color: #bfe9ff; }
+        .log .m-sys { color: var(--muted); font-style: italic; }
+        .log .m-bad { color: #ff9aa8; }
+        .log .m-good { color: #9ff0c9; }
+        .cmd { display: flex; gap: 6px; }
+        .cmd input { flex: 1; min-width: 0; height: 36px; border-radius: 8px; padding: 0 10px; background: #0b0e13; border: 1px solid var(--line); font-family: var(--mono); font-size: .8rem; }
+        .cmd input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+
+        /* End-of-shift summary, over the scope. */
+        .summary {
+            position: absolute; inset: 0; display: grid; place-items: center; padding: 16px;
+            background: rgba(6,11,15,.78);
+        }
+        .summary-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; width: min(420px, 100%); text-align: center; }
+        .summary-card h2 { margin: 0 0 4px; font-size: 1.4rem; }
+        .summary-card .big { font-family: var(--mono); font-size: 2.6rem; font-weight: 700; color: var(--gold); margin: 10px 0; }
+        .summary-card .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 14px 0 18px; text-align: left; font-size: .86rem; color: var(--ink2); }
+        .summary-card .grid b { color: var(--ink); font-family: var(--mono); float: right; }
+        .summary-card .btn-row { justify-content: center; }
+
+        @media (max-width: 860px) {
+            .game { display: block; height: auto; overflow: visible; }
+            .side { overflow: visible; }
+            .side #card { overflow: visible; }
+            .scope-wrap { height: 62vh; height: 62dvh; }
+            .side { border-left: 0; }
+            .strips { max-height: none; }
+            .mast-link.wide { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <header class="mast">
+        <a class="brand" href="/" aria-label="InFlight home">
+            <img src="/Images/inflight-mark.png" alt="" onerror="this.onerror=null;this.style.display='none';">
+            <span class="brand-mark"><span class="brand-word">InFlight</span><span class="brand-sub">Approach</span></span>
+        </a>
+        <span class="spacer"></span>
+        <a class="mast-link wide" href="/atc">RateMyATC</a>
+        <a class="mast-link" href="/">Live map</a>
+    </header>
+
+    <main class="start" id="start">
+        <div class="start-inner">
+            <h1>Approach<span>.</span></h1>
+            <p class="lede">An endless radar shift at a real airport. Vector arrivals onto the ILS, clear departures for takeoff and climb them out through their exit gates, and keep everyone three miles or a thousand feet apart. The traffic never stops — it only gets busier.</p>
+
+            <h2>Pick an airport</h2>
+            <div class="featured" id="featured"><div class="loading">Loading airports…</div></div>
+
+            <h2>Or any airport in the world</h2>
+            <div class="search-row">
+                <input id="ap-search" type="search" placeholder="ICAO, IATA or name — KSAN, PDX, Heathrow…" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="results featured" id="results"></div>
+
+            <h2>Traffic</h2>
+            <div class="seg" id="traffic">
+                <button data-level="light">Light</button>
+                <button data-level="normal" class="on">Normal</button>
+                <button data-level="busy">Busy</button>
+            </div>
+
+            <div class="go-row">
+                <button class="go" id="go" disabled>Open the frequency</button>
+                <span class="go-note" id="go-note">Choose an airport to start.</span>
+            </div>
+
+            <div class="howto">
+                <div><b>Arrivals</b> <span style="color:var(--arr)">Blue</span> targets come in from the edge. Bring them down, point them at the runway's extended centerline (within about 30°) and clear the ILS — they'll capture the localizer, fly the glideslope and land.</div>
+                <div><b>Departures</b> <span style="color:var(--dep)">Gold</span> strips wait at the runway. Clear them for takeoff, then climb them to the altitude on their strip and send them out through their exit gate (the gold triangle) to hand them to Center.</div>
+                <div><b>Separation</b> Three miles or 1,000 ft between every pair, everywhere except right around the field and side-by-side on parallel ILS approaches. A loss costs points, and keeps costing until you fix it.</div>
+                <div><b>Vectoring</b> Drag from an aircraft to point it at a heading. Or select it and use the card, or type: <code>h270</code> <code>l090</code> <code>a50</code> <code>s210</code> <code>i22L</code> <code>dct FIX</code> <code>to</code> <code>ga</code> <code>hold</code>.</div>
+                <div class="keys"><b>Keys</b> <code>Space</code> pause · <code>Tab</code> next aircraft · <code>←/→</code> heading · <code>↑/↓</code> altitude · <code>Enter</code> transmit · <code>/</code> command line · <code>Esc</code> deselect.</div>
+                <div><b>Wind</b> The wind shifts every so often and the active runways change with it. Landing with a tailwind still counts — for half.</div>
+            </div>
+        </div>
+    </main>
+
+    <div class="game" id="game" hidden>
+        <div class="scope-wrap" id="scope-wrap">
+            <canvas id="scope" aria-label="Radar scope"></canvas>
+            <div class="hud" id="hud"></div>
+            <div class="zoom">
+                <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+                <button id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+                <button id="zoom-reset" title="Recenter" aria-label="Recenter">⌖</button>
+            </div>
+            <div class="toast" id="toast"></div>
+            <div class="paused-tag" id="paused-tag" hidden>PAUSED</div>
+            <div class="summary" id="summary" hidden></div>
+        </div>
+        <aside class="side">
+            <section>
+                <div class="stats">
+                    <div class="stat score"><div class="v" id="s-score">0</div><div class="k">Score</div></div>
+                    <div class="stat"><div class="v" id="s-landed">0</div><div class="k">Landed</div></div>
+                    <div class="stat"><div class="v" id="s-departed">0</div><div class="k">Departed</div></div>
+                    <div class="stat"><div class="v" id="s-incidents">0</div><div class="k">Losses</div></div>
+                </div>
+            </section>
+            <section class="ctrls">
+                <div class="seg" id="speed">
+                    <button data-speed="0" title="Pause (Space)">❚❚</button>
+                    <button data-speed="1" class="on">1×</button>
+                    <button data-speed="2">2×</button>
+                    <button data-speed="4">4×</button>
+                </div>
+                <span class="spacer"></span>
+                <button class="chip" id="voice" title="Read pilot transmissions aloud">Voice</button>
+                <button class="chip" id="end">End shift</button>
+            </section>
+            <section id="card"></section>
+            <section class="strips" id="strips"></section>
+            <section class="comms">
+                <div class="log" id="log" aria-live="polite"></div>
+                <form class="cmd" id="cmd-form" autocomplete="off">
+                    <input id="cmd" placeholder="AAL123 h270 a50 s210 · i22L · to" spellcheck="false" aria-label="Command">
+                    <button class="btn" type="submit">Send</button>
+                </form>
+            </section>
+        </aside>
+    </div>
+
+    <script type="module" src="/approachGame.js"></script>
+</body>
+</html>

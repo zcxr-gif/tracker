@@ -36,6 +36,9 @@
 /atc       /atc.html  200
 /atc/*     /atc.html  200
 
+# Approach — the endless radar ATC game. Same short-URL reasoning as /month.
+/approach  /approach.html  200
+
 # Your Profile Card — the stats card a pilot puts on their IFC profile. Same
 # reasoning: it is a place people are sent to, not a file they open.
 /card      /profile-card.html  200
