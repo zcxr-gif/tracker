@@ -114,7 +114,7 @@ const angleDelta = (from, to) => ((to - from + 540) % 360) - 180;
 // own every write. A tilted camera following the open flight keeps tiles
 // loading almost every frame, so behind isStyleLoaded() the flushes were
 // dropped and the 3D aircraft stood still while its flown path ran on ahead.
-function styleReady(map) {
+export function styleReady(map) {
     const style = map.style;
     if (!style) return false;
     return typeof style._loaded === 'boolean' ? style._loaded : map.isStyleLoaded();

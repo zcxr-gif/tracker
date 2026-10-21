@@ -1,4 +1,4 @@
-import { MapAnimator } from './mapAnimator.js';
+import { MapAnimator, styleReady } from './mapAnimator.js';
 import { formatGrade } from './ifGrade.js';
 import { AirportLayoutManager } from './airportLayout.js';
 import { LandingUI } from './landingUI.js';
@@ -13648,7 +13648,11 @@ function handleSocketFlightUpdate(data) {
 
     lastSocketUpdateTimestamp = new Date(data.timestamp).getTime();
 
-    const isMapReady = (sectorOpsMap && sectorOpsMap.isStyleLoaded() && mapAnimator);
+    // The style, not every tile: isStyleLoaded() is false while any tile is
+    // loading, which a tilted camera following the open flight keeps true
+    // nearly all the time. Skipping the flush then froze the 3D aircraft
+    // while its trail (written below regardless) grew on past it.
+    const isMapReady = (sectorOpsMap && styleReady(sectorOpsMap) && mapAnimator);
     const flights = data.flights;
     const updatedFlightIds = new Set();
     // Set when a flight joins or leaves, so the animator knows to rebuild its
