@@ -41,8 +41,7 @@
  *     controls on the sheet's top right-hand corner and the window's buttons
  *     on its top left-hand one, both riding it down while it is pulled and
  *     faded as it opens towards the full window (gone by about two thirds of
- *     the way). Each lies on its side along the sheet only when it is too
- *     tall to stand above the peek;
+ *     the way). Both always stand upright, never on their side;
  *   - desktop: beside the window, on the side facing the map, level with its
  *     top — the window's buttons first, the map controls under them.
  *
@@ -76,8 +75,6 @@ export const FlightWindowControls = (() => {
     const WIDTH = 46;
     const ROW = 42;
     const GAP = 10;
-    // Room kept between a phone column and the top of the screen.
-    const TOP_ROOM = 70;
     // After a zoom, a twist or an ease, the aeroplane has flown on from the
     // middle: the camera glides back on to it over this long, not in a jump.
     const SETTLE_MS = 600;
@@ -252,12 +249,7 @@ export const FlightWindowControls = (() => {
                 --fw-shadow: 0 4px 18px rgba(0, 0, 0, 0.10);
             }
             .fw-controls.vertical { flex-direction: column; }
-            .fw-controls.horizontal.fw-left { flex-direction: row; }
-            .fw-controls.horizontal.fw-left .fw-stack { flex-direction: row; }
             .fw-controls .fw-main { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-            .fw-controls.horizontal .fw-main { flex-direction: row-reverse; }
-            /* On its side the groups run right to left and wrap upwards. */
-            .fw-controls.horizontal { flex-direction: row-reverse; flex-wrap: wrap-reverse; justify-content: flex-start; }
             #aircraft-info-window.fw-actions-out .overview-actions { display: none !important; }
             .fw-controls.shown { pointer-events: auto; }
             .fw-controls.faded { pointer-events: none; }
@@ -271,9 +263,6 @@ export const FlightWindowControls = (() => {
             .fw-controls .fw-stack {
                 display: flex; flex-direction: column; align-items: center;
                 width: ${WIDTH}px; padding: 4px 0; border-radius: ${WIDTH / 2}px;
-            }
-            .fw-controls.horizontal .fw-stack {
-                flex-direction: row-reverse; width: auto; height: ${WIDTH}px; padding: 0 4px;
             }
             .fw-controls button {
                 appearance: none; border: 0; background: transparent; cursor: pointer;
@@ -452,15 +441,8 @@ export const FlightWindowControls = (() => {
         const r = win.getBoundingClientRect();
         const m = map.getContainer().getBoundingClientRect();
         if (host.isMobile()) {
-            // Above the sheet, and above these controls where they lie across
-            // the map along its top.
-            let top = r.top;
-            for (const el of [root, leftRoot]) {
-                if (el && el.classList.contains('horizontal') && el.classList.contains('shown')) {
-                    top = Math.min(top, el.getBoundingClientRect().top);
-                }
-            }
-            pad.bottom = Math.max(pad.bottom, m.bottom - top + 16 + extra);
+            // Above the sheet.
+            pad.bottom = Math.max(pad.bottom, m.bottom - r.top + 16 + extra);
         } else if (r.left + r.width / 2 > m.left + m.width / 2) {
             pad.right = Math.max(pad.right, m.right - r.left + WIDTH + 2 * GAP + extra);
         } else {
@@ -1183,16 +1165,11 @@ export const FlightWindowControls = (() => {
         if (up) {
             const r = win.getBoundingClientRect();
             if (mobile) {
-                // Each stands upright above the peek if it fits, and lies on
-                // its side along the sheet's top only when it does not.
-                const room = r.top - c.top - GAP - TAB_SHORT - TOP_ROOM;
-                layout = mainHeight <= room ? 'vertical' : 'horizontal';
-                leftLayout = actionsHeight <= room ? 'vertical' : 'horizontal';
-                setLayout(root, layout);
-                setLayout(leftRoot, leftLayout);
-                const half = `${Math.max(c.width / 2 - 18, WIDTH)}px`;
-                root.style.maxWidth = layout === 'horizontal' ? half : '';
-                leftRoot.style.maxWidth = leftLayout === 'horizontal' ? half : '';
+                // Each always stands upright above the sheet, however many
+                // buttons it has (3D adds two); never on its side.
+                setLayout(root, 'vertical');
+                setLayout(leftRoot, 'vertical');
+                root.style.maxWidth = leftRoot.style.maxWidth = '';
                 // Above the tab, which lies along the middle of the sheet's
                 // top; down behind the sheet as they are tucked away.
                 const edge = r.top - c.top;
