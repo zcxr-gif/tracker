@@ -107,6 +107,16 @@
         .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
         .seg button { padding: 8px 16px; border-radius: 7px; font-size: .86rem; font-weight: 600; color: var(--ink2); }
         .seg button.on { background: var(--panel2); color: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.12); }
+        .pos { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+        .pos button {
+            display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 10px;
+            background: var(--panel); border: 1px solid var(--line); color: var(--ink2); font-weight: 600; font-size: .9rem;
+        }
+        .pos .box { width: 18px; height: 18px; border-radius: 5px; border: 2px solid var(--muted); display: grid; place-items: center; font-size: .75rem; line-height: 1; }
+        .pos button.on { color: #fff; border-color: var(--gold); background: rgba(242,193,78,.08); }
+        .pos button.on .box { background: var(--gold); border-color: var(--gold); color: #1a1408; }
+        .pos button.on .box::after { content: '✓'; font-weight: 900; }
+        .opt-note b { color: var(--ink); }
         .opt-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
         .opt-note { margin: 0; flex: 1 1 320px; color: var(--ink2); font-size: .86rem; line-height: 1.5; max-width: 640px; }
         .go-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 28px; }
@@ -278,8 +288,12 @@
 
             <h2>Your positions</h2>
             <div class="opt-row">
-                <div class="seg" id="opt-pos"><button data-pos="APP">Approach</button><button data-pos="TWR">Tower</button><button data-pos="GND">Ground</button></div>
-                <p class="opt-note">Work one, two or all three. Approach vectors arrivals to the ILS and departures out. Tower runs the runways: landings, takeoffs, line up and wait, crossings. Ground handles pushback and taxi on the real taxiways. The system works whatever you don't, and hands aircraft to you when they reach your frequency.</p>
+                <div class="pos" id="opt-pos" role="group" aria-label="Positions you work">
+                    <button data-pos="APP" aria-pressed="false"><span class="box"></span>Approach</button>
+                    <button data-pos="TWR" aria-pressed="false"><span class="box"></span>Tower</button>
+                    <button data-pos="GND" aria-pressed="false"><span class="box"></span>Ground</button>
+                </div>
+                <p class="opt-note"><b id="pos-summary"></b><br>Tap a position to turn it on or off. Work one, two or all three. Approach vectors arrivals to the ILS and departures out. Tower runs the runways: landings, takeoffs, line up and wait, crossings. Ground handles pushback and taxi on the real taxiways. The system works whatever you don't, and hands aircraft to you when they reach your frequency.</p>
             </div>
 
             <h2>Terrain</h2>

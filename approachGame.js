@@ -2402,7 +2402,7 @@ function renderStrips() {
 function renderHud() {
     const z = new Date(G.zulu0 + G.t * 1000);
     const zulu = String(z.getUTCHours()).padStart(2, '0') + String(z.getUTCMinutes()).padStart(2, '0') + 'Z';
-    $('#hud').innerHTML = `<b>${G.world.icao}</b> ${zulu}<br>`
+    $('#hud').innerHTML = `<b>${G.world.icao}</b> ${zulu} · YOU <b>${['APP', 'TWR', 'GND'].filter(f => G.positions.has(f)).join(' ')}</b><br>`
         + `ATIS <b>${PHONETIC[G.atis].toUpperCase()}</b> · A<b>${G.altim}</b><br>`
         + `WIND <b>${hdg3(G.wind.dir)}/${String(G.wind.spd).padStart(2, '0')}${G.met.gust ? 'G' + G.met.gust : ''}</b>${G.opts.weather ? ` · <b>${metText(G.met)}</b>` : ''}<br>`
         + `ARR <b>${G.active.arr.map(e => e.id).join(' ')}</b><br>`
@@ -2601,6 +2601,8 @@ function bindGame() {
 
 let opts = { terrain: store.get('terrain', false), weather: store.get('weather', false), positions: store.get('positions', ['APP', 'TWR']) };
 
+function toastStart(text) { $('#pos-summary').textContent = text; setTimeout(renderStart, 1600); }
+
 /** The field's taxiways and gates from OpenStreetMap, the same query the live map makes, over all the runways. */
 async function loadSurface(world) {
     const xs = world.ends.map(e => e.thr.x), ys = world.ends.map(e => e.thr.y);
@@ -2704,7 +2706,14 @@ function renderStart() {
     document.querySelectorAll('#traffic button').forEach(b => b.classList.toggle('on', b.dataset.level === level));
     document.querySelectorAll('#opt-terrain button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.terrain));
     document.querySelectorAll('#opt-weather button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.weather));
-    document.querySelectorAll('#opt-pos button').forEach(b => b.classList.toggle('on', opts.positions.includes(b.dataset.pos)));
+    document.querySelectorAll('#opt-pos button').forEach(b => {
+        const on = opts.positions.includes(b.dataset.pos);
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', String(on));
+    });
+    const names = list => list.map(f => FREQ_NAME[f]).join(' and ');
+    const yours = ['APP', 'TWR', 'GND'].filter(f => opts.positions.includes(f)), theirs = ['APP', 'TWR', 'GND'].filter(f => !opts.positions.includes(f));
+    $('#pos-summary').textContent = `You'll work ${names(yours)}.` + (theirs.length ? ` The system works ${names(theirs)}.` : ' The whole airport is yours.');
     $('#go').disabled = !chosen;
     $('#go-note').textContent = chosen ? `${chosen.icao} — ${chosen.name}` : 'Choose an airport to start.';
 }
@@ -2747,7 +2756,7 @@ async function init() {
         const b = e.target.closest('button');
         if (!b) return;
         const p = b.dataset.pos, has = opts.positions.includes(p);
-        if (has && opts.positions.length === 1) return;            // at least one position
+        if (has && opts.positions.length === 1) { toastStart('You need at least one position.'); return; }
         opts.positions = has ? opts.positions.filter(x => x !== p) : [...opts.positions, p];
         renderStart();
     });
