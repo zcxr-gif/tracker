@@ -415,12 +415,12 @@ function pilot(ac, text) {
 }
 
 let toastTimer = 0;
-function toast(text, tone) {
+function toast(text, tone, ms = 2600) {
     const el = $('#toast');
     el.textContent = text;
     el.className = 'toast show ' + (tone || '');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.className = 'toast'; }, 2600);
+    toastTimer = setTimeout(() => { el.className = 'toast'; }, ms);
 }
 
 function award(ac, pts, label) {
@@ -1666,9 +1666,15 @@ function fitView() {
     canvas.width = Math.round(r.width * view.dpr);
     canvas.height = Math.round(r.height * view.dpr);
 }
+/** How far the runways reach from the field's reference point, plus a margin. */
+function fieldRadius() {
+    return Math.max(1.2, ...G.world.ends.map(e => Math.hypot(e.thr.x, e.thr.y))) + 0.5;
+}
+/** Home view for the positions you work: the whole scope for Approach, the field for Tower and Ground. */
 function resetView() {
     view.x = 0; view.y = 0;
-    view.scale = Math.min(view.w, view.h) / 2 / (SCOPE_NM + 2);
+    const r = !G || G.positions.has('APP') ? SCOPE_NM + 2 : G.positions.has('GND') && G.ground ? fieldRadius() : 8;
+    view.scale = Math.min(view.w, view.h) / 2 / r;
 }
 const toS = (x, y) => [view.w / 2 + (x - view.x) * view.scale, view.h / 2 - (y - view.y) * view.scale];
 const toW = (sx, sy) => [(sx - view.w / 2) / view.scale + view.x, -(sy - view.h / 2) / view.scale + view.y];
@@ -2554,7 +2560,7 @@ function bindGame() {
     const showIcons = () => { icons.textContent = iconMode ? 'Aircraft' : 'Targets'; icons.classList.toggle('on', iconMode); };
     showIcons();
     icons.onclick = () => { iconMode = !iconMode; store.set('icons', iconMode); showIcons(); };
-    $('#zoom-field').onclick = () => { view.x = 0; view.y = 0; view.scale = Math.min(view.w, view.h) / 2 / 2.2; };
+    $('#zoom-field').onclick = () => { if (!G) return; view.x = 0; view.y = 0; view.scale = Math.min(view.w, view.h) / 2 / fieldRadius(); };
     const style = $('#style');
     const showStyle = () => { style.textContent = mapStyle === 'chart' ? 'Chart' : 'Radar'; style.classList.toggle('on', mapStyle === 'chart'); };
     showStyle();
@@ -2611,14 +2617,22 @@ async function loadSurface(world) {
     const w = world.lon + (Math.min(...xs) - pad) / (60 * cosLat), e = world.lon + (Math.max(...xs) + pad) / (60 * cosLat);
     const bbox = `${s},${w},${n},${e}`;
     const q = `[out:json][timeout:45];(way["aeroway"~"taxiway|taxilane|apron"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 20000);
-    try {
-        const r = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q), { signal: ctl.signal });
-        const data = await r.json();
-        if (!data.elements) return null;
-        return buildGround(AirportLayoutManager.processOsmData(data.elements), (lat, lon) => world.proj(lat, lon), world.ends);
-    } catch { return null; } finally { clearTimeout(timer); }
+    // The main Overpass server is often busy; two public mirrors serve the same data.
+    const servers = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+    for (const url of servers) {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 25000);
+        try {
+            const r = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctl.signal });
+            if (!r.ok) continue;
+            const data = await r.json();
+            if (!data.elements || !data.elements.length) continue;
+            const ground = buildGround(AirportLayoutManager.processOsmData(data.elements), (lat, lon) => world.proj(lat, lon), world.ends);
+            if (ground) return ground;
+            return null;                  // the data came back; the field just isn't mapped well enough
+        } catch { /* try the next server */ } finally { clearTimeout(timer); }
+    }
+    return null;
 }
 
 async function startGame(airport, level) {
@@ -2642,14 +2656,17 @@ async function startGame(airport, level) {
     // The map loads for everyone; with Terrain on, the shift waits for it so the MVAs are real from the start.
     const dem = loadDem(airport.lat, airport.lon).catch(() => null);
     setSpeed(0);
-    sys('Loading the airport…');
+    sys(game.positions.has('GND') ? 'Loading the airport\'s taxiways and gates…' : 'Loading the airport…');
     game.ground = await loadSurface(game.world);
     if (G !== game) return;
     if (!game.ground && game.positions.has('GND')) {
         game.positions.delete('GND');
         if (!game.positions.size) game.positions.add('TWR');
-        sys(`No taxiway map for ${airport.icao}, so there's no ground position here; departures start at the runway.`, 'bad');
+        const msg = `Couldn't load ${airport.icao}'s taxiways from OpenStreetMap, so Ground isn't available this shift. You're on ${[...game.positions].map(f => FREQ_NAME[f]).join(' and ')}.`;
+        sys(msg, 'bad');
+        toast(msg, 'bad', 9000);
     }
+    resetView();
     if (game.opts.terrain) {
         setSpeed(0);
         sys('Loading terrain…');
