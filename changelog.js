@@ -61,6 +61,10 @@
                     text: 'Too many buttons? A small tab on the flight window’s edge tucks them all away behind it, and pulls them back out — tap it, or drag it.'
                 },
                 {
+                    tag: 'improved', icon: 'fa-location-dot',
+                    text: 'A new launch screen: the InFlight pin lands, the plane flies into it and the name writes itself in, with a soft ping while the map loads — and the plane takes off as you arrive.'
+                },
+                {
                     tag: 'improved', icon: 'fa-water',
                     text: 'North Atlantic Tracks, drawn as on iPhone: each track in a colour of its own along the great circle it is flown on, a badge at each end carrying its letter and pointing the way it is flown, and its flight levels where you enter it.'
                 },
