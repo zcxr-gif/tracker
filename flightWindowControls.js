@@ -71,6 +71,8 @@
 
 export const FlightWindowControls = (() => {
     const TUCKED_KEY = 'flightWindowControlsTucked';
+    // Set once the tab has shown, the one time, what it does.
+    const HINTED_KEY = 'flightWindowControlsHinted';
     const WIDTH = 46;
     const ROW = 42;
     const GAP = 10;
@@ -88,6 +90,10 @@ export const FlightWindowControls = (() => {
     const TAB_SHORT = 20;
     // How fast a tap slides them all the way in or out (time constant, s).
     const TUCK_TAU = 0.07;
+    // The one reminder that they tuck away: how long the window has to have
+    // been settled with them showing first, and how long it lasts (s).
+    const HINT_DELAY_MS = 1500;
+    const HINT_S = 1.4;
 
     // The window's header buttons, in the order they stood there. `phone`
     // false: hidden on narrow screens, as the window hides it.
@@ -190,7 +196,13 @@ export const FlightWindowControls = (() => {
     // Where the tab and the slide stood last frame, for a drag to read.
     let slide = { axis: 'y', out: -1, travel: 1, side: 'right' };
 
+    // The reminder: shown once in this browser's life, never again after.
+    let hinted = false;
+    let hint = null;
+    let hintReadySince = 0;
+
     try { tucked = localStorage.getItem(TUCKED_KEY) === '1'; } catch (_) {}
+    try { hinted = localStorage.getItem(HINTED_KEY) === '1'; } catch (_) {}
     shown01 = tucked ? 0 : 1;
 
     // --- Glyphs ----------------------------------------------------------
@@ -214,13 +226,14 @@ export const FlightWindowControls = (() => {
         style.id = 'fw-controls-styles';
         style.textContent = `
             /* The same glass as the map's other buttons (the weather and ATC
-               bubbles, MobileLandingChromeUI): translucent, one hairline,
-               one soft shadow, and the system blue for "on". */
+               bubbles, MobileLandingChromeUI), a little more solid so it
+               holds up over a busy map: one hairline, one soft shadow, and
+               the system blue for "on". */
             .fw-controls {
                 position: absolute; z-index: 2099; display: flex; gap: 8px;
                 align-items: center; pointer-events: none; opacity: 0;
                 transition: opacity .22s ease;
-                --fw-bg: rgba(30, 30, 32, 0.55);
+                --fw-bg: rgba(30, 30, 32, 0.72);
                 --fw-stroke: rgba(255, 255, 255, 0.14);
                 --fw-text: #ffffff;
                 --fw-hover: rgba(255, 255, 255, 0.08);
@@ -230,7 +243,7 @@ export const FlightWindowControls = (() => {
                 font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
             }
             .fw-controls[data-theme="light"] {
-                --fw-bg: rgba(245, 245, 247, 0.72);
+                --fw-bg: rgba(245, 245, 247, 0.86);
                 --fw-stroke: rgba(0, 0, 0, 0.08);
                 --fw-text: #000000;
                 --fw-hover: rgba(0, 0, 0, 0.05);
@@ -290,13 +303,13 @@ export const FlightWindowControls = (() => {
                 -webkit-backdrop-filter: saturate(180%) blur(30px);
                 box-shadow: var(--fw-shadow); font-size: 11px; opacity: 0;
                 pointer-events: none; touch-action: none; transition: opacity .22s ease;
-                --fw-bg: rgba(30, 30, 32, 0.55);
+                --fw-bg: rgba(30, 30, 32, 0.72);
                 --fw-stroke: rgba(255, 255, 255, 0.14);
                 --fw-text: #ffffff;
                 --fw-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
             }
             .fw-tab[data-theme="light"] {
-                --fw-bg: rgba(245, 245, 247, 0.72);
+                --fw-bg: rgba(245, 245, 247, 0.86);
                 --fw-stroke: rgba(0, 0, 0, 0.08);
                 --fw-text: #000000;
                 --fw-shadow: 0 4px 18px rgba(0, 0, 0, 0.10);
@@ -308,6 +321,15 @@ export const FlightWindowControls = (() => {
             .fw-tab.beside.on-left { border-radius: 10px 0 0 10px; border-right: 0; }
             .fw-tab.beside.on-right { border-radius: 0 10px 10px 0; border-left: 0; }
             .fw-tab i { transition: transform .2s ease; opacity: .8; }
+            /* The one reminder: the tab pulses with the buttons' nudge. */
+            .fw-tab.fw-hint { animation: fw-tab-hint ${HINT_S}s ease-in-out; }
+            .fw-tab.fw-hint i { opacity: 1; }
+            @keyframes fw-tab-hint {
+                0%, 100% { transform: none; box-shadow: var(--fw-shadow); }
+                25% { transform: scale(1.18); box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.45), var(--fw-shadow); }
+                50% { transform: none; }
+                72% { transform: scale(1.08); box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.3), var(--fw-shadow); }
+            }
             .fw-tab:hover i { opacity: 1; }
             .fw-controls .fw-models {
                 width: ${WIDTH}px; height: ${WIDTH}px; border-radius: 50%;
@@ -398,6 +420,7 @@ export const FlightWindowControls = (() => {
         tab.addEventListener('pointermove', onTabMove);
         tab.addEventListener('pointerup', onTabUp);
         tab.addEventListener('pointercancel', onTabUp);
+        tab.addEventListener('animationend', () => tab.classList.remove('fw-hint'));
         tab.addEventListener('click', (e) => {
             e.stopPropagation();
             // From the keyboard (no pointer pressed it): tuck or pull out.
@@ -1181,8 +1204,8 @@ export const FlightWindowControls = (() => {
                 slide = { axis: 'y', out: -1, travel: edge - Math.min(top, aTop), side: 'bottom' };
                 top += (1 - out) * (edge - top);
                 aTop += (1 - out) * (edge - aTop);
-                clip = `inset(0 0 ${Math.max(0, top + h - edge)}px 0)`;
-                aClip = `inset(0 0 ${Math.max(0, aTop + ah - edge)}px 0)`;
+                clip = cutOff(0, 0, top + h - edge, 0);
+                aClip = cutOff(0, 0, aTop + ah - edge, 0);
                 tabLeft = c.width / 2 - TAB_LONG / 2;
                 tabTop = edge - TAB_SHORT;
                 tabIcon = tucked ? 'up' : 'down';
@@ -1209,7 +1232,7 @@ export const FlightWindowControls = (() => {
                 aTop = r.top - c.top;
                 top = aTop + (actionCount ? (leftRoot.offsetHeight || actionsHeight) + 8 : 0);
                 const cut = onRight ? Math.max(0, left + WIDTH - edge) : Math.max(0, edge - left);
-                clip = aClip = onRight ? `inset(0 ${cut}px 0 0)` : `inset(0 0 0 ${cut}px)`;
+                clip = aClip = onRight ? cutOff(0, cut, 0, 0) : cutOff(0, 0, 0, cut);
                 slide = { axis: 'x', out: onRight ? -1 : 1, travel, side: onRight ? 'left' : 'right' };
                 tabKind = onRight ? 'beside on-left' : 'beside on-right';
                 tabLeft = onRight ? edge - TAB_SHORT : edge;
@@ -1286,14 +1309,18 @@ export const FlightWindowControls = (() => {
         place(leftRoot, aLeft, aTop, up && actionCount ? opacity : 0, aClip);
         // Not to be pressed while mostly tucked away.
         if (out < 0.5) { root.classList.add('faded'); leftRoot.classList.add('faded'); }
-        const tabClass = `fw-tab ${tabKind}`;
-        if (tab.className.replace(/ shown$/, '') !== tabClass) tab.className = tabClass;
+        if (tab.dataset.kind !== tabKind) {
+            tab.classList.remove('along', 'beside', 'on-left', 'on-right');
+            tab.classList.add(...tabKind.split(' '));
+            tab.dataset.kind = tabKind;
+        }
         const icon = tab.firstElementChild;
         if (icon && icon.className !== `fa-solid fa-chevron-${tabIcon}`) icon.className = `fa-solid fa-chevron-${tabIcon}`;
         tab.style.left = `${Math.round(tabLeft)}px`;
         tab.style.top = `${Math.round(tabTop)}px`;
         tab.style.opacity = String(up ? opacity : 0);
         tab.classList.toggle('shown', up && opacity >= 0.5);
+        maybeHint(up && opacity >= 0.99 && Math.abs(out - (tucked ? 0 : 1)) < 0.01);
         // The window's own copies of the buttons, only while these are usable.
         if (up) win.classList.toggle('fw-actions-out', actionCount > 0 && opacity >= 0.5);
         if (!up) return;
@@ -1317,6 +1344,14 @@ export const FlightWindowControls = (() => {
         lastKey = '';
     }
 
+    // A clip-path cutting off what has gone behind the window — none at all
+    // when nothing has: any clip-path, even one that cuts nothing, stops the
+    // glass inside from blurring the map behind it, and it turns see-through.
+    function cutOff(t, r, b, l) {
+        const px = (v) => Math.max(0, Math.round(v));
+        return t > 0.5 || r > 0.5 || b > 0.5 || l > 0.5 ? `inset(${px(t)}px ${px(r)}px ${px(b)}px ${px(l)}px)` : '';
+    }
+
     function place(el, left, top, opacity, clip = '') {
         el.style.left = `${Math.round(left)}px`;
         el.style.top = `${Math.round(top)}px`;
@@ -1337,6 +1372,7 @@ export const FlightWindowControls = (() => {
     // Pulled by the tab: they follow the finger along the way they slide.
     function onTabDown(e) {
         e.stopPropagation();
+        hint = null;
         drag = { id: e.pointerId, x: e.clientX, y: e.clientY, from: shown01, moved: 0 };
         try { tab.setPointerCapture(e.pointerId); } catch (_) {}
     }
@@ -1358,14 +1394,43 @@ export const FlightWindowControls = (() => {
         haptic();
     }
 
+    // The one reminder that the tab is there, once the window has been
+    // settled with the controls showing for a moment: the buttons nudge
+    // towards where the tab would put them and back, and the tab pulses.
+    function maybeHint(ready) {
+        if (hinted) return;
+        if (!ready || drag) { hintReadySince = 0; return; }
+        const now = performance.now();
+        if (!hintReadySince) { hintReadySince = now; return; }
+        if (now - hintReadySince < HINT_DELAY_MS) return;
+        hinted = true;
+        try { localStorage.setItem(HINTED_KEY, '1'); } catch (_) {}
+        hint = { t0: now };
+        tab.classList.remove('fw-hint');
+        void tab.offsetWidth; // restart the animation
+        tab.classList.add('fw-hint');
+    }
+
     // How far out they are drawn this frame: following a drag, or sliding
-    // towards where they were left.
+    // towards where they were left (or nudging, the one time).
     function stepTuck() {
         const now = performance.now();
         const dt = shownAt ? Math.min((now - shownAt) / 1000, 0.1) : 0;
         shownAt = now;
         if (drag) return shown01;
         const want = tucked ? 0 : 1;
+        if (hint) {
+            // Twice towards the other way and back — towards the window if
+            // they are out, out from it if they are tucked — then rest.
+            const t = (now - hint.t0) / 1000;
+            if (t < HINT_S) {
+                const nudge = t < 0.7 ? 0.45 * Math.sin(Math.PI * t / 0.7)
+                    : t > 0.85 && t < 1.35 ? 0.2 * Math.sin(Math.PI * (t - 0.85) / 0.5) : 0;
+                shown01 = want + (want ? -nudge : nudge);
+                return shown01;
+            }
+            hint = null;
+        }
         shown01 += (want - shown01) * (1 - Math.exp(-dt / TUCK_TAU));
         if (Math.abs(want - shown01) < 0.002) shown01 = want;
         return shown01;
