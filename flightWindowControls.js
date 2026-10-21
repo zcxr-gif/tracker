@@ -33,7 +33,9 @@
  * the finger and settle whichever way they are nearer. They slide towards
  * the window and are cut off at its edge as they go, so they read as going
  * behind it — down behind the sheet on a phone, sideways behind the window
- * on desktop. Remembered from one flight to the next.
+ * on desktop. Kept from one flight to the next while the page is open, but
+ * never remembered past it: every visit starts with them out. On a phone,
+ * pulling the sheet down brings them back out too.
  *
  * Where it stands is read from the window on every frame, so it follows it
  * exactly however the window moves:
@@ -70,7 +72,6 @@
  */
 
 export const FlightWindowControls = (() => {
-    const TUCKED_KEY = 'flightWindowControlsTucked';
     // Set once the tab has shown, the one time, what it does.
     const HINTED_KEY = 'flightWindowControlsHinted';
     const WIDTH = 46;
@@ -199,7 +200,12 @@ export const FlightWindowControls = (() => {
     let hint = null;
     let hintReadySince = 0;
 
-    try { tucked = localStorage.getItem(TUCKED_KEY) === '1'; } catch (_) {}
+    // Tucked used to be remembered across visits; it no longer is.
+    try { localStorage.removeItem('flightWindowControlsTucked'); } catch (_) {}
+    // A phone's sheet, as it stood last frame, and where it was when it last
+    // started moving down (see the pull-down below).
+    let sheetTop = null;
+    let sheetDownFrom = null;
     try { hinted = localStorage.getItem(HINTED_KEY) === '1'; } catch (_) {}
     shown01 = tucked ? 0 : 1;
 
@@ -1195,6 +1201,16 @@ export const FlightWindowControls = (() => {
                 const openness = Math.min(Math.max((peekTop - r.top) / span, 0), 1);
                 opacity = Math.max(0, 1 - openness * 1.6);
                 if (edge - GAP - TAB_SHORT - Math.max(h, ah) < 8) opacity = 0;
+                // Pulled down — from the full window towards the peek, or the
+                // peek further down — the sheet brings tucked controls back
+                // out, a couple of dozen pixels into the pull.
+                if (sheetTop !== null && r.top > sheetTop + 0.5) {
+                    if (sheetDownFrom === null) sheetDownFrom = sheetTop;
+                    if (tucked && !drag && r.top - sheetDownFrom > 24) setTucked(false);
+                } else if (sheetTop !== null && r.top < sheetTop - 0.5) {
+                    sheetDownFrom = null;
+                }
+                sheetTop = r.top;
             } else {
                 setLayout(root, 'vertical');
                 setLayout(leftRoot, 'vertical');
@@ -1222,6 +1238,7 @@ export const FlightWindowControls = (() => {
             }
         } else {
             // No flight open: the map's own controls stay in the corner.
+            sheetTop = sheetDownFrom = null;
             setLayout(root, 'vertical');
             root.style.maxWidth = '';
             const busy = mobile && host.container.classList.contains('mobile-window-open');
@@ -1363,7 +1380,6 @@ export const FlightWindowControls = (() => {
 
     function setTucked(on) {
         tucked = !!on;
-        try { localStorage.setItem(TUCKED_KEY, tucked ? '1' : '0'); } catch (_) {}
         lastKey = '';
     }
 
