@@ -177,6 +177,130 @@ export function renderRelief(dem, style, fieldFt = 0) {
 }
 
 /*
+ * The detail engine. renderRelief() above is one coarse picture of the whole
+ * airspace — fine for the overview, soft when you zoom in. TerrainTiles works
+ * like a map engine instead: for whatever part of the scope is on screen it
+ * picks the elevation tile zoom that matches the screen's own resolution
+ * (from ~400 m per pixel zoomed out to ~20 m zoomed in), fetches those
+ * tiles, colors each one in the current style and caches it. The coarse
+ * picture stays underneath while a tile is still loading.
+ */
+const MIN_Z = 9, MAX_Z = 13, MAX_LOADS = 6, MAX_TILES = 320;
+
+function tileLon(x, z) { return x / 2 ** z * 360 - 180; }
+function tileLat(y, z) { const k = Math.PI * (1 - 2 * y / 2 ** z); return Math.atan(Math.sinh(k)) * 180 / Math.PI; }
+
+/** One 256 px tile colored in a style: flat height bands plus coast and band-edge lines. */
+function colorTile(elev, style, fieldFt) {
+    const pal = PALETTES[style] || PALETTES.radar;
+    const N = 256;
+    const band = new Int8Array(N * N);
+    for (let k = 0; k < N * N; k++) band[k] = elev[k] <= 0 ? -1 : bandIndex(pal.bands, elev[k] - fieldFt);
+    const cv = document.createElement('canvas');
+    cv.width = N; cv.height = N;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(N, N);
+    for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
+            const k = y * N + x, b = band[k], o = k * 4;
+            let rgb = b < 0 ? pal.water : pal.bands[b][1];
+            const r = x + 1 < N ? band[k + 1] : b, d = y + 1 < N ? band[k + N] : b;
+            if (r !== b || d !== b) rgb = rgb.map(c => Math.min(255, c * pal.edge));
+            img.data[o] = rgb[0]; img.data[o + 1] = rgb[1]; img.data[o + 2] = rgb[2]; img.data[o + 3] = 255;
+        }
+    }
+    ctx.putImageData(img, 0, 0);
+    return cv;
+}
+
+export class TerrainTiles {
+    /** lat/lon of the airport reference point (the local plane's origin) and field elevation in feet. */
+    constructor(lat, lon, fieldFt) {
+        this.lat = lat; this.lon = lon; this.fieldFt = fieldFt;
+        this.cosLat = Math.cos(lat * Math.PI / 180);
+        this.tiles = new Map();          // "z/x/y" -> { state, elev, canvases, used }
+        this.loading = 0;
+        this.queue = [];
+        this.scratch = document.createElement('canvas');
+        this.scratch.width = this.scratch.height = 256;
+        this.sctx = this.scratch.getContext('2d', { willReadFrequently: true });
+    }
+
+    /** Tile zoom whose pixels are at least as fine as the screen's at `pxPerNm` CSS pixels per NM. */
+    zoomFor(pxPerNm, dpr) {
+        const want = pxPerNm * Math.min(dpr || 1, 2);
+        const z = Math.ceil(Math.log2(want * 360 * 60 * this.cosLat / 256));
+        return Math.max(MIN_Z, Math.min(MAX_Z, z));
+    }
+
+    toLocal(lat, lon) { return [(lon - this.lon) * 60 * this.cosLat, (lat - this.lat) * 60]; }
+    toLatLon(x, y) { return [this.lat + y / 60, this.lon + x / (60 * this.cosLat)]; }
+
+    request(key, z, x, y) {
+        if (this.tiles.has(key)) return;
+        this.tiles.set(key, { state: 'queued', canvases: {}, used: 0 });
+        this.queue.push({ key, z, x, y });
+        this.pump();
+    }
+
+    pump() {
+        while (this.loading < MAX_LOADS && this.queue.length) {
+            const { key, z, x, y } = this.queue.pop();       // newest first: what's on screen now
+            const t = this.tiles.get(key);
+            if (!t) continue;
+            t.state = 'loading';
+            this.loading++;
+            loadImage(TILE_URL.replace('{z}', z).replace('{x}', x).replace('{y}', y)).then(img => {
+                this.sctx.drawImage(img, 0, 0);
+                const px = this.sctx.getImageData(0, 0, 256, 256).data;
+                const elev = new Float32Array(256 * 256);
+                for (let k = 0; k < elev.length; k++) {
+                    elev[k] = (px[k * 4] * 256 + px[k * 4 + 1] + px[k * 4 + 2] / 256 - 32768) * M_TO_FT;
+                }
+                t.elev = elev; t.state = 'ok';
+            }).catch(() => { t.state = 'err'; }).finally(() => { this.loading--; this.pump(); });
+        }
+    }
+
+    evict() {
+        if (this.tiles.size <= MAX_TILES) return;
+        const old = [...this.tiles.entries()].filter(([, t]) => t.state === 'ok' || t.state === 'err')
+            .sort((a, b) => a[1].used - b[1].used);
+        for (const [k] of old.slice(0, this.tiles.size - MAX_TILES)) this.tiles.delete(k);
+    }
+
+    /**
+     * Draw the tiles covering world box [x0..x1] x [y0..y1] (NM) at the zoom
+     * for `pxPerNm`. `toS` maps local NM to screen pixels.
+     */
+    draw(ctx, toS, pxPerNm, dpr, box, style, frame) {
+        const z = this.zoomFor(pxPerNm, dpr);
+        // Below the overview's own detail there's nothing to add.
+        if (z <= MIN_Z && pxPerNm < 6) return;
+        this.queue.length = 0;                               // only what is visible now
+        const [latN, lonW] = this.toLatLon(box.x0, box.y1), [latS, lonE] = this.toLatLon(box.x1, box.y0);
+        const [fx0, fy0] = tileXY(latN, lonW, z), [fx1, fy1] = tileXY(latS, lonE, z);
+        for (let ty = Math.floor(fy0); ty <= Math.floor(fy1); ty++) {
+            for (let tx = Math.floor(fx0); tx <= Math.floor(fx1); tx++) {
+                const key = `${z}/${tx}/${ty}`;
+                const t = this.tiles.get(key);
+                if (!t) { this.request(key, z, tx, ty); continue; }
+                if (t.state === 'queued') this.queue.push({ key, z, x: tx, y: ty });
+                if (t.state !== 'ok') continue;
+                t.used = frame;
+                const cv = t.canvases[style] || (t.canvases[style] = colorTile(t.elev, style, this.fieldFt));
+                const [ax, ay] = toS(...this.toLocal(tileLat(ty, z), tileLon(tx, z)));
+                const [bx, by] = toS(...this.toLocal(tileLat(ty + 1, z), tileLon(tx + 1, z)));
+                // Half a pixel of overlap hides the seams between tiles.
+                ctx.drawImage(cv, ax - 0.5, ay - 0.5, bx - ax + 1, by - ay + 1);
+            }
+        }
+        this.pump();
+        this.evict();
+    }
+}
+
+/*
  * Minimum vectoring altitudes, laid out the way TRACON MVA charts usually are:
  * rings every 5 NM split into 30° wedges, with one area around the field.
  * Each area gets 1,000 ft above the highest terrain within 3 NM of it

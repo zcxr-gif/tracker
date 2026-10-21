@@ -117,7 +117,11 @@ A35K, B748, MD11).
 
 The scope always shows land, water and terrain. The data comes from the
 keyless Terrarium elevation tiles (AWS Open Data), the same source as
-`terrainMode.js`; `approachTerrain.js` loads them. Terrain is drawn as flat,
+`terrainMode.js`; `approachTerrain.js` loads them. A coarse picture of the
+whole airspace sits underneath, and a small tile engine (`TerrainTiles`)
+fetches sharper tiles for whatever is on screen at the screen's own
+resolution, from about 400 m per pixel zoomed out down to about 20 m
+zoomed in. Terrain is drawn as flat,
 smoothed height bands measured from the field's elevation, with a thin line
 at the coast and at each band edge, inside the airspace only. The **Chart**
 button switches to a light map like ifatc.org's; **Radar** is the dark

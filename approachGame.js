@@ -16,7 +16,7 @@
  * lists each rule, its paragraph and how the game scores it.
  */
 
-import { loadDem, terrainAt, renderRelief, buildMva, mvaAt, mvaArea, MVA_RING_NM, MVA_WEDGE } from './approachTerrain.js';
+import { loadDem, terrainAt, renderRelief, buildMva, mvaAt, mvaArea, MVA_RING_NM, MVA_WEDGE, TerrainTiles } from './approachTerrain.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -255,6 +255,7 @@ function newGame(airport, level, opts) {
     G = {
         world, wind, level, opts, airport,
         dem: null, mva: null, relief: {},
+        tiles: new TerrainTiles(airport.lat, airport.lon, world.elev),
         wx: [], met: null, nextCell: 0,
         active: computeActive(world, wind),
         aircraft: [],
@@ -1268,6 +1269,10 @@ function draw() {
         c.beginPath(); c.arc(ox, oy, SCOPE_NM * s, 0, Math.PI * 2); c.clip();
         c.imageSmoothingEnabled = true;
         c.drawImage(img, ax, ay, bx - ax, by - ay);
+        // Sharper tiles for whatever is on screen, at the screen's own resolution.
+        const [wx0, wy1] = toW(0, 0), [wx1, wy0] = toW(view.w, view.h);
+        const box = { x0: Math.max(wx0, -SCOPE_NM), x1: Math.min(wx1, SCOPE_NM), y0: Math.max(wy0, -SCOPE_NM), y1: Math.min(wy1, SCOPE_NM) };
+        if (box.x0 < box.x1 && box.y0 < box.y1) G.tiles.draw(c, toS, s, view.dpr, box, mapStyle, (G.frame = (G.frame || 0) + 1));
         c.restore();
     }
     if (terrainOn()) drawMva();
