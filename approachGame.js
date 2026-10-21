@@ -2830,6 +2830,7 @@ function renderHud() {
         + `ARR <b>${G.active.arr.map(e => e.id).join(' ')}</b><br>`
         + `DEP <b>${G.active.dep.map(e => e.id).join(' ')}</b><br>`
         + `EXIT <b>${terrainOn() ? 'by gate' : alt3(G.world.exitAlt) + '+'}</b> · MVA <b>${terrainOn() ? 'by sector' : alt3(G.world.minAlt)}</b>`
+        + (G.surfaceStatus ? `<br><span class="taxi-st${G.ground ? '' : ' bad'}">TAXI MAP <b>${escapeHtml(G.surfaceStatus)}</b></span>` : '')
         + (G.opts.terrain && !G.mva ? '<br>loading terrain…' : '')
         + (below(G.met) ? '<br><b style="color:#ff8a98">BELOW MINIMUMS</b>' : '');
     $('#s-score').textContent = G.score;
@@ -3054,7 +3055,9 @@ async function loadSurface(world) {
     const options = [];
     let map = null;
     const build = (features, source) => {
-        const ground = buildGround({ type: 'FeatureCollection', features }, (lat, lon) => world.proj(lat, lon), world.ends);
+        let ground;
+        try { ground = buildGround({ type: 'FeatureCollection', features }, (lat, lon) => world.proj(lat, lon), world.ends); }
+        catch (err) { ground = { error: `couldn't be read (${err.message})` }; }
         if (ground.error) {
             failures.push(`${source}: ${ground.error}`);
             if (ground.map && (!map || ground.map.lines.length > map.lines.length)) map = ground.map;
@@ -3100,10 +3103,14 @@ async function startGame(airport, level) {
     const dem = loadDem(airport.lat, airport.lon).catch(() => null);
     setSpeed(0);
     sys(game.positions.has('GND') ? 'Loading the airport\'s taxiways and gates…' : 'Loading the airport…');
-    const surface = await loadSurface(game.world);
+    game.surfaceStatus = 'loading…';
+    const surface = await loadSurface(game.world).catch(err => ({ error: `couldn't be loaded (${err.message})` }));
     if (G !== game) return;
     game.ground = surface.ground || null;
     game.surfaceMap = surface.ground || surface.map || null;
+    // On the scope too, so it's visible without reading the log.
+    game.surfaceStatus = surface.ground ? `${surface.source} ✓`
+        : surface.map ? `drawn only (${surface.map.lines.length} lines), no taxi network: ${surface.error}` : `none: ${surface.error}`;
     if (surface.ground) sys(`Surface (${surface.source}): ${surface.ground.summary}.`);
     else sys(`No taxi map: ${surface.error}.${surface.map ? ` Drawing the ${surface.map.lines.length} taxiway segments found.` : ''}`, 'bad');
     if (!game.ground && game.positions.has('GND')) {
