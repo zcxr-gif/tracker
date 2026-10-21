@@ -1367,7 +1367,10 @@ window.pinFlight = function(flightId) {
         st.id = 'free-map-css-shim';
         st.textContent = `
             .maplibregl-popup { z-index: 3000 !important; pointer-events: none; }
-            .maplibregl-popup-content { background: transparent !important; box-shadow: none !important; padding: 0 !important; }
+            /* As on Mapbox: the hover cards let the mouse through, or a
+               wheel or trackpad pinch over one zooms the page, not the map. */
+            .maplibregl-popup-content { background: transparent !important; box-shadow: none !important; padding: 0 !important; pointer-events: none !important; }
+            .maplibregl-popup.va-event-popup, .maplibregl-popup.va-event-popup .maplibregl-popup-content { pointer-events: auto !important; }
             .maplibregl-popup-tip { display: none !important; }
         `;
         document.head.appendChild(st);
