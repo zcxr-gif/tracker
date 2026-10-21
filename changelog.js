@@ -22,6 +22,54 @@
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
         {
+            id: '2026.10.21',
+            date: 'October 2026',
+            title: 'Fly It in 3D',
+            tagline: 'Real 3D aircraft in their airline’s colours, the flown path drawn in the air, a camera that rides with the aircraft — and the map controls now stand beside the flight window, as on iPhone.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-cube', action: '3d-aircraft',
+                    text: '3D aircraft: every flight on the map as a 3D model in its airline’s livery, banking into turns, pitching into climbs, gear down near the ground. Tap 3D beside the flight window, or in the corner of the map, to switch — and 2D to go back to icons.'
+                },
+                {
+                    tag: 'new', icon: 'fa-route',
+                    text: 'With 3D on, the open flight’s path is drawn in the air at the heights it was flown, with a soft curtain down to the ground, and fades out just behind the tail so the aircraft stands clear of it.'
+                },
+                {
+                    tag: 'new', icon: 'fa-video',
+                    text: 'Lock the camera on: the camera button beside the flight window puts you behind the aircraft and rides along with it. Drag to go round it, scroll or pinch to come closer.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-bezier-curve',
+                    text: 'The flown path, drawn the way the iPhone app draws it: smooth curves, ice blue near the ground through green and amber to red at cruise, white on the taxiways, a dashed line back to the departure airport when the history starts later — and it always ends on the aircraft, never ahead of it.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-plane',
+                    text: 'Aircraft glide smoothly between position reports, as in the app, instead of hopping every few seconds.'
+                },
+                {
+                    tag: 'new', icon: 'fa-sliders',
+                    text: 'The map controls stand beside the flight window: the whole flight, follow, the flown path, the camera and 3D, with the window’s own buttons — pin, path info, replay and trip card — next to them. Follow keeps the aircraft in the part of the map the window leaves free.'
+                },
+                {
+                    tag: 'new', icon: 'fa-chevron-down',
+                    text: 'Too many buttons? A small tab on the flight window’s edge tucks them all away behind it, and pulls them back out — tap it, or drag it.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-window-maximize',
+                    text: 'The flight window scrolls without a scrollbar, and the Legacy window on desktop has its photo, aircraft and route card rearranged.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-map',
+                    text: 'The map loads sooner, and the free map now has the 3D aircraft, the path in the air and the locked-on camera too.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-wrench',
+                    text: 'In 3D, the aircraft no longer stands still while its path runs on ahead of it, and hover cards no longer flicker while you zoom.'
+                }
+            ]
+        },
+        {
             id: '2026.10.17',
             date: 'October 2026',
             title: 'Thank Your Controller',
@@ -831,6 +879,7 @@
         // Opened inside the click itself, or the browser treats it as a popup.
         'atc-page': { label: 'Open the RateMyATC page', now: true, run: () => window.open('/atc', '_blank', 'noopener') },
         'ratemyatc': { label: 'Open the RateMyATC board', run: () => window.dispatchEvent(new CustomEvent('openRateMyAtc', { detail: { tab: 'top' } })) },
+        '3d-aircraft': { label: 'Turn on 3D aircraft', run: () => window.setAircraftModels3D && window.setAircraftModels3D(true) },
     };
     function runAction(id) {
         const a = ACTIONS[id];

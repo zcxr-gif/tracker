@@ -1198,11 +1198,13 @@ export const FlightWindowControls = (() => {
                 setLayout(root, 'vertical');
                 setLayout(leftRoot, 'vertical');
                 root.style.maxWidth = leftRoot.style.maxWidth = '';
-                // Beside the tab, which stands against the window's side;
-                // sideways behind the window as they are tucked away.
+                // Close beside the window, level with its top; sideways
+                // behind it as they are tucked away. The tab stands against
+                // the window's straight side just under them — clear of its
+                // rounded corner — and stays there tucked or not.
                 const onRight = r.left + r.width / 2 > c.left + c.width / 2;
                 const edge = onRight ? r.left - c.left : r.right - c.left;
-                const outLeft = onRight ? edge - TAB_SHORT - GAP - WIDTH : edge + TAB_SHORT + GAP;
+                const outLeft = onRight ? edge - GAP - WIDTH : edge + GAP;
                 if (outLeft < 4 || outLeft + WIDTH > c.width - 4) opacity = 0;
                 const travel = onRight ? edge - outLeft : outLeft + WIDTH - edge;
                 left = aLeft = outLeft + (onRight ? 1 : -1) * (1 - out) * travel;
@@ -1213,7 +1215,8 @@ export const FlightWindowControls = (() => {
                 slide = { axis: 'x', out: onRight ? -1 : 1, travel, side: onRight ? 'left' : 'right' };
                 tabKind = onRight ? 'beside on-left' : 'beside on-right';
                 tabLeft = onRight ? edge - TAB_SHORT : edge;
-                tabTop = r.top - c.top;
+                const under = top + (root.offsetHeight || mainHeight) + 10;
+                tabTop = Math.min(under, r.bottom - c.top - TAB_LONG - 24);
                 tabIcon = (tucked ? onRight : !onRight) ? 'left' : 'right';
             }
         } else {
