@@ -9,6 +9,11 @@
  *
  * Geometry is a flat local plane in nautical miles centred on the airport
  * reference point: x east, y north, headings true.
+ *
+ * The rules follow FAA JO 7110.65 (Air Traffic Control) wherever the game
+ * models them — radar and wake separation, final approach interception,
+ * speed control, runway separation and phraseology. docs/APPROACH-ATC.md
+ * lists each rule, its paragraph and how the game scores it.
  */
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -25,6 +30,10 @@ const TICK = 0.25;          // simulation step, seconds
 const TURN_RATE = 3;        // deg/s, standard rate
 const GS_FT_PER_NM = 318;   // 3° glideslope
 const MIN_LANDING_RWY_FT = 4500;
+const FAF_NM = 5;           // nominal final approach fix
+const GATE_NM = FAF_NM + 1; // approach gate: 1 NM outside the FAF (7110.65 5-9-1)
+const LAND_CLR_NM = 0.6;    // no landing clearance by here and the pilot goes around
+const VIOLATION_PTS = 5;
 
 const TRAFFIC = {
     light:  { gap: 140, max: 6 },
@@ -36,8 +45,8 @@ const FEATURED = ['KJFK', 'KLAX', 'KATL', 'KORD', 'KDFW', 'KDEN', 'KSFO', 'KSEA'
 
 const AIRLINES = [
     { icao: 'AAL', radio: 'American',   w: 10, types: ['B738', 'A321', 'A320', 'B772', 'B789'] },
-    { icao: 'DAL', radio: 'Delta',      w: 10, types: ['A321', 'B739', 'A320', 'A339', 'B763', 'A359'] },
-    { icao: 'UAL', radio: 'United',     w: 10, types: ['B738', 'B739', 'A320', 'B772', 'B789', 'B38M'] },
+    { icao: 'DAL', radio: 'Delta',      w: 10, types: ['A321', 'B739', 'A320', 'A339', 'B763', 'A359', 'B752'] },
+    { icao: 'UAL', radio: 'United',     w: 10, types: ['B738', 'B739', 'A320', 'B772', 'B789', 'B38M', 'B753'] },
     { icao: 'SWA', radio: 'Southwest',  w: 8,  types: ['B737', 'B738', 'B38M'] },
     { icao: 'JBU', radio: 'JetBlue',    w: 4,  types: ['A320', 'A321', 'E190'] },
     { icao: 'ASA', radio: 'Alaska',     w: 4,  types: ['B739', 'B738', 'B38M'] },
@@ -62,12 +71,25 @@ function perf(type) {
     const regional = /^(CRJ|E1|E7)/.test(type);
     return {
         heavy,
+        // Wake turbulence weight class: Super, Heavy, B757, Large.
+        wake: type === 'A388' ? 'S' : heavy ? 'H' : /^B75/.test(type) ? 'B757' : 'L',
         vapp: heavy ? 150 : regional ? 130 : 140,
         vr: heavy ? 160 : regional ? 135 : 145,
         climb: heavy ? 2000 : 2600,
         desc: 2000,
     };
 }
+
+/**
+ * Wake turbulence radar separation, leader -> follower, in NM (7110.65 5-5-4,
+ * weight-class minima). Pairs not listed need only standard radar separation.
+ */
+const WAKE_NM = {
+    S: { H: 6, B757: 7, L: 7 },
+    H: { H: 4, B757: 5, L: 5 },
+};
+const wakeNm = (lead, follow) => (WAKE_NM[lead.perf.wake] || {})[follow.perf.wake] || 0;
+const WAKE_NAME = { S: 'super', H: 'heavy', B757: 'B757', L: 'large' };
 
 /* ------------------------------------------------------------------ */
 /* Small math                                                          */
@@ -86,6 +108,9 @@ const hdg3 = h => String(Math.round(norm(h)) || 360).padStart(3, '0');
 const fmtAlt = ft => ft >= 18000 ? `flight level ${Math.round(ft / 100)}` : Math.round(ft).toLocaleString('en-US');
 const alt3 = ft => String(Math.max(0, Math.round(ft / 100))).padStart(3, '0');
 const rwyKey = id => String(id).toUpperCase().replace(/^0+/, '');
+const PHONETIC = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliett', 'Kilo', 'Lima', 'Mike',
+    'November', 'Oscar', 'Papa', 'Quebec', 'Romeo', 'Sierra', 'Tango', 'Uniform', 'Victor', 'Whiskey', 'X-ray', 'Yankee', 'Zulu'];
+const cardinal = b => ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'][Math.round(norm(b) / 45) % 8];
 
 function seeded(str) {
     let h = 2166136261;
@@ -198,6 +223,23 @@ function computeActive(world, wind) {
     return { arr, dep, key: arr.map(e => e.id).join(' ') };
 }
 
+/**
+ * Distance in feet between the centerlines of two runway ends that point the
+ * same way, or null when they aren't parallel (crossing or opposite).
+ */
+function parallelFt(a, b) {
+    if (a === b) return 0;
+    if (Math.abs(diff(a.course, b.course)) > 10) return null;
+    const c = a.course * D2R;
+    return Math.abs((b.thr.x - a.thr.x) * Math.cos(c) - (b.thr.y - a.thr.y) * Math.sin(c)) * 6076;
+}
+/** Same runway, or a parallel close enough (under 2,500 ft) to count as one for wake and in-trail rules. */
+function sameRunwayish(a, b) {
+    if (a.phys === b.phys) return true;
+    const ft = parallelFt(a, b);
+    return ft != null && ft < 2500;
+}
+
 /* ------------------------------------------------------------------ */
 /* Game state                                                          */
 /* ------------------------------------------------------------------ */
@@ -214,9 +256,12 @@ function newGame(airport, level) {
         aircraft: [],
         t: 0,
         score: 0,
-        stats: { landed: 0, departed: 0, incidents: 0, goArounds: 0 },
+        stats: { landed: 0, departed: 0, incidents: 0, goArounds: 0, violations: 0 },
         conf: new Map(),
         occupied: new Map(),       // physical runway index -> sim time it is clear again
+        depWake: new Map(),        // physical runway index -> last Super/Heavy takeoff { t, cs, wake }
+        atis: Math.floor(rand(0, 26)),
+        altim: Math.round(rand(2972, 3024)),
         nextSpawn: 45,
         nextWind: rand(900, 1500),
         speed: 1,
@@ -241,12 +286,14 @@ function makeCallsign() {
         const cs = al.icao + num;
         if (used.has(cs)) continue;
         const type = pick(al.types);
-        const heavy = HEAVY.has(type);
+        const wake = perf(type).wake;
+        // Heavy and super aircraft say so in every call.
+        const suffix = wake === 'S' ? ' super' : wake === 'H' ? ' heavy' : '';
         const digits = String(num).split('').map(d => DIGIT_WORDS[d]).join(' ');
         return {
             cs, type,
-            radio: `${al.radio} ${num}${heavy ? ' heavy' : ''}`,
-            spoken: `${al.radio} ${digits}${heavy ? ' heavy' : ''}`,
+            radio: `${al.radio} ${num}${suffix}`,
+            spoken: `${al.radio} ${digits}${suffix}`,
         };
     }
     return null;
@@ -267,10 +314,11 @@ function spawnArrival() {
         const ac = {
             id: nextId++, ...id, kind: 'arr', state: 'air', perf: perf(id.type), entry: f,
             x, y, alt, hdg, spd, tHdg: hdg, tAlt: alt, tSpd: spd, turn: null,
-            trail: [], trailT: 0, born: G.t,
+            trail: [], trailT: 0, born: G.t, expect: pick(G.active.arr),
         };
         G.aircraft.push(ac);
-        pilot(ac, `Approach, ${ac.radio}, with you at ${fmtAlt(alt)} via ${f.name}.`);
+        pilot(ac, `${G.world.icao} Approach, ${ac.radio}, ${fmtAlt(alt)}, information ${PHONETIC[G.atis]}.`);
+        atc(`${ac.radio}, ${G.world.icao} Approach, altimeter ${G.altim}, expect ILS runway ${ac.expect.id} approach.`);
         return true;
     }
     return false;
@@ -296,7 +344,7 @@ function spawnDeparture() {
         trail: [], trailT: 0, born: G.t, remindAt: G.t + 240,
     };
     G.aircraft.push(ac);
-    pilot(ac, `Tower, ${ac.radio}, holding short runway ${rwy.id}, ready for departure, ${gate.name} gate.`);
+    pilot(ac, `${G.world.icao} Tower, ${ac.radio}, holding short runway ${rwy.id}, information ${PHONETIC[G.atis]}, ready for departure.`);
     return true;
 }
 
@@ -367,62 +415,107 @@ function finalGeom(ac, e) {
 
 function runwayBusyUntil(phys) {
     let until = G.occupied.get(phys) || 0;
-    if (G.aircraft.some(a => a.state === 'roll' && a.rwy.phys === phys)) until = Math.max(until, G.t + 30);
+    if (G.aircraft.some(a => (a.state === 'roll' || a.state === 'luaw') && a.rwy.phys === phys)) until = Math.max(until, G.t + 30);
     return until;
+}
+
+/** Why a departure may not start its takeoff roll yet (7110.65 3-9-6), or null. */
+function runwayBlocker(ac) {
+    const phys = ac.rwy.phys;
+    const other = G.aircraft.find(a => a !== ac && (a.state === 'roll' || a.state === 'luaw') && a.rwy.phys === phys);
+    if (other) return `${other.cs} is on the runway`;
+    if ((G.occupied.get(phys) || 0) > G.t) return 'the previous aircraft has not cleared it';
+    return null;
+}
+
+/** Where (NM from the threshold) a heading would join the localizer, and at what angle. */
+function predictIntercept(ac, e, hdg) {
+    const g = finalGeom(ac, e);
+    const angle = Math.abs(diff(e.course, hdg));
+    if (Math.abs(g.xt) < 0.15) return { along: g.along, angle };
+    const ia = diff(e.course, hdg) * D2R, sin = Math.sin(ia);
+    if (g.xt * sin >= 0 || Math.abs(sin) < 0.02) return null;    // not converging
+    const run = Math.abs(g.xt / sin);
+    return { along: g.along - Math.cos(ia) * run, angle };
+}
+
+function minSpeed(ac) {
+    // 7110.65 5-7-3. Turbojet arrivals: 250 at/above 10,000; 210 below; 170 within 20 flying miles of the threshold.
+    if (ac.alt >= 10000) return 250;
+    if (ac.kind === 'dep') return 230;
+    return Math.hypot(ac.x, ac.y) < 20 ? 170 : 210;
+}
+
+/** A controller error: the clearance stands, the rule is named, and it costs points. */
+function violation(ac, rule, text) {
+    G.stats.violations++;
+    award(ac, -VIOLATION_PTS);
+    sys(`${text} — ${rule}.`, 'bad');
+}
+
+function zuluAt(t) {
+    const z = new Date(G.zulu0 + t * 1000);
+    return String(z.getUTCHours()).padStart(2, '0') + String(z.getUTCMinutes()).padStart(2, '0');
 }
 
 /**
  * Apply one transmission to an aircraft. `c` may carry hdg/turn, alt, spd,
- * ils (runway end), direct (fix), hold ('L'|'R'), takeoff, goAround.
- * Returns true when the pilot accepted it.
+ * ils (runway end), direct (fix), holdFix (fix), orbit ('L'|'R'), luaw,
+ * takeoff, land, goAround. Returns true when the pilot accepted it.
  */
 function issue(ac, c) {
     if (!ac || ac.gone) return false;
     const parts = [], back = [];
-    const onGround = ac.state === 'wait' || ac.state === 'roll';
+    const onGround = ac.state !== 'air';
+    const elev = G.world.elev;
+    const wind = `wind ${hdg3(G.wind.dir)} at ${G.wind.spd}`;
 
-    if (c.takeoff) {
-        if (ac.state !== 'wait') { sys(`${ac.cs} is not holding short.`); return false; }
-        if (runwayBusyUntil(ac.rwy.phys) > G.t) {
-            atc(`${ac.radio}, runway ${ac.rwy.id}, cleared for takeoff.`);
-            pilot(ac, `Unable, the runway is occupied, ${ac.radio}.`);
-            return false;
-        }
-        const short = G.aircraft.find(a => a.appr?.loc && a.appr.end.phys === ac.rwy.phys && a.appr.along < 3);
-        if (short) {
-            atc(`${ac.radio}, runway ${ac.rwy.id}, cleared for takeoff.`);
-            pilot(ac, `Unable, traffic on short final, ${ac.radio}.`);
-            return false;
-        }
+    // ---- things that stop the call before it is made
+    if (c.luaw && ac.state !== 'wait') { sys(`${ac.cs} is not holding short.`); return false; }
+    if (c.takeoff && ac.state !== 'wait' && ac.state !== 'luaw') { sys(`${ac.cs} is not at the runway.`); return false; }
+    if (c.luaw && G.aircraft.some(a => a !== ac && a.state === 'luaw' && a.rwy.phys === ac.rwy.phys)) {
+        sys(`Someone is already lined up on ${ac.rwy.id}.`); return false;
     }
+    if (c.takeoff) {
+        const why = runwayBlocker(ac);
+        if (why) { sys(`Runway ${ac.rwy.id} is not clear: ${why} (7110.65 3-9-6).`, 'bad'); return false; }
+    }
+    if (c.land && !(ac.appr && ac.appr.loc)) { sys(`${ac.cs} isn't established on the final approach course yet.`); return false; }
+    if ((c.holdFix || c.orbit || c.ils || c.direct) && onGround) { sys(`${ac.cs} is on the ground.`); return false; }
+    if (c.ils && ac.kind !== 'arr') { sys(`${ac.cs} is a departure.`); return false; }
+    if (c.spd != null && ac.appr && ac.appr.along < Math.max(FAF_NM, 5)) {
+        sys('No speed adjustments inside the final approach fix or 5 miles from the runway (7110.65 5-7-1).');
+        delete c.spd;
+    }
+
+    let icpt = null;
     if (c.ils) {
-        if (ac.kind !== 'arr' || !airborne(ac)) { sys(`${ac.cs} can't fly an approach right now.`); return false; }
-        const g = finalGeom(ac, c.ils);
-        // Judge the intercept on the heading they'll be flying: "turn left 190, cleared ILS" is one call.
-        const off = Math.abs(diff(c.ils.course, c.hdg != null ? c.hdg : ac.hdg));
-        const inCone = g.along > 2 && g.along < 32 && Math.abs(g.xt) < g.along * Math.tan(40 * D2R) + 1;
-        if (!inCone || off > 120) {
+        const willFly = c.hdg != null ? c.hdg : (ac.holdAt || ac.orbit || ac.direct) ? ac.hdg : ac.tHdg;
+        icpt = predictIntercept(ac, c.ils, willFly);
+        if (!icpt || icpt.along < FAF_NM) {
             atc(`${ac.radio}, cleared ILS runway ${c.ils.id} approach.`);
-            pilot(ac, `Unable, we're not in position for runway ${c.ils.id}, ${ac.radio}.`);
+            pilot(ac, `Unable, on this heading we won't join the ${c.ils.id} localizer outside the final approach fix, ${ac.radio}.`);
             return false;
         }
     }
 
     if (c.goAround) {
         if (!ac.appr) { sys(`${ac.cs} isn't on an approach.`); return false; }
-        goAround(ac, null);
         atc(`${ac.radio}, go around.`);
+        goAround(ac, null);
         return true;
     }
+
+    // ---- lateral
     if (c.hdg != null) {
         const h = norm(c.hdg) || 360;
         const d = diff(ac.hdg, h);
         const dir = c.turn || (Math.abs(d) < 3 ? null : d < 0 ? 'L' : 'R');
-        ac.tHdg = h; ac.turn = c.turn || null; ac.hold = null; ac.direct = null;
+        ac.tHdg = h; ac.turn = c.turn || null; ac.holdAt = null; ac.orbit = null; ac.direct = null;
         if (ac.appr) cancelApproach(ac);
         if (onGround) {
-            parts.push(`after departure fly heading ${hdg3(h)}`);
-            back.push(`heading ${hdg3(h)} after departure`);
+            // Folded into the takeoff clearance below when one comes with it.
+            if (!c.takeoff) { parts.push(`after departure fly heading ${hdg3(h)}`); back.push(`heading ${hdg3(h)} after departure`); }
         } else {
             const side = dir === 'L' ? 'left ' : dir === 'R' ? 'right ' : '';
             parts.push(`${side ? 'turn ' + side : 'fly '}heading ${hdg3(h)}`);
@@ -430,50 +523,121 @@ function issue(ac, c) {
         }
     }
     if (c.direct) {
-        ac.direct = c.direct; ac.hold = null; ac.turn = null;
+        ac.direct = c.direct; ac.holdAt = null; ac.orbit = null; ac.turn = null;
         if (ac.appr) cancelApproach(ac);
         parts.push(`proceed direct ${c.direct.name}`);
         back.push(`direct ${c.direct.name}`);
     }
-    if (c.hold) {
-        if (onGround) { sys(`${ac.cs} is on the ground.`); return false; }
-        ac.hold = c.hold; ac.direct = null;
+    if (c.holdFix) {
+        const f = c.holdFix;
+        // No published holds here, so every hold is standard: right turns, inbound toward the field.
+        const inbound = f.kind === 'app' ? f.end.course : brg(-f.x, -f.y);
+        ac.holdAt = { fix: f, inbound, phase: 'to', timer: 0 };
+        ac.direct = null; ac.orbit = null; ac.turn = null;
         if (ac.appr) cancelApproach(ac);
-        parts.push(`hold present position, ${c.hold === 'L' ? 'left' : 'right'} turns`);
-        back.push(`holding, ${c.hold === 'L' ? 'left' : 'right'} turns`);
+        const efc = zuluAt(G.t + 600);
+        parts.push(`hold ${cardinal(inbound + 180)} of ${f.name}, inbound course ${hdg3(inbound)}, right turns, expect further clearance ${efc}`);
+        back.push(`hold ${cardinal(inbound + 180)} of ${f.name}, right turns, ${efc}`);
     }
-    if (c.alt != null) {
-        const a = clamp(Math.round(c.alt / 1000) * 1000, G.world.minAlt, 24000);
-        const ref = onGround ? G.world.elev : ac.alt;
-        const verb = Math.abs(a - ref) < 50 ? 'maintain' : a > ref ? 'climb and maintain' : 'descend and maintain';
+    if (c.orbit) {
+        ac.orbit = { dir: c.orbit, rem: 360 }; ac.holdAt = null;
+        if (ac.appr) cancelApproach(ac);
+        parts.push(`make a ${c.orbit === 'L' ? 'left' : 'right'} three-sixty`);
+        back.push(`${c.orbit === 'L' ? 'left' : 'right'} three-sixty`);
+    }
+
+    // ---- vertical
+    if (c.alt != null || c.ils) {
+        const a = clamp(Math.round((c.alt != null ? c.alt : ac.tAlt) / 1000) * 1000, G.world.minAlt, 24000);
+        const ref = onGround ? elev : ac.alt;
         ac.tAlt = a;
-        parts.push(`${verb} ${fmtAlt(a)}`);
-        back.push(`${verb.replace(' and maintain', '')} ${fmtAlt(a)}`);
+        if (c.ils) {
+            // 7110.65 5-9-4: "maintain <altitude> until established on the localizer".
+            parts.push(`maintain ${fmtAlt(a)} until established on the localizer`);
+            back.push(`${fmtAlt(a)} until established`);
+        } else {
+            const verb = Math.abs(a - ref) < 50 ? 'maintain' : a > ref ? 'climb and maintain' : 'descend and maintain';
+            parts.push(`${verb} ${fmtAlt(a)}`);
+            back.push(`${verb.replace(' and maintain', '')} ${fmtAlt(a)}`);
+        }
     }
-    if (c.spd != null) {
-        const s = clamp(Math.round(c.spd / 10) * 10, 160, 320);
-        const verb = s < ac.spd - 3 ? 'reduce speed to' : s > ac.spd + 3 ? 'increase speed to' : 'maintain';
-        ac.tSpd = s;
-        parts.push(`${verb} ${s}${verb === 'maintain' ? ' knots' : ''}`);
-        back.push(`${s} knots`);
-        if (ac.alt < 10000 && s > 250) back.push('two-fifty below ten');
-    }
+
+    // ---- approach clearance
     if (c.ils) {
-        ac.appr = { end: c.ils, loc: false, gs: false, est: false, along: 99, xt: 0 };
-        ac.hold = null; ac.direct = null; ac.turn = null;
-        parts.push(`cleared ILS runway ${c.ils.id} approach`);
-        back.push(`cleared ILS ${c.ils.id}`);
+        const e = c.ils;
+        ac.appr = { end: e, loc: false, gs: false, est: false, along: 99, xt: 0, spd: null };
+        ac.holdAt = null; ac.direct = null; ac.orbit = null; ac.turn = null; ac.landClr = false;
+        parts.push(`cleared ILS runway ${e.id} approach`);
+        back.push(`cleared ILS ${e.id}`);
+        // 7110.65 5-9-2: 30° max, 20° max within 2 NM of the approach gate.
+        const nearGate = icpt.along < GATE_NM + 2;
+        if (icpt.angle > 30.5) violation(ac, '7110.65 5-9-2', `${ac.cs} joins the localizer at ${Math.round(icpt.angle)}°; the limit is 30°`);
+        else if (nearGate && icpt.angle > 20.5) violation(ac, '7110.65 5-9-2', `${ac.cs} joins at ${Math.round(icpt.angle)}° within 2 miles of the approach gate; the limit there is 20°`);
+        // 7110.65 5-9-1: join at least 2 NM outside the approach gate.
+        if (nearGate) violation(ac, '7110.65 5-9-1', `${ac.cs} joins final ${icpt.along.toFixed(1)} miles out; vector to join at least 2 miles outside the approach gate (${GATE_NM + 2} miles)`);
+        // The glideslope is joined from below.
+        const gsAt = elev + icpt.along * GS_FT_PER_NM;
+        if (ac.tAlt > gsAt + 100) violation(ac, 'glideslope interception', `${fmtAlt(ac.tAlt)} is above the glideslope where ${ac.cs} joins (about ${fmtAlt(Math.round(gsAt / 100) * 100)}); it has to intercept from below`);
+    }
+
+    // ---- speed (an approach clearance cancels assigned speeds unless restated: 7110.65 5-7-1)
+    if (c.spd != null) {
+        let sp = clamp(Math.round(c.spd / 10) * 10, 130, 340);
+        const min = minSpeed(ac);
+        if (sp < min) { sys(`Minimum assignable speed for ${ac.cs} here is ${min} knots (7110.65 5-7-3).`); sp = min; }
+        if (ac.alt < 10000 && sp > 250) { sys('250 knots maximum below 10,000 feet (14 CFR 91.117).'); sp = 250; }
+        const verb = sp < ac.spd - 3 ? 'reduce speed to' : sp > ac.spd + 3 ? 'increase speed to' : 'maintain';
+        if (ac.appr) {
+            ac.appr.spd = sp;
+            parts.push(`maintain ${sp} knots until ${FAF_NM} mile final`);
+            back.push(`${sp} to ${FAF_NM} mile final`);
+        } else {
+            ac.tSpd = sp;
+            parts.push(`${verb} ${sp}${verb === 'maintain' ? ' knots' : ''}`);
+            back.push(`${sp} knots`);
+        }
+    }
+
+    // ---- runway
+    if (c.luaw) {
+        ac.state = 'luaw';
+        parts.push(`runway ${ac.rwy.id}, line up and wait`);
+        back.push(`line up and wait ${ac.rwy.id}`);
     }
     if (c.takeoff) {
+        const w = departureWake(ac);
+        if (w) violation(ac, '7110.65 3-9-6', `${ac.cs} rolled ${Math.round(w.since)} seconds after ${w.lead} (${WAKE_NAME[w.wake]}); the wake turbulence interval is ${w.need / 60} minutes`);
         ac.state = 'roll';
         ac.hdg = ac.rwy.course;
-        parts.push(`runway ${ac.rwy.id}, cleared for takeoff`);
-        back.push(`cleared for takeoff ${ac.rwy.id}`);
+        const runwayHdg = Math.abs(diff(ac.tHdg, ac.rwy.course)) < 3;
+        const hdgPart = runwayHdg ? 'fly runway heading' : `fly heading ${hdg3(ac.tHdg)}`;
+        parts.push(`${wind}, runway ${ac.rwy.id}, ${hdgPart}, cleared for takeoff`);
+        back.push(`${runwayHdg ? 'runway heading' : 'heading ' + hdg3(ac.tHdg)}, cleared for takeoff ${ac.rwy.id}`);
     }
+    if (c.land) {
+        ac.landClr = true;
+        parts.push(`${wind}, runway ${ac.appr.end.id}, cleared to land`);
+        back.push(`cleared to land ${ac.appr.end.id}`);
+    }
+
     if (!parts.length) return false;
     atc(`${ac.radio}, ${parts.join(', ')}.`);
     pilot(ac, `${cap(back.join(', '))}, ${ac.radio}.`);
     return true;
+}
+
+/** A Super or Heavy left this runway (or a close parallel) too recently: 2 minutes, 3 behind a Super. */
+function departureWake(ac) {
+    for (const e of G.world.ends) {
+        if (!sameRunwayish(e, ac.rwy) && e.phys !== ac.rwy.phys) continue;
+        const w = G.depWake.get(e.phys);
+        if (!w) continue;
+        if (w.wake === 'S' && ac.perf.wake === 'S') continue;
+        const need = w.wake === 'S' ? 180 : 120;
+        const since = G.t - w.t;
+        if (since < need) return { since, need, lead: w.cs, wake: w.wake };
+    }
+    return null;
 }
 
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
@@ -482,7 +646,7 @@ function cancelApproach(ac) { ac.appr = null; }
 
 function goAround(ac, reason) {
     const e = ac.appr ? ac.appr.end : null;
-    ac.appr = null; ac.direct = null; ac.hold = null; ac.turn = null;
+    ac.appr = null; ac.direct = null; ac.holdAt = null; ac.orbit = null; ac.turn = null; ac.landClr = false;
     if (e) ac.tHdg = e.course;
     ac.tAlt = Math.max(G.world.minAlt, Math.ceil((G.world.elev + 3000) / 1000) * 1000);
     ac.tSpd = 210;
@@ -527,11 +691,13 @@ function shiftWind() {
     G.wind = { dir: norm(G.wind.dir + Math.round(rand(-7, 7)) * 10) || 360, spd: Math.round(rand(4, 20)) };
     const prev = G.active.key;
     G.active = computeActive(G.world, G.wind);
+    G.atis = (G.atis + 1) % 26;
+    G.altim = clamp(G.altim + Math.round(rand(-3, 3)), 2950, 3050);
     if (G.active.key === prev) {
-        sys(`Wind now ${hdg3(G.wind.dir)} at ${G.wind.spd}.`);
+        sys(`Information ${PHONETIC[G.atis]} is current: wind ${hdg3(G.wind.dir)} at ${G.wind.spd}, altimeter ${G.altim}.`);
         return;
     }
-    sys(`Wind now ${hdg3(G.wind.dir)} at ${G.wind.spd}. Runway change — landing ${G.active.arr.map(e => e.id).join(', ')}, departing ${G.active.dep.map(e => e.id).join(', ')}.`, 'good');
+    sys(`Information ${PHONETIC[G.atis]}: wind ${hdg3(G.wind.dir)} at ${G.wind.spd}, altimeter ${G.altim}. Runway change — landing ${G.active.arr.map(e => e.id).join(', ')}, departing ${G.active.dep.map(e => e.id).join(', ')}.`, 'good');
     toast(`Runway change: ${G.active.arr.map(e => e.id).join(' / ')}`, 'good');
     for (const ac of G.aircraft) {
         if (ac.state !== 'wait' || G.active.dep.includes(ac.rwy)) continue;
@@ -544,10 +710,10 @@ function shiftWind() {
 function step(ac, dt) {
     const p = ac.perf, elev = G.world.elev;
 
-    if (ac.state === 'wait') {
+    if (ac.state === 'wait' || ac.state === 'luaw') {
         if (G.t >= ac.remindAt) {
             ac.remindAt = G.t + 240;
-            pilot(ac, `Tower, ${ac.radio}, still holding short ${ac.rwy.id}.`);
+            pilot(ac, ac.state === 'luaw' ? `Tower, ${ac.radio}, lined up and waiting on ${ac.rwy.id}.` : `Tower, ${ac.radio}, still holding short ${ac.rwy.id}.`);
         }
         return;
     }
@@ -557,7 +723,11 @@ function step(ac, dt) {
         if (ac.spd >= p.vr) {
             ac.state = 'air';
             ac.alt = elev + 20;
-            pilot(ac, `${ac.radio}, airborne, passing ${fmtAlt(Math.round((elev + 500) / 100) * 100)} for ${fmtAlt(ac.tAlt)}.`);
+            // Clear of the runway once airborne and past ~6,000 ft (7110.65 3-9-6).
+            G.occupied.set(ac.rwy.phys, G.t + 5);
+            if (p.wake === 'S' || p.wake === 'H') G.depWake.set(ac.rwy.phys, { t: G.t, cs: ac.cs, wake: p.wake });
+            pilot(ac, `${G.world.icao} Departure, ${ac.radio}, ${fmtAlt(Math.round((elev + 500) / 100) * 100)} climbing ${fmtAlt(ac.tAlt)}.`);
+            atc(`${ac.radio}, ${G.world.icao} Departure, radar contact.`);
         }
         return;
     }
@@ -565,13 +735,17 @@ function step(ac, dt) {
     // ---- lateral
     if (ac.appr) {
         if (!approachLateral(ac)) return;   // landed or went around this tick
+    } else if (ac.holdAt) {
+        holdingPattern(ac, dt);
     } else if (ac.direct) {
         const f = ac.direct;
         ac.tHdg = brg(f.x - ac.x, f.y - ac.y);
         if (Math.hypot(f.x - ac.x, f.y - ac.y) < 1) ac.direct = null;
     }
-    if (ac.hold) {
-        ac.hdg = norm(ac.hdg + (ac.hold === 'L' ? -1 : 1) * TURN_RATE * dt);
+    if (ac.orbit) {
+        const turn = TURN_RATE * dt;
+        ac.hdg = norm(ac.hdg + (ac.orbit.dir === 'L' ? -1 : 1) * turn);
+        if ((ac.orbit.rem -= turn) <= 0) ac.orbit = null;
     } else {
         // Departures fly runway heading until 400 ft.
         const target = ac.kind === 'dep' && agl(ac) < 400 ? ac.rwy.course : ac.tHdg;
@@ -590,16 +764,24 @@ function step(ac, dt) {
     if (ac.appr && ac.appr.loc) {
         const gsAlt = elev + Math.max(0, ac.appr.along) * GS_FT_PER_NM;
         if (ac.alt <= gsAlt + 100) ac.appr.gs = true;
+        // Once established, down the glideslope; from above, at a normal rate to catch it.
         tAlt = Math.min(gsAlt, ac.alt);
-        rate = ac.alt > gsAlt + 100 ? p.desc * 1.4 : 2200;
-        if (ac.appr.along < 3 && ac.alt > gsAlt + 350) { goAround(ac, 'too high'); return; }
-        if (ac.appr.along < 6) tSpd = p.vapp;
-        else if (ac.appr.along < 12) tSpd = Math.min(tSpd, 180);
+        rate = ac.appr.gs ? 2200 : p.desc;
+        // Stabilized by 1,000 ft above the field or go around.
+        if (ac.appr.along < 1000 / GS_FT_PER_NM && ac.alt > gsAlt + 300) { goAround(ac, 'not stabilized'); return; }
     }
+    if (ac.appr) {
+        // The approach clearance cancelled assigned speeds; the crew flies its own profile unless one was restated.
+        const al = ac.appr.along;
+        if (al < FAF_NM) tSpd = p.vapp;
+        else if (ac.appr.spd != null) tSpd = ac.appr.spd;
+        else tSpd = al > 15 ? Math.min(ac.tSpd, 210) : al > 8 ? 180 : 160;
+    }
+    if (ac.holdAt) tSpd = Math.min(tSpd, ac.alt <= 6000 ? 200 : ac.alt <= 14000 ? 230 : 265);  // holding speeds
     const maxClimb = rate / 60 * dt;
     ac.alt += clamp(tAlt - ac.alt, -maxClimb, maxClimb);
 
-    // ---- speed: 250 below 10,000 unless on final
+    // ---- speed: 250 below 10,000 (14 CFR 91.117)
     if (ac.alt < 10000 && tSpd > 250) tSpd = 250;
     const ds = tSpd - ac.spd;
     ac.spd += clamp(ds, -1.5 * dt, 2 * dt);
@@ -616,6 +798,24 @@ function step(ac, dt) {
     // ---- leaving the scope
     const r = Math.hypot(ac.x, ac.y);
     if (r > SCOPE_NM) exitScope(ac);
+}
+
+/** A standard right-hand hold: direct to the fix, outbound one minute (1½ above 14,000), back inbound. */
+function holdingPattern(ac, dt) {
+    const h = ac.holdAt, f = h.fix;
+    const leg = ac.alt <= 14000 ? 60 : 90;
+    const out = norm(h.inbound + 180);
+    if (h.phase === 'to' || h.phase === 'in') {
+        ac.tHdg = brg(f.x - ac.x, f.y - ac.y); ac.turn = null;
+        if (Math.hypot(f.x - ac.x, f.y - ac.y) < 0.6) { h.phase = 'turnOut'; ac.tHdg = out; ac.turn = 'R'; }
+    } else if (h.phase === 'turnOut') {
+        if (Math.abs(diff(ac.hdg, out)) < 1) { h.phase = 'out'; h.timer = leg; }
+    } else if (h.phase === 'out') {
+        ac.tHdg = out; ac.turn = null;
+        if ((h.timer -= dt) <= 0) { h.phase = 'turnIn'; ac.tHdg = h.inbound; ac.turn = 'R'; }
+    } else if (h.phase === 'turnIn') {
+        if (Math.abs(diff(ac.hdg, h.inbound)) < 1) h.phase = 'in';
+    }
 }
 
 function move(ac, dt) {
@@ -640,9 +840,9 @@ function approachLateral(ac) {
         const lead = radius * (1 - Math.cos(Math.min(Math.abs(ia), 90) * D2R)) + 0.1;
         if (Math.abs(g.xt) < 0.15 || (closing && Math.abs(g.xt) <= lead)) {
             ap.loc = true;
-        } else if (g.along < 1.5) {
+        } else if (g.along < FAF_NM) {
             ac.appr = null;
-            pilot(ac, `${ac.radio}, we've flown through the localizer for ${e.id}, request vectors.`);
+            pilot(ac, `${ac.radio}, we're through the ${e.id} localizer, request vectors.`);
             return true;
         } else {
             return true;   // keep the assigned heading until the intercept
@@ -650,15 +850,20 @@ function approachLateral(ac) {
     }
     ac.tHdg = norm(c + clamp(-g.xt * 40, -30, 30));
     ac.turn = null;
-    if (!ap.est && Math.abs(g.xt) < 0.2 && Math.abs(diff(ac.hdg, c)) < 10) ap.est = true;
+    if (!ap.est && Math.abs(g.xt) < 0.2 && Math.abs(diff(ac.hdg, c)) < 10) {
+        ap.est = true;
+        // Approach hands it to the tower; you are both, so the call comes straight to you.
+        pilot(ac, `${G.world.icao} Tower, ${ac.radio}, ${Math.max(1, Math.round(g.along))} mile final runway ${e.id}.`);
+    }
 
-    // The runway has to be clear by the time we get there.
+    // The runway has to be clear by the time we get there (7110.65 3-10-3).
     if (g.along < 1.2 && g.along > 0.15) {
         const eta = g.along / (ac.spd / 3600);
         if (runwayBusyUntil(e.phys) > G.t + eta) { goAround(ac, 'runway occupied'); return false; }
     }
+    if (g.along <= LAND_CLR_NM && !ac.landClr) { goAround(ac, 'no landing clearance'); return false; }
     if (g.along <= 0.15) {
-        if (ac.alt - elev > 300 || Math.abs(g.xt) > 0.3) { goAround(ac, 'unstable'); return false; }
+        if (ac.alt - elev > 300 || Math.abs(g.xt) > 0.3) { goAround(ac, 'not stabilized'); return false; }
         if (runwayBusyUntil(e.phys) > G.t) { goAround(ac, 'runway occupied'); return false; }
         land(ac, e);
         return false;
@@ -683,7 +888,8 @@ function exitScope(ac) {
         G.stats.departed++;
         if (onGate && ac.alt >= G.world.exitAlt - 50) {
             award(ac, 10);
-            pilot(ac, `Over to Center, ${ac.radio}, good day.`);
+            atc(`${ac.radio}, contact Center, good day.`);
+            pilot(ac, `Over to Center, ${ac.radio}.`);
         } else if (onGate) {
             award(ac, 5, 'low');
             sys(`${ac.cs} left via ${ac.gate.name} below ${fmtAlt(G.world.exitAlt)}.`, 'bad');
@@ -699,22 +905,69 @@ function exitScope(ac) {
     }
 }
 
+/** Within the tower's patch: inside 5 NM of the field and below 2,500 ft above it. */
+const nearField = a => Math.hypot(a.x, a.y) < 5 && agl(a) < 2500;
+
+/**
+ * If one of the pair is "directly behind" the other for wake purposes — in
+ * trail on the same final, or within 2,500 ft of the leader's track and
+ * not more than 1,000 ft below it — return [leader, follower].
+ */
+function inTrail(a, b) {
+    const ea = a.appr?.loc ? a.appr.end : null, eb = b.appr?.loc ? b.appr.end : null;
+    if (ea && eb && sameRunwayish(ea, eb)) return a.appr.along < b.appr.along ? [a, b] : [b, a];
+    for (const [lead, follow] of [[a, b], [b, a]]) {
+        if (follow.alt > lead.alt + 100) continue;
+        if (Math.abs(diff(lead.hdg, follow.hdg)) > 45) continue;
+        const h = lead.hdg * D2R;
+        const dx = follow.x - lead.x, dy = follow.y - lead.y;
+        const along = dx * Math.sin(h) + dy * Math.cos(h);          // negative: behind the leader
+        const lateral = Math.abs(dx * Math.cos(h) - dy * Math.sin(h));
+        if (along < 0 && lateral < 2500 / 6076) return [lead, follow];
+    }
+    return null;
+}
+
+/** The separation this pair needs right now, in NM, with the reason; null when none applies. */
+function requiredSep(a, b) {
+    const ea = a.appr?.loc ? a.appr.end : null, eb = b.appr?.loc ? b.appr.end : null;
+    if (ea && eb && !sameRunwayish(ea, eb)) {
+        const ft = parallelFt(ea, eb);
+        if (ft != null && ft >= 4300) return null;                                         // 7110.65 5-9-7 independent
+        if (ft != null && ft >= 2500) return { nm: 1.5, why: 'dependent parallel approaches, 1.5 miles diagonal' }; // 5-9-6
+    }
+    // Arrival and departure close in at the field: the tower separates them visually.
+    if (a.kind !== b.kind && nearField(a) && nearField(b)) return null;
+
+    const trail = inTrail(a, b);
+    const wake = trail ? wakeNm(trail[0], trail[1]) : 0;
+    // 7110.65 5-8-3: successive departures, courses diverging 15° or more, 1 mile — not when wake applies.
+    if (a.kind === 'dep' && b.kind === 'dep' && nearField(a) && nearField(b) && !wake
+        && (sameRunwayish(a.rwy, b.rwy) || parallelFt(a.rwy, b.rwy) != null)
+        && Math.abs(diff(a.hdg, b.hdg)) >= 15) return { nm: 1, why: 'diverging departures' };
+
+    let nm = SEP_NM, why = 'radar separation';
+    // 7110.65 5-5-4: 2.5 miles in trail on the same final inside 10 miles.
+    if (ea && eb && sameRunwayish(ea, eb) && a.appr.along < 10 && b.appr.along < 10) { nm = 2.5; why = 'in trail on final'; }
+    if (wake > nm) { nm = wake; why = `wake turbulence behind a ${WAKE_NAME[trail[0].perf.wake]}`; }
+    return { nm, why };
+}
+
 function separation() {
     const air = G.aircraft.filter(airborne);
     for (const a of G.aircraft) a.conflict = false;
     const now = new Set();
-    const nearField = a => Math.hypot(a.x, a.y) < 5 && agl(a) < 2500;
     for (let i = 0; i < air.length; i++) {
         for (let j = i + 1; j < air.length; j++) {
             const a = air[i], b = air[j];
             const dz = Math.abs(a.alt - b.alt);
-            if (dz >= SEP_FT - 25) continue;
+            // In trail on one glideslope the spacing is the miles, not the feet between them.
+            const sameFinal = a.appr?.loc && b.appr?.loc && sameRunwayish(a.appr.end, b.appr.end);
+            if (!sameFinal && dz >= SEP_FT - 25) continue;              // 1,000 ft vertical (5-5-5)
             const d = Math.hypot(a.x - b.x, a.y - b.y);
-            if (d >= SEP_NM) continue;
-            if (nearField(a) && nearField(b)) continue;                 // tower's problem
-            const la = a.appr?.loc, lb = b.appr?.loc;
-            if (la && lb && a.appr.end !== b.appr.end) continue;        // parallel approaches
-            if (la && lb && d >= 2.5) continue;                         // in trail on the same ILS
+            if (d >= 8) continue;
+            const req = requiredSep(a, b);
+            if (!req || d >= req.nm) continue;
             const key = a.id < b.id ? `${a.id}-${b.id}` : `${b.id}-${a.id}`;
             now.add(key);
             a.conflict = b.conflict = true;
@@ -724,7 +977,7 @@ function separation() {
                 G.conf.set(key, c);
                 G.stats.incidents++;
                 G.score -= 10;
-                sys(`Separation lost: ${a.cs} and ${b.cs}.`, 'bad');
+                sys(`Separation lost: ${a.cs} and ${b.cs}, ${d.toFixed(1)} miles — ${req.why} needs ${req.nm} miles${sameFinal ? ' in trail' : ' or 1,000 feet'} (7110.65 5-5-4).`, 'bad');
                 toast(`Separation lost — ${a.cs} / ${b.cs}`, 'bad');
             } else if (G.t - c.last >= 10) {
                 c.last = G.t;
@@ -988,9 +1241,7 @@ function drawAircraft(a) {
     const target = a.appr?.loc ? null : a.tAlt;
     const arrow = Math.abs(vs) < 60 || target == null ? ' ' : vs > 0 ? '↑' : '↓';
     const l2 = `${alt3(a.alt)}${arrow}${target != null && Math.abs(vs) >= 60 ? alt3(target) : '   '} ${String(Math.round(a.spd)).padStart(3)}`;
-    const l3 = a.kind === 'arr'
-        ? `${a.type} ${a.appr ? (a.appr.loc ? 'LOC ' : 'ILS ') + a.appr.end.id : a.direct ? '>' + a.direct.name : a.hold ? 'HOLD' : ''}`
-        : `${a.type} ${a.gate.name} ${a.alt >= G.world.exitAlt - 50 ? '✓' : alt3(G.world.exitAlt)}`;
+    const l3 = `${typeTag(a)} ${a.kind === 'arr' ? intentTag(a) : `${a.gate.name} ${a.alt >= G.world.exitAlt - 50 ? '✓' : alt3(G.world.exitAlt)}`}`;
     c.font = '700 11px "JetBrains Mono", monospace';
     c.fillStyle = col;
     const bx = x + 12, by = y - 20;
@@ -1001,6 +1252,16 @@ function drawAircraft(a) {
     c.fillText(l3, bx, by + 26);
     c.globalAlpha = 1;
     a.box = { x: bx - 2, y: by - 11, w: 96, h: 42 };
+}
+
+/** Type as a data block shows it: H/ for heavy, J/ for super. */
+const typeTag = a => (a.perf.wake === 'S' ? 'J/' : a.perf.wake === 'H' ? 'H/' : '') + a.type;
+function intentTag(a) {
+    if (a.appr) return (a.appr.loc ? 'LOC ' : 'ILS ') + a.appr.end.id + (a.landClr ? ' CL' : '');
+    if (a.holdAt) return 'HLD ' + a.holdAt.fix.name;
+    if (a.orbit) return '360' + a.orbit.dir;
+    if (a.direct) return '>' + a.direct.name;
+    return a.expect ? 'exp ' + a.expect.id : '';
 }
 
 function hitAircraft(sx, sy) {
@@ -1137,16 +1398,18 @@ function syncPending(force) {
 
 function statusText(ac) {
     if (ac.state === 'wait') return `Holding short ${ac.rwy.id} · exit ${ac.gate.name} · climb to ${alt3(G.world.exitAlt)}+`;
+    if (ac.state === 'luaw') return `Lined up on ${ac.rwy.id} · exit ${ac.gate.name} · climb to ${alt3(G.world.exitAlt)}+`;
     if (ac.state === 'roll') return `Rolling ${ac.rwy.id} · ${Math.round(ac.spd)} kt`;
     const vs = ac.tAlt - ac.alt;
     const alt = `${Math.round(ac.alt).toLocaleString('en-US')} ft${Math.abs(vs) > 60 && !ac.appr?.loc ? (vs > 0 ? ' ↑ ' : ' ↓ ') + ac.tAlt.toLocaleString('en-US') : ''}`;
     let lat = `hdg ${hdg3(ac.hdg)}`;
-    if (ac.hold) lat = `holding ${ac.hold === 'L' ? 'left' : 'right'}`;
+    if (ac.holdAt) lat = `holding at ${ac.holdAt.fix.name}`;
+    else if (ac.orbit) lat = `${ac.orbit.dir === 'L' ? 'left' : 'right'} 360`;
     else if (ac.direct) lat = `direct ${ac.direct.name}`;
     if (ac.appr) {
         const ap = ac.appr;
-        lat = ap.loc ? `on the localizer ${ap.end.id} · ${ap.along.toFixed(1)} nm` : `cleared ILS ${ap.end.id} · ${Math.abs(ap.xt).toFixed(1)} nm ${ap.xt > 0 ? 'right' : 'left'} of course`;
-    }
+        lat = ap.loc ? `on the localizer ${ap.end.id} · ${ap.along.toFixed(1)} nm${ac.landClr ? ' · cleared to land' : ' · needs landing clearance'}` : `cleared ILS ${ap.end.id} · ${Math.abs(ap.xt).toFixed(1)} nm ${ap.xt > 0 ? 'right' : 'left'} of course`;
+    } else if (ac.kind === 'arr' && ac.expect) lat += ` · expecting ${ac.expect.id}`;
     const tail = ac.kind === 'dep' ? ` · exit ${ac.gate.name} at ${alt3(G.world.exitAlt)}+` : '';
     return `${alt} · ${Math.round(ac.spd)} kt · ${lat}${tail}`;
 }
@@ -1161,12 +1424,13 @@ function renderCard(force) {
         }
         return;
     }
-    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}`;
+    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}`;
     if (!force && key === cardKey) { updateCard(); return; }
     cardKey = key;
     const ground = ac.state !== 'air';
     const ilsBtns = ac.kind === 'arr' && !ground
         ? G.active.arr.map(e => `<button class="btn ils" data-ils="${e.id}">ILS ${e.id}</button>`).join('')
+          + (ac.appr?.loc && !ac.landClr ? `<button class="btn primary" data-act="land">Cleared to land ${ac.appr.end.id}</button>` : '')
           + (ac.appr ? `<button class="btn warn" data-act="ga">Go around</button>` : '')
         : '';
     const others = G.world.ends.filter(e => !G.active.arr.includes(e));
@@ -1177,7 +1441,7 @@ function renderCard(force) {
         <div class="card-head">
             <span class="cs">${ac.cs}</span>
             <span class="badge ${ac.kind}">${ac.kind === 'arr' ? 'Arrival' : 'Departure'}</span>
-            <span class="radio">${ac.radio} · ${ac.type}</span>
+            <span class="radio">${ac.radio} · ${typeTag(ac)}</span>
         </div>
         <div class="card-status" id="card-status"></div>
         <div class="row"><label>Heading</label><div class="stepper">
@@ -1196,15 +1460,18 @@ function renderCard(force) {
             <button class="btn primary" data-act="send">Transmit ⏎</button>
             <button class="btn" data-act="reset">Reset</button>
         </div>
-        ${ac.state === 'wait' ? `<div class="btn-row"><button class="btn primary" data-act="takeoff">Cleared for takeoff ${ac.rwy.id}</button></div>` : ''}
+        ${ac.state === 'wait' || ac.state === 'luaw' ? `<div class="btn-row">
+            ${ac.state === 'wait' ? `<button class="btn" data-act="luaw">Line up and wait</button>` : ''}
+            <button class="btn primary" data-act="takeoff">Cleared for takeoff ${ac.rwy.id}</button></div>` : ''}
         ${ilsBtns ? `<div class="btn-row">${ilsBtns}</div>` : ''}
         ${!ground ? `<div class="btn-row">
             <select data-act="direct" aria-label="Direct to fix"><option value="">Direct to…</option>${fixOpts}</select>
             ${ac.kind === 'arr' && others.length ? `<select data-act="ils-other" aria-label="Other runway"><option value="">Other ILS…</option>${others.map(e => `<option value="${e.id}">ILS ${e.id}</option>`).join('')}</select>` : ''}
         </div>
         <div class="btn-row">
-            <button class="btn" data-act="holdL">Hold left</button>
-            <button class="btn" data-act="holdR">Hold right</button>
+            <select data-act="hold" aria-label="Hold at fix"><option value="">Hold at…</option>${fixOpts}</select>
+            <button class="btn" data-act="orbitL">Left 360</button>
+            <button class="btn" data-act="orbitR">Right 360</button>
         </div>` : ''}`;
     updateCard();
 }
@@ -1219,10 +1486,11 @@ function updateCard() {
     set('spd', String(pending.spd));
 }
 
-function transmitPending() {
+/** The card's changed values, plus anything extra, as one transmission. */
+function transmitPending(extra) {
     const ac = G.selected;
     if (!ac) return;
-    const c = {};
+    const c = { ...(extra || {}) };
     if (pending.dirty.hdg) c.hdg = pending.hdg;
     if (pending.dirty.alt) c.alt = pending.alt;
     if (pending.dirty.spd) c.spd = pending.spd;
@@ -1247,19 +1515,22 @@ function bindCard() {
         if (!b || !G.selected) return;
         const ac = G.selected;
         if (b.dataset.adj) { const [k, v] = b.dataset.adj.split(':'); adjust(k, Number(v)); return; }
-        if (b.dataset.ils) { issue(ac, { ils: findEnd(b.dataset.ils) }); renderCard(true); return; }
+        if (b.dataset.ils) { transmitPending({ ils: findEnd(b.dataset.ils) }); return; }
         const act = b.dataset.act;
         if (act === 'send') transmitPending();
         else if (act === 'reset') { syncPending(true); updateCard(); }
-        else if (act === 'takeoff') { transmitPending(); issue(ac, { takeoff: true }); renderCard(true); }
+        else if (act === 'takeoff') transmitPending({ takeoff: true });
+        else if (act === 'luaw') transmitPending({ luaw: true });
+        else if (act === 'land') { issue(ac, { land: true }); renderCard(true); }
         else if (act === 'ga') { issue(ac, { goAround: true }); syncPending(true); renderCard(true); }
-        else if (act === 'holdL' || act === 'holdR') { issue(ac, { hold: act === 'holdL' ? 'L' : 'R' }); renderCard(true); }
+        else if (act === 'orbitL' || act === 'orbitR') { issue(ac, { orbit: act === 'orbitL' ? 'L' : 'R' }); renderCard(true); }
     });
     el.addEventListener('change', e => {
         const s = e.target;
         if (!G.selected || !s.value) return;
         if (s.dataset.act === 'direct') issue(G.selected, { direct: G.world.fixes.find(f => f.name === s.value) });
-        if (s.dataset.act === 'ils-other') issue(G.selected, { ils: findEnd(s.value) });
+        if (s.dataset.act === 'hold') issue(G.selected, { holdFix: G.world.fixes.find(f => f.name === s.value) });
+        if (s.dataset.act === 'ils-other') { transmitPending({ ils: findEnd(s.value) }); return; }
         renderCard(true);
     });
 }
@@ -1269,17 +1540,18 @@ function renderStrips() {
     const el = $('#strips');
     const strip = a => {
         let right;
-        if (a.state === 'wait') right = `<span class="l0">HOLD ${a.rwy.id}</span><span class="l2">${Math.floor((G.t - a.born) / 60)}m</span>`;
+        if (a.state === 'luaw') right = `<span class="l0">LUAW ${a.rwy.id}</span><span class="l2">on the runway</span>`;
+        else if (a.state === 'wait') right = `<span class="l0">HS ${a.rwy.id}</span><span class="l2">${Math.floor((G.t - a.born) / 60)}m</span>`;
         else if (a.state === 'roll') right = `<span class="l0">ROLL ${a.rwy.id}</span><span class="l2">${Math.round(a.spd)}kt</span>`;
         else {
             const what = a.kind === 'arr'
-                ? (a.appr ? (a.appr.loc ? 'LOC ' : 'ILS ') + a.appr.end.id : a.direct ? '>' + a.direct.name : a.hold ? 'HOLD' : 'H' + hdg3(a.tHdg))
+                ? (a.appr || a.holdAt || a.orbit || a.direct ? intentTag(a) : 'H' + hdg3(a.tHdg))
                 : `${a.gate.name} ${a.alt >= G.world.exitAlt - 50 ? '✓' : alt3(G.world.exitAlt)}`;
             right = `<span class="l0">${alt3(a.alt)}${Math.abs(a.tAlt - a.alt) > 60 && !a.appr?.loc ? (a.tAlt > a.alt ? '↑' : '↓') + alt3(a.tAlt) : ''}</span><span class="l2">${what}</span>`;
         }
         return `<button class="strip ${a.kind}${a === G.selected ? ' sel' : ''}${a.conflict ? ' conf' : ''}" data-id="${a.id}">
             <span class="bar"></span>
-            <span><span class="l1">${a.cs}</span><span class="l2">${a.type}${a.perf.heavy ? ' · H' : ''}</span></span>
+            <span><span class="l1">${a.cs}</span><span class="l2">${typeTag(a)}</span></span>
             <span class="r">${right}</span></button>`;
     };
     const arr = G.aircraft.filter(a => a.kind === 'arr');
@@ -1295,6 +1567,7 @@ function renderHud() {
     const z = new Date(G.zulu0 + G.t * 1000);
     const zulu = String(z.getUTCHours()).padStart(2, '0') + String(z.getUTCMinutes()).padStart(2, '0') + 'Z';
     $('#hud').innerHTML = `<b>${G.world.icao}</b> ${zulu}<br>`
+        + `ATIS <b>${PHONETIC[G.atis].toUpperCase()}</b> · A<b>${G.altim}</b><br>`
         + `WIND <b>${hdg3(G.wind.dir)}/${String(G.wind.spd).padStart(2, '0')}</b><br>`
         + `ARR <b>${G.active.arr.map(e => e.id).join(' ')}</b><br>`
         + `DEP <b>${G.active.dep.map(e => e.id).join(' ')}</b><br>`
@@ -1336,17 +1609,16 @@ function runCommand(text) {
         else if (t === 'DCT' || t === 'D' || t === 'DIRECT') c.direct = G.world.fixes.find(f => f.name === toks[++i]);
         else if (t === 'TO' || t === 'T' || t === 'CTO') c.takeoff = true;
         else if (t === 'GA') c.goAround = true;
-        else if (t === 'HOLD' || t === 'HR') c.hold = 'R';
-        else if (t === 'HL') c.hold = 'L';
+        else if (t === 'LUAW' || t === 'LU') c.luaw = true;
+        else if (t === 'CL' || t === 'CTL' || t === 'LAND') c.land = true;
+        else if (t === 'HOLD' || t === 'HLD') { c.holdFix = G.world.fixes.find(f => f.name === toks[++i]); if (!c.holdFix) { sys('Hold at which fix? e.g. "hold KORAN".'); return; } }
+        else if ((m = /^([LR])360$/.exec(t))) c.orbit = m[1];
         else if (G.world.fixes.some(f => f.name === t)) c.direct = G.world.fixes.find(f => f.name === t);
         else { sys(`Didn't understand "${t}".`); return; }
     }
     if ('ils' in c && !c.ils) { sys('No such runway.'); return; }
     if ('direct' in c && !c.direct) { sys('No such fix.'); return; }
-    // Takeoff goes last so its own heading/altitude ride along.
-    const takeoff = c.takeoff; delete c.takeoff;
     if (Object.keys(c).length) issue(ac, c);
-    if (takeoff) issue(ac, { takeoff: true });
     syncPending(true);
     renderCard(true);
 }
@@ -1408,6 +1680,7 @@ function endShift() {
             <div>Departed <b>${G.stats.departed}</b></div>
             <div>Separation losses <b>${G.stats.incidents}</b></div>
             <div>Go-arounds <b>${G.stats.goArounds}</b></div>
+            <div>Rule violations <b>${G.stats.violations}</b></div>
         </div>
         <div class="btn-row">
             <button class="btn primary" id="again">Another shift</button>

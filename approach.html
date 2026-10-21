@@ -278,12 +278,14 @@
             </div>
 
             <div class="howto">
-                <div><b>Arrivals</b> <span style="color:var(--arr)">Blue</span> targets come in from the edge. Bring them down, point them at the runway's extended centerline (within about 30°) and clear the ILS — they'll capture the localizer, fly the glideslope and land.</div>
-                <div><b>Departures</b> <span style="color:var(--dep)">Gold</span> strips wait at the runway. Clear them for takeoff, then climb them to the altitude on their strip and send them out through their exit gate (the gold triangle) to hand them to Center.</div>
-                <div><b>Separation</b> Three miles or 1,000 ft between every pair, everywhere except right around the field and side-by-side on parallel ILS approaches. A loss costs points, and keeps costing until you fix it.</div>
-                <div><b>Vectoring</b> Drag from an aircraft to point it at a heading. Or select it and use the card, or type: <code>h270</code> <code>l090</code> <code>a50</code> <code>s210</code> <code>i22L</code> <code>dct FIX</code> <code>to</code> <code>ga</code> <code>hold</code>.</div>
+                <div><b>Arrivals</b> <span style="color:var(--arr)">Blue</span> targets check in from Center. Descend them, vector them to join the localizer at 30° or less, at least 2 miles outside the approach gate (8 miles out), and below the glideslope. Then: <code>l190 a30 i22L</code> — "turn left heading 190, maintain 3,000 until established on the localizer, cleared ILS runway 22L approach."</div>
+                <div><b>Landing</b> When they call the tower on final, clear them to land (<code>cl</code>). No landing clearance by short final and they go around. Only one aircraft on a runway at a time.</div>
+                <div><b>Departures</b> <span style="color:var(--dep)">Gold</span> strips hold short. Line them up (<code>luaw</code>) or clear them for takeoff (<code>to</code>, with a heading if you want one), then climb them to the exit altitude and send them out through their gate. Wait 2 minutes behind a heavy, 3 behind a super.</div>
+                <div><b>Separation</b> 3 miles or 1,000 feet. More in trail behind heavies, B757s and supers (4–7 miles). 2.5 miles in trail inside 10 miles on the same final; 1.5 miles diagonal on dependent parallel approaches; none needed between independent parallels 4,300 ft apart.</div>
+                <div><b>Speed</b> 250 knots max below 10,000 feet. Minimum 210 knots, or 170 within 20 miles of the field. No speed changes inside the final approach fix. An approach clearance cancels your assigned speed unless you restate it.</div>
+                <div><b>Commands</b> <code>h270</code> <code>l090</code> <code>r180</code> heading · <code>a50</code> <code>fl190</code> altitude · <code>s210</code> speed · <code>i22L</code> ILS · <code>cl</code> land · <code>dct FIX</code> · <code>hold FIX</code> · <code>l360</code> · <code>luaw</code> · <code>to</code> · <code>ga</code>. Or drag from a target to point it at a heading.</div>
                 <div class="keys"><b>Keys</b> <code>Space</code> pause · <code>Tab</code> next aircraft · <code>←/→</code> heading · <code>↑/↓</code> altitude · <code>Enter</code> transmit · <code>/</code> command line · <code>Esc</code> deselect.</div>
-                <div><b>Wind</b> The wind shifts every so often and the active runways change with it. Landing with a tailwind still counts — for half.</div>
+                <div><b>The rulebook</b> The separation, approach, speed and runway rules come from FAA JO 7110.65, the controllers' handbook. Breaking one costs points, and the log names the rule.</div>
             </div>
         </div>
     </main>
@@ -326,7 +328,7 @@
             <section class="comms">
                 <div class="log" id="log" aria-live="polite"></div>
                 <form class="cmd" id="cmd-form" autocomplete="off">
-                    <input id="cmd" placeholder="AAL123 h270 a50 s210 · i22L · to" spellcheck="false" aria-label="Command">
+                    <input id="cmd" placeholder="AAL123 l190 a30 i22L · cl · to" spellcheck="false" aria-label="Command">
                     <button class="btn" type="submit">Send</button>
                 </form>
             </section>
