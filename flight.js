@@ -24197,6 +24197,27 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         `);
     }
 
+    // The flown trail is asked for first, before anything else this open
+    // waits on (the entrance, the session, the plan), and the path is drawn
+    // the moment it answers rather than once the whole window is built.
+    // Parsed once and shared: the simple frame's first payload and the
+    // trail/path code below both read it.
+    const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`;
+    const routeDataPromise = fetch(historyUrl)
+        .then((res) => (res && res.ok ? res.json() : null))
+        .catch(() => null);
+    // Resolves true once the path has been drawn from it.
+    const pathShown = routeDataPromise.then((data) => {
+        if (!data || currentFlightInWindow !== flightProps.flightId) return false;
+        try {
+            showOpenFlightPath(flightProps, routePointsFrom(data));
+            return true;
+        } catch (e) {
+            console.warn('flown path: early draw failed', e);
+            return false;
+        }
+    });
+
     // Let the entrance reach the screen before anything heavy runs. A CSS
     // transition's clock starts on the main thread, but the frame carrying the
     // window isn't shown until the thread is free; when the requests below
@@ -24225,15 +24246,7 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         const livName = flightProps.aircraft?.liveryName || flightProps.liveryName || '';
 
         const planUrl = `${LIVE_FLIGHTS_API_URL}/${sessionId || 'default'}/${flightProps.flightId}/plan`;
-        const historyUrl = `${LIVE_FLIGHTS_API_URL.replace('/flights', '/api/flights')}/${flightProps.flightId}/history`;
         const aircraftLookupUrl = `${API_BASE_URL}/api/aircraft/lookup?type=${encodeURIComponent(acName)}&livery=${encodeURIComponent(livName)}`;
-
-        const routePromise = fetch(historyUrl).catch(() => ({ ok: false }));
-        // Parsed once and shared: the simple frame's first payload and the
-        // trail/path code below both read it.
-        const routeDataPromise = routePromise
-            .then((res) => (res && res.ok ? res.json() : null))
-            .catch(() => null);
 
         const [planRes, aircraftLookupRes] = await Promise.all([
             fetch(planUrl).catch(() => ({ ok: false })),
@@ -24433,22 +24446,10 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         const routeData = await routeDataPromise;
         const sortedRoutePoints = routePointsFrom(routeData);
 
-        // Seed the live-trail cache CLAMPED to what the map marker currently
-        // shows. The history endpoint often runs ahead of the socket
-        // broadcast; seeding those future-dated samples made the drawn path
-        // stick out PAST the aircraft icon by roughly a socket frame (the
-        // per-tick trim couldn't remove a lead spanning many samples). The
-        // initial render below applies the same clamp (trailUpToMarker).
-        if (typeof liveTrailCache !== 'undefined') {
-            const mk = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightProps.flightId] : null;
-            const mkMs = mk?.properties?.last_update ? new Date(mk.properties.last_update).getTime() : null;
-            liveTrailCache.set(flightProps.flightId, (mkMs != null)
-                ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= mkMs)
-                : sortedRoutePoints);
-        }
-
-        if (typeof FlownPath3D !== 'undefined') {
-            FlownPath3D.updatePath(sectorOpsMap, flightProps.flightId, sortedRoutePoints, mapFilters.show3DPath);
+        // Normally already drawn the moment the history arrived (see
+        // pathShown above); this is the fallback when it was not.
+        if (!(await pathShown) && currentFlightInWindow === flightProps.flightId) {
+            showOpenFlightPath(flightProps, sortedRoutePoints);
         }
 
         if (currentFlightInWindow === flightProps.flightId) {
@@ -24497,72 +24498,6 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
             } catch (_) { /* non-fatal: live ticks will populate the graph */ }
         }
 
-        const flownLayerId = `flown-path-${flightProps.flightId}`;
-
-        // Sync the initial flown-path render to whatever the live marker is
-        // actually showing on the map. Two failure modes used to produce a
-        // path that visibly extended past the aircraft icon on first open:
-        //   1. `flightProps.position` is the snapshot from click time, often
-        //      a few hundred ms (sometimes seconds) stale by the time the
-        //      history fetch resolves — using it would anchor the path to
-        //      an older spot than the icon.
-        //   2. The history endpoint can return GPS samples that are newer
-        //      than the latest socket frame the marker has consumed;
-        //      appending them stretches the line past the icon until the
-        //      next socket tick catches the marker up.
-        // Reading the live feature from currentMapFeatures + filtering
-        // trail points to <= marker last_update fixes both.
-        const liveFeature = (typeof currentMapFeatures !== 'undefined')
-            ? currentMapFeatures[flightProps.flightId] : null;
-        const liveLastUpdateMs = liveFeature?.properties?.last_update
-            ? new Date(liveFeature.properties.last_update).getTime() : null;
-        const livePosition = liveFeature?.geometry?.coordinates
-            ? {
-                lat: liveFeature.geometry.coordinates[1],
-                lon: liveFeature.geometry.coordinates[0],
-                alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
-              }
-            : flightProps.position;
-        const trailUpToMarker = (liveLastUpdateMs != null)
-            ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
-            : sortedRoutePoints;
-
-        // Generate the segmented FeatureCollection using our new function
-        const initialRouteData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, plan, flightProps.flightId);
-
-        if (!sectorOpsMap.getSource(flownLayerId)) {
-            sectorOpsMap.addSource(flownLayerId, {
-                type: 'geojson',
-                data: initialRouteData, // Single gradient-coloured LineString
-                lineMetrics: true       // CRITICAL for the line-gradient colouring
-                // Default tolerance stays on — see rebuildDynamicLayers' twin
-                // source: zoom-scaled simplification keeps the line crisp.
-            });
-
-            sectorOpsMap.addLayer({
-                id: flownLayerId,
-                type: 'line',
-                source: flownLayerId,
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                paint: {
-                    'line-width': 3,
-                    'line-opacity': 1,
-                    // Solid fallback — the altitude line-gradient applied just
-                    // below overrides this whenever the trail supports one.
-                    'line-color': '#38bdf8'
-                }
-            }, getUnderAircraftAnchor());
-            applyFlownPathGradient(flownLayerId, initialRouteData);
-            updateTaxiOverlay(flightProps.flightId, trailUpToMarker);
-
-            if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-                if (!sectorOpsLiveFlightPathLayers[flightProps.flightId]) sectorOpsLiveFlightPathLayers[flightProps.flightId] = {};
-                sectorOpsLiveFlightPathLayers[flightProps.flightId].flown = flownLayerId;
-            }
-        }
 
         isAircraftWindowLoading = false;
 
@@ -24572,6 +24507,78 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
         // later tap on an aircraft was silently ignored.
         isAircraftWindowLoading = false;
         closeAircraftWindow();
+    }
+}
+
+// The open flight's flown trail, from its /history, into the live-trail cache
+// (which the 3D path beside the aircraft is drawn from) and onto the map as
+// its flat flown line. Called the moment the history answers, ahead of the
+// rest of the window (see the open flow).
+//
+// Seeded CLAMPED to what the map marker currently shows. The history
+// endpoint often runs ahead of the socket broadcast; seeding those
+// future-dated samples made the drawn path stick out PAST the aircraft icon
+// by roughly a socket frame. And the line ends on the live marker rather
+// than on `flightProps.position`, the snapshot from click time, which is
+// often a few hundred ms (sometimes seconds) stale by now.
+function showOpenFlightPath(flightProps, sortedRoutePoints) {
+    const flightId = flightProps.flightId;
+    const liveFeature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
+    const liveLastUpdateMs = liveFeature?.properties?.last_update
+        ? new Date(liveFeature.properties.last_update).getTime() : null;
+    const livePosition = liveFeature?.geometry?.coordinates
+        ? {
+            lat: liveFeature.geometry.coordinates[1],
+            lon: liveFeature.geometry.coordinates[0],
+            alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
+          }
+        : flightProps.position;
+    const trailUpToMarker = (liveLastUpdateMs != null)
+        ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
+        : sortedRoutePoints.slice();
+
+    if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightId, trailUpToMarker);
+    if (typeof FlownPath3D !== 'undefined') {
+        FlownPath3D.updatePath(sectorOpsMap, flightId, sortedRoutePoints, mapFilters.show3DPath);
+    }
+    if (!sectorOpsMap) return;
+
+    const flownLayerId = `flown-path-${flightId}`;
+    const routeData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, null, flightId);
+    const source = sectorOpsMap.getSource(flownLayerId);
+    if (source) {
+        source.setData(routeData);
+    } else {
+        sectorOpsMap.addSource(flownLayerId, {
+            type: 'geojson',
+            data: routeData,   // Single gradient-coloured LineString
+            lineMetrics: true  // CRITICAL for the line-gradient colouring
+            // Default tolerance stays on — see rebuildDynamicLayers' twin
+            // source: zoom-scaled simplification keeps the line crisp.
+        });
+        sectorOpsMap.addLayer({
+            id: flownLayerId,
+            type: 'line',
+            source: flownLayerId,
+            layout: {
+                'line-join': 'round',
+                'line-cap': 'round'
+            },
+            paint: {
+                'line-width': 3,
+                'line-opacity': 1,
+                // Solid fallback — the altitude line-gradient applied just
+                // below overrides this whenever the trail supports one.
+                'line-color': '#38bdf8'
+            }
+        }, getUnderAircraftAnchor());
+    }
+    applyFlownPathGradient(flownLayerId, routeData);
+    updateTaxiOverlay(flightId, trailUpToMarker);
+
+    if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
+        if (!sectorOpsLiveFlightPathLayers[flightId]) sectorOpsLiveFlightPathLayers[flightId] = {};
+        sectorOpsLiveFlightPathLayers[flightId].flown = flownLayerId;
     }
 }
 

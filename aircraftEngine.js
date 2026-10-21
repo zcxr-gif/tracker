@@ -865,7 +865,13 @@ void main() {
         const pts = raw.map((p, i) => {
             const ft = Number.isFinite(p.ft) ? p.ft : (sea[i] || 0) / FEET;
             const c = (opts.pathColour && opts.pathColour(ft)) || [0.22, 0.74, 0.97];
-            return { lon: p.lon, lat: p.lat, h: h[i] || 0, sea: sea[i] || 0, colour: c, ground: 0, groundAt: -1 };
+            // Where it lies on Mapbox's flat world, worked out once rather
+            // than on every frame it is drawn.
+            const lat = Math.min(Math.max(p.lat, -85), 85);
+            const mx = (p.lon + 180) / 360;
+            const my = (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + lat * DEG / 2))) / 360;
+            const sm = 1 / (CIRCUMFERENCE * Math.cos(lat * DEG));
+            return { lon: p.lon, lat: p.lat, mx, my, sm, h: h[i] || 0, sea: sea[i] || 0, colour: c, ground: 0, groundAt: -1 };
         });
         pathCache = { id, trail, length: n, last: lastPt, pts };
         return pts;
@@ -921,6 +927,31 @@ void main() { gl_FragColor = vColor; }`;
         if (pathMesh) pathMesh.mesh.visible = false;
     }
 
+    // Scratch for drawPath, grown as needed and reused frame to frame, so
+    // drawing the path allocates nothing: a point's screen position (x, y,
+    // z in NDC, then pixels), the points kept on screen, and the vertex and
+    // index data handed to the GPU — six vertices a point (halo either side,
+    // line either side, curtain top and bottom), in that order.
+    const scratch = { n: 0, top: null, bot: null, alt: null, gnd: null, kept: null, pos: null, col: null, idx: null };
+    function growScratch(n) {
+        if (scratch.n >= n) return;
+        const c = Math.max(n, scratch.n * 2, 256);
+        scratch.n = c;
+        scratch.top = new Float64Array(c * 5);
+        scratch.bot = new Float64Array(c * 3);
+        scratch.alt = new Float64Array(c);
+        scratch.gnd = new Float64Array(c);
+        scratch.kept = new Int32Array(c);
+        scratch.pos = new Float32Array(c * 6 * 3);
+        scratch.col = new Float32Array(c * 6 * 4);
+        scratch.idx = new Uint32Array(c * 18);
+    }
+
+    // Terrain under the path is asked about a slice of points a frame, every
+    // point within about three seconds, rather than all of them at once.
+    const PATH_GROUND_EVERY_S = 3;
+    let pathGroundCursor = 0;
+
     function drawPath(id, head, f) {
         const trail = id && opts.path && (!opts.pathOn || opts.pathOn()) ? opts.path(id) : null;
         if (!trail || trail.length < 1) { hidePath(); return; }
@@ -928,123 +959,193 @@ void main() { gl_FragColor = vColor; }`;
         if (!pts.length) { hidePath(); return; }
 
         const { PA, PG, phase, eye, width, height, terrain, t } = f;
+        const globe = !!(PG && phase < 1);
 
-        // A point at an altitude to NDC, through each world, blended after the
-        // divide as the models are; null behind the camera or the globe.
-        const ndc = (lon, lat, alt) => {
-            lat = Math.min(Math.max(lat, -85), 85);
-            const mx = (lon + 180) / 360;
-            const my = (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + lat * DEG / 2))) / 360;
-            const sm = 1 / (CIRCUMFERENCE * Math.cos(lat * DEG));
-            const c = apply(PA, mx, my, alt * sm);
-            if (c[3] <= 1e-9) return null;
-            let x = c[0] / c[3], y = c[1] / c[3], z = c[2] / c[3];
-            if (PG && phase < 1) {
-                const la = lat * DEG, lo = lon * DEG;
-                const r = GLOBE_RADIUS + alt * ECEF_PER_METRE;
-                const up = [Math.cos(la) * Math.sin(lo), -Math.sin(la), Math.cos(la) * Math.cos(lo)];
-                const pos = [up[0] * r, up[1] * r, up[2] * r];
-                if (eye && up[0] * (eye[0] - pos[0]) + up[1] * (eye[1] - pos[1]) + up[2] * (eye[2] - pos[2]) < 0) return null;
-                const g = apply(PG, pos[0], pos[1], pos[2]);
-                if (g[3] <= 1e-9) return null;
-                x = g[0] / g[3] + (x - g[0] / g[3]) * phase;
-                y = g[1] / g[3] + (y - g[1] / g[3]) * phase;
-                z = g[2] / g[3] + (z - g[2] / g[3]) * phase;
-            }
-            return [x, y, z, (x + 1) / 2 * width, (1 - y) / 2 * height];
-        };
-
-        // The ground under each point, asked of the terrain now and then
-        // rather than every frame, and the altitude drawn over it — as the
-        // models are (iOS AircraftFrame.altitude).
-        const points = pts.map((p) => {
-            let ground = 0, alt = p.h;
-            if (terrain) {
-                if (t - p.groundAt > 3) {
-                    try { p.ground = map.queryTerrainElevation([p.lon, p.lat]) || 0; } catch (_) { p.ground = 0; }
-                    p.groundAt = t;
-                }
-                ground = p.ground;
-                const hugging = ground + p.h;
-                const flown = Math.max(p.sea, ground);
-                const share = Math.min(Math.max((p.h - 30) / 120, 0), 1);
-                alt = hugging + (flown - hugging) * share;
-            }
-            return { lon: p.lon, lat: p.lat, alt, ground, colour: p.colour };
-        });
         // On to the aeroplane, when it is drawn on this frame — from the
         // last breadcrumb it has passed, not from one it has yet to reach,
         // so the path never runs out in front of it (see flownHead.js).
-        if (head) {
-            const colour = points[points.length - 1].colour;
-            points.length = FlownHead.trimAhead(points, [head.lon, head.lat, head.heading], (p) => [p.lon, p.lat]);
-            const last = points[points.length - 1] || { colour };
-            points.push({ lon: head.lon, lat: head.lat, alt: head.alt, ground: head.ground, colour: last.colour });
+        const count = head ? FlownHead.trimAhead(pts, [head.lon, head.lat, head.heading], (p) => [p.lon, p.lat]) : pts.length;
+        const n = count + (head ? 1 : 0);
+        if (n < 1) { hidePath(); return; }
+        growScratch(n);
+        const { top, bot, alt, gnd, kept, pos, col, idx } = scratch;
+
+        // The ground under each point, and the altitude drawn over it — as
+        // the models are (iOS AircraftFrame.altitude).
+        if (terrain) {
+            const slice = Math.max(1, Math.ceil(count / (PATH_GROUND_EVERY_S * 60)));
+            for (let k = 0; k < slice && count; k++) {
+                const p = pts[pathGroundCursor % count];
+                pathGroundCursor = (pathGroundCursor + 1) % count;
+                try { p.ground = map.queryTerrainElevation([p.lon, p.lat]) || 0; } catch (_) { p.ground = 0; }
+                p.groundAt = t;
+            }
+        }
+        for (let i = 0; i < count; i++) {
+            const p = pts[i];
+            if (terrain) {
+                if (p.groundAt < 0) {
+                    try { p.ground = map.queryTerrainElevation([p.lon, p.lat]) || 0; } catch (_) { p.ground = 0; }
+                    p.groundAt = t;
+                }
+                const ground = p.ground;
+                const hugging = ground + p.h;
+                const flown = Math.max(p.sea, ground);
+                const share = Math.min(Math.max((p.h - 30) / 120, 0), 1);
+                alt[i] = hugging + (flown - hugging) * share;
+                gnd[i] = ground;
+            } else {
+                alt[i] = p.h;
+                gnd[i] = 0;
+            }
+        }
+        if (head) { alt[count] = head.alt; gnd[count] = head.ground; }
+        const lonOf = (i) => (i < count ? pts[i].lon : head.lon);
+        const latOf = (i) => (i < count ? pts[i].lat : head.lat);
+
+        // A point at an altitude to NDC, through each world, blended after the
+        // divide as the models are, into out[o..o+2] (and pixels into
+        // out[o+3], out[o+4] when `px`); false behind the camera or the globe.
+        const project = (i, a, out, o, px) => {
+            const p = i < count ? pts[i] : null;
+            let mx, my, sm;
+            if (p) { mx = p.mx; my = p.my; sm = p.sm; } else {
+                const lat = Math.min(Math.max(head.lat, -85), 85);
+                mx = (head.lon + 180) / 360;
+                my = (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + lat * DEG / 2))) / 360;
+                sm = 1 / (CIRCUMFERENCE * Math.cos(lat * DEG));
+            }
+            const z0 = a * sm;
+            const w = PA[3] * mx + PA[7] * my + PA[11] * z0 + PA[15];
+            if (w <= 1e-9) return false;
+            let x = (PA[0] * mx + PA[4] * my + PA[8] * z0 + PA[12]) / w;
+            let y = (PA[1] * mx + PA[5] * my + PA[9] * z0 + PA[13]) / w;
+            let z = (PA[2] * mx + PA[6] * my + PA[10] * z0 + PA[14]) / w;
+            if (globe) {
+                const la = latOf(i) * DEG, lo = lonOf(i) * DEG;
+                const r = GLOBE_RADIUS + a * ECEF_PER_METRE;
+                const ux = Math.cos(la) * Math.sin(lo), uy = -Math.sin(la), uz = Math.cos(la) * Math.cos(lo);
+                const gx = ux * r, gy = uy * r, gz = uz * r;
+                if (eye && ux * (eye[0] - gx) + uy * (eye[1] - gy) + uz * (eye[2] - gz) < 0) return false;
+                const gw = PG[3] * gx + PG[7] * gy + PG[11] * gz + PG[15];
+                if (gw <= 1e-9) return false;
+                const nx = (PG[0] * gx + PG[4] * gy + PG[8] * gz + PG[12]) / gw;
+                const ny = (PG[1] * gx + PG[5] * gy + PG[9] * gz + PG[13]) / gw;
+                const nz = (PG[2] * gx + PG[6] * gy + PG[10] * gz + PG[14]) / gw;
+                x = nx + (x - nx) * phase;
+                y = ny + (y - ny) * phase;
+                z = nz + (z - nz) * phase;
+            }
+            out[o] = x; out[o + 1] = y; out[o + 2] = z;
+            if (px) { out[o + 3] = (x + 1) / 2 * width; out[o + 4] = (1 - y) / 2 * height; }
+            return true;
+        };
+
+        // Every point projected; then only those at least half a pixel on
+        // from the last one kept (and the ends, and the edges of a stretch
+        // behind the camera) are drawn — a long trail seen from afar costs
+        // what it covers on screen, not how long it is. A point behind the
+        // camera is kept as -1: a break in the line.
+        let m = 0;
+        let lastX = NaN, lastY = NaN;
+        for (let i = 0; i < n; i++) {
+            const ok = project(i, alt[i], top, i * 5, true);
+            if (!ok) {
+                if (m && kept[m - 1] >= 0) kept[m++] = -1;
+                lastX = NaN;
+                continue;
+            }
+            const sx = top[i * 5 + 3], sy = top[i * 5 + 4];
+            const last = i === n - 1;
+            if (!last && m && kept[m - 1] >= 0 && Math.abs(sx - lastX) < 0.5 && Math.abs(sy - lastY) < 0.5) continue;
+            kept[m++] = i;
+            lastX = sx; lastY = sy;
         }
 
-        const tops = points.map((p) => ndc(p.lon, p.lat, p.alt));
-        const bottoms = points.map((p) => ndc(p.lon, p.lat, p.ground));
-
-        const pos = [];
-        const col = [];
-        const curtain = [], halo = [], line = [];
-        const lineAt = [], haloAt = [], curtainAt = [];
-        const push = (x, y, z, c) => { pos.push(x, y, z); col.push(c[0], c[1], c[2], c[3]); return pos.length / 3 - 1; };
-
-        for (let i = 0; i < points.length; i++) {
-            const top = tops[i];
-            if (!top) { lineAt.push(null); haloAt.push(null); curtainAt.push(null); continue; }
-            // The line's direction on screen here, from its neighbours.
+        // Vertices, six a kept point; a point with no direction on screen
+        // (or behind the camera) has none, and ends the line there.
+        const hx = PATH_HALO_PX / 2, lx = PATH_LINE_PX / 2;
+        const put = (v, px, py, pz, r, g, b, a) => {
+            const pv = v * 3, cv = v * 4;
+            pos[pv] = px; pos[pv + 1] = py; pos[pv + 2] = pz;
+            col[cv] = r; col[cv + 1] = g; col[cv + 2] = b; col[cv + 3] = a;
+        };
+        const has = scratch.has || (scratch.has = []);
+        const hasBottom = scratch.hasBottom || (scratch.hasBottom = []);
+        has.length = m; hasBottom.length = m;
+        for (let k = 0; k < m; k++) {
+            const i = kept[k];
+            has[k] = false; hasBottom[k] = false;
+            if (i < 0) continue;
+            const before = k > 0 ? kept[k - 1] : -1, after = k < m - 1 ? kept[k + 1] : -1;
+            const o = i * 5;
             let dx = 0, dy = 0;
-            const after = tops[i + 1], before = tops[i - 1];
-            if (after) { dx += after[3] - top[3]; dy += after[4] - top[4]; }
-            if (before) { dx += top[3] - before[3]; dy += top[4] - before[4]; }
+            if (after >= 0) { dx += top[after * 5 + 3] - top[o + 3]; dy += top[after * 5 + 4] - top[o + 4]; }
+            if (before >= 0) { dx += top[o + 3] - top[before * 5 + 3]; dy += top[o + 4] - top[before * 5 + 4]; }
             const len = Math.hypot(dx, dy);
-            if (len < 1e-6) { lineAt.push(null); haloAt.push(null); curtainAt.push(null); continue; }
+            if (len < 1e-6) continue;
+            has[k] = true;
             const nx = -dy / len, ny = dx / len;
-            const off = (px) => [2 * nx * px / width, -2 * ny * px / height];
-            const c = points[i].colour;
-            const core = [c[0], c[1], c[2], 1];
-            const oh = off(PATH_HALO_PX / 2), ol = off(PATH_LINE_PX / 2);
-            haloAt.push([push(top[0] + oh[0], top[1] + oh[1], top[2], PATH_HALO), push(top[0] - oh[0], top[1] - oh[1], top[2], PATH_HALO)]);
-            lineAt.push([push(top[0] + ol[0], top[1] + ol[1], top[2], core), push(top[0] - ol[0], top[1] - ol[1], top[2], core)]);
-            const bottom = bottoms[i];
-            curtainAt.push(bottom
-                ? [push(top[0], top[1], top[2], [c[0], c[1], c[2], PATH_CURTAIN]), push(bottom[0], bottom[1], bottom[2], [c[0], c[1], c[2], 0])]
-                : null);
+            const ox = 2 * nx / width, oy = -2 * ny / height;
+            const x = top[o], y = top[o + 1], z = top[o + 2];
+            const c = i < count ? pts[i].colour : (count ? pts[count - 1].colour : [0.22, 0.74, 0.97]);
+            const v = k * 6;
+            const H = PATH_HALO;
+            put(v, x + ox * hx, y + oy * hx, z, H[0], H[1], H[2], H[3]);
+            put(v + 1, x - ox * hx, y - oy * hx, z, H[0], H[1], H[2], H[3]);
+            put(v + 2, x + ox * lx, y + oy * lx, z, c[0], c[1], c[2], 1);
+            put(v + 3, x - ox * lx, y - oy * lx, z, c[0], c[1], c[2], 1);
+            if (project(i, gnd[i], bot, k * 3, false)) {
+                hasBottom[k] = true;
+                put(v + 4, x, y, z, c[0], c[1], c[2], PATH_CURTAIN);
+                put(v + 5, bot[k * 3], bot[k * 3 + 1], bot[k * 3 + 2], c[0], c[1], c[2], 0);
+            }
         }
-        const quad = (out, a, b) => { if (a && b) out.push(a[0], a[1], b[0], a[1], b[1], b[0]); };
-        for (let i = 0; i < points.length - 1; i++) {
-            quad(curtain, curtainAt[i], curtainAt[i + 1]);
-            quad(halo, haloAt[i], haloAt[i + 1]);
-            quad(line, lineAt[i], lineAt[i + 1]);
+
+        // Quads between neighbouring kept points that both have vertices:
+        // the curtains, the halos and the lines, each in a block of its own.
+        const block = Math.max(m - 1, 1) * 6;
+        let cN = 0, hN = 0, lN = 0;
+        const q = (at, a0, a1, b0, b1) => {
+            idx[at] = a0; idx[at + 1] = b0; idx[at + 2] = a1;
+            idx[at + 3] = b0; idx[at + 4] = b1; idx[at + 5] = a1;
+        };
+        for (let k = 0; k < m - 1; k++) {
+            if (!has[k] || !has[k + 1]) continue;
+            const a = k * 6, b = (k + 1) * 6;
+            if (hasBottom[k] && hasBottom[k + 1]) { q(cN, a + 4, a + 5, b + 4, b + 5); cN += 6; }
+            q(block + hN, a, a + 1, b, b + 1); hN += 6;
+            q(2 * block + lN, a + 2, a + 3, b + 2, b + 3); lN += 6;
         }
-        if (!line.length) { hidePath(); return; }
+        if (!lN) { hidePath(); return; }
 
         const pm = ensurePathMesh();
         if (!pm) return;
         const { THREE } = gl3;
         const g = pm.geometry;
-        const vcount = pos.length / 3;
+        const vcount = m * 6;
         if (vcount > pm.capacity) {
             pm.capacity = Math.max(vcount, pm.capacity * 2, 256);
             g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pm.capacity * 3), 3).setUsage(THREE.DynamicDrawUsage));
             g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pm.capacity * 4), 4).setUsage(THREE.DynamicDrawUsage));
         }
-        g.attributes.position.array.set(pos);
-        g.attributes.color.array.set(col);
+        g.attributes.position.array.set(pos.subarray(0, vcount * 3));
+        g.attributes.color.array.set(col.subarray(0, vcount * 4));
         g.attributes.position.needsUpdate = true;
         g.attributes.color.needsUpdate = true;
-        const index = new Uint32Array(curtain.length + halo.length + line.length);
-        index.set(curtain, 0);
-        index.set(halo, curtain.length);
-        index.set(line, curtain.length + halo.length);
-        g.setIndex(new THREE.BufferAttribute(index, 1));
+        const icount = 3 * block;
+        if (!pm.index || pm.index.array.length < icount) {
+            pm.index = new THREE.BufferAttribute(new Uint32Array(Math.max(icount, (pm.index ? pm.index.array.length : 0) * 2, 1536)), 1)
+                .setUsage(THREE.DynamicDrawUsage);
+            g.setIndex(pm.index);
+        }
+        pm.index.array.set(idx.subarray(0, icount));
+        pm.index.needsUpdate = true;
         g.clearGroups();
-        g.addGroup(0, curtain.length, 0);
-        g.addGroup(curtain.length, halo.length, 1);
-        g.addGroup(curtain.length + halo.length, line.length, 2);
-        g.setDrawRange(0, index.length);
+        g.addGroup(0, cN, 0);
+        g.addGroup(block, hN, 1);
+        g.addGroup(2 * block, lN, 2);
+        g.setDrawRange(0, icount);
         pm.mesh.visible = true;
     }
 
