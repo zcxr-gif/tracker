@@ -107,6 +107,8 @@
         .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
         .seg button { padding: 8px 16px; border-radius: 7px; font-size: .86rem; font-weight: 600; color: var(--ink2); }
         .seg button.on { background: var(--panel2); color: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.12); }
+        .opt-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+        .opt-note { margin: 0; flex: 1 1 320px; color: var(--ink2); font-size: .86rem; line-height: 1.5; max-width: 640px; }
         .go-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 28px; }
         .go {
             height: 48px; padding: 0 28px; border-radius: 12px; font-weight: 800; font-size: 1rem;
@@ -272,6 +274,18 @@
                 <button data-level="busy">Busy</button>
             </div>
 
+            <h2>Terrain</h2>
+            <div class="opt-row">
+                <div class="seg" id="opt-terrain"><button data-v="off" class="on">Off</button><button data-v="on">On</button></div>
+                <p class="opt-note">On: minimum vectoring altitudes come from the real terrain, sector by sector. Below one sets off a low altitude alert; below the ground, you lose the aircraft. Off: one safe altitude everywhere. The map shows the land either way.</p>
+            </div>
+
+            <h2>Weather</h2>
+            <div class="opt-row">
+                <div class="seg" id="opt-weather"><button data-v="off" class="on">Off</button><button data-v="on">On</button></div>
+                <p class="opt-note">On: storm cells drift across the scope and pilots ask to deviate around them. Low ceilings and gusts in the ATIS, and below ILS minimums an aircraft goes around at decision height.</p>
+            </div>
+
             <div class="go-row">
                 <button class="go" id="go" disabled>Open the frequency</button>
                 <span class="go-note" id="go-note">Choose an airport to start.</span>
@@ -320,6 +334,7 @@
                     <button data-speed="4">4×</button>
                 </div>
                 <span class="spacer"></span>
+                <button class="chip" id="style" title="Switch between the dark radar and a light chart">Radar</button>
                 <button class="chip" id="voice" title="Read pilot transmissions aloud">Voice</button>
                 <button class="chip" id="end">End shift</button>
             </section>

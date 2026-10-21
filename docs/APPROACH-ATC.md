@@ -113,10 +113,56 @@ A35K, B748, MD11).
   clearance 1617."* Legs are 1 minute at or below 14,000 ft and 1½ minutes
   above.
 
+## Terrain (option)
+
+The scope always shows land, water and relief. The data comes from the
+keyless Terrarium elevation tiles (AWS Open Data), the same source as
+`terrainMode.js`; `approachTerrain.js` loads and resamples them. The
+**Chart** button switches to a light map; **Radar** is the dark scope.
+
+With **Terrain: On**:
+
+- **Minimum vectoring altitudes** come from the real ground. Each 5 NM
+  sector gets 1,000 ft above the highest terrain within 3 NM of it, or
+  2,000 ft where the ground is rugged (more than 2,000 ft of relief). That
+  is rounded up to the next 500 ft, with the field's floor as the minimum.
+  MVAs are labelled in hundreds of feet, one label per sector, as on an MVA
+  chart.
+- Assigning an altitude below the MVA where the aircraft is counts as a
+  violation.
+- An aircraft below the MVA triggers an automatic **low altitude alert**
+  (7110.65 2-1-6 safety alert phraseology): −10. Aircraft established on the
+  localizer, and departures or missed approaches still climbing, are
+  exempt; their procedure protects them.
+- An aircraft below the terrain is lost: −100.
+- Arrivals spawn at least 1,000 ft above the MVA. Each exit gate's
+  altitude clears the highest MVA within 10 NM of it, and is shown next to
+  the gate.
+
+With **Terrain: Off**, one minimum altitude (about 1,500 ft above the
+field) applies everywhere.
+
+## Weather (option)
+
+- Storm cells drift with the wind aloft, building and decaying over 40–70
+  minutes. They are drawn like weather radar: green, yellow, and red for the
+  heavy core.
+- A pilot who sees a red core within 8 NM ahead asks for a deviation:
+  *"request 30 degrees left for weather."* Approve it with the card button
+  or `dev`. The pilot turns, then reports "clear of the weather", and the
+  aircraft needs a new clearance. No answer within 45 s and the captain
+  deviates anyway (−5).
+- Flying through a red core costs −5 for turbulence. On final inside
+  8 NM, the aircraft goes around for windshear (no penalty).
+- The ATIS carries a ceiling, visibility and gusts. Now and then the
+  weather drops below CAT I ILS minimums (200 ft and ½ mile). Arrivals then
+  go around at decision height (no penalty) until it lifts, after 5–8
+  minutes.
+
 ## Not modelled
 
-Terrain and MVA charts (the game uses one minimum altitude, about 1,500 ft
-above the field). Weather minima and visual approaches. SIDs, STARs and
+Obstacles (towers, buildings) in the MVAs, and real published MVA charts (the
+game derives its own from terrain). Visual approaches. SIDs, STARs and
 published holds. Tower/approach handoffs as separate positions; you are
 both. Runway exits and taxiing. Intersection departures. Small (under
 41,000 lb) aircraft, and the small-behind-large rules that come with them.

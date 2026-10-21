@@ -16,6 +16,8 @@
  * lists each rule, its paragraph and how the game scores it.
  */
 
+import { loadDem, terrainAt, renderRelief, buildMva, mvaAt } from './approachTerrain.js';
+
 const $ = (s, el = document) => el.querySelector(s);
 
 /* ------------------------------------------------------------------ */
@@ -247,16 +249,18 @@ function sameRunwayish(a, b) {
 let G = null;
 let nextId = 1;
 
-function newGame(airport, level) {
+function newGame(airport, level, opts) {
     const world = buildWorld(airport);
-    const wind = { dir: Math.round(rand(0, 36)) * 10 || 360, spd: Math.round(rand(5, 18)) };
+    const wind = { dir: Math.round(rand(0, 36)) * 10 || 360, spd: Math.round(rand(5, opts.weather ? 22 : 18)) };
     G = {
-        world, wind, level,
+        world, wind, level, opts, airport,
+        dem: null, mva: null, relief: {},
+        wx: [], met: null, nextCell: 0,
         active: computeActive(world, wind),
         aircraft: [],
         t: 0,
         score: 0,
-        stats: { landed: 0, departed: 0, incidents: 0, goArounds: 0, violations: 0 },
+        stats: { landed: 0, departed: 0, incidents: 0, goArounds: 0, violations: 0, lowAlt: 0, crashes: 0, turbulence: 0 },
         conf: new Map(),
         occupied: new Map(),       // physical runway index -> sim time it is clear again
         depWake: new Map(),        // physical runway index -> last Super/Heavy takeoff { t, cs, wake }
@@ -271,6 +275,8 @@ function newGame(airport, level) {
         zulu0: Date.now(),
         over: false,
     };
+    G.met = makeMet();
+    if (opts.weather) for (let i = 0; i < 4; i++) spawnCell(true);
 }
 
 function airborne(a) { return a.state === 'air'; }
@@ -306,7 +312,8 @@ function spawnArrival() {
     for (const f of entries) {
         const r = SCOPE_NM - 0.5;
         const x = Math.sin(f.bearing * D2R) * r, y = Math.cos(f.bearing * D2R) * r;
-        const alt = Math.round((G.world.elev + rand(8000, 12500)) / 1000) * 1000;
+        let alt = Math.round((G.world.elev + rand(8000, 12500)) / 1000) * 1000;
+        if (terrainOn()) alt = Math.max(alt, Math.ceil((mvaAt(G.mva, x, y) + 1000) / 1000) * 1000);
         const crowded = G.aircraft.some(a => airborne(a) && Math.hypot(a.x - x, a.y - y) < 7 && Math.abs(a.alt - alt) < 1500);
         if (crowded) continue;
         const hdg = norm(brg(-x, -y) + rand(-12, 12));
@@ -336,7 +343,7 @@ function spawnDeparture() {
     const id = makeCallsign();
     if (!id) return false;
     const gate = pick(G.world.fixes.filter(f => f.kind === 'dep'));
-    const initial = Math.ceil((G.world.elev + 4000) / 1000) * 1000;
+    const initial = Math.max(Math.ceil((G.world.elev + 4000) / 1000) * 1000, mvaCeilingWithin(10));
     const ac = {
         id: nextId++, ...id, kind: 'dep', state: 'wait', perf: perf(id.type), rwy, gate,
         x: rwy.thr.x, y: rwy.thr.y, alt: G.world.elev, hdg: rwy.course, spd: 0,
@@ -499,6 +506,18 @@ function issue(ac, c) {
         }
     }
 
+    if (c.deviate) {
+        const r = ac.wxReq;
+        if (!r) { sys(`${ac.cs} hasn't asked to deviate.`); return false; }
+        ac.tHdg = norm(ac.hdg + (r.dir === 'L' ? -r.deg : r.deg)); ac.turn = r.dir;
+        ac.direct = null; ac.holdAt = null; ac.orbit = null;
+        if (ac.appr) cancelApproach(ac);
+        ac.wxReq = null; ac.wxDev = { t: G.t };
+        const side = r.dir === 'L' ? 'left' : 'right';
+        atc(`${ac.radio}, deviation ${r.deg} degrees ${side} approved, advise clear of weather.`);
+        pilot(ac, `${r.deg} ${side}, will advise, ${ac.radio}.`);
+        return true;
+    }
     if (c.goAround) {
         if (!ac.appr) { sys(`${ac.cs} isn't on an approach.`); return false; }
         atc(`${ac.radio}, go around.`);
@@ -551,6 +570,8 @@ function issue(ac, c) {
         const a = clamp(Math.round((c.alt != null ? c.alt : ac.tAlt) / 1000) * 1000, G.world.minAlt, 24000);
         const ref = onGround ? elev : ac.alt;
         ac.tAlt = a;
+        const mva = onGround ? 0 : mvaHere(ac);
+        if (mva && a < mva) violation(ac, 'minimum vectoring altitude', `${fmtAlt(a)} is below the MVA where ${ac.cs} is (${fmtAlt(mva)})`);
         if (c.ils) {
             // 7110.65 5-9-4: "maintain <altitude> until established on the localizer".
             parts.push(`maintain ${fmtAlt(a)} until established on the localizer`);
@@ -644,14 +665,14 @@ const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
 function cancelApproach(ac) { ac.appr = null; }
 
-function goAround(ac, reason) {
+function goAround(ac, reason, notYourFault) {
     const e = ac.appr ? ac.appr.end : null;
     ac.appr = null; ac.direct = null; ac.holdAt = null; ac.orbit = null; ac.turn = null; ac.landClr = false;
     if (e) ac.tHdg = e.course;
-    ac.tAlt = Math.max(G.world.minAlt, Math.ceil((G.world.elev + 3000) / 1000) * 1000);
+    ac.tAlt = Math.max(G.world.minAlt, Math.ceil((G.world.elev + 3000) / 1000) * 1000, mvaCeilingWithin(8));
     ac.tSpd = 210;
     G.stats.goArounds++;
-    award(ac, -3);
+    if (!notYourFault) award(ac, -3);
     pilot(ac, `${ac.radio}, going around${reason ? ', ' + reason : ''}.`);
     if (reason) toast(`${ac.cs} going around — ${reason}`, 'bad');
 }
@@ -660,8 +681,171 @@ function goAround(ac, reason) {
 /* Simulation                                                          */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Weather                                                             */
+/* ------------------------------------------------------------------ */
+
+/** Ceiling (ft above the field, null for none) and visibility (SM). Below CAT I minimums now and then. */
+function makeMet() {
+    if (!G.opts.weather) return { ceil: null, vis: 10, wx: '', gust: 0 };
+    const r = Math.random();
+    const ceil = r < 0.08 ? 100 : r < 0.35 ? Math.round(rand(3, 9)) * 100 : r < 0.75 ? Math.round(rand(10, 30)) * 100 : Math.round(rand(35, 60)) * 100;
+    const vis = ceil <= 100 ? 0.25 : ceil < 1000 ? pick([1, 1.5, 2, 3]) : pick([3, 5, 7, 10]);
+    const wx = ceil < 1000 ? pick(['-RA', 'RA', 'BR']) : G.wx.length ? 'VCTS' : '';
+    return { ceil, vis, wx, gust: G.wind.spd >= 12 ? G.wind.spd + Math.round(rand(6, 12)) : 0 };
+}
+const below = m => m.ceil != null && (m.ceil < 200 || m.vis < 0.5);
+const VIS = { 0.25: '1/4', 0.5: '1/2', 1.5: '1 1/2' };
+const metText = m => `${m.ceil == null ? 'SKC' : 'OVC' + String(Math.round(m.ceil / 100)).padStart(3, '0')} ${VIS[m.vis] || m.vis}SM ${m.wx}`.trim();
+
+/** A storm cell: a cluster of blobs drifting with the wind aloft, building then decaying. */
+function spawnCell(anywhere) {
+    const aloft = norm(G.wind.dir + rand(0, 40));                 // from
+    const sp = rand(15, 30) / 3600;                                // NM/s
+    let x, y;
+    if (anywhere) { const b = rand(0, 360) * D2R, r = rand(8, 34); x = Math.sin(b) * r; y = Math.cos(b) * r; }
+    else {
+        const b = (aloft + rand(-50, 50)) * D2R;
+        x = Math.sin(b) * (SCOPE_NM + 4); y = Math.cos(b) * (SCOPE_NM + 4);
+    }
+    const blobs = [];
+    const size = rand(2.5, 5.5);
+    for (let i = 0, k = Math.floor(rand(3, 6)); i < k; i++) blobs.push({ dx: rand(-1, 1) * size, dy: rand(-1, 1) * size, r: size * rand(0.6, 1.1) });
+    G.wx.push({ id: nextId++, x, y, vx: -Math.sin(aloft * D2R) * sp, vy: -Math.cos(aloft * D2R) * sp, blobs,
+        age: anywhere ? rand(0, 1500) : 0, life: rand(2400, 4200) });
+}
+const cellStrength = c => Math.max(0, Math.sin(Math.PI * c.age / c.life));
+
+/** Precipitation level at a point: 0 none, 1 light, 2 moderate, 3 heavy/thunderstorm. */
+function wxLevel(x, y) {
+    let lvl = 0;
+    for (const c of G.wx) {
+        const k = cellStrength(c);
+        if (k < 0.15) continue;
+        for (const b of c.blobs) {
+            const d = Math.hypot(x - c.x - b.dx, y - c.y - b.dy) / (b.r * k);
+            const l = d < 0.4 ? 3 : d < 0.7 ? 2 : d < 1 ? 1 : 0;
+            if (l > lvl) lvl = l;
+            if (lvl === 3) return 3;
+        }
+    }
+    return lvl;
+}
+const heavyAhead = (ac, hdg, from = 1, to = 8) => {
+    for (let d = from; d <= to; d += 1) {
+        if (wxLevel(ac.x + Math.sin(hdg * D2R) * d, ac.y + Math.cos(hdg * D2R) * d) === 3) return true;
+    }
+    return false;
+};
+
+function weather(dt) {
+    for (const c of G.wx) { c.x += c.vx * dt; c.y += c.vy * dt; c.age += dt; }
+    G.wx = G.wx.filter(c => c.age < c.life && Math.hypot(c.x, c.y) < SCOPE_NM + 12);
+    if (G.t >= G.nextCell) {
+        G.nextCell = G.t + rand(300, 700);
+        if (G.wx.length < 6) spawnCell(false);
+    }
+    // A spell below minimums never lasts long.
+    if (below(G.met) && !G.metBelowUntil) G.metBelowUntil = G.t + rand(300, 480);
+    if (G.metBelowUntil && G.t >= G.metBelowUntil) {
+        G.metBelowUntil = 0;
+        G.met = { ...G.met, ceil: Math.round(rand(3, 8)) * 100, vis: pick([1, 2, 3]) };
+        G.atis = (G.atis + 1) % 26;
+        sys(`Information ${PHONETIC[G.atis]}: ${metText(G.met)}, ceiling back above minimums.`, 'good');
+    }
+    // Pilots look ahead every couple of seconds.
+    if ((G.wxT = (G.wxT || 0) + dt) < 2) return;
+    G.wxT = 0;
+    for (const ac of G.aircraft) {
+        if (!airborne(ac)) continue;
+        const lvl = wxLevel(ac.x, ac.y);
+        if (lvl === 3) {
+            ac.inCell = ac.inCell || new Set();
+            const cell = G.wx.find(c => c.blobs.some(b => Math.hypot(ac.x - c.x - b.dx, ac.y - c.y - b.dy) < b.r));
+            const key = cell ? cell.id : 0;
+            if (!ac.inCell.has(key)) {
+                ac.inCell.add(key);
+                if (ac.appr?.loc && ac.appr.along < 8) { goAround(ac, 'windshear', true); continue; }
+                G.stats.turbulence++;
+                award(ac, -5, 'TURB');
+                pilot(ac, `${ac.radio}, we just took moderate to severe turbulence in that cell.`);
+            }
+        }
+        if (ac.appr?.loc && ac.appr.along < 6) continue;
+        const blocked = heavyAhead(ac, ac.hdg);
+        if (ac.wxDev && wxLevel(ac.x, ac.y) < 2 && !heavyAhead(ac, ac.hdg, 1, 5) && G.t - ac.wxDev.t > 30) {
+            ac.wxDev = null;
+            pilot(ac, `${ac.radio}, clear of the weather.`);
+        }
+        if (!blocked) { if (ac.wxReq && G.t - ac.wxReq.t > 10) ac.wxReq = null; continue; }
+        if (ac.wxDev) continue;
+        if (!ac.wxReq) {
+            const deg = 30;
+            const leftOk = !heavyAhead(ac, ac.hdg - deg), rightOk = !heavyAhead(ac, ac.hdg + deg);
+            const dir = leftOk && !rightOk ? 'L' : rightOk && !leftOk ? 'R' : Math.random() < 0.5 ? 'L' : 'R';
+            ac.wxReq = { dir, deg, t: G.t };
+            pilot(ac, `${G.world.icao} Approach, ${ac.radio}, request ${deg} degrees ${dir === 'L' ? 'left' : 'right'} for weather.`);
+        } else if (G.t - ac.wxReq.t > 45) {
+            // No answer: the captain deviates anyway.
+            const r = ac.wxReq;
+            ac.tHdg = norm(ac.hdg + (r.dir === 'L' ? -r.deg : r.deg)); ac.turn = r.dir;
+            ac.direct = null; ac.holdAt = null; ac.orbit = null;
+            if (ac.appr) cancelApproach(ac);
+            ac.wxReq = null; ac.wxDev = { t: G.t };
+            violation(ac, 'unanswered request', `${ac.cs} deviated for weather without a reply`);
+            pilot(ac, `${ac.radio} is deviating ${r.dir === 'L' ? 'left' : 'right'} for weather.`);
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Terrain                                                             */
+/* ------------------------------------------------------------------ */
+
+const terrainOn = () => G.opts.terrain && !!G.mva;
+/** The altitude a departure must reach before its exit gate. */
+const exitAlt = ac => (ac.gate && ac.gate.exitAlt) || G.world.exitAlt;
+const mvaHere = ac => terrainOn() ? mvaAt(G.mva, ac.x, ac.y) || G.world.minAlt : G.world.minAlt;
+/** Highest MVA within r NM of the field, rounded up to a thousand feet. */
+function mvaCeilingWithin(r) {
+    if (!terrainOn()) return 0;
+    let hi = 0;
+    for (let y = -r; y <= r; y += 1) for (let x = -r; x <= r; x += 1) if (x * x + y * y <= r * r) hi = Math.max(hi, mvaAt(G.mva, x, y));
+    return Math.ceil(hi / 1000) * 1000;
+}
+
+/** Minimum safe altitude warning and terrain impact. */
+function terrainCheck() {
+    if (!terrainOn()) return;
+    for (const ac of G.aircraft) {
+        if (!airborne(ac)) continue;
+        const nearRunway = Math.hypot(ac.x, ac.y) < 3 && agl(ac) < 1500;
+        if (!nearRunway && !ac.appr?.loc && ac.alt < terrainAt(G.dem, ac.x, ac.y) + 50) {
+            ac.gone = true;
+            G.stats.crashes++;
+            G.score -= 100;
+            sys(`${ac.cs} flew into terrain at ${Math.round(ac.alt).toLocaleString('en-US')} feet.`, 'bad');
+            toast(`${ac.cs} — controlled flight into terrain`, 'bad');
+            continue;
+        }
+        // Established on the approach, or climbing out, the procedure protects them.
+        const climbing = ac.tAlt > ac.alt + 50 && (ac.kind === 'dep' || Math.hypot(ac.x, ac.y) < 6);
+        const mva = mvaAt(G.mva, ac.x, ac.y);
+        const low = !ac.appr?.loc && !climbing && mva && ac.alt < mva - 50;
+        if (low && !ac.lowAlt) {
+            G.stats.lowAlt++;
+            G.score -= 10;
+            // 7110.65 2-1-6 safety alert phraseology.
+            atc(`${ac.radio}, low altitude alert, check your altitude immediately. The MVA in your area is ${fmtAlt(mva)}.`);
+            toast(`Low altitude alert — ${ac.cs}`, 'bad');
+        }
+        ac.lowAlt = !!low;
+    }
+}
+
 function tick(dt) {
     G.t += dt;
+    if (G.opts.weather) weather(dt);
 
     // Traffic. The gap shrinks over the first ninety minutes, then holds.
     if (G.t >= G.nextSpawn) {
@@ -683,6 +867,9 @@ function tick(dt) {
     G.aircraft = G.aircraft.filter(a => !a.gone);
     if (G.selected && G.selected.gone) select(null);
     separation();
+    terrainCheck();
+    G.aircraft = G.aircraft.filter(a => !a.gone);
+    if (G.selected && G.selected.gone) select(null);
     G.floaters = G.floaters.filter(f => f.until > G.t);
 }
 
@@ -693,6 +880,7 @@ function shiftWind() {
     G.active = computeActive(G.world, G.wind);
     G.atis = (G.atis + 1) % 26;
     G.altim = clamp(G.altim + Math.round(rand(-3, 3)), 2950, 3050);
+    G.met = makeMet();
     if (G.active.key === prev) {
         sys(`Information ${PHONETIC[G.atis]} is current: wind ${hdg3(G.wind.dir)} at ${G.wind.spd}, altimeter ${G.altim}.`);
         return;
@@ -862,6 +1050,8 @@ function approachLateral(ac) {
         if (runwayBusyUntil(e.phys) > G.t + eta) { goAround(ac, 'runway occupied'); return false; }
     }
     if (g.along <= LAND_CLR_NM && !ac.landClr) { goAround(ac, 'no landing clearance'); return false; }
+    // Decision height, about 200 ft: no runway in sight below CAT I minimums.
+    if (g.along <= 0.65 && below(G.met)) { goAround(ac, 'minimums, no runway in sight', true); return false; }
     if (g.along <= 0.15) {
         if (ac.alt - elev > 300 || Math.abs(g.xt) > 0.3) { goAround(ac, 'not stabilized'); return false; }
         if (runwayBusyUntil(e.phys) > G.t) { goAround(ac, 'runway occupied'); return false; }
@@ -886,13 +1076,13 @@ function exitScope(ac) {
         const b = brg(ac.x, ac.y);
         const onGate = Math.abs(diff(b, ac.gate.bearing)) <= 20;
         G.stats.departed++;
-        if (onGate && ac.alt >= G.world.exitAlt - 50) {
+        if (onGate && ac.alt >= exitAlt(ac) - 50) {
             award(ac, 10);
             atc(`${ac.radio}, contact Center, good day.`);
             pilot(ac, `Over to Center, ${ac.radio}.`);
         } else if (onGate) {
             award(ac, 5, 'low');
-            sys(`${ac.cs} left via ${ac.gate.name} below ${fmtAlt(G.world.exitAlt)}.`, 'bad');
+            sys(`${ac.cs} left via ${ac.gate.name} below ${fmtAlt(exitAlt(ac))}.`, 'bad');
         } else {
             award(ac, -10);
             sys(`${ac.cs} left the airspace away from ${ac.gate.name}.`, 'bad');
@@ -1004,8 +1194,11 @@ let drag = null;              // { id, mode: 'ac'|'pan', ac, sx, sy, moved, hdg 
 const pointers = new Map();
 let pinch = null;
 
-const COLORS = {
+const PALETTE = {};
+PALETTE.radar = {
     bg: '#060b0f',
+    outside: 'rgba(6,11,15,0.55)',
+    mva: 'rgba(190,150,255,0.45)',
     ring: 'rgba(120,200,180,0.10)',
     ringLabel: 'rgba(140,210,190,0.35)',
     edge: 'rgba(120,200,180,0.35)',
@@ -1021,6 +1214,28 @@ const COLORS = {
     bad: '#ff5468',
     good: '#3ddc97',
 };
+// The light chart look: blue water, pale land, orange rings and approach lines.
+PALETTE.chart = {
+    bg: '#cfd5c6',
+    outside: 'rgba(207,213,198,0.5)',
+    mva: 'rgba(110,50,150,0.6)',
+    ring: 'rgba(212,128,44,0.75)',
+    ringLabel: 'rgba(150,80,20,0.9)',
+    edge: '#d4802c',
+    runway: '#5a4632',
+    center: 'rgba(212,128,44,0.95)',
+    feather: 'rgba(212,128,44,0.12)',
+    fixArr: '#2f5d7a',
+    fixDep: '#9a5b00',
+    fixApp: 'rgba(60,80,100,0.7)',
+    arr: '#1d5fbf',
+    dep: '#a8560a',
+    sel: '#111111',
+    bad: '#d0102a',
+    good: '#0f8a55',
+};
+let mapStyle = store.get('style', 'radar') === 'chart' ? 'chart' : 'radar';
+let COLORS = PALETTE[mapStyle];
 
 function fitView() {
     const r = canvas.getBoundingClientRect();
@@ -1044,6 +1259,22 @@ function draw() {
     if (!G) return;
     const s = view.scale;
     const [ox, oy] = toS(0, 0);
+
+    // Land, water and relief.
+    if (G.dem) {
+        const img = G.relief[mapStyle] || (G.relief[mapStyle] = renderRelief(G.dem, mapStyle));
+        const [ax, ay] = toS(-G.dem.half, G.dem.half), [bx, by] = toS(G.dem.half, -G.dem.half);
+        c.imageSmoothingEnabled = true;
+        c.drawImage(img, ax, ay, bx - ax, by - ay);
+    }
+    if (terrainOn()) drawMva();
+    if (G.wx.length) drawWeather();
+    // Outside the airspace is someone else's: dim it.
+    c.fillStyle = COLORS.outside;
+    c.beginPath();
+    c.rect(0, 0, view.w, view.h);
+    c.arc(ox, oy, SCOPE_NM * s, 0, Math.PI * 2, true);
+    c.fill();
 
     // Range rings and the airspace edge.
     c.lineWidth = 1;
@@ -1130,7 +1361,7 @@ function draw() {
             c.moveTo(fx, fy + 5); c.lineTo(fx + 5, fy - 4); c.lineTo(fx - 5, fy - 4); c.closePath();
         }
         c.stroke();
-        c.fillText(f.name, fx + 7, fy + (f.kind === 'app' ? 10 : 3));
+        c.fillText(f.kind === 'dep' && f.exitAlt ? `${f.name} ${alt3(f.exitAlt)}+` : f.name, fx + 7, fy + (f.kind === 'app' ? 10 : 3));
         if (f.kind === 'dep') {
             // A short arrow outward: this is a way out.
             const b = f.bearing * D2R;
@@ -1161,10 +1392,12 @@ function draw() {
         const target = sel.direct || (sel.appr && sel.appr.end.thr) || (sel.kind === 'dep' ? sel.gate : null);
         if (target) {
             const [ax, ay] = toS(sel.x, sel.y), [bx, by] = toS(target.x, target.y);
-            c.strokeStyle = 'rgba(255,255,255,0.28)';
+            c.strokeStyle = COLORS.sel;
+            c.globalAlpha = 0.35;
             c.setLineDash([3, 5]);
             c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx, by); c.stroke();
             c.setLineDash([]);
+            c.globalAlpha = 1;
         }
     }
 
@@ -1177,12 +1410,12 @@ function draw() {
     // Heading drag.
     if (drag && drag.mode === 'ac' && drag.moved && drag.hdg != null) {
         const [ax, ay] = toS(drag.ac.x, drag.ac.y);
-        c.strokeStyle = '#fff';
+        c.strokeStyle = COLORS.sel;
         c.setLineDash([4, 4]);
         c.beginPath(); c.moveTo(ax, ay); c.lineTo(drag.px, drag.py); c.stroke();
         c.setLineDash([]);
         c.font = '700 13px "JetBrains Mono", monospace';
-        c.fillStyle = '#fff';
+        c.fillStyle = COLORS.sel;
         c.fillText(hdg3(drag.hdg), drag.px + 10, drag.py - 10);
     }
 
@@ -1198,11 +1431,59 @@ function draw() {
     c.globalAlpha = 1;
 }
 
+function drawMva() {
+    const c = ctx, m = G.mva, s = view.scale;
+    const [ox, oy] = toS(0, 0);
+    c.save();
+    c.beginPath(); c.arc(ox, oy, SCOPE_NM * s, 0, Math.PI * 2); c.clip();
+    c.strokeStyle = COLORS.mva; c.fillStyle = COLORS.mva; c.lineWidth = 1;
+    c.font = '700 10px "JetBrains Mono", monospace';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    const val = (i, j) => (i < 0 || j < 0 || i >= m.cells || j >= m.cells) ? -1 : m.vals[j * m.cells + i];
+    c.beginPath();
+    for (let j = 0; j < m.cells; j++) {
+        for (let i = 0; i < m.cells; i++) {
+            const v = val(i, j);
+            const x0 = -m.scopeNm + i * m.cellNm, y0 = m.scopeNm - j * m.cellNm;
+            // Lines only where the MVA steps, like a real MVA chart's sector borders.
+            if (val(i + 1, j) !== v) { const [ax, ay] = toS(x0 + m.cellNm, y0), [bx, by] = toS(x0 + m.cellNm, y0 - m.cellNm); c.moveTo(ax, ay); c.lineTo(bx, by); }
+            if (val(i, j + 1) !== v) { const [ax, ay] = toS(x0, y0 - m.cellNm), [bx, by] = toS(x0 + m.cellNm, y0 - m.cellNm); c.moveTo(ax, ay); c.lineTo(bx, by); }
+        }
+    }
+    c.stroke();
+    // MVA charts give altitudes in hundreds of feet: 45 is 4,500.
+    for (const l of m.labels) {
+        const [lx, ly] = toS(l.x, l.y);
+        c.fillText(String(Math.round(l.v / 100)), lx, ly);
+    }
+    c.restore();
+    c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+}
+
+function drawWeather() {
+    const c = ctx, s = view.scale;
+    const levels = [[1, 'rgba(70,190,80,0.32)'], [0.7, 'rgba(235,200,40,0.42)'], [0.4, 'rgba(225,50,40,0.55)']];
+    for (const [f, col] of levels) {
+        c.fillStyle = col;
+        c.beginPath();
+        for (const cell of G.wx) {
+            const k = cellStrength(cell);
+            if (k < 0.15) continue;
+            for (const b of cell.blobs) {
+                const [x, y] = toS(cell.x + b.dx, cell.y + b.dy);
+                const r = b.r * k * f * s;
+                c.moveTo(x + r, y); c.arc(x, y, r, 0, Math.PI * 2);
+            }
+        }
+        c.fill('nonzero');
+    }
+}
+
 function drawAircraft(a) {
     const c = ctx, s = view.scale;
     const [x, y] = toS(a.x, a.y);
     const base = a.kind === 'arr' ? COLORS.arr : COLORS.dep;
-    const col = a.conflict ? COLORS.bad : a === G.selected ? COLORS.sel : base;
+    const col = a.conflict || a.lowAlt ? COLORS.bad : a === G.selected ? COLORS.sel : base;
 
     // History.
     c.fillStyle = base;
@@ -1232,7 +1513,7 @@ function drawAircraft(a) {
     if (a.kind === 'arr') c.fillRect(x - 3.5, y - 3.5, 7, 7);
     else { c.beginPath(); c.moveTo(x, y - 5); c.lineTo(x + 5, y); c.lineTo(x, y + 5); c.lineTo(x - 5, y); c.closePath(); c.fill(); }
     if (a === G.selected) {
-        c.strokeStyle = '#fff';
+        c.strokeStyle = COLORS.sel;
         c.beginPath(); c.arc(x, y, 10, 0, Math.PI * 2); c.stroke();
     }
 
@@ -1241,7 +1522,7 @@ function drawAircraft(a) {
     const target = a.appr?.loc ? null : a.tAlt;
     const arrow = Math.abs(vs) < 60 || target == null ? ' ' : vs > 0 ? '↑' : '↓';
     const l2 = `${alt3(a.alt)}${arrow}${target != null && Math.abs(vs) >= 60 ? alt3(target) : '   '} ${String(Math.round(a.spd)).padStart(3)}`;
-    const l3 = `${typeTag(a)} ${a.kind === 'arr' ? intentTag(a) : `${a.gate.name} ${a.alt >= G.world.exitAlt - 50 ? '✓' : alt3(G.world.exitAlt)}`}`;
+    const l3 = `${typeTag(a)} ${a.kind === 'arr' || a.lowAlt || a.wxReq ? intentTag(a) : `${a.gate.name} ${a.alt >= exitAlt(a) - 50 ? '✓' : alt3(exitAlt(a))}`}`;
     c.font = '700 11px "JetBrains Mono", monospace';
     c.fillStyle = col;
     const bx = x + 12, by = y - 20;
@@ -1257,6 +1538,8 @@ function drawAircraft(a) {
 /** Type as a data block shows it: H/ for heavy, J/ for super. */
 const typeTag = a => (a.perf.wake === 'S' ? 'J/' : a.perf.wake === 'H' ? 'H/' : '') + a.type;
 function intentTag(a) {
+    if (a.lowAlt) return 'LA ' + alt3(mvaHere(a));
+    if (a.wxReq) return 'WX ' + a.wxReq.deg + a.wxReq.dir;
     if (a.appr) return (a.appr.loc ? 'LOC ' : 'ILS ') + a.appr.end.id + (a.landClr ? ' CL' : '');
     if (a.holdAt) return 'HLD ' + a.holdAt.fix.name;
     if (a.orbit) return '360' + a.orbit.dir;
@@ -1397,8 +1680,8 @@ function syncPending(force) {
 }
 
 function statusText(ac) {
-    if (ac.state === 'wait') return `Holding short ${ac.rwy.id} · exit ${ac.gate.name} · climb to ${alt3(G.world.exitAlt)}+`;
-    if (ac.state === 'luaw') return `Lined up on ${ac.rwy.id} · exit ${ac.gate.name} · climb to ${alt3(G.world.exitAlt)}+`;
+    if (ac.state === 'wait') return `Holding short ${ac.rwy.id} · exit ${ac.gate.name} · climb to ${alt3(exitAlt(ac))}+`;
+    if (ac.state === 'luaw') return `Lined up on ${ac.rwy.id} · exit ${ac.gate.name} · climb to ${alt3(exitAlt(ac))}+`;
     if (ac.state === 'roll') return `Rolling ${ac.rwy.id} · ${Math.round(ac.spd)} kt`;
     const vs = ac.tAlt - ac.alt;
     const alt = `${Math.round(ac.alt).toLocaleString('en-US')} ft${Math.abs(vs) > 60 && !ac.appr?.loc ? (vs > 0 ? ' ↑ ' : ' ↓ ') + ac.tAlt.toLocaleString('en-US') : ''}`;
@@ -1410,7 +1693,7 @@ function statusText(ac) {
         const ap = ac.appr;
         lat = ap.loc ? `on the localizer ${ap.end.id} · ${ap.along.toFixed(1)} nm${ac.landClr ? ' · cleared to land' : ' · needs landing clearance'}` : `cleared ILS ${ap.end.id} · ${Math.abs(ap.xt).toFixed(1)} nm ${ap.xt > 0 ? 'right' : 'left'} of course`;
     } else if (ac.kind === 'arr' && ac.expect) lat += ` · expecting ${ac.expect.id}`;
-    const tail = ac.kind === 'dep' ? ` · exit ${ac.gate.name} at ${alt3(G.world.exitAlt)}+` : '';
+    const tail = ac.kind === 'dep' ? ` · exit ${ac.gate.name} at ${alt3(exitAlt(ac))}+` : '';
     return `${alt} · ${Math.round(ac.spd)} kt · ${lat}${tail}`;
 }
 
@@ -1424,7 +1707,7 @@ function renderCard(force) {
         }
         return;
     }
-    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}`;
+    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}`;
     if (!force && key === cardKey) { updateCard(); return; }
     cardKey = key;
     const ground = ac.state !== 'air';
@@ -1444,6 +1727,7 @@ function renderCard(force) {
             <span class="radio">${ac.radio} · ${typeTag(ac)}</span>
         </div>
         <div class="card-status" id="card-status"></div>
+        ${ac.wxReq ? `<div class="btn-row"><button class="btn primary" data-act="dev">Approve ${ac.wxReq.deg}° ${ac.wxReq.dir === 'L' ? 'left' : 'right'} for weather</button></div>` : ''}
         <div class="row"><label>Heading</label><div class="stepper">
             <button data-adj="hdg:-10">−10</button><button data-adj="hdg:-5">−5</button>
             <span class="val" id="p-hdg"></span>
@@ -1521,6 +1805,7 @@ function bindCard() {
         else if (act === 'reset') { syncPending(true); updateCard(); }
         else if (act === 'takeoff') transmitPending({ takeoff: true });
         else if (act === 'luaw') transmitPending({ luaw: true });
+        else if (act === 'dev') { issue(ac, { deviate: true }); renderCard(true); }
         else if (act === 'land') { issue(ac, { land: true }); renderCard(true); }
         else if (act === 'ga') { issue(ac, { goAround: true }); syncPending(true); renderCard(true); }
         else if (act === 'orbitL' || act === 'orbitR') { issue(ac, { orbit: act === 'orbitL' ? 'L' : 'R' }); renderCard(true); }
@@ -1544,12 +1829,13 @@ function renderStrips() {
         else if (a.state === 'wait') right = `<span class="l0">HS ${a.rwy.id}</span><span class="l2">${Math.floor((G.t - a.born) / 60)}m</span>`;
         else if (a.state === 'roll') right = `<span class="l0">ROLL ${a.rwy.id}</span><span class="l2">${Math.round(a.spd)}kt</span>`;
         else {
-            const what = a.kind === 'arr'
-                ? (a.appr || a.holdAt || a.orbit || a.direct ? intentTag(a) : 'H' + hdg3(a.tHdg))
-                : `${a.gate.name} ${a.alt >= G.world.exitAlt - 50 ? '✓' : alt3(G.world.exitAlt)}`;
+            let what = a.kind === 'arr'
+                ? (a.appr || a.holdAt || a.orbit || a.direct || a.lowAlt || a.wxReq ? intentTag(a) : 'H' + hdg3(a.tHdg))
+                : `${a.gate.name} ${a.alt >= exitAlt(a) - 50 ? '✓' : alt3(exitAlt(a))}`;
+            if (a.kind === 'dep' && (a.lowAlt || a.wxReq)) what = intentTag(a);
             right = `<span class="l0">${alt3(a.alt)}${Math.abs(a.tAlt - a.alt) > 60 && !a.appr?.loc ? (a.tAlt > a.alt ? '↑' : '↓') + alt3(a.tAlt) : ''}</span><span class="l2">${what}</span>`;
         }
-        return `<button class="strip ${a.kind}${a === G.selected ? ' sel' : ''}${a.conflict ? ' conf' : ''}" data-id="${a.id}">
+        return `<button class="strip ${a.kind}${a === G.selected ? ' sel' : ''}${a.conflict || a.lowAlt || a.wxReq ? ' conf' : ''}" data-id="${a.id}">
             <span class="bar"></span>
             <span><span class="l1">${a.cs}</span><span class="l2">${typeTag(a)}</span></span>
             <span class="r">${right}</span></button>`;
@@ -1568,10 +1854,12 @@ function renderHud() {
     const zulu = String(z.getUTCHours()).padStart(2, '0') + String(z.getUTCMinutes()).padStart(2, '0') + 'Z';
     $('#hud').innerHTML = `<b>${G.world.icao}</b> ${zulu}<br>`
         + `ATIS <b>${PHONETIC[G.atis].toUpperCase()}</b> · A<b>${G.altim}</b><br>`
-        + `WIND <b>${hdg3(G.wind.dir)}/${String(G.wind.spd).padStart(2, '0')}</b><br>`
+        + `WIND <b>${hdg3(G.wind.dir)}/${String(G.wind.spd).padStart(2, '0')}${G.met.gust ? 'G' + G.met.gust : ''}</b>${G.opts.weather ? ` · <b>${metText(G.met)}</b>` : ''}<br>`
         + `ARR <b>${G.active.arr.map(e => e.id).join(' ')}</b><br>`
         + `DEP <b>${G.active.dep.map(e => e.id).join(' ')}</b><br>`
-        + `EXIT <b>${alt3(G.world.exitAlt)}+</b> · MVA <b>${alt3(G.world.minAlt)}</b>`;
+        + `EXIT <b>${terrainOn() ? 'by gate' : alt3(G.world.exitAlt) + '+'}</b> · MVA <b>${terrainOn() ? 'by sector' : alt3(G.world.minAlt)}</b>`
+        + (G.opts.terrain && !G.mva ? '<br>loading terrain…' : '')
+        + (below(G.met) ? '<br><b style="color:#ff8a98">BELOW MINIMUMS</b>' : '');
     $('#s-score').textContent = G.score;
     $('#s-landed').textContent = G.stats.landed;
     $('#s-departed').textContent = G.stats.departed;
@@ -1610,6 +1898,7 @@ function runCommand(text) {
         else if (t === 'TO' || t === 'T' || t === 'CTO') c.takeoff = true;
         else if (t === 'GA') c.goAround = true;
         else if (t === 'LUAW' || t === 'LU') c.luaw = true;
+        else if (t === 'DEV' || t === 'WX') c.deviate = true;
         else if (t === 'CL' || t === 'CTL' || t === 'LAND') c.land = true;
         else if (t === 'HOLD' || t === 'HLD') { c.holdFix = G.world.fixes.find(f => f.name === toks[++i]); if (!c.holdFix) { sys('Hold at which fix? e.g. "hold KORAN".'); return; } }
         else if ((m = /^([LR])360$/.exec(t))) c.orbit = m[1];
@@ -1681,6 +1970,8 @@ function endShift() {
             <div>Separation losses <b>${G.stats.incidents}</b></div>
             <div>Go-arounds <b>${G.stats.goArounds}</b></div>
             <div>Rule violations <b>${G.stats.violations}</b></div>
+            ${G.opts.terrain ? `<div>Low altitude alerts <b>${G.stats.lowAlt}</b></div><div>Lost to terrain <b>${G.stats.crashes}</b></div>` : ''}
+            ${G.opts.weather ? `<div>Turbulence encounters <b>${G.stats.turbulence}</b></div>` : ''}
         </div>
         <div class="btn-row">
             <button class="btn primary" id="again">Another shift</button>
@@ -1704,6 +1995,15 @@ function bindGame() {
         if (!voiceOn) try { speechSynthesis.cancel(); } catch { /* none */ }
     };
     $('#end').onclick = () => { if (G && !G.over) endShift(); };
+    const style = $('#style');
+    const showStyle = () => { style.textContent = mapStyle === 'chart' ? 'Chart' : 'Radar'; style.classList.toggle('on', mapStyle === 'chart'); };
+    showStyle();
+    style.onclick = () => {
+        mapStyle = mapStyle === 'chart' ? 'radar' : 'chart';
+        COLORS = PALETTE[mapStyle];
+        store.set('style', mapStyle);
+        showStyle();
+    };
     $('#strips').addEventListener('click', e => {
         const b = e.target.closest('.strip');
         if (b) select(G.aircraft.find(a => a.id === Number(b.dataset.id)) || null);
@@ -1739,22 +2039,49 @@ function bindGame() {
     document.addEventListener('visibilitychange', () => { if (document.hidden && G && G.speed > 0 && !G.over) togglePause(); });
 }
 
-function startGame(airport, level) {
+let opts = { terrain: store.get('terrain', false), weather: store.get('weather', false) };
+
+async function startGame(airport, level) {
     store.set('last', airport.icao);
     store.set('level', level);
+    store.set('terrain', opts.terrain);
+    store.set('weather', opts.weather);
     $('#start').hidden = true;
     $('#game').hidden = false;
     window.scrollTo(0, 0);
     $('#summary').hidden = true;
     $('#log').innerHTML = '';
     nextId = 1;
-    newGame(airport, level);
+    newGame(airport, level, { ...opts });
+    const game = G;
     fitView();
     resetView();
-    setSpeed(1);
     cardKey = '';
     renderCard(true);
-    sys(`${airport.icao} approach is open. Landing ${G.active.arr.map(e => e.id).join(', ')}, departing ${G.active.dep.map(e => e.id).join(', ')}. Departures exit at ${fmtAlt(G.world.exitAlt)} or above.`);
+    // The map loads for everyone; with Terrain on, the shift waits for it so the MVAs are real from the start.
+    const dem = loadDem(airport.lat, airport.lon).catch(() => null);
+    if (game.opts.terrain) {
+        setSpeed(0);
+        sys('Loading terrain…');
+        const d = await dem;
+        if (G !== game) return;
+        if (d) {
+            game.dem = d;
+            game.mva = buildMva(d, game.world.minAlt);
+            // Each gate's exit altitude clears the highest MVA within 10 miles of it.
+            for (const f of game.world.fixes.filter(f => f.kind === 'dep')) {
+                let hi = 0;
+                for (let dy = -10; dy <= 10; dy++) for (let dx = -10; dx <= 10; dx++) if (dx * dx + dy * dy <= 100) hi = Math.max(hi, mvaAt(game.mva, f.x + dx, f.y + dy));
+                f.exitAlt = Math.max(game.world.exitAlt, Math.ceil(hi / 1000) * 1000);
+            }
+        }
+        else sys('Terrain could not be loaded, so the MVA is one altitude for the whole scope.', 'bad');
+    } else {
+        dem.then(d => { if (G === game && d) game.dem = d; });
+    }
+    setSpeed(1);
+    const wxNote = game.opts.weather ? ` Weather ${metText(game.met)}${below(game.met) ? ', below ILS minimums' : ''}.` : '';
+    sys(`${airport.icao} approach is open. Landing ${G.active.arr.map(e => e.id).join(', ')}, departing ${G.active.dep.map(e => e.id).join(', ')}. Departures exit at ${terrainOn() ? 'the altitude on their strip' : fmtAlt(G.world.exitAlt) + ' or above'}.${wxNote}`);
     spawnArrival();
     spawnDeparture();
     const u = new URL(location.href);
@@ -1785,6 +2112,8 @@ function renderStart() {
     $('#featured').innerHTML = FEATURED.map(i => DATA.byIcao.get(i)).filter(Boolean).map(apCard).join('');
     renderResults();
     document.querySelectorAll('#traffic button').forEach(b => b.classList.toggle('on', b.dataset.level === level));
+    document.querySelectorAll('#opt-terrain button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.terrain));
+    document.querySelectorAll('#opt-weather button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.weather));
     $('#go').disabled = !chosen;
     $('#go-note').textContent = chosen ? `${chosen.icao} — ${chosen.name}` : 'Choose an airport to start.';
 }
@@ -1823,6 +2152,14 @@ async function init() {
         level = b.dataset.level;
         renderStart();
     });
+    for (const k of ['terrain', 'weather']) {
+        $('#opt-' + k).addEventListener('click', e => {
+            const b = e.target.closest('button');
+            if (!b) return;
+            opts[k] = b.dataset.v === 'on';
+            renderStart();
+        });
+    }
     $('#go').onclick = () => { if (chosen) startGame(chosen, level); };
 
     try {
