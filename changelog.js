@@ -3,13 +3,16 @@
  *
  * One data source (RELEASES below), read in Settings — the desktop Global
  * Settings modal hosts renderSettingsPanel(); the mobile Settings sheet's
- * More tab opens the full modal via open(). Nothing pops up on its own when
- * the site loads: pilots read the notes when they choose to.
+ * More tab opens the full modal via open(). Only a release marked `popup`
+ * opens on its own, once; otherwise pilots read the notes when they choose.
  *
  * To ship notes for a new update: prepend a release object to RELEASES.
  * An entry's `action` adds a button that takes the pilot straight to the
- * feature (ACTIONS below). `quiet` and `nudge` are left on older releases
- * and only matter if something calls showNudge().
+ * feature (ACTIONS below). A release's `image` ({ src, alt }) is shown
+ * above its notes. A release marked `popup` opens by itself, once, the
+ * first time each pilot arrives after it ships (see maybePopup). `quiet`
+ * and `nudge` are left on older releases and only matter if something calls
+ * showNudge().
  *
  * Exposed as window.InflightChangelog. Loaded as a plain (non-module)
  * script alongside vaAds.js.
@@ -21,6 +24,64 @@
 
     // Newest release FIRST. tag: 'new' | 'improved' | 'fixed'.
     const RELEASES = [
+        {
+            id: '2026.10.21',
+            date: 'October 2026',
+            title: 'Fly It in 3D',
+            popup: true,
+            image: { src: 'Images/whats-new-3d.webp', alt: 'A Delta A350 in 3D, its flown path fading out behind the tail' },
+            tagline: 'Real 3D aircraft in their airline’s colours, the flown path drawn in the air, a camera that rides with the aircraft — and the map controls now stand beside the flight window, as on iPhone.',
+            entries: [
+                {
+                    tag: 'new', icon: 'fa-cube', action: '3d-aircraft',
+                    text: '3D aircraft: every flight on the map as a 3D model in its airline’s livery, banking into turns, pitching into climbs, gear down near the ground. Tap 3D beside the flight window, or in the corner of the map, to switch — and 2D to go back to icons. The models and liveries are FlightGear’s AI traffic, made by Ian (Yves) Tolosa, Brett Harrison, Innis Cunningham and the FlightGear community, and shared under the GNU GPL v2 — each one’s maker is credited on the map.'
+                },
+                {
+                    tag: 'new', icon: 'fa-route',
+                    text: 'With 3D on, the open flight’s path is drawn in the air at the heights it was flown, with a soft curtain down to the ground, and fades out just behind the tail so the aircraft stands clear of it.'
+                },
+                {
+                    tag: 'new', icon: 'fa-video',
+                    text: 'Lock the camera on: the camera button beside the flight window puts you behind the aircraft and rides along with it. Drag to go round it, scroll or pinch to come closer.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-bezier-curve',
+                    text: 'The flown path, drawn the way the iPhone app draws it: smooth curves, ice blue near the ground through green and amber to red at cruise, white on the taxiways, a dashed line back to the departure airport when the history starts later — and it always ends on the aircraft, never ahead of it.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-plane',
+                    text: 'Aircraft glide smoothly between position reports, as in the app, instead of hopping every few seconds.'
+                },
+                {
+                    tag: 'new', icon: 'fa-sliders',
+                    text: 'The map controls stand beside the flight window: the whole flight, follow, the flown path, the camera and 3D, with the window’s own buttons — pin, path info, replay and trip card — next to them. Follow keeps the aircraft in the part of the map the window leaves free.'
+                },
+                {
+                    tag: 'new', icon: 'fa-chevron-down',
+                    text: 'Too many buttons? A small tab on the flight window’s edge tucks them all away behind it, and pulls them back out — tap it, or drag it.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-location-dot',
+                    text: 'A new launch screen: the InFlight pin lands, the plane flies into it and the name writes itself in, with a soft ping while the map loads — and the plane takes off as you arrive.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-water',
+                    text: 'North Atlantic Tracks, drawn as on iPhone: each track in a colour of its own along the great circle it is flown on, a badge at each end carrying its letter and pointing the way it is flown, and its flight levels where you enter it.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-window-maximize',
+                    text: 'The flight window scrolls without a scrollbar, and the Legacy window on desktop has its photo, aircraft and route card rearranged.'
+                },
+                {
+                    tag: 'improved', icon: 'fa-map',
+                    text: 'The map loads sooner, and the free map now has the 3D aircraft, the path in the air and the locked-on camera too.'
+                },
+                {
+                    tag: 'fixed', icon: 'fa-wrench',
+                    text: 'In 3D, the aircraft no longer stands still while its path runs on ahead of it, and hover cards no longer flicker while you zoom.'
+                }
+            ]
+        },
         {
             id: '2026.10.17',
             date: 'October 2026',
@@ -831,6 +892,7 @@
         // Opened inside the click itself, or the browser treats it as a popup.
         'atc-page': { label: 'Open the RateMyATC page', now: true, run: () => window.open('/atc', '_blank', 'noopener') },
         'ratemyatc': { label: 'Open the RateMyATC board', run: () => window.dispatchEvent(new CustomEvent('openRateMyAtc', { detail: { tab: 'top' } })) },
+        '3d-aircraft': { label: 'Turn on 3D aircraft', run: () => window.setAircraftModels3D && window.setAircraftModels3D(true) },
     };
     function runAction(id) {
         const a = ACTIONS[id];
@@ -936,6 +998,11 @@
             .cl-release-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 4px; }
             .cl-release-head h3 { margin: 0; color: #fff; font-size: 0.98rem; font-weight: 800; letter-spacing: -0.2px; }
             .cl-release-tagline { margin: 0 0 12px; font-size: 0.76rem; line-height: 1.5; color: #71717a; }
+            .cl-release-img {
+                display: block; width: 100%; height: auto; aspect-ratio: 1206 / 658; object-fit: cover;
+                margin: 0 0 14px; border-radius: 12px; background: #0b1220;
+                border: 1px solid rgba(255,255,255,0.08);
+            }
             .cl-list { display: flex; flex-direction: column; gap: 9px; }
             .cl-item {
                 display: flex; gap: 11px; align-items: flex-start;
@@ -1111,8 +1178,12 @@
     }
 
     function releaseHTML(rel, { withHead } = { withHead: true }) {
+        const img = rel.image && rel.image.src
+            ? `<img class="cl-release-img" src="${esc(rel.image.src)}" alt="${esc(rel.image.alt || '')}" loading="lazy" decoding="async">`
+            : '';
         return `
             <div class="cl-release">
+                ${withHead ? img : ''}
                 ${withHead ? `
                     <div class="cl-release-head">
                         <h3>${esc(rel.title)}</h3>
@@ -1120,6 +1191,7 @@
                     </div>
                     ${rel.tagline ? `<p class="cl-release-tagline">${esc(rel.tagline)}</p>` : ''}
                 ` : ''}
+                ${withHead ? '' : img}
                 <div class="cl-list">${rel.entries.map(entryHTML).join('')}</div>
             </div>`;
     }
@@ -1230,6 +1302,39 @@
         requestAnimationFrame(() => requestAnimationFrame(() => nudgeEl && nudgeEl.classList.add('visible')));
         arm(18000);
     }
+
+    // ---------------------------------------------------------------------
+    // The one time a release opens by itself
+    // ---------------------------------------------------------------------
+
+    // A release marked `popup` opens on its own the first time each pilot
+    // arrives after it ships, and never again. Not over the welcome card a
+    // first visit opens with, nor the tour after it: it waits for them.
+    function maybePopup() {
+        if (!LATEST.popup || getSeen() === LATEST.id) return;
+        const started = Date.now();
+        const busy = () => {
+            let accepted = false;
+            try { accepted = !!localStorage.getItem('inflight_legal_accepted'); } catch (_) { accepted = true; }
+            return !accepted || document.getElementById('fre-overlay') || document.getElementById('ot-root')
+                || document.querySelector('.cl-overlay');
+        };
+        const attempt = () => {
+            if (getSeen() === LATEST.id) return;
+            if (busy()) {
+                if (Date.now() - started < 10 * 60 * 1000) setTimeout(attempt, 1500);
+                return;
+            }
+            markSeen();
+            showModal({ popup: true });
+        };
+        // A moment after the map has started to load, so it opens over the
+        // tracker rather than a blank page.
+        setTimeout(attempt, 2000);
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', maybePopup, { once: true });
+    else maybePopup();
 
     // ---------------------------------------------------------------------
     // Public API

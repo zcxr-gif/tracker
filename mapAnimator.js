@@ -21,17 +21,23 @@
  * therefore gets its own lean copy of each feature; click/hover handlers
  * read the full record from currentMapFeatures by flightId.
  *
- * --- Glide ---
- * Between reports each visible aircraft is dead-reckoned along its ground
- * track. When a new report lands, the gap between where the plane was
- * drawn and where it really is gets eased out over CORRECTION_MS rather
- * than snapped, and heading changes rotate over HEADING_MS. Only aircraft
- * in the viewport are touched, through `updateData()` on a `dynamic`
- * source, which re-tiles just the features sent. The update rate follows
- * on-screen speed — about GLIDE_STEP_PX per push — so a zoomed-out view
- * where planes crawl a pixel a minute costs nothing, and a close-up
- * approaches the display rate. MapLibre (free map mode) has no compatible
- * `updateData`, so there aircraft keep moving report to report.
+ * --- Glide (the iOS app's FlightMotion) ---
+ * Between reports each moving aircraft is carried forward at the heading
+ * and ground speed it last reported. A report starts a *leg*: a straight
+ * line, flown at one constant speed, from where the plane is drawn to where
+ * the report says it will be two report-gaps later; the next report
+ * normally lands halfway along and starts the next leg from wherever the
+ * plane has got to. So the error is spread over seconds, and the plane never
+ * surges, stalls or reverses. Headings ease towards the report's on a 0.7 s
+ * time constant. Exactly as the iOS app (FlightMotion.swift), whose numbers
+ * these are.
+ *
+ * Every moving aircraft on screen is carried, at every zoom, and written to
+ * a `dynamic` source with `updateData()` once it has moved a tenth of a
+ * pixel or turned half a degree — thirty times a second, and the open
+ * flight on every frame (TrackerMapView.flyOneFrame). MapLibre (free map
+ * mode) has no compatible `updateData`, so there aircraft keep moving
+ * report to report.
  * ===================================================================
  */
 
@@ -100,8 +106,19 @@ const M_PER_DEG = 111320;
 const KT_TO_MS = 0.514444;
 
 const wrapLon = (lon) => ((lon + 540) % 360) - 180;
-const smoothstep = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 const angleDelta = (from, to) => ((to - from + 540) % 360) - 180;
+
+// Whether the style itself is in place, so the source can take data.
+// isStyleLoaded() is not that: Mapbox and MapLibre both answer false while
+// any source still has tiles in flight — and this source has them after its
+// own every write. A tilted camera following the open flight keeps tiles
+// loading almost every frame, so behind isStyleLoaded() the flushes were
+// dropped and the 3D aircraft stood still while its flown path ran on ahead.
+export function styleReady(map) {
+    const style = map.style;
+    if (!style) return false;
+    return typeof style._loaded === 'boolean' ? style._loaded : map.isStyleLoaded();
+}
 
 export class MapAnimator {
     // Longest a source update may be held back by camera interaction. A pinch
@@ -112,30 +129,24 @@ export class MapAnimator {
     // ready (style swapping, sources still loading). See _updateMapSource().
     static MAX_RETRY_MS = 10000;
 
-    // --- Glide tuning ---
-    // Below this zoom a jetliner moves well under a pixel a second; there is
-    // nothing to smooth.
-    static GLIDE_MIN_ZOOM = 7;
-    // More movers than this in view and gliding is skipped for the tick —
-    // the aircraft simply move report to report, as before.
-    static GLIDE_MAX_FEATURES = 400;
-    // Target on-screen distance per push; sets the update rate.
-    static GLIDE_STEP_PX = 0.5;
-    static GLIDE_MIN_INTERVAL_MS = 16;
-    static GLIDE_MAX_INTERVAL_MS = 1000;
-    // While a correction or turn is easing, push at least this often.
-    static GLIDE_EASE_INTERVAL_MS = 33;
-    static CORRECTION_MS = 1200;
-    static HEADING_MS = 900;
-    // Stop extrapolating a contact this long after its last report, so a
-    // stalled feed can't send it sailing across the map.
-    static MAX_DR_MS = 20000;
-    // A correction bigger than this (~55 km) is a teleport, not drift: snap.
-    static SNAP_DEG = 0.5;
-    // Ground speeds under this are parked/taxi noise: don't extrapolate.
-    static MIN_GLIDE_KT = 3;
-    // Sanity cap on a velocity derived from two reports (m/s, ~Mach 2).
-    static MAX_SPEED_MS = 700;
+    // --- Glide tuning (iOS FlightMotion) ---
+    // The gap between packets assumed before two have been seen: the
+    // simulator's feed, every few seconds.
+    static FEED_INTERVAL_S = 4;
+    // How many packet-gaps a leg spans, and the shortest leg.
+    static LEG_SPAN = 2;
+    static SHORTEST_LEG_S = 1;
+    // How far ahead of its last packet an aircraft may be carried.
+    static MAX_LEAD_S = 12;
+    // Beyond this a correction is a cut rather than a slide.
+    static SNAP_METRES = 4000;
+    // The heading's easing time constant.
+    static HEADING_TAU_S = 0.7;
+    // Written out when moved this far or turned this much…
+    static WRITE_PX = 0.1;
+    static WRITE_HEADING_DEG = 0.5;
+    // …this often, and the open flight on every frame.
+    static WRITE_ALL_MS = 1000 / 30;
 
     /**
      * @param {mapboxgl.Map} map - The Mapbox map instance.
@@ -156,7 +167,7 @@ export class MapAnimator {
         // Render copies: flightId -> { feature, src, m, gen }.
         //   feature: the lean Feature handed to Mapbox (reused across flushes)
         //   src:     the cached properties object `feature.properties` was built from
-        //   m:       motion state for glide (see _noteFix)
+        //   m:       motion state for glide (see _report)
         this._render = new Map();
         this._featureList = [];
         this._gen = 0;
@@ -170,9 +181,11 @@ export class MapAnimator {
 
         // Glide loop state.
         this._glideHandle = null;
-        this._lastGlidePush = 0;
-        this._glideInterval = MapAnimator.GLIDE_MAX_INTERVAL_MS;
+        this._lastWriteAll = -Infinity;
+        this._loadStart = 0;        // when the last all-traffic write went out
+        this._loadMs = 0;           // how long Mapbox took to load it
         this._glideGate = null;     // optional () => boolean from the host
+        this._focus = null;         // optional () => the open flight's id
         this._onVisibility = () => { if (!document.hidden) this._kickGlide(); };
         document.addEventListener('visibilitychange', this._onVisibility);
     }
@@ -192,8 +205,10 @@ export class MapAnimator {
      * Live positions arrive every few seconds, so holding one update for the
      * length of a gesture costs nothing perceptible — the flush happens the
      * moment the camera settles, with the newest data. `movestart`/`moveend`
-     * cover zoom, pan, rotate, pitch and programmatic flyTo alike. Glide
-     * pauses for the same window and resumes on `moveend`.
+     * cover zoom, pan, rotate, pitch and programmatic flyTo alike. The glide
+     * does not wait: its `updateData()` writes touch only the aircraft that
+     * moved, and aircraft keep flying through a gesture as they do in the
+     * iOS app.
      *
      * @param {mapboxgl.Map} [map] Defaults to the map this animator drives.
      */
@@ -264,6 +279,17 @@ export class MapAnimator {
      */
     setGlideGate(gate) {
         this._glideGate = typeof gate === 'function' ? gate : null;
+        this._kickGlide();
+    }
+
+    /**
+     * Names the open flight, which is carried and written on every frame
+     * whatever the gate says, so the camera, the 3D aircraft and the flown
+     * path's head always have a smooth position to follow.
+     * @param {() => (string|number|null)} focus
+     */
+    setFocus(focus) {
+        this._focus = typeof focus === 'function' ? focus : null;
         this._kickGlide();
     }
 
@@ -363,7 +389,7 @@ export class MapAnimator {
      */
     _updateMapSource() {
         const source = this.map.getSource(this.sourceName);
-        if (!source || !this.map.isStyleLoaded()) {
+        if (!source || !styleReady(this.map)) {
             // Not ready yet — most often mid style-change, where the source has
             // just been re-created empty and the style's own tiles are still
             // arriving. Dropping the flush here left the map bare until the
@@ -396,9 +422,9 @@ export class MapAnimator {
 
     /**
      * Brings the render copies in line with the cache and returns them as the
-     * array to hand Mapbox. Picks up new reports into the glide state and
-     * writes each feature at the position it is *drawn* at, so a flush never
-     * yanks a gliding plane back to its (older) report position.
+     * array to hand Mapbox. Picks up new reports into each aircraft's motion
+     * and writes each feature at the position it is *drawn* at, so a flush
+     * never yanks a gliding plane back to its (older) report position.
      */
     _syncRender(now) {
         const feats = this.currentMapFeatures;
@@ -407,8 +433,9 @@ export class MapAnimator {
         const gen = ++this._gen;
         const rebuildAll = this._propsStale;
         this._propsStale = false;
-        // Off (zoomed out, free map, user setting): draw reports as they are.
-        const glide = !!this._glideSource();
+        const gliding = !!this._glideSource();
+        const allowed = gliding && this._glideAllowed();
+        const focus = this._focusId();
         list.length = 0;
 
         for (const key in feats) {
@@ -427,8 +454,8 @@ export class MapAnimator {
                     src: null,
                     m: null,
                     gen,
-                    // Where and when this copy was last drawn (see _write).
-                    drawLon: 0, drawLat: 0, drawT: -Infinity
+                    // Where the copy was last written (see _write).
+                    drawLon: NaN, drawLat: NaN, drawHeading: NaN
                 };
                 render.set(key, r);
             }
@@ -437,7 +464,9 @@ export class MapAnimator {
                 r.feature.properties = slimProps(f.properties);
                 r.src = f.properties;
             }
-            this._noteFix(r, f, now, glide);
+            this._report(r, f, now);
+            this._carry(r, gliding && (allowed || key === focus), now);
+            this._write(r, now);
             r.gen = gen;
             list.push(r.feature);
         }
@@ -450,143 +479,180 @@ export class MapAnimator {
         return list;
     }
 
+    // --- Motion (iOS FlightMotion) -----------------------------------------
+
     /**
-     * Folds a cached feature's reported position into its motion state and
-     * writes the drawn position/heading onto the render copy.
+     * Folds a cached feature's report into its motion. The same fix twice is
+     * nothing at all: the map's own flushes hand the same packet back many
+     * times, and taking it as new would haul the aeroplane back along its
+     * track to where the packet put it. (FlightMotion.report)
      */
-    _noteFix(r, f, now, glide) {
+    _report(r, f, now) {
         const p = f.properties;
         const lon = f.geometry.coordinates[0];
         const lat = f.geometry.coordinates[1];
-        const fixMs = p.__lastUpdateMs;
         const heading = Number(p.heading) || 0;
+        const knots = Number(p.speed) || 0;
+        const mps = knots > 0 && Number.isFinite(knots) ? knots * KT_TO_MS : 0;
+        const worth = isWorthSmoothing(p, knots);
         let m = r.m;
 
         if (!m) {
-            m = r.m = {
-                fixLon: lon, fixLat: lat, fixMs, t0: now,
-                vLon: 0, vLat: 0,
-                offLon: 0, offLat: 0, offT0: 0,
-                hFrom: heading, hTo: heading, hT0: 0
+            r.m = {
+                repLon: lon, repLat: lat, repAt: now, heading, mps, worth,
+                interval: MapAnimator.FEED_INTERVAL_S,
+                carried: false,
+                legFromLon: lon, legFromLat: lat, legToLon: lon, legToLat: lat,
+                legStart: now, legMs: 0,
+                hDrawn: heading, hAt: now
             };
-            this._setReportedVelocity(m, p, lat);
-        } else if (m.fixMs !== fixMs || m.fixLon !== lon || m.fixLat !== lat) {
-            // Where the plane is on screen, before taking the new report. The
-            // last drawn point, not the extrapolated one: after a pause (camera
-            // move, hidden tab) the two differ, and easing from the drawn point
-            // is what keeps the plane from jumping.
-            const drawn = Number.isFinite(r.drawT) ? [r.drawLon, r.drawLat] : this._position(m, now);
-            const drawnHeading = this._heading(m, now);
-
-            // Ground track from consecutive reports captures wind and turns
-            // that heading + ground speed alone miss.
-            let derived = false;
-            if (typeof fixMs === 'number' && typeof m.fixMs === 'number') {
-                const dt = (fixMs - m.fixMs) / 1000;
-                if (dt >= 0.5 && dt <= 30) {
-                    const vLon = angleDelta(m.fixLon, lon) / dt;
-                    const vLat = (lat - m.fixLat) / dt;
-                    const speed = Math.hypot(vLon * Math.cos(lat * DEG2RAD), vLat) * M_PER_DEG;
-                    if (speed <= MapAnimator.MAX_SPEED_MS) {
-                        m.vLon = vLon;
-                        m.vLat = vLat;
-                        derived = true;
-                    }
-                }
-            }
-            if (!derived) this._setReportedVelocity(m, p, lat);
-            if ((Number(p.speed) || 0) < MapAnimator.MIN_GLIDE_KT) { m.vLon = 0; m.vLat = 0; }
-
-            m.fixLon = lon;
-            m.fixLat = lat;
-            m.fixMs = fixMs;
-            m.t0 = now;
-
-            // Carry the drawn-vs-reported gap forward and ease it out.
-            const offLon = angleDelta(lon, drawn[0]);
-            const offLat = drawn[1] - lat;
-            if (Math.abs(offLon) > MapAnimator.SNAP_DEG || Math.abs(offLat) > MapAnimator.SNAP_DEG) {
-                m.offLon = 0; m.offLat = 0;
-            } else {
-                m.offLon = offLon; m.offLat = offLat;
-            }
-            m.offT0 = now;
-
-            m.hFrom = drawnHeading;
-            m.hTo = heading;
-            m.hT0 = now;
+            return;
         }
+        if (lon === m.repLon && lat === m.repLat && heading === m.heading && mps === m.mps) return;
 
-        if (!glide) {
-            // Anchor to the report as of now, so gliding can pick up from
-            // exactly what is on screen if it switches on later.
-            m.t0 = now;
-            m.offLon = 0; m.offLat = 0;
-            m.hFrom = heading; m.hTo = heading;
+        // Where it is drawn at this moment, under the leg being replaced.
+        const from = this._position(m, now);
+
+        // How far apart this aircraft's packets come, eased so one late
+        // packet does not stretch the next leg out of shape.
+        const gap = (now - m.repAt) / 1000;
+        if (gap > 0.25 && gap < MapAnimator.MAX_LEAD_S) m.interval = m.interval * 0.6 + gap * 0.4;
+
+        m.repLon = lon; m.repLat = lat; m.repAt = now;
+        m.heading = heading; m.mps = mps; m.worth = worth;
+
+        if (!m.carried) return;
+        // Not a gap but a different place: a cut, not a slide.
+        if (metres(from[0], from[1], lon, lat) > MapAnimator.SNAP_METRES) {
+            m.legMs = 0;
+            m.hDrawn = heading;
+            return;
         }
-
-        this._write(r, m, now);
+        this._startLeg(m, from, now);
     }
 
-    _setReportedVelocity(m, p, lat) {
-        const kt = Number(p.speed) || 0;
-        if (kt < MapAnimator.MIN_GLIDE_KT) { m.vLon = 0; m.vLat = 0; return; }
-        const ms = kt * KT_TO_MS;
-        const h = (Number(p.heading) || 0) * DEG2RAD;
-        m.vLat = (ms * Math.cos(h)) / M_PER_DEG;
-        m.vLon = (ms * Math.sin(h)) / (M_PER_DEG * Math.max(0.01, Math.cos(lat * DEG2RAD)));
+    /**
+     * Starts or stops carrying an aircraft between its packets. Starting is
+     * a moment like any other: it begins from where the aeroplane is already
+     * drawn, not from where it was last reported. (FlightMotion.init, and
+     * TrackerMapView's beginMotion / endMotion.)
+     */
+    _carry(r, want, now) {
+        const m = r.m;
+        const on = !!(want && m.worth);
+        if (on === m.carried) return;
+        if (on) {
+            const from = Number.isFinite(r.drawLon) ? [r.drawLon, r.drawLat] : [m.repLon, m.repLat];
+            m.carried = true;
+            m.hDrawn = Number.isFinite(r.drawHeading) ? r.drawHeading : m.heading;
+            m.hAt = now;
+            this._startLeg(m, from, now);
+        } else {
+            m.carried = false;
+            m.legMs = 0;
+        }
     }
 
-    // Dead-reckoned position, before any correction offset (unwrapped).
-    _base(m, now) {
-        const dt = Math.min(now - m.t0, MapAnimator.MAX_DR_MS) / 1000;
-        return [m.fixLon + m.vLon * dt, m.fixLat + m.vLat * dt];
+    // A straight leg, at one speed, from `from` to where the last packet puts
+    // the aeroplane LEG_SPAN packet-gaps from now.
+    _startLeg(m, from, now) {
+        const s = Math.min(Math.max(m.interval * MapAnimator.LEG_SPAN, MapAnimator.SHORTEST_LEG_S), MapAnimator.MAX_LEAD_S);
+        const to = this._predicted(m, now + s * 1000);
+        m.legFromLon = from[0]; m.legFromLat = from[1];
+        m.legToLon = to[0]; m.legToLat = to[1];
+        m.legStart = now;
+        m.legMs = s * 1000;
     }
 
+    // Dead reckoning from the last packet, at its heading and ground speed,
+    // for at most MAX_LEAD_S.
+    _predicted(m, now) {
+        const lead = Math.min(Math.max((now - m.repAt) / 1000, 0), MapAnimator.MAX_LEAD_S);
+        if (!(lead > 0) || !(m.mps > 0)) return [m.repLon, m.repLat];
+        return greatCircle(m.repLon, m.repLat, m.heading, m.mps * lead);
+    }
+
+    // Where the aeroplane is drawn at a moment: on its packet when it is not
+    // being carried; along the leg while it lasts, and on the prediction
+    // after — the two meet where the leg ends.
     _position(m, now) {
-        const b = this._base(m, now);
-        let lon = b[0], lat = b[1];
-        const w = 1 - smoothstep((now - m.offT0) / MapAnimator.CORRECTION_MS);
-        if (w > 0) {
-            lon += m.offLon * w;
-            lat += m.offLat * w;
+        if (!m.carried) return [m.repLon, m.repLat];
+        if (m.legMs > 0) {
+            const share = (now - m.legStart) / m.legMs;
+            if (share < 1) {
+                const along = Math.max(share, 0);
+                const lat0 = m.legFromLat;
+                const north = (m.legToLat - lat0) * M_PER_DEG;
+                const east = angleDelta(m.legFromLon, m.legToLon) * M_PER_DEG * Math.cos(lat0 * DEG2RAD);
+                return moved(m.legFromLon, lat0, north * along, east * along);
+            }
         }
-        return [wrapLon(lon), Math.max(-85, Math.min(85, lat))];
+        return this._predicted(m, now);
     }
 
+    // The heading the aeroplane is turned to, eased towards its packet's on
+    // a 0.7 s time constant; taken whole after a pause of a second or more.
     _heading(m, now) {
-        const u = smoothstep((now - m.hT0) / MapAnimator.HEADING_MS);
-        return (m.hFrom + angleDelta(m.hFrom, m.hTo) * u + 360) % 360;
+        if (!m.carried) return ((m.heading % 360) + 360) % 360;
+        const elapsed = (now - m.hAt) / 1000;
+        if (elapsed !== 0) {
+            const target = unwrap(m.hDrawn, m.heading);
+            if (elapsed > 0 && elapsed < 1) {
+                m.hDrawn += (target - m.hDrawn) * (1 - Math.exp(-elapsed / MapAnimator.HEADING_TAU_S));
+            } else if (elapsed > 0) {
+                m.hDrawn = target;
+            }
+            if (elapsed > 0) m.hAt = now;
+        }
+        return ((m.hDrawn % 360) + 360) % 360;
     }
 
-    _write(r, m, now) {
+    /**
+     * Where a flight is drawn at `now` — [lon, lat, heading] — so the 3D
+     * aircraft (aircraftEngine.js), the camera and the flown path's head are
+     * all on the icon. Null until the flight has been through a flush.
+     */
+    pose(flightId, now = performance.now()) {
+        const r = this._render.get(String(flightId));
+        if (!r || !r.m) return null;
+        const pos = this._position(r.m, now);
+        return [pos[0], pos[1], this._heading(r.m, now)];
+    }
+
+    _write(r, now) {
+        const m = r.m;
         const pos = this._position(m, now);
+        const heading = this._heading(m, now);
         const c = r.feature.geometry.coordinates;
         c[0] = pos[0];
         c[1] = pos[1];
         r.drawLon = pos[0];
         r.drawLat = pos[1];
-        r.drawT = now;
-        if (r.feature.properties) r.feature.properties.heading = this._heading(m, now);
+        r.drawHeading = heading;
+        if (r.feature.properties) r.feature.properties.heading = heading;
     }
 
-    _isMoving(m, now) {
-        return ((m.vLon !== 0 || m.vLat !== 0) && now - m.t0 < MapAnimator.MAX_DR_MS)
-            || this._isEasing(m, now);
+    // Whether a carried aircraft has moved or turned enough since it was
+    // last written to be worth writing again: a tenth of a pixel, or half a
+    // degree. (FlightMarker.needsWrite)
+    _needsWrite(r, now, pxPerDeg, cosLat) {
+        if (!Number.isFinite(r.drawLon)) return true;
+        const m = r.m;
+        const pos = this._position(m, now);
+        if (Math.abs(angleDelta(r.drawHeading, this._heading(m, now))) > MapAnimator.WRITE_HEADING_DEG) return true;
+        const dx = angleDelta(r.drawLon, pos[0]) * pxPerDeg;
+        const dy = (pos[1] - r.drawLat) * pxPerDeg / cosLat;
+        return Math.hypot(dx, dy) >= MapAnimator.WRITE_PX;
     }
 
-    _isEasing(m, now) {
-        return ((m.offLon !== 0 || m.offLat !== 0) && now - m.offT0 < MapAnimator.CORRECTION_MS)
-            || (m.hFrom !== m.hTo && now - m.hT0 < MapAnimator.HEADING_MS);
-    }
+    // --- The frame clock -------------------------------------------------
 
-    // --- Glide loop -------------------------------------------------------
-
+    // The dynamic source to write to, or null when nothing glides at all
+    // (free map, hidden tab, stopped).
     _glideSource() {
         if (this._stopped || document.hidden) return null;
-        if (this._glideGate && !this._glideGate()) return null;
         const map = this.map;
-        if (!map || map.getZoom() < MapAnimator.GLIDE_MIN_ZOOM) return null;
+        if (!map) return null;
         const source = map.getSource(this.sourceName);
         // Mapbox `dynamic` sources only: MapLibre's updateData takes a
         // different diff format and isn't used.
@@ -595,100 +661,157 @@ export class MapAnimator {
         return source;
     }
 
+    // Whether the host lets traffic in general be carried (a user setting,
+    // the 3D traffic view). The open flight is carried regardless.
+    _glideAllowed() {
+        return !this._glideGate || !!this._glideGate();
+    }
+
+    _focusId() {
+        const id = this._focus ? this._focus() : null;
+        return id == null ? null : String(id);
+    }
+
     _kickGlide() {
         if (this._glideHandle !== null || !this._glideSource()) return;
         this._glideHandle = requestAnimationFrame(() => this._glideFrame());
     }
 
+    /**
+     * One frame of the frame clock (TrackerMapView.flyOneFrame): every
+     * moving aircraft on screen is carried, and written out when it has
+     * moved a tenth of a pixel — thirty times a second, and the open flight
+     * on every frame. Waits only for the previous write or flush to finish
+     * loading; the motion runs on the clock, so a skipped frame loses
+     * nothing, the next write puts each aeroplane where it has got to.
+     */
     _glideFrame() {
         this._glideHandle = null;
         const source = this._glideSource();
-        if (!source) return; // restarted by the next flush / moveend / visibility
+        if (!source) return; // restarted by the next flush / visibility
 
+        const map = this.map;
         const now = performance.now();
-        const due = now - this._lastGlidePush >= this._glideInterval;
-        // Let a full flush, a camera move, or the previous push finish first.
-        // Pushing while Mapbox has a load in flight makes it merge the diff
-        // into the whole collection and re-send all of it; waiting for the
-        // source's tiles to finish re-laying-out is the back-pressure that
-        // lets a slower device settle at the rate it can actually sustain.
-        if (!due || this._dirty || this._interacting || source._pendingLoad
-            || !this.map.isStyleLoaded() || !this.map.isSourceLoaded(this.sourceName)) {
+        // A flush held back by a camera move is not waited for: the motion
+        // already on the map is written meanwhile, and the flush folds the
+        // new reports in when it lands.
+        if (source._pendingLoad || !styleReady(map)) {
             this._glideHandle = requestAnimationFrame(() => this._glideFrame());
             return;
         }
 
-        const bounds = this.map.getBounds();
+        // How long the last write of all the traffic took to load. A busy
+        // screen takes Mapbox longer than a frame, and while it loads nothing
+        // can be written; so the traffic is written no more often than every
+        // other load, which leaves the frames between for the open flight.
+        if (this._loadStart) {
+            this._loadMs = now - this._loadStart;
+            this._loadStart = 0;
+        }
+        const allowed = this._glideAllowed();
+        const focus = this._focusId();
+        const allEvery = Math.max(MapAnimator.WRITE_ALL_MS, 2 * this._loadMs);
+        const writesAll = now - this._lastWriteAll >= allEvery - 4;
+        if (writesAll) this._lastWriteAll = now;
+
+        const bounds = map.getBounds();
         const west = bounds.getWest(), east = bounds.getEast();
         const south = bounds.getSouth(), north = bounds.getNorth();
         const padLon = (east - west) * 0.1, padLat = (north - south) * 0.1;
         const wraps = east - west >= 360;
+        const pxPerDeg = 512 * Math.pow(2, map.getZoom()) / 360;
+        const cosLat = Math.max(Math.cos(map.getCenter().lat * DEG2RAD), 0.01);
 
         const batch = [];
-        const movers = [];
-        let maxDegPerSec = 0;
-        let easing = false;
-        for (const r of this._render.values()) {
+        let flying = 0;
+        for (const [key, r] of this._render) {
             const m = r.m;
-            if (!m || !this._isMoving(m, now)) continue;
+            if (!m) continue;
+            const isFocus = key === focus;
             const c = r.feature.geometry.coordinates;
-            if (c[1] < south - padLat || c[1] > north + padLat) continue;
-            if (!wraps) {
+            let inView = c[1] >= south - padLat && c[1] <= north + padLat;
+            if (inView && !wraps) {
                 // Bounds may extend past ±180; test the longitude unwrapped
                 // into the viewport's range.
                 let lon = c[0];
                 while (lon < west - padLon) lon += 360;
-                if (lon > east + padLon) continue;
+                inView = lon <= east + padLon;
             }
-            movers.push(r);
-            batch.push(r.feature);
-            if (batch.length > MapAnimator.GLIDE_MAX_FEATURES) break;
-            const sp = Math.hypot(m.vLon * Math.cos(c[1] * DEG2RAD), m.vLat);
-            if (sp > maxDegPerSec) maxDegPerSec = sp;
-            if (!easing && this._isEasing(m, now)) easing = true;
-        }
+            const was = m.carried;
+            if (!inView && !was && !isFocus) continue;
 
-        if (!batch.length || batch.length > MapAnimator.GLIDE_MAX_FEATURES) {
-            // Nothing to move, or too much to move smoothly: stand down until
-            // the next flush restarts the loop.
-            return;
-        }
-
-        for (const r of movers) {
-            const m = r.m;
-            // Glide was paused (camera move, hidden tab, a load in flight):
-            // continue from where the plane was last drawn and ease onto its
-            // track, instead of jumping by however far it travelled meanwhile.
-            // "Stale" is relative to the current push interval: at low
-            // on-screen speeds pushes are legitimately ~1 s apart, and a fixed
-            // threshold treated every one of them as a resume — each started a
-            // new 1.2 s ease that forced 30 pushes a second for a single plane.
-            if (now - r.drawT > Math.max(250, this._glideInterval * 2.5)) {
-                const b = this._base(m, now);
-                const oLon = angleDelta(b[0], r.drawLon);
-                const oLat = r.drawLat - b[1];
-                const tiny = 1e-6; // ~0.1 m: nothing to ease
-                if ((Math.abs(oLon) > tiny || Math.abs(oLat) > tiny)
-                    && Math.abs(oLon) <= MapAnimator.SNAP_DEG && Math.abs(oLat) <= MapAnimator.SNAP_DEG) {
-                    m.offLon = oLon; m.offLat = oLat; m.offT0 = now;
-                    easing = true;
-                }
+            this._carry(r, (inView || isFocus) && (allowed || isFocus), now);
+            const switched = m.carried !== was;
+            if (m.carried) flying++;
+            if (!m.carried && !was) continue;
+            if (!(writesAll || switched || isFocus)) continue;
+            if (switched || this._needsWrite(r, now, pxPerDeg, cosLat)) {
+                this._write(r, now);
+                batch.push(r.feature);
             }
-            this._write(r, m, now);
         }
-        source.updateData({ type: 'FeatureCollection', features: batch });
-        this._lastGlidePush = now;
 
-        // Next push when the fastest visible plane has moved GLIDE_STEP_PX.
-        const worldPx = 512 * Math.pow(2, this.map.getZoom());
-        const pxPerSec = maxDegPerSec * worldPx / 360;
-        let interval = pxPerSec > 0
-            ? (MapAnimator.GLIDE_STEP_PX / pxPerSec) * 1000
-            : MapAnimator.GLIDE_MAX_INTERVAL_MS;
-        if (easing) interval = Math.min(interval, MapAnimator.GLIDE_EASE_INTERVAL_MS);
-        this._glideInterval = Math.max(MapAnimator.GLIDE_MIN_INTERVAL_MS,
-            Math.min(MapAnimator.GLIDE_MAX_INTERVAL_MS, interval));
-
-        this._glideHandle = requestAnimationFrame(() => this._glideFrame());
+        if (batch.length) {
+            source.updateData({ type: 'FeatureCollection', features: batch });
+            if (writesAll) this._loadStart = now;
+        }
+        // Nothing being carried: stand down until the next flush, camera
+        // move or visibility change restarts the clock.
+        if (flying || batch.length) this._glideHandle = requestAnimationFrame(() => this._glideFrame());
     }
+}
+
+// --- Which aircraft are carried ------------------------------------------
+
+/**
+ * Moving fast enough for a heading to mean something: flying, or taxiing.
+ * An aeroplane at a gate reports a heading that is whichever way the nose
+ * happens to point and a ground speed that is noise, so one parked or barely
+ * moving is drawn exactly where its packets put it. (Flight.isWorthSmoothing)
+ */
+function isWorthSmoothing(p, knots) {
+    if (!Number.isFinite(knots) || !Number.isFinite(Number(p.heading))) return false;
+    const phase = String(p.phase || '').toLowerCase();
+    const onGround = /ground|taxi|park|gate|pushback|stand/.test(phase);
+    return knots >= (onGround ? 5 : 40);
+}
+
+// --- Geometry (iOS FlightMotion / GreatCircle) ---------------------------
+
+const EARTH_RADIUS_M = 6371000;
+
+// Walking a bearing and a distance across the planet.
+function greatCircle(lon, lat, bearingDeg, dist) {
+    const a = dist / EARTH_RADIUS_M;
+    const b = bearingDeg * DEG2RAD;
+    const la = lat * DEG2RAD, lo = lon * DEG2RAD;
+    const la2 = Math.asin(Math.sin(la) * Math.cos(a) + Math.cos(la) * Math.sin(a) * Math.cos(b));
+    const lo2 = lo + Math.atan2(Math.sin(b) * Math.sin(a) * Math.cos(la), Math.cos(a) - Math.sin(la) * Math.sin(la2));
+    return [wrapLon(lo2 / DEG2RAD), la2 / DEG2RAD];
+}
+
+// A flat step north and east from a point: only ever metres to a few
+// kilometres, the gap between where a plane is drawn and where it is going.
+function moved(lon, lat, north, east) {
+    const shrink = Math.max(Math.cos(lat * DEG2RAD), 0.01);
+    return [
+        wrapLon(lon + east / (M_PER_DEG * shrink)),
+        Math.min(Math.max(lat + north / M_PER_DEG, -89.9), 89.9)
+    ];
+}
+
+function metres(lon0, lat0, lon1, lat1) {
+    const north = (lat1 - lat0) * M_PER_DEG;
+    const east = angleDelta(lon0, lon1) * M_PER_DEG * Math.cos(lat0 * DEG2RAD);
+    return Math.hypot(north, east);
+}
+
+// The reported bearing on the same continuous line as the drawn one, so the
+// shorter way round is the way it turns.
+function unwrap(continuous, reported) {
+    if (!Number.isFinite(reported)) return continuous;
+    let delta = reported - (continuous % 360);
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    return continuous + delta;
 }

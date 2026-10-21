@@ -3,3 +3,5 @@
 "Boeing 787-9" (https://skfb.ly/pHAUx) by Nobilis 2 is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
 
 "White Airbus A320-200" (https://skfb.ly/pHLtL) by Dave Love SketchFab is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
+
+"3D aircraft on the live map" — FlightGear's AI traffic models and their airline liveries (fgdata, AI/Aircraft, https://gitlab.com/flightgear/fgdata/-/tree/8cd4e78990e54da3561179be1190d453471614a7/AI/Aircraft) are licensed under the GNU General Public License v2 (https://www.gnu.org/licenses/old-licenses/gpl-2.0.html). They are loaded unmodified from that commit of FlightGear's repository and drawn in the browser. Models and liveries by Ian (Yves) Tolosa, Brett Harrison, Innis Cunningham, Camil Valiquette, Heiko Schulz, Erik Hofman, Paul Richter, Syd Adams, Keith Paterson, Chuck Dome, David Megginson, jormapaappa1235, tikibar, Joshua Davidson and the FlightGear contributors (https://www.flightgear.org).

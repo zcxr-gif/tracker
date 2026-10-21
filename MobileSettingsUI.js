@@ -426,6 +426,7 @@ export const MobileSettingsUI = {
                             <div class="mobile-section-header">Display</div>
                             <div class="m-settings-list">
                                 ${this.renderToggle('live3DTraffic', '3D Live Traffic', 'fa-cubes')}
+                                ${this.renderToggle('aircraftModels3D', '3D Aircraft', 'fa-plane')}
                                 ${this.renderToggle('show3DPath', '3D Flown Path', 'fa-cube')}
                                 ${window.InflightHalloween && window.InflightHalloween.available()
                                     // Drawn already on when it is, so the switch never reads off
@@ -2216,6 +2217,10 @@ export const MobileSettingsUI = {
                     // persists the preference, and keeps the desktop controls in
                     // sync. Route through the canonical toggle to do all of that.
                     window.setLive3DTraffic(e.target.checked);
+                    return;
+                } else if (setting === 'aircraftModels3D' && window.setAircraftModels3D) {
+                    // Draws the models and hides each icon as its model is ready.
+                    window.setAircraftModels3D(e.target.checked);
                     return;
                 } else {
                     window.mapFilters[setting] = e.target.checked;
