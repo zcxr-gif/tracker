@@ -27997,6 +27997,20 @@ function ensureHeroPhotoControlStyles() {
         ${L}:not(.mobile-legacy-sheet) .hero-photo-dots { bottom: 23px !important; }
         ${L}:not(.mobile-legacy-sheet) .ac-partner-hero .va-cs-info { gap: 0 !important; transition: none !important; }
         ${L}:not(.mobile-legacy-sheet) .ac-partner-hero .va-cs-info :is(.va-cs-name, .va-cs-note) { display: none !important; }
+        /* Desktop, no partner VA: the aircraft and livery take the partner
+           chip's place, bottom left, level with the credit. The name block
+           is laid over the whole photo so the line can sit at its foot. */
+        ${L}:not(.mobile-legacy-sheet) .ac-header-modern.lg-fit:not(:has(.ac-partner-hero .va-cs-info)) .ac-header-top {
+            position: absolute !important; inset: 0;
+        }
+        ${L}:not(.mobile-legacy-sheet) .ac-header-modern.lg-fit:not(:has(.ac-partner-hero .va-cs-info)) .ac-sub-identity {
+            position: absolute; left: 24px; bottom: 22px; margin: 0 !important;
+            max-width: calc(50% - 48px); flex-wrap: nowrap !important; overflow: hidden;
+        }
+        ${L}:not(.mobile-legacy-sheet) .ac-header-modern.lg-fit:not(:has(.ac-partner-hero .va-cs-info)) .ac-sub-identity > span {
+            min-width: 0; flex-shrink: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        ${L}:not(.mobile-legacy-sheet) .ac-header-modern.lg-fit:not(:has(.ac-partner-hero .va-cs-info)) .ac-sub-identity > span:nth-child(2) { flex: 0 0 3px; }
         ${L} .lg-fit .hero-photo-fade { background-size: 100% auto !important; background-repeat: no-repeat !important; }
         /* An eased fade that lands exactly on the bar colour at the bottom. */
         ${L}:not(.wb-legacy) .lg-fit .ac-header-overlay,
