@@ -516,19 +516,31 @@ export const FlightWindowControls = (() => {
         settle = null;
         chaseHeading = null;
         if (on) {
+            // Mapbox's own turning and tilting pivot on the map's centre,
+            // which with an aeroplane in the air lies far beyond it: the
+            // aeroplane swung off and snapped back. Locked on, every drag
+            // (left or right button, one finger) goes round the aeroplane.
             savedHandlers = {
                 dragPan: map.dragPan.isEnabled(),
+                dragRotate: map.dragRotate.isEnabled(),
+                touchPitch: map.touchPitch ? map.touchPitch.isEnabled() : false,
                 doubleClickZoom: map.doubleClickZoom.isEnabled()
             };
             map.dragPan.disable();
+            map.dragRotate.disable();
+            if (map.touchPitch) map.touchPitch.disable();
             map.doubleClickZoom.disable();
             map.getCanvasContainer().addEventListener('pointerdown', onOrbitStart);
+            map.getCanvasContainer().addEventListener('contextmenu', noMenu);
         } else if (savedHandlers) {
             const h = savedHandlers;
             savedHandlers = null;
             if (h.dragPan) map.dragPan.enable();
+            if (h.dragRotate) map.dragRotate.enable();
+            if (h.touchPitch && map.touchPitch) map.touchPitch.enable();
             if (h.doubleClickZoom) map.doubleClickZoom.enable();
             map.getCanvasContainer().removeEventListener('pointerdown', onOrbitStart);
+            map.getCanvasContainer().removeEventListener('contextmenu', noMenu);
             window.removeEventListener('pointermove', onOrbitMove);
             window.removeEventListener('pointerup', onOrbitEnd);
             window.removeEventListener('pointercancel', onOrbitEnd);
@@ -539,13 +551,21 @@ export const FlightWindowControls = (() => {
 
     const activePointers = new Set();
 
+    function noMenu(e) { if (chasing) e.preventDefault(); }
+
     function onOrbitStart(e) {
-        if (!chasing || (e.pointerType === 'mouse' && e.button !== 0)) return;
+        if (!chasing || (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2)) return;
         activePointers.add(e.pointerId);
-        // Two fingers are the map's own pinch and twist, already pivoting on
-        // the aeroplane.
+        // Two fingers are the pinch and twist, already pivoting on the
+        // aeroplane.
         if (activePointers.size > 1) { orbit = null; return; }
-        orbit = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        // The drag goes round the aeroplane at the distance the camera is
+        // from it now, whatever the tilt does: leaning over at the same map
+        // zoom would fly the camera kilometres in or out (or past it).
+        const plane = host.aircraft(host.selected());
+        const dist = plane ? (heldDist != null ? Math.pow(2, heldDist)
+            : Math.max(distanceAtZoom(plane, map.getZoom()), closestDistance(plane))) : null;
+        orbit = { id: e.pointerId, x: e.clientX, y: e.clientY, dist };
         window.addEventListener('pointermove', onOrbitMove);
         window.addEventListener('pointerup', onOrbitEnd);
         window.addEventListener('pointercancel', onOrbitEnd);
@@ -565,9 +585,31 @@ export const FlightWindowControls = (() => {
         const pitch = Math.min(Math.max(map.getPitch() - dy * 0.3, 0), FOLLOW_TILT_LIMIT);
         const opts = { center: aimAt(plane, bearing, pitch), bearing, pitch, padding: freePadding() };
         // At the same distance from it: leaning the camera over must not
-        // also fly it in or out.
-        if (heldDist != null) opts.zoom = Math.min(zoomForDistance(plane, Math.pow(2, heldDist), pitch), map.getMaxZoom());
+        // also fly it in or out. The deepest zoom moves with the tilt, so it
+        // is set for the new tilt first, or it would clamp the zoom.
+        const want = orbit.dist ? Math.max(orbit.dist, closestDistance(plane, pitch)) : null;
+        const fit = () => {
+            const cap = chaseZoomLimit(plane, pitch);
+            if (Math.abs(map.getMaxZoom() - cap) > 1e-3) map.setMaxZoom(cap);
+            return Math.min(zoomForDistance(plane, want, pitch), cap);
+        };
+        if (want) {
+            opts.zoom = fit();
+            heldDist = Math.log2(want);
+        }
         map.jumpTo(opts);
+        // Then aimed again from where the camera now really stands, as every
+        // other frame is: the first aim, at a tilt the map was not yet at,
+        // is along the line of sight only and off by the window's padding —
+        // and the zoom put right from the distance measured there.
+        for (let i = 0; i < 2; i++) {
+            const step = { center: aimAt(plane, bearing, pitch) };
+            if (want) step.zoom = fit();
+            const c = map.getCenter();
+            const moved = Math.abs(norm(step.center[0] - c.lng)) > 1e-9 || Math.abs(step.center[1] - c.lat) > 1e-9;
+            if (!moved && (step.zoom == null || Math.abs(step.zoom - map.getZoom()) < 1e-5)) break;
+            map.jumpTo(step);
+        }
     }
 
     function onOrbitEnd(e) {
@@ -734,13 +776,44 @@ export const FlightWindowControls = (() => {
         return cameraPx * 40075016.686 * Math.max(Math.cos(lat), 0.01) / 512;
     }
 
+    // How far the camera really is from the aeroplane, in metres, read
+    // from where Mapbox has put it; null where it cannot be read.
+    function measuredDistance(plane) {
+        const MC = window.mapboxgl && window.mapboxgl.MercatorCoordinate;
+        if (!MC || typeof map.getFreeCameraOptions !== 'function') return null;
+        if (map.getProjection && map.getProjection().name === 'globe' && map.getZoom() < 6) return null;
+        try {
+            const cam = map.getFreeCameraOptions().position;
+            const h = Math.max(Number(host.height ? host.height(host.selected()) : 0) || 0, 0);
+            const p = MC.fromLngLat([plane[0], plane[1]], h);
+            const d = Math.hypot(cam.x - p.x, cam.y - p.y, cam.z - p.z) / p.meterInMercatorCoordinateUnits();
+            return Number.isFinite(d) ? d : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    // How far the centre lies beyond the aeroplane, as the zoom sums count
+    // it. At the map's own tilt it is measured: up close the camera's
+    // distance is the small difference of two long ones (tens of
+    // kilometres to the centre, less that to the aeroplane), and the
+    // estimate's fraction of a percent is the whole of it — the camera
+    // jumping in and out as the drag tilts it.
+    function beyondAt(plane, atPitch) {
+        if (Math.abs(atPitch - map.getPitch()) < 0.01) {
+            const d = measuredDistance(plane);
+            if (d != null) return cameraMetresAtZoom0(plane) / Math.pow(2, map.getZoom()) - d;
+        }
+        return beyondPlane(atPitch);
+    }
+
     // The zoom that puts the camera `dist` metres from the aeroplane, and
     // the camera's distance from it at a zoom.
     function zoomForDistance(plane, dist, atPitch = map.getPitch()) {
-        return Math.log2(cameraMetresAtZoom0(plane) / (dist + beyondPlane(atPitch)));
+        return Math.log2(cameraMetresAtZoom0(plane) / (dist + beyondAt(plane, atPitch)));
     }
     function distanceAtZoom(plane, zoom, atPitch = map.getPitch()) {
-        return cameraMetresAtZoom0(plane) / Math.pow(2, zoom) - beyondPlane(atPitch);
+        return cameraMetresAtZoom0(plane) / Math.pow(2, zoom) - beyondAt(plane, atPitch);
     }
 
     // While following: Mapbox's deepest zoom held to the closest approach
