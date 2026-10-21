@@ -27997,6 +27997,21 @@ function ensureHeroPhotoControlStyles() {
         ${L}:not(.mobile-legacy-sheet) .hero-photo-dots { bottom: 23px !important; }
         ${L}:not(.mobile-legacy-sheet) .ac-partner-hero .va-cs-info { gap: 0 !important; transition: none !important; }
         ${L}:not(.mobile-legacy-sheet) .ac-partner-hero .va-cs-info :is(.va-cs-name, .va-cs-note) { display: none !important; }
+        /* Desktop: the callsign alone on the left; the aircraft and its
+           livery on the right, one under the other, level with it — or
+           under the window's buttons while those are still in it. */
+        ${L}:not(.mobile-legacy-sheet) .ac-identity-group { max-width: 56% !important; }
+        ${L}:not(.mobile-legacy-sheet) .ac-header-top .ac-sub-identity {
+            position: absolute; top: 20px; right: 24px; max-width: 42%;
+            margin: 0 !important; gap: 3px !important;
+            flex-direction: column; align-items: flex-end; text-align: right;
+        }
+        ${L}:not(.mobile-legacy-sheet):not(.fw-actions-out) .ac-header-top .ac-sub-identity { top: 60px; }
+        ${L}:not(.mobile-legacy-sheet) .ac-sub-identity > span {
+            max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        ${L}:not(.mobile-legacy-sheet) .ac-sub-identity > span:first-child { color: #fff; font-size: 12px; font-weight: 700; }
+        ${L}:not(.mobile-legacy-sheet) .ac-sub-identity > span:nth-child(2) { display: none; }
         ${L} .lg-fit .hero-photo-fade { background-size: 100% auto !important; background-repeat: no-repeat !important; }
         /* An eased fade that lands exactly on the bar colour at the bottom. */
         ${L}:not(.wb-legacy) .lg-fit .ac-header-overlay,
