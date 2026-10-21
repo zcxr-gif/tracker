@@ -3036,7 +3036,7 @@ function toastStart(text) { $('#pos-summary').textContent = text; setTimeout(ren
  * Resolves to { ground, source } or { error, map }, where `map` is whatever
  * taxiways were found, to draw even when they can't be taxied on.
  */
-async function loadSurface(world) {
+async function loadSurface(world, say = () => {}) {
     const xs = world.ends.map(e => e.thr.x), ys = world.ends.map(e => e.thr.y);
     const cosLat = Math.cos(world.lat * D2R), pad = 0.8;
     const box = {
@@ -3048,10 +3048,9 @@ async function loadSurface(world) {
     const within = (ms, p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timed out'), { name: 'AbortError' })), ms))]);
 
     const tiles = tryIt('OpenFreeMap', within(25000, aerowayFromOpenFreeMap(box)));
-    const gates = tryIt('InFlight gates', within(20000, gatesFromBackend(world.icao)));
-    const osm = tryIt('OpenStreetMap', within(45000, overpassLayout(world, box)));
+    const gates = tryIt('InFlight gates', within(15000, gatesFromBackend(world.icao)));
+    const osm = tryIt('OpenStreetMap', within(30000, overpassLayout(world, box)));
 
-    const [t, g, o] = await Promise.all([tiles, gates, osm]);
     const options = [];
     let map = null;
     const build = (features, source) => {
@@ -3063,8 +3062,26 @@ async function loadSurface(world) {
             if (ground.map && (!map || ground.map.lines.length > map.lines.length)) map = ground.map;
         } else options.push({ ground, source, score: ground.main.length + ground.gates.length * 5 });
     };
-    if (t) build([...t, ...(g || [])], `OpenFreeMap taxiways${g ? ' + InFlight gates' : ''}`);
-    if (o) build([...o.features, ...(g || [])], `OpenStreetMap${g ? ' + InFlight gates' : ''}`);
+    // Building is a few seconds' work on a phone: let the status paint first.
+    const paint = () => new Promise(r => setTimeout(r, 50));
+    say('fetching OpenFreeMap tiles…');
+    const t = await tiles;
+    if (t) {
+        say(`${t.length} OpenFreeMap features; fetching gates…`);
+        const g = await gates;
+        say('building the taxi network…');
+        await paint();
+        build([...t, ...(g || [])], `OpenFreeMap taxiways${g ? ' + InFlight gates' : ''}`);
+        // Good enough: don't keep the shift waiting on OpenStreetMap.
+        if (options.length) return { ground: options[0].ground, source: options[0].source };
+    }
+    say('trying OpenStreetMap…');
+    const [g, o] = await Promise.all([gates, osm]);
+    if (o) {
+        say('building the taxi network from OpenStreetMap…');
+        await paint();
+        build([...o.features, ...(g || [])], `OpenStreetMap${g ? ' + InFlight gates' : ''}`);
+    }
     if (!options.length) return { error: failures.join('; ') || 'no source answered', map: map && map.lines.length ? map : null };
     options.sort((a, b) => b.score - a.score);
     return { ground: options[0].ground, source: options[0].source };
@@ -3104,7 +3121,7 @@ async function startGame(airport, level) {
     setSpeed(0);
     sys(game.positions.has('GND') ? 'Loading the airport\'s taxiways and gates…' : 'Loading the airport…');
     game.surfaceStatus = 'loading…';
-    const surface = await loadSurface(game.world).catch(err => ({ error: `couldn't be loaded (${err.message})` }));
+    const surface = await loadSurface(game.world, msg => { if (G === game) { game.surfaceStatus = msg; renderHud(); } }).catch(err => ({ error: `couldn't be loaded (${err.message})` }));
     if (G !== game) return;
     game.ground = surface.ground || null;
     game.surfaceMap = surface.ground || surface.map || null;

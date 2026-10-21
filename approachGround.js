@@ -36,6 +36,22 @@ function crossAt(p1, p2, q1, q2) {
 }
 
 const SNAP_NM = 0.006;      // ~11 m: points this close are one junction
+const SIMPLIFY_NM = 0.003;  // ~5 m: finer detail on a taxiway's curve is dropped
+
+/** Douglas-Peucker: drop points within SIMPLIFY_NM of the line through their neighbours. */
+function simplify(pts) {
+    if (pts.length < 3) return pts;
+    const keep = new Uint8Array(pts.length);
+    keep[0] = keep[pts.length - 1] = 1;
+    const stack = [[0, pts.length - 1]];
+    while (stack.length) {
+        const [i, j] = stack.pop();
+        let worst = -1, wd = SIMPLIFY_NM;
+        for (let k = i + 1; k < j; k++) { const d = toSegment(pts[k], pts[i], pts[j]).d; if (d > wd) { wd = d; worst = k; } }
+        if (worst >= 0) { keep[worst] = 1; stack.push([i, worst], [worst, j]); }
+    }
+    return pts.filter((_, k) => keep[k]);
+}
 
 /**
  * Taxiway lines -> a routable graph. OSM ways share their junction points,
@@ -129,7 +145,8 @@ export function buildGround(layout, proj, ends) {
         const p = f.properties || {}, g = f.geometry;
         if (!g) continue;
         if ((p.aeroway === 'taxiway' || p.aeroway === 'taxilane') && g.type === 'LineString') {
-            const pts = g.coordinates.map(([lon, lat]) => proj(lat, lon));
+            // Real centrelines carry a point every metre or two round curves: thin them, or the network runs to tens of thousands of nodes.
+            const pts = simplify(g.coordinates.map(([lon, lat]) => proj(lat, lon)));
             if (pts.length >= 2) lines.push({ name: String(p.ref || p.name || '').trim(), kind: p.aeroway, pts });
         } else if (p.aeroway === 'apron' && g.type === 'Polygon') {
             aprons.push(g.coordinates[0].map(([lon, lat]) => proj(lat, lon)));
