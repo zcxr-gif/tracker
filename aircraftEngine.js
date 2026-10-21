@@ -55,8 +55,9 @@
 
 import { loadThree } from './threeLoader.js';
 import {
-    designatorForName, chooseModel, loadGeometry, loadTexture, texturePath, forgetTexture
+    designatorForName, chooseModel, loadGeometry, loadTexture, texturePath, forgetTexture, FG_CREDIT
 } from './aircraftModels.js';
+import { FG_COMMIT } from './fgAircraft.data.js';
 
 export const AircraftEngine = (() => {
     const LAYER_ID = 'aircraft-3d-models';
@@ -611,6 +612,7 @@ void main() {
         for (const b of batches.values()) { b.list.length = 0; b.gearList.length = 0; }
         const nextDrawn = [];
         let head = null;
+        let modelCredit = null;
         let fastest = 0;
         let flipSet = false;
         let nearest = Infinity;
@@ -774,6 +776,7 @@ void main() {
             // way aft along the fuselage (model +Z, in east, north and up),
             // and its length.
             if (tr.id === selectedId) {
+                modelCredit = { name: tr.name, author: tr.choice.model.author };
                 head = {
                     lon, lat, heading, ground,
                     alt: alt + (s.geometry.height || 0) * mag * 0.5,
@@ -805,6 +808,7 @@ void main() {
         }
 
         drawPath(selectedId, head, { PA, PG, phase, eye, width, height, terrain, t });
+        showCredit(modelCredit);
 
         renderer.resetState();
         // On the globe Mapbox's depth buffer holds nothing a custom layer can
@@ -1334,7 +1338,9 @@ void main() { gl_FragColor = vColor; }`;
             if (!visible) return false;
             ensureLayer();
             refresh();
+            showCredit(null);
         } else {
+            hideCredit();
             if (repaintTimer) { clearTimeout(repaintTimer); repaintTimer = null; }
             for (const tr of tracks.values()) setModelled(tr, false);
             tracks.clear();
@@ -1346,6 +1352,72 @@ void main() { gl_FragColor = vColor; }`;
     }
 
     function isVisible() { return visible; }
+
+    // --- Credit ----------------------------------------------------------
+    //
+    // The models are FlightGear's AI traffic (fgdata AI/Aircraft), under the
+    // GNU GPL v2, each by the author it names. While they are on the map a
+    // line beside the map's own attribution says so, links to the exact
+    // files they are drawn from, and names the author of the model the open
+    // flight is drawn as.
+
+    const FG_SOURCE = `https://gitlab.com/flightgear/fgdata/-/tree/${FG_COMMIT}/AI/Aircraft`;
+    let credit = null;      // { el, extra, text }
+
+    function creditStyles() {
+        if (document.getElementById('ac3d-credit-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'ac3d-credit-styles';
+        style.textContent = `
+            .ac3d-credit {
+                font: 11px/18px -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
+                color: rgba(0, 0, 0, 0.78); background: rgba(255, 255, 255, 0.6);
+                border-radius: 9px; padding: 0 7px; margin: 0 0 10px 10px;
+                max-width: min(70vw, 520px); white-space: nowrap; overflow: hidden;
+                text-overflow: ellipsis; pointer-events: auto; clear: both;
+            }
+            .ac3d-credit a { color: inherit; text-decoration: none; }
+            .ac3d-credit a:hover { text-decoration: underline; }
+            .ac3d-credit[hidden] { display: none; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function ensureCredit() {
+        if (credit || !map || typeof map.addControl !== 'function') return credit;
+        creditStyles();
+        const el = document.createElement('div');
+        el.className = 'ac3d-credit';
+        el.title = FG_CREDIT;
+        el.innerHTML = `<a href="${FG_SOURCE}" target="_blank" rel="noopener">3D aircraft: FlightGear</a>`
+            + ' · <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank" rel="noopener">GPL v2</a>'
+            + '<span class="ac3d-credit-model"></span>';
+        credit = { el, extra: el.querySelector('.ac3d-credit-model'), text: '' };
+        try {
+            map.addControl({ onAdd: () => el, onRemove: () => { if (el.parentNode) el.parentNode.removeChild(el); } }, 'bottom-left');
+        } catch (_) { /* no control corner on this map: no credit line */ }
+        return credit;
+    }
+
+    // `model`: { name, author } of the open flight's model, or null.
+    function showCredit(model) {
+        const c = ensureCredit();
+        if (!c) return;
+        if (c.el.hidden) c.el.hidden = false;
+        // Some models name no one ("me", "unknown"): those get the
+        // FlightGear credit alone.
+        let author = model ? String(model.author || '').trim() : '';
+        if (/^(me|unknown|n\/a)?\.?$/i.test(author)) author = '';
+        const text = author ? ` · ${model.name ? `${model.name} model` : 'Model'} by ${author}` : '';
+        if (text !== c.text) {
+            c.text = text;
+            c.extra.textContent = text;
+        }
+    }
+
+    function hideCredit() {
+        if (credit) credit.el.hidden = true;
+    }
 
     /**
      * How high above the ground under it a flight's model is drawn, in

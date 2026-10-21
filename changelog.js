@@ -34,7 +34,7 @@
             entries: [
                 {
                     tag: 'new', icon: 'fa-cube', action: '3d-aircraft',
-                    text: '3D aircraft: every flight on the map as a 3D model in its airline’s livery, banking into turns, pitching into climbs, gear down near the ground. Tap 3D beside the flight window, or in the corner of the map, to switch — and 2D to go back to icons.'
+                    text: '3D aircraft: every flight on the map as a 3D model in its airline’s livery, banking into turns, pitching into climbs, gear down near the ground. Tap 3D beside the flight window, or in the corner of the map, to switch — and 2D to go back to icons. The models and liveries are FlightGear’s AI traffic, made by Ian (Yves) Tolosa, Brett Harrison, Innis Cunningham and the FlightGear community, and shared under the GNU GPL v2 — each one’s maker is credited on the map.'
                 },
                 {
                     tag: 'new', icon: 'fa-route',
