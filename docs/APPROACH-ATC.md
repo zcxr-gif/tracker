@@ -115,19 +115,23 @@ A35K, B748, MD11).
 
 ## Terrain (option)
 
-The scope always shows land, water and relief. The data comes from the
+The scope always shows land, water and terrain. The data comes from the
 keyless Terrarium elevation tiles (AWS Open Data), the same source as
-`terrainMode.js`; `approachTerrain.js` loads and resamples them. The
-**Chart** button switches to a light map; **Radar** is the dark scope.
+`terrainMode.js`; `approachTerrain.js` loads them. Terrain is drawn as flat,
+smoothed height bands measured from the field's elevation, with a thin line
+at the coast and at each band edge, inside the airspace only. The **Chart**
+button switches to a light map like ifatc.org's; **Radar** is the dark
+scope.
 
 With **Terrain: On**:
 
-- **Minimum vectoring altitudes** come from the real ground. Each 5 NM
-  sector gets 1,000 ft above the highest terrain within 3 NM of it, or
-  2,000 ft where the ground is rugged (more than 2,000 ft of relief). That
-  is rounded up to the next 500 ft, with the field's floor as the minimum.
-  MVAs are labelled in hundreds of feet, one label per sector, as on an MVA
-  chart.
+- **Minimum vectoring altitudes** come from the real ground and are laid
+  out the way TRACON MVA charts usually are: rings every 5 NM, cut into 30°
+  wedges, with one area around the field. Each area gets 1,000 ft above the
+  highest terrain within 3 NM of it, or 2,000 ft where the ground is rugged
+  (more than 2,000 ft of relief). That is rounded up to the next 500 ft,
+  with the field's floor as the minimum. Dashed lines mark where the MVA
+  steps. Each run of equal areas is labelled once, in hundreds of feet.
 - Assigning an altitude below the MVA where the aircraft is counts as a
   violation.
 - An aircraft below the MVA triggers an automatic **low altitude alert**

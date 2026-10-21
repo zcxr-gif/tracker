@@ -16,7 +16,7 @@
  * lists each rule, its paragraph and how the game scores it.
  */
 
-import { loadDem, terrainAt, renderRelief, buildMva, mvaAt } from './approachTerrain.js';
+import { loadDem, terrainAt, renderRelief, buildMva, mvaAt, mvaArea, MVA_RING_NM, MVA_WEDGE } from './approachTerrain.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -1260,12 +1260,15 @@ function draw() {
     const s = view.scale;
     const [ox, oy] = toS(0, 0);
 
-    // Land, water and relief.
+    // Land, water and height bands, inside the airspace only.
     if (G.dem) {
-        const img = G.relief[mapStyle] || (G.relief[mapStyle] = renderRelief(G.dem, mapStyle));
+        const img = G.relief[mapStyle] || (G.relief[mapStyle] = renderRelief(G.dem, mapStyle, G.world.elev));
         const [ax, ay] = toS(-G.dem.half, G.dem.half), [bx, by] = toS(G.dem.half, -G.dem.half);
+        c.save();
+        c.beginPath(); c.arc(ox, oy, SCOPE_NM * s, 0, Math.PI * 2); c.clip();
         c.imageSmoothingEnabled = true;
         c.drawImage(img, ax, ay, bx - ax, by - ay);
+        c.restore();
     }
     if (terrainOn()) drawMva();
     if (G.wx.length) drawWeather();
@@ -1435,23 +1438,32 @@ function drawMva() {
     const c = ctx, m = G.mva, s = view.scale;
     const [ox, oy] = toS(0, 0);
     c.save();
-    c.beginPath(); c.arc(ox, oy, SCOPE_NM * s, 0, Math.PI * 2); c.clip();
     c.strokeStyle = COLORS.mva; c.fillStyle = COLORS.mva; c.lineWidth = 1;
-    c.font = '700 10px "JetBrains Mono", monospace';
-    c.textAlign = 'center'; c.textBaseline = 'middle';
-    const val = (i, j) => (i < 0 || j < 0 || i >= m.cells || j >= m.cells) ? -1 : m.vals[j * m.cells + i];
+    c.setLineDash([5, 4]);
     c.beginPath();
-    for (let j = 0; j < m.cells; j++) {
-        for (let i = 0; i < m.cells; i++) {
-            const v = val(i, j);
-            const x0 = -m.scopeNm + i * m.cellNm, y0 = m.scopeNm - j * m.cellNm;
-            // Lines only where the MVA steps, like a real MVA chart's sector borders.
-            if (val(i + 1, j) !== v) { const [ax, ay] = toS(x0 + m.cellNm, y0), [bx, by] = toS(x0 + m.cellNm, y0 - m.cellNm); c.moveTo(ax, ay); c.lineTo(bx, by); }
-            if (val(i, j + 1) !== v) { const [ax, ay] = toS(x0, y0 - m.cellNm), [bx, by] = toS(x0 + m.cellNm, y0 - m.cellNm); c.moveTo(ax, ay); c.lineTo(bx, by); }
+    // Lines only where the MVA steps, like an MVA chart's sector borders.
+    for (let r = 0; r < m.rings; r++) {
+        for (let w = 0; w < m.wedges; w++) {
+            const v = mvaArea(m, r, w);
+            if (r + 1 < m.rings && mvaArea(m, r + 1, w) !== v) {
+                // Arc between this ring and the next. Canvas angles run clockwise from east.
+                const a0 = (w * MVA_WEDGE - 90) * D2R, a1 = ((w + 1) * MVA_WEDGE - 90) * D2R, rad = (r + 1) * MVA_RING_NM * s;
+                c.moveTo(ox + Math.cos(a0) * rad, oy + Math.sin(a0) * rad);
+                c.arc(ox, oy, rad, a0, a1);
+            }
+            if (r > 0 && mvaArea(m, r, w + 1) !== v) {
+                const b = (w + 1) * MVA_WEDGE * D2R;
+                const [ax, ay] = toS(Math.sin(b) * r * MVA_RING_NM, Math.cos(b) * r * MVA_RING_NM);
+                const [bx, by] = toS(Math.sin(b) * Math.min(SCOPE_NM, (r + 1) * MVA_RING_NM), Math.cos(b) * Math.min(SCOPE_NM, (r + 1) * MVA_RING_NM));
+                c.moveTo(ax, ay); c.lineTo(bx, by);
+            }
         }
     }
     c.stroke();
+    c.setLineDash([]);
     // MVA charts give altitudes in hundreds of feet: 45 is 4,500.
+    c.font = '700 10px "JetBrains Mono", monospace';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
     for (const l of m.labels) {
         const [lx, ly] = toS(l.x, l.y);
         c.fillText(String(Math.round(l.v / 100)), lx, ly);
