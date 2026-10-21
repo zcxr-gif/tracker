@@ -27793,11 +27793,7 @@ function fitHorizonHero(panel, photos) {
         const r = aspect.get(urlOf(el));
         if (!r || band == null || !panel.clientWidth) return;
         const over = panel.clientWidth * r - band;
-        // Legacy on desktop lowers the photo (--lg-photo-drop, see the
-        // Legacy styles): the whole of it, crop and all.
-        const drop = parseFloat(getComputedStyle(panel).getPropertyValue('--lg-photo-drop')) || 0;
-        const top = (over > 1 ? -Math.round(over * 0.4) : 0) + drop;
-        const pos = top ? `center ${top}px` : 'center top';
+        const pos = over > 1 ? `center ${-Math.round(over * 0.4)}px` : 'center top';
         if (el.style.getPropertyValue('background-position') !== pos) {
             el.style.setProperty('background-position', pos, 'important');
         }
@@ -27991,19 +27987,16 @@ function ensureHeroPhotoControlStyles() {
         }
         ${L}:not(.wb-legacy) .ac-header-modern.lg-fit,
         ${L}.mobile-legacy-sheet:not(.wb-legacy) .ac-header-modern.lg-fit { background-color: #3a3a3a !important; }
-        /* Desktop: the photo a little lower, clear of the callsign, faded in
-           from the window colour above it; and the route card further down,
-           over less of it. Phones keep their sheet as it is. */
-        ${L}:not(.mobile-legacy-sheet) .ac-header-modern.lg-fit {
-            --lg-photo-drop: 14px;
-            min-height: calc(var(--sr-photo-h, 220px) + var(--lg-photo-drop)) !important;
-        }
-        ${L}:not(.mobile-legacy-sheet):not(.wb-legacy) .lg-fit .ac-header-overlay::before {
-            content: ''; position: absolute; left: 0; right: 0; top: 0;
-            height: calc(var(--lg-photo-drop) + 28px);
-            background: linear-gradient(180deg, #3a3a3a 0, rgba(58,58,58,0.55) var(--lg-photo-drop), rgba(58,58,58,0) 100%);
-        }
+        /* Desktop: the route card further down, over less of the photo, and
+           the photo's credit, its dots and the partner chip down by it. The
+           partner chip is just the VA's logo, never opening out to its name.
+           Phones keep their sheet as it is. */
         ${L}:not(.mobile-legacy-sheet) .ac-route-info-bar { margin-top: -12px !important; }
+        ${L}:not(.mobile-legacy-sheet) .ac-partner-hero { margin-bottom: 20px !important; }
+        ${L}:not(.mobile-legacy-sheet) .hero-photo-credit { bottom: 20px !important; }
+        ${L}:not(.mobile-legacy-sheet) .hero-photo-dots { bottom: 23px !important; }
+        ${L}:not(.mobile-legacy-sheet) .ac-partner-hero .va-cs-info { gap: 0 !important; transition: none !important; }
+        ${L}:not(.mobile-legacy-sheet) .ac-partner-hero .va-cs-info :is(.va-cs-name, .va-cs-note) { display: none !important; }
         ${L} .lg-fit .hero-photo-fade { background-size: 100% auto !important; background-repeat: no-repeat !important; }
         /* An eased fade that lands exactly on the bar colour at the bottom. */
         ${L}:not(.wb-legacy) .lg-fit .ac-header-overlay,
