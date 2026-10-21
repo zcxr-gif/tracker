@@ -17856,12 +17856,14 @@ function initializeAircraftLayer() {
                     if (window.isMouseOverAirportTag) return;
                     sectorOpsMap.getCanvas().style.cursor = 'pointer';
                     const feature = e.features[0];
-                    if (typeof generateHoverCardHTML !== 'undefined') {
+                    // No card while zooming (see onAircraftRichHover).
+                    if (typeof generateHoverCardHTML !== 'undefined' && !sectorOpsMap.isZooming()) {
                         hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(generateHoverCardHTML(liveFlightProps(feature.properties))).addTo(sectorOpsMap);
                     }
                 };
                 sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', onLiveFlightEnter);
                 sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-natural-layer', onLiveFlightEnter);
+                sectorOpsMap.on('zoomstart', () => hoverPopup.remove());
 
                 const onLiveFlightLeave = () => {
                     sectorOpsMap.getCanvas().style.cursor = '';
@@ -31711,12 +31713,18 @@ function setupFlightHoverPopups() {
         hoveredFlightId = props.flightId || null;
         window._hoveredFlightId = hoveredFlightId;
 
+        // No card while the map zooms: pinned to its aeroplane, it slid
+        // across the screen under the cursor mid-zoom, and the rest of a
+        // pinch landed on the page and zoomed the website.
+        if (sectorOpsMap.isZooming()) return;
+
         // Same shared FR24 card as the pinned multi-track cards (photo on top).
         const html = window.buildMiniFlightCardHTML(props, { layout: 'hover' });
         hoverPopup.setLngLat(feature.geometry.coordinates).setHTML(html).addTo(sectorOpsMap);
     };
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-layer', onAircraftRichHover);
     sectorOpsMap.on('mouseenter', 'sector-ops-live-flights-natural-layer', onAircraftRichHover);
+    sectorOpsMap.on('zoomstart', () => hoverPopup.remove());
 
     const onAircraftRichLeave = () => {
         sectorOpsMap.getCanvas().style.cursor = '';
