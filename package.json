@@ -28,6 +28,8 @@
     "test:entrance": "node tools/test-crew-entrance.js",
     "test:featured": "node tools/test-crew-featured.js",
     "build:fg-aircraft": "node tools/build-fg-aircraft.mjs",
+    "build:modulepreload": "node tools/build-modulepreload.mjs",
+    "check:modulepreload": "node tools/build-modulepreload.mjs --check",
     "test:fg-aircraft": "node tools/test-fg-aircraft.mjs"
   },
   "dependencies": {

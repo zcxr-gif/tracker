@@ -286,7 +286,65 @@ function getIconSet() {
     return (window.mapFilters && window.mapFilters.iconSet) || 'marks';
 }
 
+// The aircraft sprites, once drawn, kept for this page: a map style switch
+// drops every image the map was given, and drawing and distance-fielding the
+// whole fleet again took seconds each time. Kept per set, edge mode and pixel
+// ratio — what the drawing depends on. One build at a time: the map's first
+// 'style.load' and 'load' both ask at boot, and the second just waits.
+const aircraftIconMemo = { key: null, images: new Map(), complete: false };
+let aircraftIconBuild = null;
+
+function aircraftIconKey() {
+    return `${getIconSet()}|${getIconEdgeMode()}|${window.devicePixelRatio || 1}`;
+}
+
+function forgetAircraftIcons() {
+    aircraftIconMemo.key = null;
+    aircraftIconMemo.images = new Map();
+    aircraftIconMemo.complete = false;
+}
+
 async function loadSpriteSheetAndGenerateIcons(map) {
+    if (aircraftIconBuild) { try { await aircraftIconBuild; } catch (_) {} }
+    const key = aircraftIconKey();
+    if (aircraftIconMemo.key !== key) {
+        forgetAircraftIcons();
+        aircraftIconMemo.key = key;
+    }
+    if (!aircraftIconMemo.complete) {
+        // The builders only add and ask about images; every image they add
+        // is kept as well as handed to the map.
+        const images = aircraftIconMemo.images;
+        const recording = new Proxy(map, {
+            get(target, prop) {
+                if (prop === 'addImage') {
+                    return (id, data, options) => {
+                        images.set(id, [data, options]);
+                        return target.addImage(id, data, options);
+                    };
+                }
+                const value = target[prop];
+                return typeof value === 'function' ? value.bind(target) : value;
+            }
+        });
+        aircraftIconBuild = buildAircraftIcons(recording);
+        try {
+            await aircraftIconBuild;
+            // Unless the set was dropped (reloadAircraftIcons) while drawing.
+            if (aircraftIconMemo.images === images) aircraftIconMemo.complete = true;
+        } finally {
+            aircraftIconBuild = null;
+        }
+    }
+    // Whatever this style is still missing — all of it after a style switch.
+    for (const [id, [data, options]] of aircraftIconMemo.images) {
+        if (!map.hasImage(id)) {
+            try { map.addImage(id, data, options); } catch (_) {}
+        }
+    }
+}
+
+async function buildAircraftIcons(map) {
     const spriteUrl = './markers.png';
 
     const USE_SDF = true;
@@ -1252,33 +1310,39 @@ window.pinFlight = function(flightId) {
     // fiord) once at free-map activation; anything unreachable is swapped for
     // its proven OpenFreeMap base so no picker choice can land on a blank map.
     // The probe also primes the HTTP cache for the style MapLibre fetches next.
+    // Boot waits only for the style it is about to draw (`firstKey`); the
+    // others are probed behind it, before anyone can pick them.
     let freeStylesValidated = false;
-    async function validateFreeStyles(timeoutMs = 4000) {
+    async function validateFreeStyles(firstKey, timeoutMs = 4000) {
         if (freeStylesValidated) return;
         freeStylesValidated = true;
-        await Promise.all(Object.values(FREE_MAP_STYLES)
-            .filter(def => def.fallback && typeof def.style === 'string')
-            .map(async def => {
-                try {
-                    const ctl = new AbortController();
-                    const timer = setTimeout(() => ctl.abort(), timeoutMs);
-                    const r = await fetch(def.style, { signal: ctl.signal });
-                    clearTimeout(timer);
-                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                } catch (_) {
-                    def.style = def.fallback;
-                }
-            }));
+        const probe = async (def) => {
+            try {
+                const ctl = new AbortController();
+                const timer = setTimeout(() => ctl.abort(), timeoutMs);
+                const r = await fetch(def.style, { signal: ctl.signal });
+                clearTimeout(timer);
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            } catch (_) {
+                def.style = def.fallback;
+            }
+        };
+        const first = FREE_MAP_STYLES[firstKey] || FREE_MAP_STYLES.dark;
+        const needs = (def) => def.fallback && typeof def.style === 'string';
+        Object.values(FREE_MAP_STYLES).filter((def) => def !== first && needs(def)).forEach(probe);
+        if (needs(first)) await probe(first);
     }
     function loadFreeMapEngine() {
         return new Promise((resolve, reject) => {
             if (window.maplibregl) return resolve();
             const css = document.createElement('link');
             css.rel = 'stylesheet';
-            css.href = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
+            css.href = `https://cdn.jsdelivr.net/npm/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
             document.head.appendChild(css);
             const js = document.createElement('script');
-            js.src = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+            // jsDelivr, already connected to for supabase-js, rather than
+            // unpkg: one fewer host to reach before the map can start.
+            js.src = `https://cdn.jsdelivr.net/npm/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
             js.onload = () => resolve();
             js.onerror = () => reject(new Error('Failed to load MapLibre GL JS.'));
             document.head.appendChild(js);
@@ -1301,13 +1365,15 @@ window.pinFlight = function(flightId) {
     // window.mapboxgl (it's API-compatible, so the rest of the tracker keeps
     // calling mapboxgl.* unchanged), and force a flat OpenFreeMap base style.
     async function activateFreeMap() {
+        // The engine and the first style's probe are fetched side by side.
+        const styleChecked = validateFreeStyles(mapFilters.mapStyle || 'dark');
         await loadFreeMapEngine();
         if (!window.maplibregl) throw new Error('MapLibre global missing after load.');
         window.__FREE_MAP__ = true;
         window.mapboxgl = window.maplibregl;
         injectFreeMapCssShim();
         mapFilters.useFlatMap = true;                      // free engine renders flat
-        await validateFreeStyles();
+        await styleChecked;
         currentMapStyle = freeStyleFor(mapFilters.mapStyle || 'dark');
     }
 
@@ -1336,18 +1402,26 @@ window.pinFlight = function(flightId) {
     // Fail OPEN: any error (endpoint not deployed, network, bad JSON) resolves
     // false so we stay on Mapbox rather than break the map when the counter is
     // unreachable.
+    // The map waits on this answer, so it is not waited on for long: a
+    // backend that has gone to sleep and takes seconds to wake would hold the
+    // whole map back. Past the limit it counts as "no" — the same fail-open.
+    const MAP_QUOTA_WAIT_MS = 1500;
     async function shouldUseFreeMapForQuota() {
+        const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+        const timer = setTimeout(() => { if (ctl) ctl.abort(); }, MAP_QUOTA_WAIT_MS);
         try {
             const pro = isProUser() ? 1 : 0;
             const r = await fetch(
                 `${API_BASE_URL}/api/maploads/hit?limit=${MAPBOX_MONTHLY_LOAD_LIMIT}&pro=${pro}`,
-                { method: 'POST', keepalive: true }
+                { method: 'POST', signal: ctl ? ctl.signal : undefined }
             );
             if (!r.ok) return false;
             const q = await r.json();
             return !!(q && q.useFreeMap);
         } catch (_) {
             return false;
+        } finally {
+            clearTimeout(timer);
         }
     }
 
@@ -2013,6 +2087,7 @@ async function reloadAircraftIcons() {
         });
     });
 
+    forgetAircraftIcons();
     await loadSpriteSheetAndGenerateIcons(sectorOpsMap);
     applyAircraftLayerStyles();
 }
@@ -2946,6 +3021,9 @@ function handleSavedFlightListClick(e) {
 
     // --- Helper: Fetch API Keys from Netlify Function ---
     async function fetchApiKeys() {
+        // The quota check is asked at the same time as the config, not after
+        // it: both are a round trip, and the backend can be slow to wake.
+        const quotaPromise = shouldUseFreeMapForQuota();
         try {
             const response = await fetch(`${CURRENT_SITE_URL}/.netlify/functions/config`);
             if (!response.ok) throw new Error('Could not fetch server configuration.');
@@ -2962,7 +3040,7 @@ function handleSavedFlightListClick(e) {
             // Either way we drop onto the free MapLibre + OpenFreeMap engine — the
             // same map the VA embed uses.
             let useFree = !!config.useFreeMap;
-            if (!useFree) useFree = await shouldUseFreeMapForQuota();
+            if (!useFree) useFree = await quotaPromise;
 
             if (useFree) {
                 try {
@@ -22137,7 +22215,30 @@ window.globalNatTracks = natTracks;
     }
 }
 
-async function setupMapLayersAndFog() {
+// Both the map's first 'style.load' and its 'load' set the layers up at
+// boot, at the same moment; running it twice side by side drew every
+// aircraft sprite twice. One run at a time — a call during one waits for it
+// — and a run is repeated only if the style changed under it.
+let mapLayersSetup = null;
+let mapStyleGeneration = 0;
+
+function setupMapLayersAndFog() {
+    if (mapLayersSetup) return mapLayersSetup;
+    mapLayersSetup = (async () => {
+        try {
+            let generation;
+            do {
+                generation = mapStyleGeneration;
+                await buildMapLayersAndFog();
+            } while (generation !== mapStyleGeneration);
+        } finally {
+            mapLayersSetup = null;
+        }
+    })();
+    return mapLayersSetup;
+}
+
+async function buildMapLayersAndFog() {
     if (!sectorOpsMap) return;
 
     // Atmospheric fog is a Mapbox globe feature; MapLibre (free mode) has no
@@ -22239,6 +22340,11 @@ function initializeSectorOpsMap(centerICAO) {
         // Mapbox's own ceiling; MapLibre's default stops at 60°, short of
         // the tilt the camera locked on to an aeroplane leans to.
         maxPitch: 85,
+        // The free map draws at most two device pixels per CSS pixel: a 3×
+        // phone screen is otherwise 2.25 times the pixels to fill every
+        // frame for a difference no one can see. (Mapbox GL has no such
+        // option; it always draws at the screen's own ratio.)
+        ...(isFreeMap() ? { pixelRatio: Math.min(window.devicePixelRatio || 1, 2) } : {}),
         // --- SMOOTH ZOOM/RENDER CONFIG ---
         // fadeDuration intentionally omitted — Mapbox's default 300 ms crossfade
         // is what makes tiles dissolve in/out instead of popping. The previous
@@ -22320,6 +22426,7 @@ function initializeSectorOpsMap(centerICAO) {
 
     sectorOpsMap.on('style.load', async () => {
     console.log("Map style reloading. Rebuilding layers...");
+    mapStyleGeneration++;
 
     await setupMapLayersAndFog();
 
