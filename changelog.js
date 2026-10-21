@@ -3,13 +3,16 @@
  *
  * One data source (RELEASES below), read in Settings — the desktop Global
  * Settings modal hosts renderSettingsPanel(); the mobile Settings sheet's
- * More tab opens the full modal via open(). Nothing pops up on its own when
- * the site loads: pilots read the notes when they choose to.
+ * More tab opens the full modal via open(). Only a release marked `popup`
+ * opens on its own, once; otherwise pilots read the notes when they choose.
  *
  * To ship notes for a new update: prepend a release object to RELEASES.
  * An entry's `action` adds a button that takes the pilot straight to the
- * feature (ACTIONS below). `quiet` and `nudge` are left on older releases
- * and only matter if something calls showNudge().
+ * feature (ACTIONS below). A release's `image` ({ src, alt }) is shown
+ * above its notes. A release marked `popup` opens by itself, once, the
+ * first time each pilot arrives after it ships (see maybePopup). `quiet`
+ * and `nudge` are left on older releases and only matter if something calls
+ * showNudge().
  *
  * Exposed as window.InflightChangelog. Loaded as a plain (non-module)
  * script alongside vaAds.js.
@@ -25,6 +28,8 @@
             id: '2026.10.21',
             date: 'October 2026',
             title: 'Fly It in 3D',
+            popup: true,
+            image: { src: 'Images/whats-new-3d.webp', alt: 'A Delta A350 in 3D, its flown path fading out behind the tail' },
             tagline: 'Real 3D aircraft in their airline’s colours, the flown path drawn in the air, a camera that rides with the aircraft — and the map controls now stand beside the flight window, as on iPhone.',
             entries: [
                 {
@@ -985,6 +990,11 @@
             .cl-release-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 4px; }
             .cl-release-head h3 { margin: 0; color: #fff; font-size: 0.98rem; font-weight: 800; letter-spacing: -0.2px; }
             .cl-release-tagline { margin: 0 0 12px; font-size: 0.76rem; line-height: 1.5; color: #71717a; }
+            .cl-release-img {
+                display: block; width: 100%; height: auto; aspect-ratio: 1206 / 658; object-fit: cover;
+                margin: 0 0 14px; border-radius: 12px; background: #0b1220;
+                border: 1px solid rgba(255,255,255,0.08);
+            }
             .cl-list { display: flex; flex-direction: column; gap: 9px; }
             .cl-item {
                 display: flex; gap: 11px; align-items: flex-start;
@@ -1160,8 +1170,12 @@
     }
 
     function releaseHTML(rel, { withHead } = { withHead: true }) {
+        const img = rel.image && rel.image.src
+            ? `<img class="cl-release-img" src="${esc(rel.image.src)}" alt="${esc(rel.image.alt || '')}" loading="lazy" decoding="async">`
+            : '';
         return `
             <div class="cl-release">
+                ${withHead ? img : ''}
                 ${withHead ? `
                     <div class="cl-release-head">
                         <h3>${esc(rel.title)}</h3>
@@ -1169,6 +1183,7 @@
                     </div>
                     ${rel.tagline ? `<p class="cl-release-tagline">${esc(rel.tagline)}</p>` : ''}
                 ` : ''}
+                ${withHead ? '' : img}
                 <div class="cl-list">${rel.entries.map(entryHTML).join('')}</div>
             </div>`;
     }
@@ -1279,6 +1294,39 @@
         requestAnimationFrame(() => requestAnimationFrame(() => nudgeEl && nudgeEl.classList.add('visible')));
         arm(18000);
     }
+
+    // ---------------------------------------------------------------------
+    // The one time a release opens by itself
+    // ---------------------------------------------------------------------
+
+    // A release marked `popup` opens on its own the first time each pilot
+    // arrives after it ships, and never again. Not over the welcome card a
+    // first visit opens with, nor the tour after it: it waits for them.
+    function maybePopup() {
+        if (!LATEST.popup || getSeen() === LATEST.id) return;
+        const started = Date.now();
+        const busy = () => {
+            let accepted = false;
+            try { accepted = !!localStorage.getItem('inflight_legal_accepted'); } catch (_) { accepted = true; }
+            return !accepted || document.getElementById('fre-overlay') || document.getElementById('ot-root')
+                || document.querySelector('.cl-overlay');
+        };
+        const attempt = () => {
+            if (getSeen() === LATEST.id) return;
+            if (busy()) {
+                if (Date.now() - started < 10 * 60 * 1000) setTimeout(attempt, 1500);
+                return;
+            }
+            markSeen();
+            showModal({ popup: true });
+        };
+        // A moment after the map has started to load, so it opens over the
+        // tracker rather than a blank page.
+        setTimeout(attempt, 2000);
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', maybePopup, { once: true });
+    else maybePopup();
 
     // ---------------------------------------------------------------------
     // Public API

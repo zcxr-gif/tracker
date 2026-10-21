@@ -42,8 +42,9 @@
  *     on its top left-hand one, both riding it down while it is pulled and
  *     faded as it opens towards the full window (gone by about two thirds of
  *     the way). Both always stand upright, never on their side;
- *   - desktop: beside the window, on the side facing the map, level with its
- *     top — the window's buttons first, the map controls under them.
+ *   - desktop: beside the window, on the side facing the map, under the
+ *     tab at its top — the window's buttons first, the map controls under
+ *     them.
  *
  * With no flight open the corner keeps the map's own controls, as the iOS
  * app's does: the compass while the map is turned (or tilted, with the 3D
@@ -1198,25 +1199,25 @@ export const FlightWindowControls = (() => {
                 setLayout(root, 'vertical');
                 setLayout(leftRoot, 'vertical');
                 root.style.maxWidth = leftRoot.style.maxWidth = '';
-                // Close beside the window, level with its top; sideways
-                // behind it as they are tucked away. The tab stands against
-                // the window's straight side just under them — clear of its
-                // rounded corner — and stays there tucked or not.
+                // The tab stands against the window's side at the top, just
+                // below where its rounded corner ends, so it meets a straight
+                // edge; the controls stand close beside the window under it,
+                // and slide sideways behind it as they are tucked away.
                 const onRight = r.left + r.width / 2 > c.left + c.width / 2;
                 const edge = onRight ? r.left - c.left : r.right - c.left;
+                const tabAt = r.top - c.top + cornerRadius(win, onRight);
                 const outLeft = onRight ? edge - GAP - WIDTH : edge + GAP;
                 if (outLeft < 4 || outLeft + WIDTH > c.width - 4) opacity = 0;
                 const travel = onRight ? edge - outLeft : outLeft + WIDTH - edge;
                 left = aLeft = outLeft + (onRight ? 1 : -1) * (1 - out) * travel;
-                aTop = r.top - c.top;
+                aTop = tabAt + TAB_LONG + 8;
                 top = aTop + (actionCount ? (leftRoot.offsetHeight || actionsHeight) + 8 : 0);
                 const cut = onRight ? Math.max(0, left + WIDTH - edge) : Math.max(0, edge - left);
                 clip = aClip = onRight ? cutOff(0, cut, 0, 0) : cutOff(0, 0, 0, cut);
                 slide = { axis: 'x', out: onRight ? -1 : 1, travel, side: onRight ? 'left' : 'right' };
                 tabKind = onRight ? 'beside on-left' : 'beside on-right';
                 tabLeft = onRight ? edge - TAB_SHORT : edge;
-                const under = top + (root.offsetHeight || mainHeight) + 10;
-                tabTop = Math.min(under, r.bottom - c.top - TAB_LONG - 24);
+                tabTop = tabAt;
                 tabIcon = (tucked ? onRight : !onRight) ? 'left' : 'right';
             }
         } else {
@@ -1322,6 +1323,23 @@ export const FlightWindowControls = (() => {
         el.classList.remove('vertical', 'horizontal');
         el.classList.add(layout);
         lastKey = '';
+    }
+
+    // The radius of the window's top corner on the side facing the map, read
+    // from its style now and then rather than on every frame.
+    let radiusCache = { el: null, side: null, at: 0, px: 0 };
+    function cornerRadius(win, onRight) {
+        const now = performance.now();
+        const c = radiusCache;
+        if (c.el !== win || c.side !== onRight || now - c.at > 1000) {
+            let px = 0;
+            try {
+                const cs = getComputedStyle(win);
+                px = parseFloat(onRight ? cs.borderTopLeftRadius : cs.borderTopRightRadius) || 0;
+            } catch (_) { /* no style to read */ }
+            radiusCache = { el: win, side: onRight, at: now, px };
+        }
+        return radiusCache.px;
     }
 
     // A clip-path cutting off what has gone behind the window — none at all
