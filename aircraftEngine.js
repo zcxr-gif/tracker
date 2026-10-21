@@ -576,7 +576,15 @@ void main() {
         const phase = isGlobe ? Math.min(Math.max(transition, 0), 1) : 1;
         shared.u_transition.value = phase;
 
-        const P = Float64Array.from(matrix);
+        // Close up to an aeroplane, Mapbox's near plane (1/75 of the way to
+        // the map's centre — hundreds of metres with an airliner at cruise
+        // in front of it) would cut the model away. Then the models and the
+        // path get one fifty times nearer, and a depth buffer of their own,
+        // since theirs no longer reads like the map's. Decided from the last
+        // frame: the aeroplane a frame ago is close enough.
+        const P0 = Float64Array.from(matrix);
+        const near = nearOf(P0);
+        const P = closeUp && near ? withNear(P0, near / NEAR_SHRINK) : P0;
         const PG = isGlobe ? mul(P, Float64Array.from(globeToMerc)) : null;
         let PA = P;
         if (isGlobe && centerInMerc && ppmRatio && ppmRatio !== 1) {
@@ -605,6 +613,7 @@ void main() {
         let head = null;
         let fastest = 0;
         let flipSet = false;
+        let nearest = Infinity;
 
         const toScreen = (flat, globe) => {
             let x, y, w = flat[3];
@@ -695,8 +704,12 @@ void main() {
                     [up[0] * radius, up[1] * radius, up[2] * radius]));
             }
 
-            const centre = toScreen(apply(flatToClip, 0, 0, 0), globeToClip && apply(globeToClip, 0, 0, 0));
+            const origin = apply(flatToClip, 0, 0, 0);
+            const centre = toScreen(origin, globeToClip && apply(globeToClip, 0, 0, 0));
             if (!centre) continue;
+            // How far in front of the camera it is, in the projection's own
+            // units (clip w is the distance along the view).
+            if (origin[3] > 0) nearest = Math.min(nearest, origin[3]);
             // How big a metre is on screen, here: measured along the ground
             // both ways and the larger taken, so a view down a tilted map
             // does not read one foreshortened direction as the scale.
@@ -761,6 +774,9 @@ void main() {
             if (!att.onGround || att.speedKt > 3) fastest = Math.max(fastest, att.speedKt * KT * ppm);
         }
         drawn = nextDrawn;
+        const wasCloseUp = closeUp;
+        closeUp = !!near && nearest < near * CLOSE_UP_FACTOR;
+        if (closeUp !== wasCloseUp) kick();
 
         for (const b of batches.values()) {
             if (!b.list.length) {
@@ -787,7 +803,7 @@ void main() {
         // hide their own far sides, and the horizon test above does the rest.
         // Close in, the map's depth is kept, and terrain and buildings hide
         // what is behind them.
-        if (phase < 1) renderer.clearDepth();
+        if (phase < 1 || (wasCloseUp && near)) renderer.clearDepth();
         renderer.render(scene, camera);
         sweep(t);
 
@@ -798,6 +814,39 @@ void main() {
     }
 
     const NO_TINT = [0, 0, 0, 0];
+
+    // --- Near plane ------------------------------------------------------
+    // Within this many of Mapbox's near distances, an aeroplane is close up.
+    const CLOSE_UP_FACTOR = 4;
+    const NEAR_SHRINK = 50;
+    let closeUp = false;
+
+    // A GL perspective matrix's near distance, read back from its depth row:
+    // z = A·w + B, A = (f+n)/(f−n), B = −2fn/(f−n), so n = −B/(A+1).
+    // Column-major; row 3 is w, row 2 is z, and the view is affine.
+    function nearOf(m) {
+        let k = -1;
+        for (let c = 0; c < 3; c++) if (Math.abs(m[c * 4 + 3]) > 1e-12) { k = c; break; }
+        if (k < 0) return 0;
+        const A = m[k * 4 + 2] / m[k * 4 + 3];
+        const B = m[14] - A * m[15];
+        const n = -B / (A + 1);
+        return n > 0 && isFinite(n) ? n : 0;
+    }
+
+    // The same matrix with its near plane at `n`, far plane kept.
+    function withNear(m, n) {
+        const k = [0, 1, 2].find((c) => Math.abs(m[c * 4 + 3]) > 1e-12);
+        const A = m[k * 4 + 2] / m[k * 4 + 3];
+        const B = m[14] - A * m[15];
+        const f = -B / (A - 1);
+        if (!(f > n) || !isFinite(f)) return m;
+        const A2 = (f + n) / (f - n), B2 = -2 * f * n / (f - n);
+        const o = Float64Array.from(m);
+        for (let c = 0; c < 4; c++) o[c * 4 + 2] = A2 * m[c * 4 + 3];
+        o[14] += B2;
+        return o;
+    }
 
     // --- The open aircraft's path (iOS AircraftPath) ---------------------
 

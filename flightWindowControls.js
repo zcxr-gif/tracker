@@ -65,7 +65,7 @@
 
 export const FlightWindowControls = (() => {
     const COLLAPSED_KEY = 'flightWindowControlsCollapsed';
-    const WIDTH = 44;
+    const WIDTH = 46;
     const ROW = 42;
     const GAP = 10;
     // Room kept between a phone column and the top of the screen.
@@ -117,10 +117,13 @@ export const FlightWindowControls = (() => {
     // and how a pinch pivots. null while not following.
     let zoomLock = null;
     // Closest the camera comes to the aeroplane, as a share of how far the
-    // map's centre is beyond it and in metres (iOS followClosestMetres):
-    // Mapbox clips anything nearer than 1/75 of the distance to the centre.
-    const CHASE_CLEARANCE_SHARE = 0.02;
-    const CHASE_CLEARANCE_MIN_M = 160;
+    // map's centre is beyond it and in metres. Mapbox clips anything nearer
+    // than 1/75 of the distance to the centre, but close up the 3D engine
+    // draws the aeroplane with a near plane fifty times nearer of its own
+    // (aircraftEngine.js), so the camera can come alongside: about 45 m from
+    // the middle of the model, wherever it is.
+    const CHASE_CLEARANCE_SHARE = 0.0015;
+    const CHASE_CLEARANCE_MIN_M = 45;
     // Following, the wheel zooms on the aeroplane by its distance from the
     // camera: a notch of a mouse wheel (100 px) brings it about 30%
     // closer, at any range — in Mapbox's zoom, all the way from far off to
@@ -160,6 +163,10 @@ export const FlightWindowControls = (() => {
     // aiming a glide at where it will be when the glide lands.
     let track = null;   // { id, lon, lat, t, vLon, vLat }
     let followFlight = null;
+    // Whether the map's padding (and a chase's bearing) is ours to put back
+    // when the camera lets go of the aeroplane: left behind, it held the
+    // whole map off to one side after the flight window closed.
+    let ownsPadding = false;
     let collapsed = false;
     let lastKey = '';
 
@@ -185,10 +192,30 @@ export const FlightWindowControls = (() => {
         const style = document.createElement('style');
         style.id = 'fw-controls-styles';
         style.textContent = `
+            /* The same glass as the map's other buttons (the weather and ATC
+               bubbles, MobileLandingChromeUI): translucent, one hairline,
+               one soft shadow, and the system blue for "on". */
             .fw-controls {
                 position: absolute; z-index: 2099; display: flex; gap: 8px;
                 align-items: center; pointer-events: none; opacity: 0;
                 transition: opacity .22s ease;
+                --fw-bg: rgba(30, 30, 32, 0.55);
+                --fw-stroke: rgba(255, 255, 255, 0.14);
+                --fw-text: #ffffff;
+                --fw-hover: rgba(255, 255, 255, 0.08);
+                --fw-accent: #0a84ff;
+                --fw-on: rgba(10, 132, 255, 0.28);
+                --fw-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
+            }
+            .fw-controls[data-theme="light"] {
+                --fw-bg: rgba(245, 245, 247, 0.72);
+                --fw-stroke: rgba(0, 0, 0, 0.08);
+                --fw-text: #000000;
+                --fw-hover: rgba(0, 0, 0, 0.05);
+                --fw-accent: #007aff;
+                --fw-on: rgba(0, 122, 255, 0.16);
+                --fw-shadow: 0 4px 18px rgba(0, 0, 0, 0.10);
             }
             .fw-controls.vertical { flex-direction: column; }
             .fw-controls.horizontal.fw-left { flex-direction: row; }
@@ -201,11 +228,11 @@ export const FlightWindowControls = (() => {
             .fw-controls.shown { pointer-events: auto; }
             .fw-controls.faded { pointer-events: none; }
             .fw-controls .fw-glass {
-                background: linear-gradient(135deg, var(--iw-bg-start, rgba(30,34,42,.72)), var(--iw-bg-end, rgba(18,20,26,.72)));
-                backdrop-filter: blur(24px) saturate(160%);
-                -webkit-backdrop-filter: blur(24px) saturate(160%);
-                border: 1px solid var(--border-glass, rgba(255,255,255,.12));
-                box-shadow: 0 8px 24px rgba(0,0,0,.35);
+                background: var(--fw-bg);
+                backdrop-filter: saturate(180%) blur(30px);
+                -webkit-backdrop-filter: saturate(180%) blur(30px);
+                border: 0.5px solid var(--fw-stroke);
+                box-shadow: var(--fw-shadow);
             }
             .fw-controls .fw-stack {
                 display: flex; flex-direction: column; align-items: center;
@@ -216,7 +243,7 @@ export const FlightWindowControls = (() => {
             }
             .fw-controls button {
                 appearance: none; border: 0; background: transparent; cursor: pointer;
-                color: var(--text-primary, #fff); display: flex; align-items: center;
+                color: var(--fw-text); display: flex; align-items: center;
                 justify-content: center; padding: 0; font: inherit;
             }
             .fw-controls .fw-row {
@@ -228,10 +255,11 @@ export const FlightWindowControls = (() => {
                 background: transparent; transition: background .18s ease;
             }
             .fw-controls .fw-row > * { position: relative; }
-            .fw-controls .fw-row:hover::before { background: rgba(255,255,255,.08); }
+            .fw-controls .fw-row:hover::before { background: var(--fw-hover); }
+            .fw-controls .fw-row:active { transform: scale(0.92); }
             /* On is a wash of colour, not a block of it. */
-            .fw-controls .fw-row.on::before { background: rgba(56,189,248,.24); }
-            .fw-controls .fw-row.on { color: #7dd3fc; }
+            .fw-controls .fw-row.on::before { background: var(--fw-on); }
+            .fw-controls .fw-row.on { color: var(--fw-accent); }
             .fw-controls .fw-collapse { width: ${WIDTH}px; height: 22px; font-size: 11px; opacity: .7; }
             .fw-controls.horizontal .fw-collapse { width: 22px; height: ${WIDTH}px; }
             .fw-controls .fw-collapse:hover { opacity: 1; }
@@ -239,7 +267,9 @@ export const FlightWindowControls = (() => {
                 width: ${WIDTH}px; height: ${WIDTH}px; border-radius: 50%;
                 font: 800 14px/1 ui-rounded, system-ui, sans-serif; letter-spacing: .02em;
             }
-            .fw-controls .fw-models.on { color: #7dd3fc; }
+            .fw-controls .fw-models:active { transform: scale(0.92); }
+            /* 3D on is the map's other "on" bubble: filled with the accent. */
+            .fw-controls .fw-models.on { background: var(--fw-accent); border-color: transparent; color: #fff; }
             .fw-controls [hidden] { display: none !important; }
             .fw-controls .fw-compass svg { transition: transform .12s linear; }
         `;
@@ -466,6 +496,7 @@ export const FlightWindowControls = (() => {
         const pitch = Math.min(Math.max(map.getPitch(), 62), FOLLOW_TILT_LIMIT);
         const limit = chaseZoomLimit(plane, pitch);
         map.setMaxZoom(Math.max(limit, map.getZoom()));
+        ownsPadding = true;
         map.easeTo({
             center: aimAt(ahead(plane, 0.9), plane[2], pitch), bearing: plane[2], pitch,
             zoom: limit - 0.2, padding: freePadding(),
@@ -649,6 +680,7 @@ export const FlightWindowControls = (() => {
         const zoomed = zoom != null && Math.abs(map.getZoom() - zoom) >= 1e-4;
         if (!padMoved && !turned && !zoomed && !moved) return;
         const opts = { center: target, padding };
+        ownsPadding = true;
         if (bearing != null) opts.bearing = bearing;
         if (zoomed) opts.zoom = Math.min(zoom, map.getMaxZoom());
         map.jumpTo(opts);
@@ -885,8 +917,12 @@ export const FlightWindowControls = (() => {
         // down flat.
         if (on && map.getPitch() < 40) map.easeTo({ pitch: 55, duration: 700 });
         if (!on) {
+            // Flat again: level, north up, and the whole map back in the
+            // middle of the screen.
             setChasing(false);
-            if (map.getPitch() > 0) map.easeTo({ pitch: 0, duration: 700 });
+            const opts = { pitch: 0, bearing: 0, duration: 700 };
+            if (!following) { opts.padding = NO_PADDING; ownsPadding = false; }
+            map.easeTo(opts);
         }
         lastKey = '';
     }
@@ -903,6 +939,7 @@ export const FlightWindowControls = (() => {
         const padding = freePadding();
         if (force) {
             settle = null;
+            ownsPadding = true;
             map.easeTo({ center: aimAt(ahead(plane, 0.8), map.getBearing(), map.getPitch()), padding, duration: 800, essential: true });
             return;
         }
@@ -916,8 +953,23 @@ export const FlightWindowControls = (() => {
 
     // --- Every frame -------------------------------------------------------
 
+    const NO_PADDING = { top: 0, bottom: 0, left: 0, right: 0 };
+
+    // The camera has let go of the aeroplane: the map's padding put back, so
+    // the map is centred on the screen again rather than on the gap the
+    // window left.
+    function releasePadding() {
+        if (!ownsPadding || following || chasing || map.isMoving()) return;
+        ownsPadding = false;
+        const p = map.getPadding();
+        if (['top', 'bottom', 'left', 'right'].some((k) => (p[k] || 0) !== 0)) {
+            map.easeTo({ padding: NO_PADDING, duration: 500, essential: true });
+        }
+    }
+
     function tick() {
         frame = requestAnimationFrame(tick);
+        releasePadding();
         const win = host.windowEl();
         const id = host.selected();
         const up = id != null && isWindowUp(win);
@@ -1017,6 +1069,13 @@ export const FlightWindowControls = (() => {
             }
         }
 
+        // The map chrome's light or dark, so these sit with its buttons.
+        const chrome = document.querySelector('.ios-chrome[data-theme]');
+        const theme = chrome ? chrome.getAttribute('data-theme') : 'dark';
+        if (root.getAttribute('data-theme') !== theme) {
+            root.setAttribute('data-theme', theme);
+            leftRoot.setAttribute('data-theme', theme);
+        }
         const vertical = layout !== 'horizontal';
         const key = [up, turned, collapsed, modelsOn, pathOn, following, chasing, layout, leftLayout, actionSig].join('|');
         if (key !== lastKey) {
