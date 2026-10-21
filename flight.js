@@ -17663,6 +17663,7 @@ function initializeAircraftLayer() {
             flownLayer: (id) => flownPathLayerIds(id).flown,
             haloLayer: (id) => flownPathLayerIds(id).flownGlow,
             companions: (id) => [flownPathLayerIds(id).flownGlow, flownPathLayerIds(id).inferred],
+            stopShort: (id) => (AircraftEngine.isVisible() ? AircraftEngine.pathStopOf(id) : 0),
             anchor: () => getUnderAircraftAnchor()
         });
 

@@ -49,6 +49,7 @@
  *                              coords, colour, heights, sea }] }, or null
  *     pathOn()              -> whether the flown path is shown
  *   setVisible(on), isVisible(), refresh(), hitTest({x, y}) -> flightId|null
+ *   heightOf(id), pathStopOf(id) -> metres
  * ===================================================================
  */
 
@@ -722,6 +723,9 @@ void main() {
             const length = s.geometry.length;
             const mag = magnification(length, ppm, lat, heightM);
             const screenLength = length * mag * ppm;
+            // How long it is drawn, and when (see lengthOf).
+            tr.drawnLength = length * mag;
+            tr.drawnAt = t;
             const margin = screenLength * 0.6 + 8;
             if (centre[0] < -margin || centre[0] > width + margin || centre[1] < -margin || centre[1] > height + margin) continue;
 
@@ -765,10 +769,17 @@ void main() {
             if (gearDown) batch.gearList.push(entry);
 
             nextDrawn.push({ id: tr.id, x: centre[0], y: centre[1], r: Math.max(screenLength * 0.5, 10) });
-            // The open aircraft's path ends on the middle of the model as it
-            // is drawn on this frame, however large that is.
+            // The open aircraft's path comes up behind the model as it is
+            // drawn on this frame, however large that is: its middle, the
+            // way aft along the fuselage (model +Z, in east, north and up),
+            // and its length.
             if (tr.id === selectedId) {
-                head = { lon, lat, heading, alt: alt + (s.geometry.height || 0) * mag * 0.5, ground };
+                head = {
+                    lon, lat, heading, ground,
+                    alt: alt + (s.geometry.height || 0) * mag * 0.5,
+                    aft: [R[2], R[5], R[8]],
+                    length: length * mag
+                };
             }
             if (!att.onGround || att.speedKt > 3) fastest = Math.max(fastest, att.speedKt * KT * ppm);
         }
@@ -853,6 +864,15 @@ void main() {
     const PATH_HALO_PX = 7;
     const PATH_HALO = [0.03, 0.05, 0.09, 0.55];
     const PATH_CURTAIN = 0.24;
+    // Where the path stops behind the aeroplane, and how long it takes to
+    // fade out before it gets there, in lengths of the model as drawn: a gap
+    // past the tail, so the path and the aeroplane read as two things.
+    const PATH_TAIL_GAP = 0.35;
+    const PATH_TAIL_FADE = 1.6;
+    // Breadcrumbs further than this past where the path stops are a
+    // different place (a respawn), not ones the aeroplane is about to reach.
+    const PATH_AHEAD_MAX_M = 8000;
+    const M_PER_DEG = 111320;
     let pathCache = null;   // { path, pts }
     let pathMesh = null;    // { mesh, geometry, materials }
 
@@ -958,9 +978,44 @@ void main() { gl_FragColor = vColor; }`;
         const globe = !!(PG && phase < 1);
 
         // On to the aeroplane, when it is drawn on this frame: the last run
-        // is extended to the middle of the model (iOS AircraftPathMesh).
-        const count = pts.length;
-        const n = count + (head ? 1 : 0);
+        // carries on straight towards a point a little behind the model's
+        // tail, fading out over the last stretch before it, so the path
+        // never runs into or over the aeroplane. Breadcrumbs past that point
+        // (the live fix the aeroplane is still gliding up to) are left off.
+        let count = pts.length;
+        let tail = [];
+        let stop = null, fadeM = 0;
+        if (head) {
+            const at = (m) => {
+                const cosLat = Math.max(Math.cos(head.lat * DEG), 0.01);
+                return {
+                    lon: head.lon + head.aft[0] * m / (M_PER_DEG * cosLat),
+                    lat: head.lat + head.aft[1] * m / M_PER_DEG,
+                    alt: head.alt + head.aft[2] * m,
+                    ground: head.ground
+                };
+            };
+            const stopM = head.length * (0.5 + PATH_TAIL_GAP);
+            fadeM = head.length * PATH_TAIL_FADE;
+            stop = at(stopM);
+            // Forward, level: the way the nose points over the ground.
+            const fe = -head.aft[0], fn = -head.aft[1];
+            const fl = Math.hypot(fe, fn) || 1;
+            const cosLat = Math.max(Math.cos(stop.lat * DEG), 0.01);
+            while (count > 0) {
+                const p = pts[count - 1];
+                const e = (((p.lon - stop.lon + 540) % 360) - 180) * M_PER_DEG * cosLat;
+                const nn = (p.lat - stop.lat) * M_PER_DEG;
+                if ((e * fe + nn * fn) / fl <= 0 || Math.hypot(e, nn) > PATH_AHEAD_MAX_M) break;
+                count--;
+            }
+            // Where the fade begins: on the way from the path's last point
+            // to the stop, the fade's length short of it (worked out below,
+            // once that point's height is known), or straight behind the
+            // aeroplane when there is no path before it at all.
+            tail = [count ? null : { ...at(stopM + fadeM), a: 1 }, { ...stop, a: 0 }];
+        }
+        let n = count + tail.length;
         if (n < 1) { hidePath(); return; }
         growScratch(n);
         const { top, bot, alt, gnd, kept, pos, col, idx } = scratch;
@@ -994,9 +1049,39 @@ void main() { gl_FragColor = vColor; }`;
                 gnd[i] = 0;
             }
         }
-        if (head) { alt[count] = head.alt; gnd[count] = head.ground; }
-        const lonOf = (i) => (i < count ? pts[i].lon : head.lon);
-        const latOf = (i) => (i < count ? pts[i].lat : head.lat);
+        if (tail.length && !tail[0]) {
+            // Back along the path from the stop until the fade's length is
+            // used up; the points inside it give way to the straight fade.
+            let prev = { lon: stop.lon, lat: stop.lat, alt: stop.alt, ground: stop.ground };
+            let left = fadeM, from = null;
+            while (count > 0) {
+                const p = pts[count - 1];
+                const cosLat = Math.max(Math.cos(prev.lat * DEG), 0.01);
+                const dLon = ((p.lon - prev.lon + 540) % 360) - 180;
+                const e = dLon * M_PER_DEG * cosLat, nn = (p.lat - prev.lat) * M_PER_DEG, u = alt[count - 1] - prev.alt;
+                const d = Math.hypot(e, nn, u);
+                const here = { lon: prev.lon + dLon, lat: p.lat, alt: alt[count - 1], ground: gnd[count - 1] };
+                if (d >= left) {
+                    const k = left / d;
+                    from = {
+                        lon: prev.lon + dLon * k, lat: prev.lat + (here.lat - prev.lat) * k,
+                        alt: prev.alt + u * k, ground: prev.ground + (here.ground - prev.ground) * k
+                    };
+                    break;
+                }
+                left -= d;
+                prev = here;
+                count--;
+            }
+            tail[0] = { ...(from || prev), a: 1 };
+            n = count + tail.length;
+        }
+        tail.forEach((q, k) => { alt[count + k] = q.alt; gnd[count + k] = q.ground; });
+        const lonOf = (i) => (i < count ? pts[i].lon : tail[i - count].lon);
+        const latOf = (i) => (i < count ? pts[i].lat : tail[i - count].lat);
+        // How much of the path is left at each point: all of it, but for the
+        // fade behind the aeroplane.
+        const shareOf = (i) => (i < count ? 1 : tail[i - count].a);
 
         // A point at an altitude to NDC, through each world, blended after the
         // divide as the models are, into out[o..o+2] (and pixels into
@@ -1005,8 +1090,9 @@ void main() { gl_FragColor = vColor; }`;
             const p = i < count ? pts[i] : null;
             let mx, my, sm;
             if (p) { mx = p.mx; my = p.my; sm = p.sm; } else {
-                const lat = Math.min(Math.max(head.lat, -85), 85);
-                mx = (head.lon + 180) / 360;
+                const q = tail[i - count];
+                const lat = Math.min(Math.max(q.lat, -85), 85);
+                mx = (q.lon + 180) / 360;
                 my = (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + lat * DEG / 2))) / 360;
                 sm = 1 / (CIRCUMFERENCE * Math.cos(lat * DEG));
             }
@@ -1084,15 +1170,16 @@ void main() { gl_FragColor = vColor; }`;
             const ox = 2 * nx / width, oy = -2 * ny / height;
             const x = top[o], y = top[o + 1], z = top[o + 2];
             const c = i < count ? pts[i].colour : (count ? pts[count - 1].colour : [0.22, 0.74, 0.97]);
+            const share = shareOf(i);
             const v = k * 6;
             const H = PATH_HALO;
-            put(v, x + ox * hx, y + oy * hx, z, H[0], H[1], H[2], H[3]);
-            put(v + 1, x - ox * hx, y - oy * hx, z, H[0], H[1], H[2], H[3]);
-            put(v + 2, x + ox * lx, y + oy * lx, z, c[0], c[1], c[2], 1);
-            put(v + 3, x - ox * lx, y - oy * lx, z, c[0], c[1], c[2], 1);
+            put(v, x + ox * hx, y + oy * hx, z, H[0], H[1], H[2], H[3] * share);
+            put(v + 1, x - ox * hx, y - oy * hx, z, H[0], H[1], H[2], H[3] * share);
+            put(v + 2, x + ox * lx, y + oy * lx, z, c[0], c[1], c[2], share);
+            put(v + 3, x - ox * lx, y - oy * lx, z, c[0], c[1], c[2], share);
             if (project(i, gnd[i], bot, k * 3, false)) {
                 hasBottom[k] = true;
-                put(v + 4, x, y, z, c[0], c[1], c[2], PATH_CURTAIN);
+                put(v + 4, x, y, z, c[0], c[1], c[2], PATH_CURTAIN * share);
                 put(v + 5, bot[k * 3], bot[k * 3 + 1], bot[k * 3 + 2], c[0], c[1], c[2], 0);
             }
         }
@@ -1271,6 +1358,17 @@ void main() { gl_FragColor = vColor; }`;
         return Number.isFinite(tr.drawnHeight) ? tr.drawnHeight : tr.attitude.heightMetres(now());
     }
 
+    /**
+     * How far behind its middle the open path stops for a flight drawn as a
+     * model, in metres — its tail and the gap past it — or 0 when it was not
+     * drawn on the last few frames.
+     */
+    function pathStopOf(id) {
+        const tr = tracks.get(String(id));
+        if (!visible || !tr || !(tr.drawnLength > 0) || now() - (tr.drawnAt || 0) > 0.5) return 0;
+        return tr.drawnLength * (0.5 + PATH_TAIL_GAP);
+    }
+
     /** The flight drawn under a screen point, nearest first, or null. */
     function hitTest(point) {
         if (!visible || !point) return null;
@@ -1285,5 +1383,5 @@ void main() { gl_FragColor = vColor; }`;
     // Exposed for tests.
     const _internals = { magnification, farLength, attitudeMatrix, Attitude };
 
-    return { init, setVisible, isVisible, refresh, hitTest, heightOf, _internals };
+    return { init, setVisible, isVisible, refresh, hitTest, heightOf, pathStopOf, _internals };
 })();

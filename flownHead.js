@@ -23,6 +23,9 @@
  *     flownLayer(id)    the flight's flown-path layer id
  *     companions(id)    the path's other layer ids, shown and hidden with it
  *     haloLayer(id)     the flight's flown-path halo layer id
+ *     stopShort(id)     metres behind the aeroplane to stop at (the tail of
+ *                       its 3D model and a gap past it), or 0 to run on to
+ *                       its middle
  *     anchor()          the layer id to draw the head under
  *   }
  *   noteEnd(id, end)    where the path built for `id` ends: { lon, lat,
@@ -102,8 +105,25 @@ export const FlownHead = (() => {
             }
         }
 
-        const pose = host.pose(id);
+        let pose = host.pose(id);
         if (!end || end.id !== String(id) || !pose || vis === 'none') { clear(); return; }
+
+        // Short of a 3D aeroplane, behind its tail, as the path in the air
+        // stops (aircraftEngine.js) — or nothing, when the path already ends
+        // closer to it than that.
+        const back = host.stopShort ? host.stopShort(id) : 0;
+        if (back > 0) {
+            const h = (Number(pose[2]) || 0) * DEG2RAD;
+            const cosLat = Math.max(Math.cos(pose[1] * DEG2RAD), 0.01);
+            const north = (pose[1] - end.lat) * M_PER_DEG;
+            const east = (((pose[0] - end.lon + 540) % 360) - 180) * M_PER_DEG * cosLat;
+            if (north * Math.cos(h) + east * Math.sin(h) <= back) { clear(); return; }
+            pose = [
+                pose[0] - Math.sin(h) * back / (M_PER_DEG * cosLat),
+                pose[1] - Math.cos(h) * back / M_PER_DEG,
+                pose[2]
+            ];
+        }
         ensureLayers();
 
         // Drawn as the path it grows from is.
