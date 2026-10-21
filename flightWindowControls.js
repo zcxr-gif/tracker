@@ -134,6 +134,28 @@ export const FlightWindowControls = (() => {
     // flown to; null once there.
     let zoomTarget = null;
     let zoomT = 0;
+    // A pinch asks for its distance outright, under the fingers; the wheel's
+    // is eased to.
+    let zoomDirect = false;
+    // The camera's distance from the aeroplane (log2 metres), held from frame
+    // to frame while following, so a tilt or a climb does not swing the
+    // zoom; null when it is to be read afresh from the map (after a move).
+    let heldDist = null;
+    // A two-finger pinch or twist while following, taken over from Mapbox:
+    // { span, angle } of the fingers last seen. `ownTouches` while any finger
+    // of it is still down.
+    let pinch = null;
+    let ownTouches = false;
+    // Pointers down on the map. Every frame's jump would cancel Mapbox's
+    // drag before it began, and a drag is how a follow is let go of: so
+    // while one is down, the follow (without the lock-on) waits to see.
+    const pressed = new Set();
+    // A twist while following without the lock-on, still to be turned.
+    let followTurn = 0;
+    // Following, the tilt is held to this (iOS followTiltLimit): further
+    // over, the map's centre runs off a hundred kilometres beyond an
+    // aeroplane at cruise and the slightest move swings the view about.
+    const FOLLOW_TILT_LIMIT = 75;
     // The open aeroplane's velocity as it is drawn, in degrees a second, for
     // aiming a glide at where it will be when the glide lands.
     let track = null;   // { id, lon, lat, t, vLon, vLat }
@@ -441,7 +463,7 @@ export const FlightWindowControls = (() => {
         // close to it: just short of the nearest the camera may come. The
         // limit is set before the move, so the move is never cut short by it.
         chaseOffset = 0;
-        const pitch = Math.max(map.getPitch(), 62);
+        const pitch = Math.min(Math.max(map.getPitch(), 62), FOLLOW_TILT_LIMIT);
         const limit = chaseZoomLimit(plane, pitch);
         map.setMaxZoom(Math.max(limit, map.getZoom()));
         map.easeTo({
@@ -509,8 +531,12 @@ export const FlightWindowControls = (() => {
         if (!plane) return;
         chaseOffset = norm(chaseOffset - dx * 0.35);
         const bearing = (chaseHeading === null ? plane[2] : chaseHeading) + chaseOffset;
-        const pitch = Math.min(Math.max(map.getPitch() - dy * 0.3, 0), 85);
-        map.jumpTo({ center: aimAt(plane, bearing, pitch), bearing, pitch, padding: freePadding() });
+        const pitch = Math.min(Math.max(map.getPitch() - dy * 0.3, 0), FOLLOW_TILT_LIMIT);
+        const opts = { center: aimAt(plane, bearing, pitch), bearing, pitch, padding: freePadding() };
+        // At the same distance from it: leaning the camera over must not
+        // also fly it in or out.
+        if (heldDist != null) opts.zoom = Math.min(zoomForDistance(plane, Math.pow(2, heldDist), pitch), map.getMaxZoom());
+        map.jumpTo(opts);
     }
 
     function onOrbitEnd(e) {
@@ -703,15 +729,94 @@ export const FlightWindowControls = (() => {
     function setZoomLock(on) {
         if (!!on === !!zoomLock) return;
         zoomTarget = null;
+        zoomDirect = false;
+        heldDist = null;
+        pinch = null;
+        followTurn = 0;
         if (on) {
-            zoomLock = { maxZoom: map.getMaxZoom(), touchZoomRotate: map.touchZoomRotate.isEnabled() };
+            zoomLock = {
+                maxZoom: map.getMaxZoom(),
+                maxPitch: map.getMaxPitch(),
+                touchZoomRotate: map.touchZoomRotate.isEnabled()
+            };
             if (zoomLock.touchZoomRotate) map.touchZoomRotate.enable({ around: 'center' });
+            map.setMaxPitch(Math.min(zoomLock.maxPitch, FOLLOW_TILT_LIMIT));
         } else {
             const z = zoomLock;
             zoomLock = null;
             if (z.touchZoomRotate) map.touchZoomRotate.enable();
             map.setMaxZoom(z.maxZoom);
+            map.setMaxPitch(z.maxPitch);
         }
+    }
+
+    // The distance the camera is being held at, or is on its way to.
+    function wantedDistance(plane) {
+        if (zoomTarget != null) return zoomTarget;
+        if (heldDist != null) return heldDist;
+        return Math.log2(Math.max(distanceAtZoom(plane, map.getZoom()), closestDistance(plane)));
+    }
+
+    // How near and how far the camera may be asked to go (log2 metres).
+    function distanceRange(plane) {
+        const near = Math.log2(closestDistance(plane));
+        const far = Math.log2(Math.max(distanceAtZoom(plane, Math.max(map.getMinZoom(), 2)), closestDistance(plane) * 2));
+        return [near, far];
+    }
+
+    // --- A pinch while following -----------------------------------------
+    //
+    // Taken over from Mapbox, whose pinch zooms in its own zoom steps — and
+    // close to an aeroplane in the air the whole way from far off to
+    // alongside it is under one of those, so the slightest pinch flung the
+    // camera in or out — and whose pinch stops the follow while it lasts.
+    // Here spreading the fingers brings the camera closer by the share they
+    // spread, and a twist turns it round the aeroplane, which stays held in
+    // the middle all the while.
+
+    function fingers(touches) {
+        const a = touches[0], b = touches[1];
+        return {
+            span: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+            angle: Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX) * 180 / Math.PI
+        };
+    }
+
+    function onTouchStart(e) {
+        if (ownTouches) { e.preventDefault(); e.stopPropagation(); }
+        if (!following || !zoomLock || host.selected() == null || e.touches.length < 2) return;
+        ownTouches = true;
+        orbit = null;
+        pinch = fingers(e.touches);
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function onTouchMove(e) {
+        if (!ownTouches) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!pinch || e.touches.length < 2) return;
+        const plane = host.aircraft(host.selected());
+        if (!plane) return;
+        const now = fingers(e.touches);
+        if (now.span > 0 && pinch.span > 0) {
+            const [near, far] = distanceRange(plane);
+            zoomTarget = Math.min(Math.max(wantedDistance(plane) + Math.log2(pinch.span / now.span), near), far);
+            zoomDirect = true;
+        }
+        // The map turns with the fingers.
+        const turn = norm(now.angle - pinch.angle);
+        if (chasing) chaseOffset = norm(chaseOffset - turn);
+        else followTurn -= turn;
+        pinch = now;
+    }
+
+    // Let through, so Mapbox lets go of any touch it was holding.
+    function onTouchEnd(e) {
+        if (!ownTouches) return;
+        if (e.touches.length < 2) pinch = null;
+        if (e.touches.length === 0) ownTouches = false;
     }
 
     // The wheel, while following: the camera moves towards or away from the
@@ -725,25 +830,32 @@ export const FlightWindowControls = (() => {
         e.preventDefault();
         e.stopPropagation();
         const px = e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1);
-        const near = Math.log2(closestDistance(plane));
-        const far = Math.log2(Math.max(distanceAtZoom(plane, Math.max(map.getMinZoom(), 2)), closestDistance(plane) * 2));
-        const from = zoomTarget != null ? zoomTarget
-            : Math.log2(Math.max(distanceAtZoom(plane, map.getZoom()), closestDistance(plane)));
-        zoomTarget = Math.min(Math.max(from + px * (e.ctrlKey ? PINCH_LOG2_PER_PX : WHEEL_LOG2_PER_PX), near), far);
+        const [near, far] = distanceRange(plane);
+        zoomTarget = Math.min(Math.max(wantedDistance(plane) + px * (e.ctrlKey ? PINCH_LOG2_PER_PX : WHEEL_LOG2_PER_PX), near), far);
+        zoomDirect = false;
     }
 
-    // This frame's zoom on the way to the distance the wheel asked for, or
-    // undefined when there is nowhere to go.
+    // This frame's zoom: the camera held at its distance from the aeroplane,
+    // on its way to the one the wheel or a pinch asked for, and never nearer
+    // than the closest approach.
     function zoomStep(plane) {
         const now = performance.now();
         const dt = Math.min(Math.max((now - zoomT) / 1000, 0), 0.1);
         zoomT = now;
-        if (zoomTarget == null) return undefined;
-        const at = Math.log2(Math.max(distanceAtZoom(plane, map.getZoom()), 1));
-        const gap = zoomTarget - at;
-        if (Math.abs(gap) < 0.003) { zoomTarget = null; return undefined; }
-        const next = at + gap * (1 - Math.exp(-dt / ZOOM_TAU));
-        return zoomForDistance(plane, Math.pow(2, next));
+        const near = Math.log2(closestDistance(plane));
+        if (heldDist == null) heldDist = Math.log2(Math.max(distanceAtZoom(plane, map.getZoom()), closestDistance(plane)));
+        if (zoomTarget != null) {
+            const gap = Math.max(zoomTarget, near) - heldDist;
+            if (zoomDirect || Math.abs(gap) < 0.003) {
+                heldDist += gap;
+                zoomTarget = null;
+                zoomDirect = false;
+            } else {
+                heldDist += gap * (1 - Math.exp(-dt / ZOOM_TAU));
+            }
+        }
+        heldDist = Math.max(heldDist, near);
+        return zoomForDistance(plane, Math.pow(2, heldDist));
     }
 
     // Every frame while the camera is locked on: the aeroplane back in the
@@ -758,7 +870,7 @@ export const FlightWindowControls = (() => {
         const heading = smoothHeading(plane[2]);
         if (map.isMoving() || orbit) {
             settle = null;
-            if (!orbit) chaseOffset = norm(map.getBearing() - heading);
+            if (!orbit) { chaseOffset = norm(map.getBearing() - heading); heldDist = null; }
             return;
         }
         const want = heading + chaseOffset;
@@ -795,8 +907,11 @@ export const FlightWindowControls = (() => {
             return;
         }
         limitZoom(plane);
-        if (map.isMoving()) { settle = null; return; }
-        holdAt(settled(aimAt(plane, map.getBearing(), map.getPitch())), padding, undefined, zoomStep(plane));
+        if (map.isMoving() || (pressed.size && !ownTouches)) { settle = null; heldDist = null; return; }
+        const bearing = followTurn ? map.getBearing() + followTurn : undefined;
+        followTurn = 0;
+        const aim = aimAt(plane, bearing != null ? bearing : map.getBearing(), map.getPitch());
+        holdAt(settled(aim), padding, bearing, zoomStep(plane));
     }
 
     // --- Every frame -------------------------------------------------------
@@ -987,7 +1102,16 @@ export const FlightWindowControls = (() => {
         host = h;
         build();
         // Ahead of Mapbox's own wheel handler, which listens further in.
-        map.getCanvasContainer().addEventListener('wheel', onWheel, { capture: true, passive: false });
+        const el = map.getCanvasContainer();
+        el.addEventListener('wheel', onWheel, { capture: true, passive: false });
+        el.addEventListener('touchstart', onTouchStart, { capture: true, passive: false });
+        el.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+        el.addEventListener('touchend', onTouchEnd, { capture: true });
+        el.addEventListener('touchcancel', onTouchEnd, { capture: true });
+        el.addEventListener('pointerdown', (e) => pressed.add(e.pointerId), { capture: true });
+        for (const type of ['pointerup', 'pointercancel']) {
+            window.addEventListener(type, (e) => pressed.delete(e.pointerId), { capture: true });
+        }
         // Dragging the map away is letting go of the aeroplane.
         map.on('dragstart', () => {
             if (following) { following = false; setChasing(false); lastKey = ''; }
