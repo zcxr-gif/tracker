@@ -25,9 +25,10 @@ The frontend logic lives in `flight.js → fetchApiKeys()`:
    `POST {API_BASE_URL}/api/maploads/hit?limit=40000&pro=<0|1>` on the
    aircraft-images backend, passing whether the current user is **Pro**. If the
    response says `useFreeMap: true`, it switches.
-3. If that endpoint is missing/unreachable, or takes longer than 1.5 s to
-   answer (`MAP_QUOTA_WAIT_MS`), it **fails open** and stays on Mapbox — the
-   counter never breaks the map, and never holds it back. The request is sent
+3. If that endpoint is missing/unreachable, or has not answered after 15 s
+   (`MAP_QUOTA_WAIT_MS`), it **fails open** and stays on Mapbox — the counter
+   never breaks the map. A slow answer is waited for: it is what keeps the
+   month inside the free tier. The request is sent
    alongside the config fetch, not after it — so while the Netlify kill-switch
    is on, sessions are still counted even though they don't load Mapbox.
 

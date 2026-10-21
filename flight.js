@@ -1332,21 +1332,32 @@ window.pinFlight = function(flightId) {
         Object.values(FREE_MAP_STYLES).filter((def) => def !== first && needs(def)).forEach(probe);
         if (needs(first)) await probe(first);
     }
-    function loadFreeMapEngine() {
-        return new Promise((resolve, reject) => {
-            if (window.maplibregl) return resolve();
-            const css = document.createElement('link');
-            css.rel = 'stylesheet';
-            css.href = `https://cdn.jsdelivr.net/npm/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
-            document.head.appendChild(css);
-            const js = document.createElement('script');
-            // jsDelivr, already connected to for supabase-js, rather than
-            // unpkg: one fewer host to reach before the map can start.
-            js.src = `https://cdn.jsdelivr.net/npm/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
-            js.onload = () => resolve();
-            js.onerror = () => reject(new Error('Failed to load MapLibre GL JS.'));
-            document.head.appendChild(js);
-        });
+    // jsDelivr first, already connected to for supabase-js; unpkg if it
+    // fails, so one CDN having a bad moment does not cost the free map.
+    const MAPLIBRE_CDNS = [
+        `https://cdn.jsdelivr.net/npm/maplibre-gl@${MAPLIBRE_VERSION}/dist/`,
+        `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/`
+    ];
+    async function loadFreeMapEngine() {
+        for (const base of MAPLIBRE_CDNS) {
+            if (window.maplibregl) return;
+            try {
+                await new Promise((resolve, reject) => {
+                    const js = document.createElement('script');
+                    js.src = `${base}maplibre-gl.js`;
+                    js.onload = () => resolve();
+                    js.onerror = () => { js.remove(); reject(new Error(`MapLibre GL JS failed from ${base}`)); };
+                    document.head.appendChild(js);
+                });
+                const css = document.createElement('link');
+                css.rel = 'stylesheet';
+                css.href = `${base}maplibre-gl.css`;
+                document.head.appendChild(css);
+            } catch (e) {
+                console.warn(e.message);
+            }
+        }
+        if (!window.maplibregl) throw new Error('Failed to load MapLibre GL JS.');
     }
     // MapLibre emits .maplibregl-* popup/control classes; mirror the tracker's
     // Mapbox popup chrome onto them so free mode looks identical.
@@ -1402,10 +1413,11 @@ window.pinFlight = function(flightId) {
     // Fail OPEN: any error (endpoint not deployed, network, bad JSON) resolves
     // false so we stay on Mapbox rather than break the map when the counter is
     // unreachable.
-    // The map waits on this answer, so it is not waited on for long: a
-    // backend that has gone to sleep and takes seconds to wake would hold the
-    // whole map back. Past the limit it counts as "no" — the same fail-open.
-    const MAP_QUOTA_WAIT_MS = 1500;
+    // The answer is waited for: it is what keeps the month inside Mapbox's
+    // free tier, and the backend can take seconds to wake up — a short limit
+    // put everyone back on Mapbox whenever it did. Only a backend that has
+    // not answered at all after this long counts as "no" (fail-open).
+    const MAP_QUOTA_WAIT_MS = 15000;
     async function shouldUseFreeMapForQuota() {
         const ctl = typeof AbortController === 'function' ? new AbortController() : null;
         const timer = setTimeout(() => { if (ctl) ctl.abort(); }, MAP_QUOTA_WAIT_MS);
