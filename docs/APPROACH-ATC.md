@@ -183,18 +183,56 @@ The system works every position you don't. Its clearances show greyed in the
 log. You can't give clearances to aircraft on its frequencies, and its
 traffic doesn't count against you.
 
-- **Approach (system)**: sequences arrivals to a base point 16 NM out and
-  3 NM off the final, about 110 s apart (150 s behind a heavy). It holds
-  arrivals at their entry fix when the sequence is full, then turns them in
-  at 30° with "maintain until established, cleared ILS". It climbs
-  departures on runway heading until 3,500 ft above the field, then sends
-  them direct to their gate at the exit altitude. It approves weather
-  deviations.
+- **Approach (system)** works like a TRACON arrival manager:
+  - **Runways:** one flow at a time, no crossing runways at once. With
+    parallels, the outermost runway on each side lands and the ones inside
+    it depart, as at ATL, LAX or DEN. Side-by-side finals are flown 1,000 ft
+    apart (dependent parallels), and arrivals always take the runway on
+    their own side when one exists, so nobody turns in across another
+    final.
+  - **Finals planned from the terrain:** the join altitude clears every MVA
+    along the final, from the FAF out to 25 NM and 3 NM either side. The
+    intercept point is where the glideslope is above that altitude, and
+    never inside the approach gate plus 2 NM. The base point is 4 NM beside
+    the final for a 30° intercept, pushed further out when an aircraft
+    needs the miles to get down.
+  - **Sequencing by time:** each arrival books a threshold time, first come
+    first served, spaced by the radar or wake minimum plus 1.2 NM. Small
+    delays are absorbed with speed (180 to 250 kt, within the legal band).
+    Long ones go to a hold at the entry fix: a standard racetrack outside
+    the fix (on the field side above 14,000 ft, where the legs get longer),
+    stacked bottom-up. The lowest aircraft leaves first, the rest step down
+    behind it, and each leaves at the moment that makes its time.
+  - **Turn-in:** before clearing the ILS it checks the spacing by distance
+    to the threshold against everyone on that final, and the 1.5 NM
+    diagonal against a dependent parallel. If it's too tight, it extends
+    the downwind until there's room. On final it slows a follower whose gap
+    is closing, and breaks it out (a go-around, re-sequenced) before
+    spacing is lost.
+  - **Conflict probe:** every 2 s it projects everything airborne 2 minutes
+    ahead. When one of its own aircraft would lose radar or wake
+    separation, it stops that aircraft at an altitude 1,000 ft clear of the
+    other's whole climb or descent, never below the MVA 4 minutes ahead. It
+    holds that altitude until 30 s after the conflict clears, so it never
+    flip-flops.
+  - **Terrain safety net:** anything it controls that will be below the
+    MVA within 3 minutes on its heading climbs immediately. Missed
+    approaches climb clear of the terrain along runway heading and go back
+    to Approach. Weather deviations are approved with an altitude that
+    clears the terrain on the new heading.
+  - **Departures:** climb on the diverging heading Tower gave them until
+    above every arrival join altitude and the terrain toward their gate,
+    then go direct to the gate at its exit altitude.
 - **Tower (system)**: clears arrivals to land inside 8 NM. It clears a
-  departure for takeoff when the runway is empty, no arrival is inside
-  4 NM, the wake interval has passed, and the last departure from that
-  runway left 75 s ago or more. It approves runway crossings when the
-  runway is clear.
+  departure for takeoff when all of these hold:
+  - the runway is empty and no arrival is inside 4 NM;
+  - the wake interval has passed;
+  - 100 s have passed since the last takeoff clearance on that runway, and
+    60 s since any.
+
+  Each departure gets a heading 20° away from the other departure runways,
+  or alternating sides off a lone runway (7110.65 5-8-3 diverging
+  departures). It approves runway crossings when the runway is clear.
 - **Ground (system)**: approves pushback when the pilot calls ready, and
   taxis departures to the runway and arrivals to their gate.
 
@@ -220,8 +258,15 @@ B, K, hold short of runway 13L/31R"*.
 - Anything on a runway while another aircraft takes off or lands on it is a
   **runway incursion** (−30 if you work Tower). The exception is lining up
   and waiting behind a departure that is already rolling.
-- With no taxi map (Overpass down, or a field OSM hasn't mapped), the
-  Ground position is unavailable. Departures then start at the runway, and
+- The taxi map is fetched three ways at once and the fullest answer is
+  kept: a whole-airport query to three Overpass servers, plus the live
+  map's own request. The log says what came back, e.g. "Surface: 412
+  taxiway segments, 96 gates, holding points at 8 of 8 runway ends".
+  Gates up to about 650 m from a taxiway are connected. With no usable
+  gates, stands go on the aprons or at dead-end taxilanes.
+- With no taxi map at all (every server down, or a field OSM hasn't
+  mapped), the log and a banner say why and the Ground position is
+  unavailable. Departures then start at the runway, and
   arrivals leave the scope on landing.
 
 Scoring by position:

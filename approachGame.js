@@ -220,12 +220,36 @@ function buildWorld(p) {
     };
 }
 
+/**
+ * Active runways for a wind, the way a busy field runs them: one flow (the
+ * best-into-wind runway and its parallels, no crossing runways at once).
+ * The outermost parallel on each side lands and the ones inside it depart,
+ * as at ATL, LAX or DEN; a lone runway (or one close pair) does both.
+ */
 function computeActive(world, wind) {
     const head = e => Math.cos(diff(e.course, wind.dir) * D2R);
-    const best = Math.max(...world.ends.map(head));
-    const arr = world.ends.filter(e => head(e) >= best - 0.12);
-    const dep = [...arr].sort((a, b) => b.len - a.len).slice(0, 2);
-    return { arr, dep, key: arr.map(e => e.id).join(' ') };
+    const best = world.ends.reduce((b, e) => (head(e) > head(b) + 0.02 || (Math.abs(head(e) - head(b)) <= 0.02 && e.len > b.len) ? e : b));
+    const family = world.ends.filter(e => Math.abs(diff(e.course, best.course)) < 10 && e.len >= 1.2);
+    if (!family.includes(best)) family.push(best);
+    // Order across the field, left to right looking along the flow.
+    const c = best.course * D2R;
+    const lateral = e => (e.thr.x - best.thr.x) * Math.cos(c) - (e.thr.y - best.thr.y) * Math.sin(c);
+    family.sort((a, b) => lateral(a) - lateral(b));
+    // Runways within 2,500 ft are one for spacing; count distinct lanes.
+    const lanes = [];
+    for (const e of family) { const l = lanes.find(l => l.some(o => sameRunwayish(o, e))); if (l) l.push(e); else lanes.push([e]); }
+    let arr, dep;
+    if (lanes.length >= 2) {
+        // The outermost runway on each side lands; everything inside it departs.
+        arr = [lanes[0][0], lanes[lanes.length - 1][lanes[lanes.length - 1].length - 1]];
+        dep = family.filter(e => !arr.includes(e));
+        if (!dep.length) dep = [...arr];
+    } else {
+        arr = [[...lanes[0]].sort((a, b) => b.len - a.len)[0]];
+        dep = [...lanes[0]];
+    }
+    dep = dep.sort((a, b) => b.len - a.len).slice(0, 3);
+    return { arr, dep, key: arr.map(e => e.id).join(' ') + '/' + dep.map(e => e.id).join(' ') };
 }
 
 /**
@@ -623,7 +647,7 @@ function issueCall(ac, c) {
     if (c.holdFix) {
         const f = c.holdFix;
         // No published holds here, so every hold is standard: right turns, inbound toward the field.
-        const inbound = f.kind === 'app' ? f.end.course : brg(-f.x, -f.y);
+        const inbound = c.holdInbound != null ? c.holdInbound : f.kind === 'app' ? f.end.course : brg(-f.x, -f.y);
         ac.holdAt = { fix: f, inbound, phase: 'to', timer: 0 };
         ac.direct = null; ac.orbit = null; ac.turn = null;
         if (ac.appr) cancelApproach(ac);
@@ -800,10 +824,14 @@ const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 function cancelApproach(ac) { ac.appr = null; }
 
 function goAround(ac, reason, notYourFault) {
+    ac.wentAround = reason || 'ordered';
     const e = ac.appr ? ac.appr.end : null;
     ac.appr = null; ac.direct = null; ac.holdAt = null; ac.orbit = null; ac.turn = null; ac.landClr = false;
     if (e) ac.tHdg = e.course;
-    ac.tAlt = Math.max(G.world.minAlt, Math.ceil((G.world.elev + 3000) / 1000) * 1000, mvaCeilingWithin(8));
+    // Missed approach: runway heading, climbing clear of the terrain along it, back to Approach for another go.
+    const ahead = e ? { x: ac.x + Math.sin(e.course * D2R) * 15, y: ac.y + Math.cos(e.course * D2R) * 15 } : ac;
+    ac.tAlt = Math.max(G.world.minAlt, Math.ceil((G.world.elev + 3000) / 1000) * 1000, mvaCeilingWithin(4), terrainOn() ? Math.ceil(maxMvaAlong(ac, ahead) / 1000) * 1000 : 0);
+    if (ac.freq === 'TWR') ac.freq = 'APP';
     ac.tSpd = 210;
     G.stats.goArounds++;
     if (!notYourFault && mine(ac)) award(ac, -3);
@@ -957,6 +985,7 @@ function terrainCheck() {
         if (!nearRunway && !ac.appr?.loc && ac.alt < terrainAt(G.dem, ac.x, ac.y) + 50) {
             ac.gone = true;
             G.stats.crashes++;
+            if (window.approach) (G.crashLog = G.crashLog || []).push({ cs: ac.cs, kind: ac.kind, phase: ac.aiPlan?.phase, alt: Math.round(ac.alt), tAlt: ac.tAlt, ground: Math.round(terrainAt(G.dem, ac.x, ac.y)), mva: mvaAt(G.mva, ac.x, ac.y), x: +ac.x.toFixed(1), y: +ac.y.toFixed(1), hold: !!ac.holdAt, orbit: !!ac.orbit, appr: ac.appr ? ac.appr.end.id + (ac.appr.loc ? ' loc' : '') : null, ga: ac.wentAround, freq: ac.freq });
             G.score -= 100;
             sys(`${ac.cs} flew into terrain at ${Math.round(ac.alt).toLocaleString('en-US')} feet.`, 'bad');
             toast(`${ac.cs} — controlled flight into terrain`, 'bad');
@@ -966,6 +995,7 @@ function terrainCheck() {
         const climbing = ac.tAlt > ac.alt + 50 && (ac.kind === 'dep' || Math.hypot(ac.x, ac.y) < 6);
         const mva = mvaAt(G.mva, ac.x, ac.y);
         const low = !ac.appr?.loc && !climbing && mva && ac.alt < mva - 50;
+        if (low && !ac.lowAlt && !mine(ac)) G.stats.sysLowAlt = (G.stats.sysLowAlt || 0) + 1;
         if (low && !ac.lowAlt && mine(ac)) {
             G.stats.lowAlt++;
             G.score -= 10;
@@ -1151,7 +1181,29 @@ function surfaceCheck() {
 /* The system's controllers, for the positions the player isn't working */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The system's minimum safe altitude warning: anything it controls that will
+ * be below the MVA within three minutes on its present heading climbs now,
+ * whatever else was holding it down. Established approaches are protected
+ * by the procedure and left alone.
+ */
+function aiTerrainNet() {
+    if (!terrainOn()) return;
+    for (const a of G.aircraft) {
+        if (a.state !== 'air' || mine(a) || a.appr?.loc) continue;
+        const reach = (a.spd / 3600) * 180;
+        const ahead = { x: a.x + Math.sin(a.hdg * D2R) * reach, y: a.y + Math.cos(a.hdg * D2R) * reach };
+        const need = Math.ceil(maxMvaAlong(a, ahead) / 500) * 500;
+        if (Math.max(a.alt, a.tAlt) < need) {
+            a.aiFloor = need; a.aiCeil = 0;
+            if (a.holdAt) a.holdAt = null;
+            ai(a, { alt: Math.min(need, 24000) });
+        }
+    }
+}
+
 function aiControl() {
+    if (!G.positions.has('APP')) { aiConflicts(); aiTerrainNet(); }
     for (const ac of G.aircraft) {
         if (ac.gone) continue;
         if (ac.crossReq && !G.positions.has('TWR')) aiCross(ac);
@@ -1182,57 +1234,407 @@ function aiTower(ac) {
     if (ac.state !== 'wait' && ac.state !== 'luaw') return;
     const phys = ac.rwy.phys;
     const arriving = G.aircraft.some(a => a.appr?.loc && sameRunwayish(a.appr.end, ac.rwy) && a.appr.along < 4);
-    const last = G.lastDepAt.get(phys) || -1e9;
-    if (!runwayBlocker(ac) && !arriving && !departureWake(ac) && G.t - last > 75) ai(ac, { takeoff: true });
+    // Spaced from the previous takeoff clearance (not liftoff), so two never roll together.
+    G.lastClr = G.lastClr || new Map();
+    const last = G.lastClr.get(phys) || -1e9;
+    const anyLast = Math.max(-1e9, ...G.lastClr.values());
+    if (runwayBlocker(ac) || arriving || departureWake(ac) || G.t - last <= 100 || G.t - anyLast <= 60) return;
+    // Diverging departures (7110.65 5-8-3): turn 15°+ away from the other departure runways,
+    // or alternate sides off a lone runway.
+    const c = ac.rwy.course * D2R;
+    const lat = e => (e.thr.x - ac.rwy.thr.x) * Math.cos(c) - (e.thr.y - ac.rwy.thr.y) * Math.sin(c);
+    const others = G.active.dep.filter(e => e !== ac.rwy && parallelFt(e, ac.rwy) != null).map(lat);
+    let side = others.length ? (others.reduce((t, v) => t + v, 0) > 0 ? -1 : 1) : 0;
+    if (!side) { G.altSide = -(G.altSide || 1); side = G.altSide; }
+    const hdg = Math.round(norm(ac.rwy.course + 20 * side) / 5) * 5 || 360;
+    if (ai(ac, { takeoff: true, hdg })) G.lastClr.set(phys, G.t);
 }
 
-/** A join point 16 NM out and 3 NM to the side of the final, for a 30° intercept. */
-function joinPoint(e, side) {
-    const c = e.course * D2R, along = 16, off = 3 * side;
-    return { name: `${e.id} base`, side, x: e.thr.x - Math.sin(c) * along + Math.cos(c) * off, y: e.thr.y - Math.cos(c) * along - Math.sin(c) * off };
+/*
+ * The system's approach controller. It works the way a TRACON final
+ * controller does:
+ *
+ *   1. Plans each runway's final from the terrain: the intercept altitude is
+ *      at least the highest MVA along the final, and the intercept point is
+ *      far enough out that the glideslope there is above that altitude, so the
+ *      aircraft joins it from below (and never inside the approach gate + 2).
+ *   2. Schedules every arrival to the threshold, first come first served,
+ *      spaced by radar or wake minima plus a buffer, across the active runways.
+ *   3. Absorbs delay with speed when it's small and with a hold at the entry
+ *      fix (stacked 1,000 ft apart above the MVA) when it isn't.
+ *   4. Vectors to a base point 3 NM off the final for a 30° intercept, routing
+ *      round storm cells, stepping down only as low as the MVAs on the rest of
+ *      the route allow.
+ *   5. Checks spacing behind the previous arrival before clearing the ILS;
+ *      too tight and it's a 360 to make room.
+ *   6. Looks two minutes ahead for conflicts among everything airborne and
+ *      resolves its own aircraft's with altitude.
+ * Departures climb on runway heading until they're above the arrivals and
+ * the terrain toward their gate, then go direct.
+ */
+const AI_FINAL_KT = 150;           // ground speed used to turn miles on final into seconds
+const AI_SPACING_BUFFER = 1.2;     // NM on top of the minimum: speeds differ on final
+const BASE_OFFSET = 4;             // NM beside the final: clear of traffic abeam on it
+
+/** Highest MVA along a straight path (or the field minimum when terrain is off). */
+function maxMvaAlong(a, b) {
+    if (!terrainOn()) return G.world.minAlt;
+    const d = Math.hypot(b.x - a.x, b.y - a.y), n = Math.max(1, Math.ceil(d));
+    let hi = G.world.minAlt;
+    for (let i = 0; i <= n; i++) hi = Math.max(hi, mvaAt(G.mva, a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n));
+    return hi;
+}
+/** Does a heavy cell lie on the straight path? */
+function wxOnPath(a, b) {
+    if (!G.wx.length) return false;
+    const d = Math.hypot(b.x - a.x, b.y - a.y), n = Math.max(1, Math.ceil(d));
+    for (let i = 1; i <= n; i++) if (wxLevel(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n) === 3) return true;
+    return false;
+}
+const ptOnFinal = (e, along, off = 0) => {
+    const c = e.course * D2R;
+    return { x: e.thr.x - Math.sin(c) * along + Math.cos(c) * off, y: e.thr.y - Math.cos(c) * along - Math.sin(c) * off };
+};
+
+/** The final for a runway end, planned from the terrain. Cached per runway per shift. */
+function planFinal(e) {
+    G.finals = G.finals || new Map();
+    if (G.finals.has(e)) return G.finals.get(e);
+    const elev = G.world.elev;
+    // The intercept altitude clears every MVA from the FAF out to 25 NM, and 3 NM either side.
+    let mva = G.world.minAlt;
+    if (terrainOn()) for (let d = FAF_NM; d <= 25; d++) for (const off of [-3, 0, 3]) mva = Math.max(mva, mvaAt(G.mva, ptOnFinal(e, d, off).x, ptOnFinal(e, d, off).y) || 0);
+    // Side-by-side finals are flown 1,000 ft apart (dependent parallels), so traffic
+    // crossing one final to reach the other is never at the same height.
+    const lanes = [];
+    for (const o of G.active.arr) if (!lanes.some(l => sameRunwayish(l, o)) && (o === e || parallelFt(o, e) != null)) lanes.push(o);
+    const c0 = e.course * D2R, lat = o => (o.thr.x - e.thr.x) * Math.cos(c0) - (o.thr.y - e.thr.y) * Math.sin(c0);
+    lanes.sort((a, b) => lat(a) - lat(b));
+    const stagger = Math.max(0, lanes.findIndex(o => sameRunwayish(o, e))) * 1000;
+    let joinAlt = Math.max(Math.ceil((elev + 2500) / 500) * 500, mva) + stagger, icpt = 0, baseAlong = 0;
+    // Join where the glideslope is above that altitude, at least 2 NM outside the gate; the base
+    // points either side have MVAs of their own, so settle it in a couple of passes.
+    for (let pass = 0; pass < 3; pass++) {
+        icpt = Math.max(GATE_NM + 3, (joinAlt - elev) / GS_FT_PER_NM + 1.5);
+        baseAlong = Math.min(SCOPE_NM - 6, icpt + BASE_OFFSET / Math.tan(30 * D2R));
+        if (!terrainOn()) break;
+        let atBase = 0;
+        for (const side of [-1, 1]) { const p = ptOnFinal(e, baseAlong, BASE_OFFSET * side); atBase = Math.max(atBase, mvaAt(G.mva, p.x, p.y)); }
+        if (atBase <= joinAlt) break;
+        joinAlt = atBase;
+    }
+    const f = { e, joinAlt, icpt, baseAlong };
+    G.finals.set(e, f);
+    return f;
+}
+function basePoint(f, side) {
+    return { name: `${f.e.id} base`, side, ...ptOnFinal(f.e, f.baseAlong, BASE_OFFSET * side) };
+}
+
+/** Runways that share a final for spacing: the same runway, or parallels under 2,500 ft. */
+const seqKey = e => G.world.ends.filter(o => sameRunwayish(o, e)).map(o => o.id).sort().join('|');
+function spacingSec(lead, follow) {
+    const nm = Math.max(SEP_NM, wakeNm(lead, follow)) + AI_SPACING_BUFFER;
+    return nm / AI_FINAL_KT * 3600;
+}
+
+/** Book a threshold time for an arrival: after everything already booked on that final, properly spaced. */
+function bookSlot(ac, e, eta) {
+    G.seq = G.seq || {};
+    for (const k in G.seq) G.seq[k] = G.seq[k].filter(x => x.ac !== ac && !x.ac.gone && x.ac.state === 'air');
+    const key = seqKey(e), q = (G.seq[key] = G.seq[key] || []);
+    let t = eta;
+    for (const x of q) t = Math.max(t, x.t + spacingSec(x.ac, ac));
+    q.push({ ac, t });
+    return { key, t };
+}
+
+/** Seconds from a point to the threshold via the base point: 210 kt to base, 180 to the FAF, then Vapp. */
+function timeToThreshold(from, P, f, ac) {
+    const toBase = Math.hypot(P.x - from.x, P.y - from.y);
+    const turnIn = BASE_OFFSET / Math.sin(30 * D2R);
+    return toBase / (210 / 3600) + (turnIn + f.icpt - FAF_NM) / (180 / 3600) + FAF_NM / (ac.perf.vapp / 3600);
+}
+
+/** The base point for this aircraft: pushed further out when it needs the miles to get down. */
+function basePointFor(ac, f, side) {
+    let P = basePoint(f, side);
+    const toLose = Math.max(0, ac.alt - f.joinAlt);
+    const need = toLose / 1000 * 2.6 + 2;                // ~2.6 NM per 1,000 ft at 2,000 fpm and 230 kt
+    const have = Math.hypot(P.x - ac.x, P.y - ac.y);
+    if (need > have) {
+        const along = Math.min(SCOPE_NM - 5, f.baseAlong + (need - have) * 0.7);
+        P = { name: `${f.e.id} base`, side, ...ptOnFinal(f.e, along, BASE_OFFSET * side), along };
+    }
+    return P;
+}
+
+/** Pick the active arrival runway (and side) that can take this aircraft soonest without crossing another final. */
+function bestRunway(ac) {
+    let best = null;
+    for (const e of G.active.arr) {
+        const f = planFinal(e);
+        const side = finalGeom(ac, e).xt > 0 ? 1 : -1;
+        const P = basePointFor(ac, f, side);
+        const eta = G.t + timeToThreshold(ac, P, f, ac);
+        const q = ((G.seq && G.seq[seqKey(e)]) || []).filter(x => x.ac !== ac && !x.ac.gone);
+        let t = eta;
+        for (const x of q) t = Math.max(t, x.t + spacingSec(x.ac, ac));
+        const inner = G.active.arr.some(o => !sameRunwayish(o, e) && parallelFt(o, e) != null && Math.abs(finalGeom(P, o).xt) < 4);
+        const score = t + (e === ac.expect ? -20 : 0) + (inner ? 900 : 0);
+        // Never turn in across another final when there's any runway that avoids it.
+        if (!best || (best.inner && !inner) || (best.inner === inner && score < best.score)) best = { e, f, side, P, eta, score, inner };
+    }
+    return best;
+}
+
+/** A holding fix on the field side of the arrival's entry fix, at an altitude clear of the terrain and the stack. */
+function holdFor(ac) {
+    const fix = ac.entry;
+    let mva = G.world.minAlt;
+    if (terrainOn()) for (let a = 0; a < 360; a += 30) for (const r of [0, 3, 6]) mva = Math.max(mva, mvaAt(G.mva, fix.x + Math.sin(a * D2R) * r, fix.y + Math.cos(a * D2R) * r) || 0);
+    const base = Math.max(Math.ceil((G.world.elev + 6000) / 1000) * 1000, Math.ceil((mva + 1000) / 1000) * 1000);
+    // Join the stack on top: above everyone already in it, so nobody climbs or descends through it.
+    const stack = G.aircraft.filter(a => a !== ac && a.aiPlan?.phase === 'hold' && a.aiPlan.fix === fix).map(a => Math.max(a.tAlt, a.alt));
+    let alt = Math.max(base, stack.length ? Math.ceil((Math.max(...stack) + 1000) / 1000) * 1000 : base);
+    // At or below 14,000 the one-minute racetrack fits outside the fix, clear of every final.
+    // Above it the legs are 1½ minutes and would leave the airspace, so it goes on the field side.
+    const inbound = alt <= 14000 ? brg(-fix.x, -fix.y) : brg(fix.x, fix.y);
+    return { fix, inbound, alt: Math.min(alt, 24000), base };
 }
 
 function aiApproach(ac) {
     if (ac.state !== 'air') return;
-    if (ac.wxReq) { ai(ac, { deviate: true }); return; }
-    if (ac.kind === 'dep') {
-        // Up and out: runway heading through the arrivals' altitudes, then to the gate.
-        if (!ac.aiDone && agl(ac) > 3500) { ac.aiDone = true; ai(ac, { direct: ac.gate, alt: exitAlt(ac), spd: 280 }); }
-        else if (!ac.aiClimb) { ac.aiClimb = true; ai(ac, { alt: Math.max(ac.tAlt, Math.ceil((G.world.elev + 6000) / 1000) * 1000) }); }
+    if (ac.wxReq) {
+        // Approve, with an altitude that clears the terrain on the new heading for the next five minutes.
+        const h = norm(ac.hdg + (ac.wxReq.dir === 'L' ? -ac.wxReq.deg : ac.wxReq.deg)), reach = ac.spd / 3600 * 300;
+        const need = Math.ceil(maxMvaAlong(ac, { x: ac.x + Math.sin(h * D2R) * reach, y: ac.y + Math.cos(h * D2R) * reach }) / 1000) * 1000;
+        ai(ac, { deviate: true });
+        if (need > ac.tAlt) ai(ac, { alt: Math.min(need, 24000) });
         return;
     }
+    if (ac.kind === 'dep') { aiDeparture(ac); return; }
     const plan = ac.aiPlan || (ac.aiPlan = { phase: 'new' });
     if (plan.phase === 'final' && !ac.appr) plan.phase = 'new';          // went around or broke off
-    if (ac.wxDev) return;
+    if (ac.wxDev) { plan.resume = true; return; }                        // deviating: pick up again when clear
+    if (plan.resume) { plan.resume = false; if (plan.phase === 'inbound') plan.phase = 'route'; }
+
     if (plan.phase === 'new') {
-        const e = G.active.arr.includes(ac.expect) ? ac.expect : G.active.arr[0];
-        const c = e.course * D2R;
-        const side = ((ac.x - e.thr.x) * Math.cos(c) - (ac.y - e.thr.y) * Math.sin(c)) > 0 ? 1 : -1;
-        const P = joinPoint(e, side);
-        const eta = G.t + Math.hypot(P.x - ac.x, P.y - ac.y) / (230 / 3600);
-        const key = e.id;
-        const gap = ac.perf.wake === 'L' && G.aiSlots[key + 'w'] ? 150 : 110;
-        const slot = Math.max(eta, (G.aiSlots[key] || 0) + gap);
-        G.aiSlots[key] = slot; G.aiSlots[key + 'w'] = ac.perf.wake !== 'L';
-        const joinAlt = Math.max(Math.ceil((G.world.elev + 3000) / 1000) * 1000, terrainOn() ? Math.ceil(mvaAt(G.mva, P.x, P.y) / 500) * 500 : 0);
-        Object.assign(plan, { e, P, joinAlt, slot });
-        if (slot - eta > 90) {
-            const stack = G.aircraft.filter(a => a.aiPlan?.phase === 'hold' && a.aiPlan.fix === ac.entry).length;
-            const hAlt = Math.max(Math.ceil((G.world.elev + 6000) / 1000) * 1000, mvaHere(ac) + 1000) + stack * 1000;
-            Object.assign(plan, { phase: 'hold', fix: ac.entry, release: slot - Math.hypot(P.x - ac.entry.x, P.y - ac.entry.y) / (230 / 3600) });
-            ai(ac, { holdFix: ac.entry, alt: hAlt });
-        } else {
-            plan.phase = 'inbound';
-            ai(ac, { direct: P, alt: joinAlt, spd: 210 });
+        const b = bestRunway(ac);
+        const slot = bookSlot(ac, b.e, b.eta);
+        Object.assign(plan, { e: b.e, f: b.f, side: b.side, P: b.P, slotKey: slot.key, slot: slot.t });
+        ac.expect = b.e;
+        if (slot.t - b.eta > 75 && ac.entry && Math.hypot(ac.entry.x - ac.x, ac.entry.y - ac.y) < 12) {
+            const h = holdFor(ac);
+            Object.assign(plan, { phase: 'hold', fix: h.fix, base: h.base });
+            ai(ac, { holdFix: h.fix, holdInbound: h.inbound, alt: h.alt });
+            return;
         }
-    } else if (plan.phase === 'hold' && G.t >= plan.release) {
-        plan.phase = 'inbound';
-        ai(ac, { direct: plan.P, alt: plan.joinAlt, spd: 210 });
-    } else if (plan.phase === 'inbound' && !ac.appr && Math.hypot(plan.P.x - ac.x, plan.P.y - ac.y) < 1.3) {
-        const c = plan.e.course, side = plan.P.side;
-        if (ai(ac, { hdg: Math.round(norm(c - 30 * side)), ils: plan.e, spd: 180 })) plan.phase = 'final';
-        else plan.phase = 'new';
+        plan.phase = 'route';
     }
+
+    if (plan.phase === 'hold') {
+        // Stacks work bottom up: only the lowest leaves, and the rest step down behind it.
+        const stack = G.aircraft.filter(a => a !== ac && a.aiPlan?.phase === 'hold' && a.aiPlan.fix === plan.fix);
+        const below = stack.filter(a => a.tAlt < ac.tAlt);
+        const level = Math.round(ac.tAlt / 1000) * 1000;
+        if (below.length) {
+            const next = level - 1000;
+            if (next >= plan.base && !stack.some(a => Math.abs(Math.max(a.alt, a.tAlt) - next) < 900) && Math.abs(ac.alt - ac.tAlt) < 100) ai(ac, { alt: next });
+            return;
+        }
+        if (level - 1000 >= plan.base && Math.abs(ac.alt - ac.tAlt) < 100 && G.t + 240 < plan.slot) ai(ac, { alt: level - 1000 });
+        // Leave the hold the moment the remaining flight time matches the slot.
+        const P = basePointFor(ac, plan.f, plan.side);
+        if (G.t + timeToThreshold(ac, P, plan.f, ac) < plan.slot - 5) return;
+        plan.P = P;
+        plan.phase = 'route';
+    }
+
+    if (plan.phase === 'route') {
+        // Round the weather: the other side's base point if that path is clear.
+        const other = basePointFor(ac, plan.f, -plan.side);
+        if (wxOnPath(ac, plan.P) && !wxOnPath(ac, other)) { plan.side = -plan.side; plan.P = other; }
+        plan.phase = 'inbound';
+        ai(ac, { direct: plan.P, alt: routeAlt(ac, plan), spd: 210 });
+        return;
+    }
+
+    if (plan.phase === 'inbound') {
+        // Step down as the terrain ahead allows, unless a conflict is holding us up.
+        // While separating traffic (and for 30 s after) the conflict probe owns the altitude.
+        if (!(ac.aiLockUntil > G.t)) {
+            const floor = routeAlt(ac, plan);
+            if (Math.abs(floor - ac.tAlt) >= 500) ai(ac, { alt: floor });
+        }
+        const dP = Math.hypot(plan.P.x - ac.x, plan.P.y - ac.y);
+        if (!ac.direct && dP > 1.5) ai(ac, { direct: plan.P });
+        // Meet the slot with speed: early slows, late speeds up, within the legal band.
+        const late = G.t + timeToThreshold(ac, plan.P, plan.f, ac) * (210 / Math.max(160, ac.spd)) - plan.slot;
+        const min = minSpeed(ac), max = ac.alt < 10000 ? 250 : 280;
+        const spd = late < -25 ? Math.max(min, 180) : late > 25 ? max : 210;
+        if (Math.abs(spd - ac.tSpd) >= 10 && dP > 4) ai(ac, { spd });
+        if (dP < 1.5) {
+            if (finalTooTight(ac, plan)) {
+                // Extend: keep going away from the field until there's room behind the one ahead.
+                plan.phase = 'extend';
+                ai(ac, { hdg: Math.round(norm(plan.e.course + 180)), spd: Math.max(minSpeed(ac), 180) });
+                return;
+            }
+            turnIn(ac, plan);
+        }
+        return;
+    }
+
+    if (plan.phase === 'extend') {
+        const along = finalGeom(ac, plan.e).along;
+        if (!finalTooTight(ac, plan)) turnIn(ac, plan);
+        else if (along > SCOPE_NM - 6) { plan.phase = 'new'; }        // out of room: re-sequence
+        return;
+    }
+
+    if (plan.phase === 'final' && ac.appr) aiFinalSpacing(ac);
+}
+
+/** Turn onto the final: 30° intercept, maintain the join altitude until established, cleared ILS. */
+function turnIn(ac, plan) {
+    const hdg = Math.round(norm(plan.e.course - 30 * plan.side));
+    if (ai(ac, { hdg, ils: plan.e, alt: plan.f.joinAlt, spd: 180 })) plan.phase = 'final';
+    else plan.phase = 'new';
+}
+
+/**
+ * Would turning in now put us too close behind (or ahead of) someone on this
+ * final? Compares distance to fly to the threshold, ours if we turned now
+ * against each of theirs, with the radar or wake minimum plus the buffer.
+ */
+function finalTooTight(ac, plan) {
+    const f = plan.f, e = plan.e;
+    const toGo = a => {
+        if (a.appr?.loc) return a.appr.along;
+        const ee = a.appr ? a.appr.end : a.aiPlan.e, ff = planFinal(ee);
+        const fa = finalGeom(a, ee);
+        // Joining at 30°: the run to the course plus what's left of the final from there.
+        return Math.abs(fa.xt) / Math.sin(30 * D2R) + Math.max(ff.icpt, fa.along - Math.abs(fa.xt) / Math.tan(30 * D2R));
+    };
+    const ours = toGo(ac);
+    return G.aircraft.some(a => {
+        if (a === ac || a.kind !== 'arr' || a.state !== 'air') return false;
+        const theirs = a.appr ? a.appr.end : a.aiPlan?.phase === 'final' ? a.aiPlan.e : null;
+        if (!theirs) return false;
+        if (!sameRunwayish(theirs, e)) {
+            // Dependent parallels (2,500–4,300 ft): 1.5 NM diagonal, plus the buffer.
+            const ft = parallelFt(theirs, e);
+            return ft != null && ft < 4300 && Math.abs(ours - toGo(a)) < 1.5 + AI_SPACING_BUFFER;
+        }
+        const lead = toGo(a) < ours;
+        const need = Math.max(SEP_NM, lead ? wakeNm(a, ac) : wakeNm(ac, a)) + AI_SPACING_BUFFER;
+        return Math.abs(ours - toGo(a)) < need;
+    });
+}
+
+/** On final behind someone: slow down if the gap closes, break out before it's lost. */
+function aiFinalSpacing(ac) {
+    const ap = ac.appr;
+    const along = ap.loc ? ap.along : Math.hypot(ptOnFinal(ap.end, planFinal(ap.end).icpt).x - ac.x, ptOnFinal(ap.end, planFinal(ap.end).icpt).y - ac.y) + planFinal(ap.end).icpt;
+    let lead = null, gap = Infinity;
+    for (const a of G.aircraft) {
+        if (a === ac || a.state !== 'air' || !a.appr?.loc || !sameRunwayish(a.appr.end, ap.end)) continue;
+        const g = along - a.appr.along;
+        if (g > 0 && g < gap) { gap = g; lead = a; }
+    }
+    if (!lead) return;
+    const need = Math.max(along < 10 && lead.appr.along < 10 ? 2.5 : SEP_NM, wakeNm(lead, ac));
+    if (gap < need + 0.4 && along > FAF_NM + 0.5 && ap.spd !== minSpeed(ac)) ai(ac, { spd: minSpeed(ac) });
+    if (gap < need - 0.1) {
+        // Break out: climb straight ahead and come round again.
+        goAround(ac, 'spacing on final', true);
+        ac.aiPlan.phase = 'new';
+    }
+}
+
+/** The lowest altitude on the way to the base point: the join altitude, or the MVAs still ahead. */
+function routeAlt(ac, plan) {
+    const ahead = Math.ceil(maxMvaAlong(ac, plan.P) / 500) * 500;
+    return Math.max(plan.f.joinAlt, ahead, G.world.minAlt);
+}
+
+function aiDeparture(ac) {
+    if (!ac.aiClimb) {
+        ac.aiClimb = true;
+        const aboveFinals = Math.max(...G.active.arr.map(e => planFinal(e).joinAlt)) + 1000;
+        ai(ac, { alt: Math.max(ac.tAlt, aboveFinals, Math.ceil((G.world.elev + 7000) / 1000) * 1000, Math.ceil(maxMvaAlong(ac, ac.gate) / 1000) * 1000), spd: 250 });
+        return;
+    }
+    // Runway heading until above the arrivals and above the terrain toward the gate, then direct.
+    const aboveFinals = Math.max(...G.active.arr.map(e => planFinal(e).joinAlt)) + 1000;
+    if (!ac.aiConflict && !(ac.aiLockUntil > G.t)) {
+        const want = ac.aiTurned ? Math.max(exitAlt(ac), Math.ceil(maxMvaAlong(ac, ac.gate) / 1000) * 1000) : Math.max(aboveFinals, Math.ceil(maxMvaAlong(ac, ac.gate) / 1000) * 1000, exitAlt(ac));
+        if (ac.tAlt < want && want <= 24000) ai(ac, { alt: want });
+    }
+    if (!ac.aiTurned && ac.alt >= aboveFinals - 300 && ac.alt >= maxMvaAlong(ac, ac.gate) - 500 && !(ac.aiCeil && ac.aiConflict)) {
+        ac.aiTurned = true;
+        ai(ac, { direct: ac.gate, alt: Math.max(exitAlt(ac), ac.tAlt), spd: 280 });
+    } else if (ac.aiTurned && !ac.aiConflict && ac.tAlt < exitAlt(ac)) ai(ac, { alt: exitAlt(ac) });
+}
+
+/**
+ * Conflict probe: straight-line positions over the next two minutes. Pairs
+ * the sequence already spaces (arrivals bound for the same final, holds in
+ * one stack) are left to it; for the rest, the system's lower-priority
+ * aircraft is stopped at an altitude 1,000 ft clear of the other's whole
+ * climb or descent, never below its MVA, until the conflict is gone. It
+ * never moves anything the player works or anything established on an ILS.
+ */
+function aiConflicts() {
+    const air = G.aircraft.filter(a => a.state === 'air');
+    const fut = (a, t) => {
+        const tas = a.spd * (1 + a.alt / 1000 * 0.02) / 3600;
+        const vs = a.alt < a.tAlt ? 2000 / 60 : a.alt > a.tAlt ? -1800 / 60 : 0;
+        const z = vs > 0 ? Math.min(a.tAlt, a.alt + vs * t) : vs < 0 ? Math.max(a.tAlt, a.alt + vs * t) : a.alt;
+        const h = a.holdAt ? null : a.hdg;
+        return h == null ? { x: a.x, y: a.y, z } : { x: a.x + Math.sin(h * D2R) * tas * t, y: a.y + Math.cos(h * D2R) * tas * t, z };
+    };
+    const movable = a => !mine(a) && a.freq === 'APP' && !a.appr && a.aiPlan?.phase !== 'hold';
+    const sameFlow = (a, b) => a.kind === 'arr' && b.kind === 'arr' && a.aiPlan?.e && b.aiPlan?.e && sameRunwayish(a.aiPlan.e, b.aiPlan.e)
+        && (a.aiPlan.phase === 'final' || b.aiPlan.phase === 'final');
+    const flagged = new Set();
+    for (let i = 0; i < air.length; i++) {
+        for (let j = i + 1; j < air.length; j++) {
+            const a = air[i], b = air[j];
+            if (a.appr?.loc && b.appr?.loc) continue;
+            if (sameFlow(a, b) && a.appr && b.appr) continue;
+            let hit = false;
+            const need = Math.max(SEP_NM, wakeNm(a, b), wakeNm(b, a)) + 1.5;
+            for (let t = 0; t <= 120; t += 10) {
+                const pa = fut(a, t), pb = fut(b, t);
+                if (Math.hypot(pa.x - pb.x, pa.y - pb.y) < need && Math.abs(pa.z - pb.z) < 950) { hit = true; break; }
+            }
+            if (!hit) continue;
+            const cand = [a, b].filter(movable);
+            if (!cand.length) continue;
+            let mover = cand[0];
+            if (cand.length === 2) {
+                if (a.kind !== b.kind) mover = a.kind === 'dep' ? a : b;
+                else mover = (a.aiPlan?.slot || a.born) > (b.aiPlan?.slot || b.born) ? a : b;
+            }
+            const other = mover === a ? b : a;
+            flagged.add(mover);
+            const mva = Math.ceil(maxMvaAlong(mover, fut(mover, 240)) / 500) * 500;
+            const hiO = Math.max(other.alt, other.tAlt), loO = Math.min(other.alt, other.tAlt);
+            const above = Math.ceil((hiO + 1000) / 1000) * 1000, below = Math.floor((loO - 1000) / 1000) * 1000;
+            // Stop where it is if that already works; else the nearer legal side.
+            const here = Math.round(mover.alt / 1000) * 1000;
+            let alt;
+            if ((here >= above || here <= below) && here >= mva) alt = here;
+            else alt = below >= mva && Math.abs(mover.alt - below) < Math.abs(mover.alt - above) ? below : Math.max(above, mva);
+            if (alt > 24000) continue;
+            if (alt > mover.alt) { mover.aiFloor = alt; mover.aiCeil = 0; } else { mover.aiCeil = alt; mover.aiFloor = 0; }
+            mover.aiLockUntil = G.t + 30;
+            if (Math.abs(mover.tAlt - alt) >= 500 || (alt % 1000 === 0 && mover.tAlt !== alt)) ai(mover, { alt });
+        }
+    }
+    for (const a of air) { a.aiConflict = flagged.has(a); if (!a.aiConflict) { a.aiFloor = 0; a.aiCeil = 0; } }
 }
 
 function tick(dt) {
@@ -1582,7 +1984,16 @@ function separation() {
             now.add(key);
             a.conflict = b.conflict = true;
             // The system's own traffic is the system's problem.
-            if (!mine(a) && !mine(b)) continue;
+            if (!mine(a) && !mine(b)) {
+                if (!G.conf.has('s' + key)) {
+                    G.conf.set('s' + key, 1);
+                    G.stats.sysLosses = (G.stats.sysLosses || 0) + 1;
+                    // Kept for ?debug checks of the system's own controlling.
+                    if (window.approach) (G.sysLossLog = G.sysLossLog || []).push({ a: a.cs, b: b.cs, pa: a.aiPlan?.phase || a.kind, pb: b.aiPlan?.phase || b.kind, la: a.appr?.loc, lb: b.appr?.loc, za: Math.round(a.alt), zb: Math.round(b.alt), d: +d.toFixed(2), req: req.nm, why: req.why, ea: a.appr?.end.id || a.aiPlan?.e?.id, eb: b.appr?.end.id || b.aiPlan?.e?.id });
+                }
+                now.add('s' + key);
+                continue;
+            }
             let c = G.conf.get(key);
             if (!c) {
                 c = { t: G.t, last: G.t, near: false };
@@ -2609,32 +3020,40 @@ let opts = { terrain: store.get('terrain', false), weather: store.get('weather',
 
 function toastStart(text) { $('#pos-summary').textContent = text; setTimeout(renderStart, 1600); }
 
-/** The field's taxiways and gates from OpenStreetMap, the same query the live map makes, over all the runways. */
+/**
+ * The field's taxiways and gates from OpenStreetMap. Asks the live map's own
+ * request (AirportLayoutManager.getLayout: proven, shared cache) and a
+ * whole-airport query on three Overpass servers at once, and keeps the
+ * fullest answer. Resolves to { ground } or { error } saying what went wrong.
+ */
 async function loadSurface(world) {
     const xs = world.ends.map(e => e.thr.x), ys = world.ends.map(e => e.thr.y);
     const cosLat = Math.cos(world.lat * D2R), pad = 0.8;
     const s = world.lat + (Math.min(...ys) - pad) / 60, n = world.lat + (Math.max(...ys) + pad) / 60;
     const w = world.lon + (Math.min(...xs) - pad) / (60 * cosLat), e = world.lon + (Math.max(...xs) + pad) / (60 * cosLat);
-    const bbox = `${s},${w},${n},${e}`;
-    const q = `[out:json][timeout:45];(way["aeroway"~"taxiway|taxilane|apron"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
-    // The main Overpass server is often busy; two public mirrors serve the same data.
+    const bbox = `${s.toFixed(5)},${w.toFixed(5)},${n.toFixed(5)},${e.toFixed(5)}`;
+    const q = `[out:json][timeout:40];(way["aeroway"~"taxiway|taxilane|apron"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
     const servers = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
-    for (const url of servers) {
-        const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), 25000);
-        try {
-            const r = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctl.signal });
-            if (!r.ok) continue;
-            const data = await r.json();
-            if (!data.elements || !data.elements.length) continue;
-            const ground = buildGround(AirportLayoutManager.processOsmData(data.elements), (lat, lon) => world.proj(lat, lon), world.ends);
-            if (ground) return ground;
-            return null;                  // the data came back; the field just isn't mapped well enough
-        } catch { /* try the next server */ } finally { clearTimeout(timer); }
-    }
-    return null;
+    const failures = [];
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 45000);
+    const ask = url => fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctl.signal })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`${new URL(url).host} answered ${r.status}`)))
+        .then(d => (d.elements && d.elements.length ? AirportLayoutManager.processOsmData(d.elements) : Promise.reject(new Error(`${new URL(url).host}: ${d.remark || 'no data'}`))))
+        .catch(err => { failures.push(err.name === 'AbortError' ? `${new URL(url).host} timed out` : err.message); return null; });
+    const liveMap = AirportLayoutManager.getLayout(world.icao, world.lat, world.lon).catch(() => null);
+    // First whole-airport answer wins; the live map's smaller one is the fallback.
+    const whole = await new Promise(resolve => {
+        let left = servers.length;
+        for (const url of servers) ask(url).then(d => { if (d) resolve(d); else if (--left === 0) resolve(null); });
+    });
+    clearTimeout(timer);
+    ctl.abort();
+    const layout = whole || await liveMap;
+    if (!layout) return { error: `couldn't reach OpenStreetMap (${failures.join('; ') || 'no answer'})` };
+    const g = buildGround(layout, (lat, lon) => world.proj(lat, lon), world.ends);
+    return g.error ? g : { ground: g };
 }
-
 async function startGame(airport, level) {
     store.set('last', airport.icao);
     store.set('level', level);
@@ -2657,12 +3076,15 @@ async function startGame(airport, level) {
     const dem = loadDem(airport.lat, airport.lon).catch(() => null);
     setSpeed(0);
     sys(game.positions.has('GND') ? 'Loading the airport\'s taxiways and gates…' : 'Loading the airport…');
-    game.ground = await loadSurface(game.world);
+    const surface = await loadSurface(game.world);
     if (G !== game) return;
+    game.ground = surface.ground || null;
+    if (surface.ground) sys(`Surface: ${surface.ground.summary}.`);
+    else sys(`No taxi map: ${surface.error}.`, 'bad');
     if (!game.ground && game.positions.has('GND')) {
         game.positions.delete('GND');
         if (!game.positions.size) game.positions.add('TWR');
-        const msg = `Couldn't load ${airport.icao}'s taxiways from OpenStreetMap, so Ground isn't available this shift. You're on ${[...game.positions].map(f => FREQ_NAME[f]).join(' and ')}.`;
+        const msg = `No taxi map for ${airport.icao} (${surface.error}), so Ground isn't available this shift. You're on ${[...game.positions].map(f => FREQ_NAME[f]).join(' and ')}.`;
         sys(msg, 'bad');
         toast(msg, 'bad', 9000);
     }

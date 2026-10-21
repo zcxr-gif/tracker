@@ -37,13 +37,14 @@ function crossAt(p1, p2, q1, q2) {
 }
 
 /**
- * Build the surface model, or null when the layout has too little to taxi on.
+ * Build the surface model. Returns { error } when the layout has too little
+ * to taxi on, saying what was missing, so the game can tell the player.
  * @param layout  GeoJSON FeatureCollection from AirportLayoutManager.getLayout
  * @param proj    (lat, lon) -> {x, y} in NM
  * @param ends    the game's runway ends ({ id, thr, far, course, len, phys, width })
  */
 export function buildGround(layout, proj, ends) {
-    if (!layout || !layout.features) return null;
+    if (!layout || !layout.features) return { error: 'no layout data came back' };
     const nodes = new Map();          // key -> { id, x, y, edges: [{ to, w, name }] }
     const list = [];
     const node = (lon, lat) => {
@@ -75,7 +76,7 @@ export function buildGround(layout, proj, ends) {
             gatesRaw.push({ ref: String(p.ref || p.name || '').trim(), ...proj(lat, lon), gate: p.aeroway === 'gate' });
         }
     }
-    if (list.length < 10) return null;
+    if (list.length < 10) return { error: `only ${lines.length} taxiways mapped (${list.length} points)` };
 
     // Keep the biggest connected network; stray fragments can't be reached.
     const comp = new Int32Array(list.length).fill(-1);
@@ -89,11 +90,12 @@ export function buildGround(layout, proj, ends) {
         c++;
     }
     const main = list.filter(n => comp[n.id] === best);
-    if (main.length < 10) return null;
+    if (main.length < 10) return { error: 'the taxiways are mapped in pieces that never join up' };
 
     const physRunways = [];
     for (const e of ends) if (!physRunways.some(r => r.phys === e.phys)) physRunways.push({ phys: e.phys, a: e.thr, b: e.far, half: e.width / 2, label: `${e.id}/${e.opp.id}` });
-    const onRunway = p => physRunways.some(r => { const s = toSegment(p, r.a, r.b); return s.d < r.half + 0.012 && s.t > 0 && s.t < 1; });
+    // The runway database and OSM can disagree on a centerline by tens of metres: be generous.
+    const onRunway = p => physRunways.some(r => { const s = toSegment(p, r.a, r.b); return s.d < r.half + 0.02 && s.t > 0 && s.t < 1; });
 
     // Gates: tied to the nearest network node within ~250 m, off the runways.
     const nearest = (p, max, filter) => {
@@ -103,16 +105,32 @@ export function buildGround(layout, proj, ends) {
     };
     const gates = [];
     const seenRef = new Set();
+    // Gates are often mapped at the terminal, a few hundred metres from the nearest taxilane.
     for (const g of gatesRaw.sort((a, b) => b.gate - a.gate)) {
         if (onRunway(g)) continue;
-        const n = nearest(g, 0.14, n => !onRunway(n));
+        const n = nearest(g, 0.35, n => !onRunway(n));
         if (!n) continue;
         const ref = g.ref || `S${gates.length + 1}`;
         if (seenRef.has(ref)) continue;
         seenRef.add(ref);
         gates.push({ ref, x: g.x, y: g.y, node: n.id });
     }
-    if (gates.length < 3) return null;
+    // No usable gates: park on the aprons instead, at the network point nearest each apron's middle.
+    if (gates.length < 3) {
+        for (const poly of aprons) {
+            const c = poly.reduce((t, p) => ({ x: t.x + p.x / poly.length, y: t.y + p.y / poly.length }), { x: 0, y: 0 });
+            const n = nearest(c, 0.5, n => !onRunway(n));
+            if (n && !gates.some(g => g.node === n.id)) gates.push({ ref: `R${gates.length + 1}`, x: n.x, y: n.y, node: n.id });
+        }
+    }
+    // Still nothing: dead-end taxilanes off the runways are stands too.
+    if (gates.length < 3) {
+        for (const n of main) {
+            if (n.edges.length === 1 && !onRunway(n)) gates.push({ ref: `R${gates.length + 1}`, x: n.x, y: n.y, node: n.id });
+            if (gates.length >= 12) break;
+        }
+    }
+    if (gates.length < 3) return { error: `nowhere to park (${gatesRaw.length} gates mapped, none near a taxiway)` };
 
     // Per runway end: where departures hold short, and where arrivals can turn off.
     const holds = new Map(), exits = new Map();
@@ -127,10 +145,10 @@ export function buildGround(layout, proj, ends) {
         const ex = [];
         for (const n of main) {
             const g = geo(n);
-            const beside = g.lat > half + 0.025 && g.lat < 0.22;
+            const beside = g.lat > half + 0.02 && g.lat < 0.25;
             if (!beside) continue;
             // A node beside the runway that leads onto it is a taxiway meeting the runway.
-            const meets = n.edges.some(ed => { const m = list[ed.to]; return geo(m).lat < half + 0.01; });
+            const meets = n.edges.some(ed => { const m = list[ed.to]; return geo(m).lat < half + 0.03; });
             if (g.along > -0.15 && g.along < 0.45) {
                 const score = Math.max(0, g.along) + g.lat * 0.5 + (meets ? 0 : 0.3);
                 if (score < hb) { hb = score; hold = { node: n.id, along: Math.max(0, g.along) }; }
@@ -141,7 +159,8 @@ export function buildGround(layout, proj, ends) {
         exits.set(e, ex.sort((a, b) => a.along - b.along));
     }
 
-    return { nodes: list, main, gates, holds, exits, lines, aprons, physRunways, onRunway };
+    return { nodes: list, main, gates, holds, exits, lines, aprons, physRunways, onRunway,
+        summary: `${lines.length} taxiway segments, ${gates.length} ${gatesRaw.length >= 3 ? 'gates' : 'apron stands'}, holding points at ${holds.size} of ${ends.length} runway ends` };
 }
 
 /** Nearest node of the main network to a point (optionally off the runways). */
