@@ -203,6 +203,7 @@
         .strip.sel { border-color: rgba(255,255,255,.5); }
         .strip.conf { border-color: var(--bad); }
         .strip .l0, .strip .l1, .strip .l2 { display: block; }
+        .strip.sys { opacity: .55; }
         .strip .l1 { font-weight: 700; color: var(--ink); }
         .strip .l2 { color: var(--muted); font-size: .68rem; }
         .strip .r { text-align: right; color: var(--ink2); }
@@ -212,6 +213,7 @@
         .log { height: 120px; overflow: auto; font-size: .76rem; line-height: 1.45; display: flex; flex-direction: column; gap: 3px; }
         .log .m-atc { color: #ffe3a1; }
         .log .m-pilot { color: #bfe9ff; }
+        .log .m-ai { color: #9aa6b4; }
         .log .m-sys { color: var(--muted); font-style: italic; }
         .log .m-bad { color: #ff9aa8; }
         .log .m-good { color: #9ff0c9; }
@@ -274,6 +276,12 @@
                 <button data-level="busy">Busy</button>
             </div>
 
+            <h2>Your positions</h2>
+            <div class="opt-row">
+                <div class="seg" id="opt-pos"><button data-pos="APP">Approach</button><button data-pos="TWR">Tower</button><button data-pos="GND">Ground</button></div>
+                <p class="opt-note">Work one, two or all three. Approach vectors arrivals to the ILS and departures out. Tower runs the runways: landings, takeoffs, line up and wait, crossings. Ground handles pushback and taxi on the real taxiways. The system works whatever you don't, and hands aircraft to you when they reach your frequency.</p>
+            </div>
+
             <h2>Terrain</h2>
             <div class="opt-row">
                 <div class="seg" id="opt-terrain"><button data-v="off" class="on">Off</button><button data-v="on">On</button></div>
@@ -312,6 +320,7 @@
                 <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
                 <button id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
                 <button id="zoom-reset" title="Recenter" aria-label="Recenter">⌖</button>
+                <button id="zoom-field" title="Zoom to the airport" aria-label="Zoom to the airport">✈</button>
             </div>
             <div class="toast" id="toast"></div>
             <div class="paused-tag" id="paused-tag" hidden>PAUSED</div>
@@ -334,6 +343,7 @@
                     <button data-speed="4">4×</button>
                 </div>
                 <span class="spacer"></span>
+                <button class="chip" id="icons" title="Radar targets or aircraft icons">Targets</button>
                 <button class="chip" id="style" title="Switch between the dark radar and a light chart">Radar</button>
                 <button class="chip" id="voice" title="Read pilot transmissions aloud">Voice</button>
                 <button class="chip" id="end">End shift</button>

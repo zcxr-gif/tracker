@@ -167,10 +167,77 @@ field) applies everywhere.
   go around at decision height (no penalty) until it lifts, after 5–8
   minutes.
 
+## Positions
+
+You pick any mix of **Approach**, **Tower** and **Ground** at the start.
+Every aircraft is on one frequency at a time, and is handed on the way a
+real one is:
+
+- Ground at the gate.
+- Tower at the runway's holding point.
+- Departure (Approach) once airborne ("radar contact").
+- Arrivals: Approach until established on the localizer, then Tower,
+  then Ground once clear of the runway.
+
+The system works every position you don't. Its clearances show greyed in the
+log. You can't give clearances to aircraft on its frequencies, and its
+traffic doesn't count against you.
+
+- **Approach (system)**: sequences arrivals to a base point 16 NM out and
+  3 NM off the final, about 110 s apart (150 s behind a heavy). It holds
+  arrivals at their entry fix when the sequence is full, then turns them in
+  at 30° with "maintain until established, cleared ILS". It climbs
+  departures on runway heading until 3,500 ft above the field, then sends
+  them direct to their gate at the exit altitude. It approves weather
+  deviations.
+- **Tower (system)**: clears arrivals to land inside 8 NM. It clears a
+  departure for takeoff when the runway is empty, no arrival is inside
+  4 NM, the wake interval has passed, and the last departure from that
+  runway left 75 s ago or more. It approves runway crossings when the
+  runway is clear.
+- **Ground (system)**: approves pushback when the pilot calls ready, and
+  taxis departures to the runway and arrivals to their gate.
+
+## Ground
+
+The taxi network is the airport's real OpenStreetMap layout: taxiways,
+taxilanes, aprons and gates, the same data the live map draws.
+`approachGround.js` turns it into a graph. Routes are the shortest path,
+and the clearance reads out the taxiway names, e.g. *"runway 22R, taxi via
+B, K, hold short of runway 13L/31R"*.
+
+- Departures call ready to push at a gate. You approve pushback, the pilot
+  reports ready to taxi, and you clear them to their runway. At the
+  holding point they switch to Tower.
+- Arrivals roll out, turn off at the first exit past about 0.9 NM, and call
+  Ground clear of the runway. You taxi them to their assigned gate. They
+  park and leave after about 25 s.
+- A route that crosses a runway stops at the hold-short line, and the pilot
+  asks **Tower** to cross. Crossing clearances are always Tower's.
+- Pilots stop behind traffic ahead (about 85 m). If two aircraft meet nose
+  to nose, they wait 25 s and then one squeezes by, which costs points.
+  *Hold position* and *continue* let you sequence them yourself.
+- Anything on a runway while another aircraft takes off or lands on it is a
+  **runway incursion** (−30 if you work Tower). The exception is lining up
+  and waiting behind a departure that is already rolling.
+- With no taxi map (Overpass down, or a field OSM hasn't mapped), the
+  Ground position is unavailable. Departures then start at the runway, and
+  arrivals leave the scope on landing.
+
+Scoring by position:
+
+| Position | Event | Points |
+|---|---|---|
+| Ground | Departure delivered to the runway | +3 |
+| Ground | Arrival parked at its gate | +3 |
+| Tower | Takeoff | +3 |
+| Tower or Approach | Landing | +10 |
+| Approach | Departure out through its gate | +10 |
+
 ## Not modelled
 
 Obstacles (towers, buildings) in the MVAs, and real published MVA charts (the
 game derives its own from terrain). Visual approaches. SIDs, STARs and
-published holds. Tower/approach handoffs as separate positions; you are
-both. Runway exits and taxiing. Intersection departures. Small (under
+published holds. Intersection departures, high-speed exit geometry, and
+de-icing. Small (under
 41,000 lb) aircraft, and the small-behind-large rules that come with them.
