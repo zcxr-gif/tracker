@@ -9,6 +9,15 @@
  * colour; and the track's levels under the badge it is entered at. The
  * badges stay at the two ends and are always drawn, however close together
  * the tracks run — only the levels give way when crowded.
+ *
+ * The badges are one size on screen wherever they are: Mapbox draws every
+ * symbol larger or smaller by how near the camera it is (the "perspective
+ * ratio" — on the globe zoomed out, and in a tilted view), so each badge is
+ * scaled by the inverse of its own, as the camera moves (see rescale).
+ *
+ * The tracks lie under the traffic: the aircraft first, then their paths,
+ * then the tracks — kept below every aircraft and path layer however those
+ * are added (see sinkBelowTraffic).
  */
 
 const ACARS_SOCKET_URL = 'https://site--acars-backend--6dmjph8ltlhv.code.run';
@@ -25,6 +34,10 @@ function natColourIndex(name) {
     const c = String(name || '').toUpperCase().charCodeAt(0);
     return c >= 65 && c <= 90 ? (c - 65) % NAT_PALETTE.length : 0;
 }
+
+// Layers the tracks lie under: the aircraft (flat, 3D and their labels) and
+// the paths drawn for them — flown, planned and the taxi overlay.
+const TRAFFIC_LAYER = /^(sector-ops-live-flights|flown-|plan-path-|taxi-overlay|layer-3d-path-|aircraft-3d-models$|live-traffic-3d$)/;
 
 const natBadgeImage = (index, pointsRight) => `nat-badge-${index}-${pointsRight ? 'right' : 'left'}`;
 
@@ -114,6 +127,13 @@ export class NatTracksLayer {
         this.lineLayerId = 'nat-tracks-layer';
         this.badgeLayerId = 'nat-tracks-badges';
         this.levelsLayerId = 'nat-tracks-levels';
+        // The badges and levels: a source of their own, re-sized as the
+        // camera moves without re-sending the lines.
+        this.badgeSourceId = 'nat-tracks-badges-source';
+        this.badges = [];          // [{ at: [lon, lat], props }]
+        this.badgeScales = [];
+        this.badgesWrittenAt = 0;
+        this.badgesPending = false;
         this.airplaneLayerId = 'sector-ops-live-flights-layer'; 
         this.tracks = [];
         this.refreshInterval = null;
@@ -127,6 +147,11 @@ export class NatTracksLayer {
         this.map.on('style.load', () => {
             this.initSource();
         });
+
+        // Kept under the traffic as layers come and go, and the badges one
+        // size as the camera moves.
+        this.map.on('styledata', () => this.sinkBelowTraffic());
+        this.map.on('render', () => this.rescale());
 
         // Initial setup
         this.initSource();
@@ -150,8 +175,13 @@ export class NatTracksLayer {
             generateId: true,
             tolerance: 0 // NAT track lines stay smooth when zoomed out
         });
+        if (!this.map.getSource(this.badgeSourceId)) {
+            this.map.addSource(this.badgeSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        }
 
-        const beforeId = this.map.getLayer(this.airplaneLayerId) ? this.airplaneLayerId : undefined;
+        // Under the lowest of the traffic's layers there are yet; the rest
+        // are kept above as they come (sinkBelowTraffic).
+        const beforeId = this.lowestTrafficLayer() || undefined;
         const labelsShown = (this.showTracks && this.showLabels) ? 'visible' : 'none';
         // Free-engine glyph servers don't host the Mapbox stacks;
         // flight.js swaps in Noto Sans via window.mapTextFont there.
@@ -183,12 +213,12 @@ export class NatTracksLayer {
         this.map.addLayer({
             id: this.levelsLayerId,
             type: 'symbol',
-            source: this.sourceId,
-            filter: ['all', ['==', ['geometry-type'], 'Point'], ['has', 'levels']],
+            source: this.badgeSourceId,
+            filter: ['has', 'levels'],
             layout: {
                 'text-field': ['get', 'levels'],
                 'text-font': font,
-                'text-size': 8.5,
+                'text-size': ['*', 8.5, ['get', 's']],
                 'text-offset': [0, 1.7],
                 'text-padding': 1,
                 'text-ignore-placement': true,
@@ -207,10 +237,10 @@ export class NatTracksLayer {
         this.map.addLayer({
             id: this.badgeLayerId,
             type: 'symbol',
-            source: this.sourceId,
-            filter: ['==', ['geometry-type'], 'Point'],
+            source: this.badgeSourceId,
             layout: {
                 'icon-image': ['get', 'badge'],
+                'icon-size': ['get', 's'],
                 'icon-rotate': ['get', 'rotate'],
                 'icon-rotation-alignment': 'map',
                 'icon-pitch-alignment': 'viewport',
@@ -218,7 +248,7 @@ export class NatTracksLayer {
                 'icon-ignore-placement': true,
                 'text-field': ['get', 'name'],
                 'text-font': font,
-                'text-size': 9,
+                'text-size': ['*', 9, ['get', 's']],
                 'text-rotate': ['get', 'rotate'],
                 'text-rotation-alignment': 'map',
                 'text-pitch-alignment': 'viewport',
@@ -237,6 +267,110 @@ export class NatTracksLayer {
         if (this.tracks.length > 0) {
             this.render();
         }
+        this.sinkBelowTraffic();
+    }
+
+    // The map's layers, bottom first, in the order they were put in — not
+    // Mapbox's `order`, which with 3D terrain lists every draped layer (the
+    // lines) before every other (the symbols), whatever order they are in,
+    // so moving a layer never changes where it stands there.
+    layerOrder() {
+        const m = this.map;
+        try {
+            if (m.style && Array.isArray(m.style._mergedOrder)) return m.style._mergedOrder;
+            if (typeof m.getLayersOrder === 'function') return m.getLayersOrder();
+            if (m.style && Array.isArray(m.style._order)) return m.style._order;
+            return (m.getStyle().layers || []).map((l) => l.id);
+        } catch (_) { return []; }
+    }
+
+    lowestTrafficLayer() {
+        return this.layerOrder().find((id) => TRAFFIC_LAYER.test(id)) || null;
+    }
+
+    /**
+     * The tracks under every aircraft and path layer: the aircraft first,
+     * then their paths, then the tracks. Run whenever the style's layers
+     * change; it moves nothing once they are in place.
+     */
+    sinkBelowTraffic() {
+        // Moving a layer is itself a style change; not again from inside one.
+        if (this.sinking) return;
+        const order = this.layerOrder();
+        const lowest = order.findIndex((id) => TRAFFIC_LAYER.test(id));
+        if (lowest < 0) return;
+        const ours = [this.lineLayerId, this.levelsLayerId, this.badgeLayerId];
+        if (ours.every((id) => { const i = order.indexOf(id); return i < 0 || i < lowest; })) return;
+        const anchor = order[lowest];
+        this.sinking = true;
+        try {
+            for (const id of ours) {
+                if (!this.map.getLayer(id)) continue;
+                try { this.map.moveLayer(id, anchor); } catch (_) { /* a style mid-swap; next styledata */ }
+            }
+        } finally {
+            this.sinking = false;
+        }
+    }
+
+    // How many pixels a short stretch of ground covers at a place: east and
+    // north, the larger (the other is foreshortened in a tilted view).
+    groundPixels(lon, lat) {
+        const m = this.map;
+        const dLat = 0.02, dLon = 0.02 / Math.max(Math.cos(lat * Math.PI / 180), 0.05);
+        try {
+            const a = m.project([lon, lat]);
+            const e = m.project([lon + dLon, lat]);
+            const n = m.project([lon, Math.min(lat + dLat, 85)]);
+            const px = Math.max(Math.hypot(e.x - a.x, e.y - a.y), Math.hypot(n.x - a.x, n.y - a.y));
+            return Number.isFinite(px) && px > 0 ? px : NaN;
+        } catch (_) { return NaN; }
+    }
+
+    /**
+     * Each badge scaled by the inverse of the perspective ratio Mapbox draws
+     * it at — 0.5 + 0.5 × (the camera's distance to the map's centre ÷ its
+     * distance to the badge), clamped to 1.5 — so it is the same size on
+     * screen near the camera and far from it, on the globe and on the flat
+     * map, tilted or not. The ratio of the two distances is read from how
+     * large the same stretch of ground looks at the badge and at the centre.
+     * Re-sent when any badge has changed by a few percent, at most every
+     * other frame or so.
+     */
+    rescale(force = false) {
+        if (!this.badges.length || !this.showTracks || !this.showLabels) return;
+        const src = this.map.getSource(this.badgeSourceId);
+        if (!src) return;
+        const c = this.map.getCenter();
+        const atCentre = this.groundPixels(c.lng, c.lat);
+        const scales = this.badges.map((b) => {
+            const here = this.groundPixels(b.at[0], b.at[1]);
+            if (!(atCentre > 0) || !(here > 0)) return 1;
+            const ratio = Math.min(Math.max(0.5 + 0.5 * (here / atCentre), 0.05), 1.5);
+            return Math.min(Math.max(1 / ratio, 0.5), 3);
+        });
+        const moved = force || scales.length !== this.badgeScales.length
+            || scales.some((v, i) => Math.abs(v - this.badgeScales[i]) > 0.03 * this.badgeScales[i]);
+        if (!moved) return;
+        const now = performance.now();
+        if (!force && now - this.badgesWrittenAt < 50) {
+            // Soon, with whatever the camera has come to by then.
+            if (!this.badgesPending) {
+                this.badgesPending = true;
+                setTimeout(() => { this.badgesPending = false; this.rescale(); }, 60);
+            }
+            return;
+        }
+        this.badgesWrittenAt = now;
+        this.badgeScales = scales;
+        src.setData({
+            type: 'FeatureCollection',
+            features: this.badges.map((b, i) => ({
+                type: 'Feature',
+                properties: { ...b.props, s: Math.round(scales[i] * 100) / 100 },
+                geometry: { type: 'Point', coordinates: b.at }
+            }))
+        });
     }
 
     /**
@@ -280,6 +414,7 @@ export class NatTracksLayer {
         for (const id of [this.badgeLayerId, this.levelsLayerId]) {
             if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', labelVisibility);
         }
+        this.rescale(true);
     }
 
     /**
@@ -304,6 +439,7 @@ export class NatTracksLayer {
     render() {
         this.ensureBadgeImages();
         const features = [];
+        const badges = [];
         this.tracks.forEach(track => {
             let coordinates = this.parsePath(track.path);
             if (coordinates.length < 2) return;
@@ -347,11 +483,7 @@ export class NatTracksLayer {
                 const place = badgePlacement(end.heading);
                 const props = { ...commonProps, badge: natBadgeImage(index, place.pointsRight), rotate: place.rotate };
                 if (end.entry && levels.length) props.levels = `FL ${levels.join(' ')}`;
-                features.push({
-                    type: 'Feature',
-                    properties: props,
-                    geometry: { type: 'Point', coordinates: end.at }
-                });
+                badges.push({ at: end.at, props });
             }
         });
 
@@ -359,6 +491,9 @@ export class NatTracksLayer {
         if (source) {
             source.setData({ type: 'FeatureCollection', features });
         }
+        this.badges = badges;
+        this.badgeScales = [];
+        this.rescale(true);
     }
 
     /**
