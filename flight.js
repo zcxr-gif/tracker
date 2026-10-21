@@ -1849,10 +1849,10 @@ function setLive3DTraffic(on) {
 }
 
 // The 3D aircraft (aircraftEngine.js): FlightGear's AI models in airline
-// liveries in place of the flat icons. Mapbox only — the free MapLibre map
-// has no globe-aware custom layers.
+// liveries in place of the flat icons, on Mapbox and the free MapLibre map
+// alike.
 function setAircraftModels3D(on) {
-    on = !!on && !window.__FREE_MAP__;
+    on = !!on;
     mapFilters.aircraftModels3D = on;
     try { saveFiltersToLocalStorage(); } catch (_) {}
     AircraftEngine.setVisible(on);
@@ -17612,7 +17612,7 @@ function initializeAircraftLayer() {
                 set: (on) => { mapFilters.showFlownPath = !!on; try { saveFiltersToLocalStorage(); } catch (_) {} }
             },
             models: {
-                available: () => !window.__FREE_MAP__,
+                available: () => true,
                 isOn: () => !!mapFilters.aircraftModels3D,
                 set: setAircraftModels3D
             },
@@ -22150,6 +22150,16 @@ async function setupMapLayersAndFog() {
             'space-color': 'rgb(27, 27, 54)',
             'star-intensity': 0.3
         });
+    } else if (isFreeMap() && typeof sectorOpsMap.setSky === 'function') {
+        // MapLibre's sky in the same colours, or a camera leaned over to
+        // look along at an aeroplane sees a blank band above the horizon.
+        try {
+            sectorOpsMap.setSky({
+                'sky-color': 'rgb(36, 92, 223)',
+                'horizon-color': 'rgb(186, 210, 235)',
+                'sky-horizon-blend': 0.6
+            });
+        } catch (_) {}
     }
 
     // Load the sprite sheet once
@@ -22226,6 +22236,9 @@ function initializeSectorOpsMap(centerICAO) {
         // Globe is Mapbox-only — MapLibre has no globe projection, so free mode
         // is always flat regardless of the saved preference.
         projection: (isFreeMap() || mapFilters.useFlatMap) ? 'mercator' : 'globe',
+        // Mapbox's own ceiling; MapLibre's default stops at 60°, short of
+        // the tilt the camera locked on to an aeroplane leans to.
+        maxPitch: 85,
         // --- SMOOTH ZOOM/RENDER CONFIG ---
         // fadeDuration intentionally omitted — Mapbox's default 300 ms crossfade
         // is what makes tiles dissolve in/out instead of popping. The previous

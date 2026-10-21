@@ -635,12 +635,11 @@ export const FlightWindowControls = (() => {
         const h = Math.max(Number(host.height ? host.height(host.selected()) : 0) || 0, 0);
         if (!h || pitch < 0.5) return [plane[0], plane[1]];
         const MC = window.mapboxgl && window.mapboxgl.MercatorCoordinate;
-        if (MC && typeof map.getFreeCameraOptions === 'function' && Math.abs(pitch - map.getPitch()) < 0.01
-            && !(map.getProjection && map.getProjection().name === 'globe' && map.getZoom() < 6)) {
+        if (MC && Math.abs(pitch - map.getPitch()) < 0.01) {
             try {
-                const cam = map.getFreeCameraOptions().position;
+                const cam = cameraPosition();
                 const c = MC.fromLngLat(map.getCenter(), (map.transform && map.transform._centerAltitude) || 0);
-                const oz = cam.z - c.z;
+                const oz = cam ? cam.z - c.z : 0;
                 if (cam && oz > 0) {
                     const turn = (bearing - map.getBearing()) * Math.PI / 180;
                     const ox0 = cam.x - c.x, oy0 = cam.y - c.y;
@@ -776,14 +775,30 @@ export const FlightWindowControls = (() => {
         return cameraPx * 40075016.686 * Math.max(Math.cos(lat), 0.01) / 512;
     }
 
+    // Where the camera stands, in mercator units: Mapbox says; MapLibre
+    // (the free map) is asked for the ground under it and how high above
+    // the centre it is, in the same units its custom layers draw in. Null
+    // where it cannot be read, or on Mapbox's globe, which is not flat.
+    function cameraPosition() {
+        if (typeof map.getFreeCameraOptions === 'function') {
+            if (map.getProjection && map.getProjection().name === 'globe' && map.getZoom() < 6) return null;
+            return map.getFreeCameraOptions().position || null;
+        }
+        const tr = map.transform;
+        if (!tr || typeof tr.getCameraPoint !== 'function' || typeof tr.pointCoordinate !== 'function' || !tr.worldSize) return null;
+        const ground = tr.pointCoordinate(tr.getCameraPoint());
+        const z = Math.cos(map.getPitch() * Math.PI / 180) * tr.cameraToCenterDistance / tr.worldSize;
+        return ground && Number.isFinite(ground.x) && Number.isFinite(z) ? { x: ground.x, y: ground.y, z } : null;
+    }
+
     // How far the camera really is from the aeroplane, in metres, read
-    // from where Mapbox has put it; null where it cannot be read.
+    // from where the map has put it; null where it cannot be read.
     function measuredDistance(plane) {
         const MC = window.mapboxgl && window.mapboxgl.MercatorCoordinate;
-        if (!MC || typeof map.getFreeCameraOptions !== 'function') return null;
-        if (map.getProjection && map.getProjection().name === 'globe' && map.getZoom() < 6) return null;
+        if (!MC) return null;
         try {
-            const cam = map.getFreeCameraOptions().position;
+            const cam = cameraPosition();
+            if (!cam) return null;
             const h = Math.max(Number(host.height ? host.height(host.selected()) : 0) || 0, 0);
             const p = MC.fromLngLat([plane[0], plane[1]], h);
             const d = Math.hypot(cam.x - p.x, cam.y - p.y, cam.z - p.z) / p.meterInMercatorCoordinateUnits();
