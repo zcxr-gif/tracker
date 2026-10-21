@@ -16,7 +16,6 @@
  * reference point, x east, y north.
  */
 
-const KEY = (lon, lat) => `${lon.toFixed(7)},${lat.toFixed(7)}`;
 const FT_PER_NM = 6076;
 
 /** Distance from point p to segment a–b, and how far along a–b (0..1) the foot is. */
@@ -36,6 +35,86 @@ function crossAt(p1, p2, q1, q2) {
     return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : -1;
 }
 
+const SNAP_NM = 0.006;      // ~11 m: points this close are one junction
+
+/**
+ * Taxiway lines -> a routable graph. OSM ways share their junction points,
+ * but vector tiles cut lines at tile edges and simplify them, so pieces end
+ * a few metres apart and cross without a shared point. So: split every
+ * segment where it crosses another, join line ends that stop on (or just
+ * short of) another line, and merge points within ~11 m into one node.
+ */
+function network(lines) {
+    const segs = [];
+    for (const l of lines) {
+        const cost = l.kind === 'taxilane' ? 1.4 : 1;
+        for (let i = 1; i < l.pts.length; i++) {
+            const a = l.pts[i - 1], b = l.pts[i];
+            if (Math.hypot(a.x - b.x, a.y - b.y) < 1e-6) continue;
+            segs.push({ a, b, name: l.name, cost, cuts: [0, 1] });
+        }
+    }
+    // Spatial grid of segments, 0.1 NM cells.
+    const CELL = 0.1, grid = new Map();
+    const cellsOf = sg => {
+        const out = [];
+        const x0 = Math.floor((Math.min(sg.a.x, sg.b.x) - SNAP_NM) / CELL), x1 = Math.floor((Math.max(sg.a.x, sg.b.x) + SNAP_NM) / CELL);
+        const y0 = Math.floor((Math.min(sg.a.y, sg.b.y) - SNAP_NM) / CELL), y1 = Math.floor((Math.max(sg.a.y, sg.b.y) + SNAP_NM) / CELL);
+        for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) out.push(x + ',' + y);
+        return out;
+    };
+    segs.forEach((sg, i) => { for (const c of cellsOf(sg)) { if (!grid.has(c)) grid.set(c, []); grid.get(c).push(i); } });
+    const near = sg => { const set = new Set(); for (const c of cellsOf(sg)) for (const j of grid.get(c) || []) set.add(j); return set; };
+    segs.forEach((sg, i) => {
+        for (const j of near(sg)) {
+            if (j <= i) continue;
+            const o = segs[j];
+            const t = crossAt(sg.a, sg.b, o.a, o.b);
+            if (t > 0 && t < 1) {
+                sg.cuts.push(t);
+                const u = toSegment({ x: sg.a.x + (sg.b.x - sg.a.x) * t, y: sg.a.y + (sg.b.y - sg.a.y) * t }, o.a, o.b).t;
+                if (u > 0 && u < 1) o.cuts.push(u);
+            }
+        }
+        // Ends that stop on (or a few metres short of) another line join it there.
+        for (const end of [sg.a, sg.b]) {
+            for (const j of near(sg)) {
+                if (j === i) continue;
+                const o = segs[j], f = toSegment(end, o.a, o.b);
+                if (f.d < SNAP_NM && f.t > 0.001 && f.t < 0.999) o.cuts.push(f.t);
+            }
+        }
+    });
+    // Points -> nodes, merging anything within SNAP_NM.
+    const list = [], pgrid = new Map();
+    const nodeAt = (x, y) => {
+        const cx = Math.floor(x / SNAP_NM), cy = Math.floor(y / SNAP_NM);
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+            for (const n of pgrid.get((cx + dx) + ',' + (cy + dy)) || []) if (Math.hypot(n.x - x, n.y - y) < SNAP_NM) return n;
+        }
+        const n = { id: list.length, x, y, edges: [] };
+        list.push(n);
+        const k = cx + ',' + cy;
+        if (!pgrid.has(k)) pgrid.set(k, []);
+        pgrid.get(k).push(n);
+        return n;
+    };
+    for (const sg of segs) {
+        const ts = [...new Set(sg.cuts)].sort((p, q) => p - q);
+        let prev = null;
+        for (const t of ts) {
+            const n = nodeAt(sg.a.x + (sg.b.x - sg.a.x) * t, sg.a.y + (sg.b.y - sg.a.y) * t);
+            if (prev && prev !== n && !prev.edges.some(e => e.to === n.id)) {
+                const w = Math.hypot(prev.x - n.x, prev.y - n.y) * sg.cost;
+                prev.edges.push({ to: n.id, w, name: sg.name });
+                n.edges.push({ to: prev.id, w, name: sg.name });
+            }
+            prev = n;
+        }
+    }
+    return list;
+}
+
 /**
  * Build the surface model. Returns { error } when the layout has too little
  * to taxi on, saying what was missing, so the game can tell the player.
@@ -45,30 +124,13 @@ function crossAt(p1, p2, q1, q2) {
  */
 export function buildGround(layout, proj, ends) {
     if (!layout || !layout.features) return { error: 'no layout data came back' };
-    const nodes = new Map();          // key -> { id, x, y, edges: [{ to, w, name }] }
-    const list = [];
-    const node = (lon, lat) => {
-        const k = KEY(lon, lat);
-        let n = nodes.get(k);
-        if (!n) { const p = proj(lat, lon); n = { id: list.length, x: p.x, y: p.y, edges: [] }; nodes.set(k, n); list.push(n); }
-        return n;
-    };
     const lines = [], aprons = [], gatesRaw = [];
     for (const f of layout.features) {
         const p = f.properties || {}, g = f.geometry;
         if (!g) continue;
         if ((p.aeroway === 'taxiway' || p.aeroway === 'taxilane') && g.type === 'LineString') {
-            const name = String(p.ref || p.name || '').trim();
-            const cost = p.aeroway === 'taxilane' ? 1.4 : 1;
-            const pts = g.coordinates.map(([lon, lat]) => node(lon, lat));
-            for (let i = 1; i < pts.length; i++) {
-                const a = pts[i - 1], b = pts[i];
-                if (a === b) continue;
-                const w = Math.hypot(a.x - b.x, a.y - b.y) * cost;
-                a.edges.push({ to: b.id, w, name });
-                b.edges.push({ to: a.id, w, name });
-            }
-            lines.push({ name, kind: p.aeroway, pts: pts.map(n => ({ x: n.x, y: n.y })) });
+            const pts = g.coordinates.map(([lon, lat]) => proj(lat, lon));
+            if (pts.length >= 2) lines.push({ name: String(p.ref || p.name || '').trim(), kind: p.aeroway, pts });
         } else if (p.aeroway === 'apron' && g.type === 'Polygon') {
             aprons.push(g.coordinates[0].map(([lon, lat]) => proj(lat, lon)));
         } else if ((p.aeroway === 'gate' || p.aeroway === 'parking_position') && g.type === 'Point') {
@@ -76,6 +138,7 @@ export function buildGround(layout, proj, ends) {
             gatesRaw.push({ ref: String(p.ref || p.name || '').trim(), ...proj(lat, lon), gate: p.aeroway === 'gate' });
         }
     }
+    const list = network(lines);
     if (list.length < 10) return { error: `only ${lines.length} taxiways mapped (${list.length} points)` };
 
     // Keep the biggest connected network; stray fragments can't be reached.

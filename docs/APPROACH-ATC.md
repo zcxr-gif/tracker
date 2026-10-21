@@ -258,9 +258,20 @@ B, K, hold short of runway 13L/31R"*.
 - Anything on a runway while another aircraft takes off or lands on it is a
   **runway incursion** (−30 if you work Tower). The exception is lining up
   and waiting behind a departure that is already rolling.
-- The taxi map is fetched three ways at once and the fullest answer is
-  kept: a whole-airport query to three Overpass servers, plus the live
-  map's own request. The log says what came back, e.g. "Surface: 412
+- The taxi map comes from the sources the live map itself uses
+  (`approachTiles.js`). All three are asked at once, and the fullest
+  network built from them is kept:
+  - **Taxiways** from the live map's base-map vector tiles: Mapbox
+    Streets' `aeroway` layer, read with the token the live map gets from
+    `/.netlify/functions/config`; or OpenFreeMap (OpenMapTiles) when the live
+    map is on the free engine. The tiles are decoded by a small built-in
+    reader, and since they cut and simplify lines, the network builder
+    splits crossings, joins line ends that stop on another line, and merges
+    points within ~11 m.
+  - **Gates** from our backend's `/api/gates/{ICAO}`, the same data
+    the live map uses for departure and arrival gates.
+  - **OpenStreetMap** (three Overpass servers, plus the live map's own
+    airport request) as a fallback. The log says what came back, e.g. "Surface: 412
   taxiway segments, 96 gates, holding points at 8 of 8 runway ends".
   Gates up to about 650 m from a taxiway are connected. With no usable
   gates, stands go on the aprons or at dead-end taxilanes.

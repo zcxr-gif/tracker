@@ -20,6 +20,7 @@ import { loadDem, terrainAt, renderRelief, buildMva, mvaAt, mvaArea, MVA_RING_NM
 import { buildGround, nearestNode, route, withCrossings, pointAt } from './approachGround.js';
 import { drawIcon } from './approachIcons.js';
 import { AirportLayoutManager } from './airportLayout.js';
+import { aerowayFromMapbox, aerowayFromOpenFreeMap, gatesFromBackend } from './approachTiles.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -2364,9 +2365,13 @@ function drawSurface() {
         c.font = '700 10px "JetBrains Mono", monospace';
         c.fillStyle = chart ? '#6b4f00' : 'rgba(242,193,78,0.85)';
         c.textAlign = 'center'; c.textBaseline = 'middle';
+        // Tiles cut taxiways into pieces: label each name once per ~0.4 NM, not once per piece.
+        const placed = [];
         for (const l of gr.lines) {
             if (!l.name || l.kind !== 'taxiway' || l.pts.length < 2) continue;
             const m = l.pts[Math.floor(l.pts.length / 2)];
+            if (placed.some(p => p.name === l.name && Math.hypot(p.x - m.x, p.y - m.y) < 0.4)) continue;
+            placed.push({ name: l.name, x: m.x, y: m.y });
             const [x, y] = toS(m.x, m.y);
             c.fillText(l.name, x, y);
         }
@@ -3021,38 +3026,55 @@ let opts = { terrain: store.get('terrain', false), weather: store.get('weather',
 function toastStart(text) { $('#pos-summary').textContent = text; setTimeout(renderStart, 1600); }
 
 /**
- * The field's taxiways and gates from OpenStreetMap. Asks the live map's own
- * request (AirportLayoutManager.getLayout: proven, shared cache) and a
- * whole-airport query on three Overpass servers at once, and keeps the
- * fullest answer. Resolves to { ground } or { error } saying what went wrong.
+ * The field's taxiways and gates, from the sources the live map itself uses:
+ * its base map's vector tiles (Mapbox, or OpenFreeMap when the live map is on
+ * the free engine) for the taxiways, and our backend's /api/gates for the
+ * gates. OpenStreetMap via Overpass (three servers, plus the live map's own
+ * airport-click request) runs alongside as a fallback. Every combination
+ * that comes back is built, and the fullest network wins.
+ * Resolves to { ground, source } or { error }.
  */
 async function loadSurface(world) {
     const xs = world.ends.map(e => e.thr.x), ys = world.ends.map(e => e.thr.y);
     const cosLat = Math.cos(world.lat * D2R), pad = 0.8;
-    const s = world.lat + (Math.min(...ys) - pad) / 60, n = world.lat + (Math.max(...ys) + pad) / 60;
-    const w = world.lon + (Math.min(...xs) - pad) / (60 * cosLat), e = world.lon + (Math.max(...xs) + pad) / (60 * cosLat);
-    const bbox = `${s.toFixed(5)},${w.toFixed(5)},${n.toFixed(5)},${e.toFixed(5)}`;
+    const box = {
+        s: world.lat + (Math.min(...ys) - pad) / 60, n: world.lat + (Math.max(...ys) + pad) / 60,
+        w: world.lon + (Math.min(...xs) - pad) / (60 * cosLat), e: world.lon + (Math.max(...xs) + pad) / (60 * cosLat),
+    };
+    const failures = [];
+    const tryIt = (label, p) => p.catch(err => { failures.push(`${label}: ${err.name === 'AbortError' ? 'timed out' : err.message}`); return null; });
+    const within = (ms, p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timed out'), { name: 'AbortError' })), ms))]);
+
+    const tiles = tryIt('live map tiles', within(25000, aerowayFromMapbox(box)
+        .then(f => ({ f, src: 'Mapbox' }))
+        .catch(err => { failures.push(`Mapbox: ${err.message}`); return aerowayFromOpenFreeMap(box).then(f => ({ f, src: 'OpenFreeMap' })); })));
+    const gates = tryIt('InFlight gates', within(20000, gatesFromBackend(world.icao)));
+    const osm = tryIt('OpenStreetMap', within(45000, overpassLayout(world, box)));
+
+    const [t, g, o] = await Promise.all([tiles, gates, osm]);
+    const options = [];
+    const build = (features, source) => {
+        const ground = buildGround({ type: 'FeatureCollection', features }, (lat, lon) => world.proj(lat, lon), world.ends);
+        if (ground.error) failures.push(`${source}: ${ground.error}`);
+        else options.push({ ground, source, score: ground.main.length + ground.gates.length * 5 });
+    };
+    if (t) build([...t.f, ...(g || [])], `${t.src} taxiways${g ? ' + InFlight gates' : ''}`);
+    if (o) build([...o.features, ...(g || [])], `OpenStreetMap${g ? ' + InFlight gates' : ''}`);
+    if (!options.length) return { error: failures.join('; ') || 'no source answered' };
+    options.sort((a, b) => b.score - a.score);
+    return { ground: options[0].ground, source: options[0].source };
+}
+
+/** OpenStreetMap through Overpass: three servers at once, plus the live map's own airport request. */
+function overpassLayout(world, box) {
+    const bbox = `${box.s.toFixed(5)},${box.w.toFixed(5)},${box.n.toFixed(5)},${box.e.toFixed(5)}`;
     const q = `[out:json][timeout:40];(way["aeroway"~"taxiway|taxilane|apron"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
     const servers = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
-    const failures = [];
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 45000);
-    const ask = url => fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctl.signal })
-        .then(r => r.ok ? r.json() : Promise.reject(new Error(`${new URL(url).host} answered ${r.status}`)))
-        .then(d => (d.elements && d.elements.length ? AirportLayoutManager.processOsmData(d.elements) : Promise.reject(new Error(`${new URL(url).host}: ${d.remark || 'no data'}`))))
-        .catch(err => { failures.push(err.name === 'AbortError' ? `${new URL(url).host} timed out` : err.message); return null; });
-    const liveMap = AirportLayoutManager.getLayout(world.icao, world.lat, world.lon).catch(() => null);
-    // First whole-airport answer wins; the live map's smaller one is the fallback.
-    const whole = await new Promise(resolve => {
-        let left = servers.length;
-        for (const url of servers) ask(url).then(d => { if (d) resolve(d); else if (--left === 0) resolve(null); });
-    });
-    clearTimeout(timer);
-    ctl.abort();
-    const layout = whole || await liveMap;
-    if (!layout) return { error: `couldn't reach OpenStreetMap (${failures.join('; ') || 'no answer'})` };
-    const g = buildGround(layout, (lat, lon) => world.proj(lat, lon), world.ends);
-    return g.error ? g : { ground: g };
+    const ask = url => fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`${new URL(url).host} ${r.status}`)))
+        .then(d => (d.elements && d.elements.length ? AirportLayoutManager.processOsmData(d.elements) : Promise.reject(new Error('no data'))));
+    const live = AirportLayoutManager.getLayout(world.icao, world.lat, world.lon).then(l => l || Promise.reject(new Error('no data')));
+    return Promise.any([...servers.map(ask), live]).catch(() => Promise.reject(new Error('no server answered')));
 }
 async function startGame(airport, level) {
     store.set('last', airport.icao);
@@ -3079,7 +3101,7 @@ async function startGame(airport, level) {
     const surface = await loadSurface(game.world);
     if (G !== game) return;
     game.ground = surface.ground || null;
-    if (surface.ground) sys(`Surface: ${surface.ground.summary}.`);
+    if (surface.ground) sys(`Surface (${surface.source}): ${surface.ground.summary}.`);
     else sys(`No taxi map: ${surface.error}.`, 'bad');
     if (!game.ground && game.positions.has('GND')) {
         game.positions.delete('GND');
