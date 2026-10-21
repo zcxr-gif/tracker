@@ -19,7 +19,6 @@
  *     usual, and never so far that the camera passes it)
  *     zooms into it, a drag or a twist goes round it, and the camera turns
  *     with it so the view you chose holds as it turns;
- *   - a chevron that folds the middle of the column away.
  * And under it, on a button of its own, 3D/2D for the 3D aircraft.
  *
  * Above them, a second piece of glass with the window's own buttons — pin
@@ -28,6 +27,13 @@
  * every flow behind them is the window's own. While the column is showing,
  * the window's copies are hidden (`fw-actions-out`); when it fades away over
  * a sheet opened all the way, they come back inside the window.
+ *
+ * Both pieces tuck away behind the window, and pull back out, by a tab on
+ * the window's edge: tapped, it slides them in or out; dragged, they follow
+ * the finger and settle whichever way they are nearer. They slide towards
+ * the window and are cut off at its edge as they go, so they read as going
+ * behind it — down behind the sheet on a phone, sideways behind the window
+ * on desktop. Remembered from one flight to the next.
  *
  * Where it stands is read from the window on every frame, so it follows it
  * exactly however the window moves:
@@ -64,7 +70,7 @@
  */
 
 export const FlightWindowControls = (() => {
-    const COLLAPSED_KEY = 'flightWindowControlsCollapsed';
+    const TUCKED_KEY = 'flightWindowControlsTucked';
     const WIDTH = 46;
     const ROW = 42;
     const GAP = 10;
@@ -76,6 +82,12 @@ export const FlightWindowControls = (() => {
     // Locked on, the camera turns with the aeroplane through this much
     // smoothing (seconds), so a turn reported in steps is ridden as one.
     const CHASE_HEADING_TAU = 1.2;
+    // The tab the controls are tucked and pulled by: lying along the top of
+    // a phone's sheet, standing against the side of the window on desktop.
+    const TAB_LONG = 56;
+    const TAB_SHORT = 20;
+    // How fast a tap slides them all the way in or out (time constant, s).
+    const TUCK_TAU = 0.07;
 
     // The window's header buttons, in the order they stood there. `phone`
     // false: hidden on narrow screens, as the window hides it.
@@ -167,10 +179,19 @@ export const FlightWindowControls = (() => {
     // when the camera lets go of the aeroplane: left behind, it held the
     // whole map off to one side after the flight window closed.
     let ownsPadding = false;
-    let collapsed = false;
     let lastKey = '';
+    // Tucked away behind the window, and how far out they are drawn (0 in,
+    // 1 out) as they slide; `drag` while the tab is being pulled.
+    let tucked = false;
+    let shown01 = 1;
+    let shownAt = 0;
+    let drag = null;
+    let tab = null;
+    // Where the tab and the slide stood last frame, for a drag to read.
+    let slide = { axis: 'y', out: -1, travel: 1, side: 'right' };
 
-    try { collapsed = localStorage.getItem(COLLAPSED_KEY) === '1'; } catch (_) {}
+    try { tucked = localStorage.getItem(TUCKED_KEY) === '1'; } catch (_) {}
+    shown01 = tucked ? 0 : 1;
 
     // --- Glyphs ----------------------------------------------------------
 
@@ -260,9 +281,34 @@ export const FlightWindowControls = (() => {
             /* On is a wash of colour, not a block of it. */
             .fw-controls .fw-row.on::before { background: var(--fw-on); }
             .fw-controls .fw-row.on { color: var(--fw-accent); }
-            .fw-controls .fw-collapse { width: ${WIDTH}px; height: 22px; font-size: 11px; opacity: .7; }
-            .fw-controls.horizontal .fw-collapse { width: 22px; height: ${WIDTH}px; }
-            .fw-controls .fw-collapse:hover { opacity: 1; }
+            /* The tab they are tucked and pulled by, against the window. */
+            .fw-tab {
+                position: absolute; z-index: 2100; display: flex; align-items: center;
+                justify-content: center; padding: 0; border: 0.5px solid var(--fw-stroke);
+                background: var(--fw-bg); color: var(--fw-text); cursor: grab;
+                backdrop-filter: saturate(180%) blur(30px);
+                -webkit-backdrop-filter: saturate(180%) blur(30px);
+                box-shadow: var(--fw-shadow); font-size: 11px; opacity: 0;
+                pointer-events: none; touch-action: none; transition: opacity .22s ease;
+                --fw-bg: rgba(30, 30, 32, 0.55);
+                --fw-stroke: rgba(255, 255, 255, 0.14);
+                --fw-text: #ffffff;
+                --fw-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+            }
+            .fw-tab[data-theme="light"] {
+                --fw-bg: rgba(245, 245, 247, 0.72);
+                --fw-stroke: rgba(0, 0, 0, 0.08);
+                --fw-text: #000000;
+                --fw-shadow: 0 4px 18px rgba(0, 0, 0, 0.10);
+            }
+            .fw-tab.shown { pointer-events: auto; }
+            .fw-tab:active { cursor: grabbing; }
+            .fw-tab.along { width: ${TAB_LONG}px; height: ${TAB_SHORT}px; border-radius: 10px 10px 0 0; border-bottom: 0; }
+            .fw-tab.beside { width: ${TAB_SHORT}px; height: ${TAB_LONG}px; }
+            .fw-tab.beside.on-left { border-radius: 10px 0 0 10px; border-right: 0; }
+            .fw-tab.beside.on-right { border-radius: 0 10px 10px 0; border-left: 0; }
+            .fw-tab i { transition: transform .2s ease; opacity: .8; }
+            .fw-tab:hover i { opacity: 1; }
             .fw-controls .fw-models {
                 width: ${WIDTH}px; height: ${WIDTH}px; border-radius: 50%;
                 font: 800 14px/1 ui-rounded, system-ui, sans-serif; letter-spacing: .02em;
@@ -305,18 +351,6 @@ export const FlightWindowControls = (() => {
         row('path', PATH_SVG, 'Hide the flown path', toggleFlownPath);
         row('chase', '<i class="fa-solid fa-video"></i>', 'Lock the camera on this aircraft', toggleChase);
 
-        const collapse = document.createElement('button');
-        collapse.type = 'button';
-        collapse.className = 'fw-collapse';
-        collapse.addEventListener('click', (e) => {
-            e.stopPropagation();
-            collapsed = !collapsed;
-            try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (_) {}
-            lastKey = '';
-            haptic();
-        });
-        column.appendChild(collapse);
-        rows.collapse = collapse;
 
         modelsBtn = document.createElement('button');
         modelsBtn.type = 'button';
@@ -356,8 +390,22 @@ export const FlightWindowControls = (() => {
         leftRoot.setAttribute('aria-label', 'Flight actions');
         leftRoot.appendChild(actions);
 
+        tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = 'fw-tab along';
+        tab.innerHTML = '<i class="fa-solid fa-chevron-down"></i>';
+        tab.addEventListener('pointerdown', onTabDown);
+        tab.addEventListener('pointermove', onTabMove);
+        tab.addEventListener('pointerup', onTabUp);
+        tab.addEventListener('pointercancel', onTabUp);
+        tab.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // From the keyboard (no pointer pressed it): tuck or pull out.
+            if (e.detail === 0) { setTucked(!tucked); haptic(); }
+        });
+
         // Taps on the column are the column's, never the map's.
-        for (const el of [root, leftRoot]) {
+        for (const el of [root, leftRoot, tab]) {
             for (const type of ['mousedown', 'touchstart', 'dblclick', 'wheel']) {
                 el.addEventListener(type, (e) => e.stopPropagation(), { passive: true });
             }
@@ -1093,8 +1141,8 @@ export const FlightWindowControls = (() => {
             }
         }
 
-        const flightRows = up && !collapsed ? (modelsOn ? 4 : 3) : 0;
-        const rowsShown = (up ? 1 : 0) + (turned ? 1 : 0) + flightRows;
+        const flightRows = up ? (modelsOn ? 4 : 3) : 0;
+        const rowsShown = (turned ? 1 : 0) + flightRows;
         const modelsShown = host.models.available();
         const mainHeight = (rowsShown ? rowsShown * ROW + 8 : 0) + (modelsShown ? WIDTH + (rowsShown ? 8 : 0) : 0);
         const actionsHeight = actionCount ? actionCount * ROW + 8 : 0;
@@ -1103,13 +1151,18 @@ export const FlightWindowControls = (() => {
         let left = 0, top = 0, opacity = 1;
         let aLeft = 0, aTop = 0;
         let shown = true;
+        // Tucked behind the window: how far out they are drawn, and where
+        // each is cut off (clip-path insets, in its own pixels).
+        const out = up ? stepTuck() : 1;
+        let clip = '', aClip = '';
+        let tabLeft = 0, tabTop = 0, tabKind = 'along', tabIcon = 'down';
 
         if (up) {
             const r = win.getBoundingClientRect();
             if (mobile) {
                 // Each stands upright above the peek if it fits, and lies on
                 // its side along the sheet's top only when it does not.
-                const room = r.top - c.top - GAP - TOP_ROOM;
+                const room = r.top - c.top - GAP - TAB_SHORT - TOP_ROOM;
                 layout = mainHeight <= room ? 'vertical' : 'horizontal';
                 leftLayout = actionsHeight <= room ? 'vertical' : 'horizontal';
                 setLayout(root, layout);
@@ -1117,10 +1170,22 @@ export const FlightWindowControls = (() => {
                 const half = `${Math.max(c.width / 2 - 18, WIDTH)}px`;
                 root.style.maxWidth = layout === 'horizontal' ? half : '';
                 leftRoot.style.maxWidth = leftLayout === 'horizontal' ? half : '';
+                // Above the tab, which lies along the middle of the sheet's
+                // top; down behind the sheet as they are tucked away.
+                const edge = r.top - c.top;
+                const h = root.offsetHeight || WIDTH, ah = leftRoot.offsetHeight || WIDTH;
                 left = c.width - 12 - (root.offsetWidth || WIDTH);
-                top = r.top - c.top - GAP - (root.offsetHeight || WIDTH);
+                top = edge - GAP - TAB_SHORT - h;
                 aLeft = 12;
-                aTop = r.top - c.top - GAP - (leftRoot.offsetHeight || WIDTH);
+                aTop = edge - GAP - TAB_SHORT - ah;
+                slide = { axis: 'y', out: -1, travel: edge - Math.min(top, aTop), side: 'bottom' };
+                top += (1 - out) * (edge - top);
+                aTop += (1 - out) * (edge - aTop);
+                clip = `inset(0 0 ${Math.max(0, top + h - edge)}px 0)`;
+                aClip = `inset(0 0 ${Math.max(0, aTop + ah - edge)}px 0)`;
+                tabLeft = c.width / 2 - TAB_LONG / 2;
+                tabTop = edge - TAB_SHORT;
+                tabIcon = tucked ? 'up' : 'down';
                 // Faded over the first part of the opening, so nothing is left
                 // hanging half there over a window that has nearly arrived.
                 const peekTop = window.innerHeight - (window.MobileUIHandler?.getPeekHeight?.() || 320);
@@ -1128,16 +1193,28 @@ export const FlightWindowControls = (() => {
                 const span = Math.max(peekTop - fullTop, 1);
                 const openness = Math.min(Math.max((peekTop - r.top) / span, 0), 1);
                 opacity = Math.max(0, 1 - openness * 1.6);
-                if (Math.min(top, aTop) < 8) opacity = 0;
+                if (edge - GAP - TAB_SHORT - Math.max(h, ah) < 8) opacity = 0;
             } else {
                 setLayout(root, 'vertical');
                 setLayout(leftRoot, 'vertical');
                 root.style.maxWidth = leftRoot.style.maxWidth = '';
+                // Beside the tab, which stands against the window's side;
+                // sideways behind the window as they are tucked away.
                 const onRight = r.left + r.width / 2 > c.left + c.width / 2;
-                left = aLeft = onRight ? r.left - c.left - GAP - WIDTH : r.right - c.left + GAP;
+                const edge = onRight ? r.left - c.left : r.right - c.left;
+                const outLeft = onRight ? edge - TAB_SHORT - GAP - WIDTH : edge + TAB_SHORT + GAP;
+                if (outLeft < 4 || outLeft + WIDTH > c.width - 4) opacity = 0;
+                const travel = onRight ? edge - outLeft : outLeft + WIDTH - edge;
+                left = aLeft = outLeft + (onRight ? 1 : -1) * (1 - out) * travel;
                 aTop = r.top - c.top;
                 top = aTop + (actionCount ? (leftRoot.offsetHeight || actionsHeight) + 8 : 0);
-                if (left < 4 || left + WIDTH > c.width - 4) opacity = 0;
+                const cut = onRight ? Math.max(0, left + WIDTH - edge) : Math.max(0, edge - left);
+                clip = aClip = onRight ? `inset(0 ${cut}px 0 0)` : `inset(0 0 0 ${cut}px)`;
+                slide = { axis: 'x', out: onRight ? -1 : 1, travel, side: onRight ? 'left' : 'right' };
+                tabKind = onRight ? 'beside on-left' : 'beside on-right';
+                tabLeft = onRight ? edge - TAB_SHORT : edge;
+                tabTop = r.top - c.top;
+                tabIcon = (tucked ? onRight : !onRight) ? 'left' : 'right';
             }
         } else {
             // No flight open: the map's own controls stay in the corner.
@@ -1163,9 +1240,9 @@ export const FlightWindowControls = (() => {
         if (root.getAttribute('data-theme') !== theme) {
             root.setAttribute('data-theme', theme);
             leftRoot.setAttribute('data-theme', theme);
+            tab.setAttribute('data-theme', theme);
         }
-        const vertical = layout !== 'horizontal';
-        const key = [up, turned, collapsed, modelsOn, pathOn, following, chasing, layout, leftLayout, actionSig].join('|');
+        const key = [up, turned, tucked, modelsOn, pathOn, following, chasing, layout, leftLayout, actionSig].join('|');
         if (key !== lastKey) {
             lastKey = key;
             actions.hidden = !actionCount;
@@ -1182,9 +1259,8 @@ export const FlightWindowControls = (() => {
             }
             column.hidden = rowsShown === 0;
             rows.compass.hidden = !turned;
-            for (const k of ['frame', 'follow', 'path']) rows[k].hidden = !up || collapsed;
-            rows.chase.hidden = !up || collapsed || !modelsOn;
-            rows.collapse.hidden = !up;
+            for (const k of ['frame', 'follow', 'path']) rows[k].hidden = !up;
+            rows.chase.hidden = !up || !modelsOn;
             rows.follow.classList.toggle('on', following);
             rows.follow.title = following ? 'Stop following this aircraft' : 'Centre on this aircraft and follow it';
             rows.path.classList.toggle('on', pathOn);
@@ -1192,11 +1268,9 @@ export const FlightWindowControls = (() => {
             rows.chase.classList.toggle('on', chasing);
             rows.chase.title = chasing ? 'Let go of this aircraft' : 'Lock the camera on this aircraft';
             for (const k of ['follow', 'path', 'chase']) rows[k].setAttribute('aria-label', rows[k].title);
-            rows.collapse.innerHTML = vertical
-                ? `<i class="fa-solid fa-chevron-${collapsed ? 'up' : 'down'}"></i>`
-                : `<i class="fa-solid fa-chevron-${collapsed ? 'left' : 'right'}"></i>`;
-            rows.collapse.title = collapsed ? 'Show map controls' : 'Hide map controls';
-            rows.collapse.setAttribute('aria-label', rows.collapse.title);
+            tab.title = tucked ? 'Show the flight controls' : 'Tuck the flight controls away';
+            tab.setAttribute('aria-label', tab.title);
+            tab.setAttribute('aria-expanded', tucked ? 'false' : 'true');
             modelsBtn.hidden = !modelsShown;
             modelsBtn.textContent = modelsOn ? '2D' : '3D';
             modelsBtn.classList.toggle('on', modelsOn);
@@ -1208,8 +1282,18 @@ export const FlightWindowControls = (() => {
             if (svg) svg.style.transform = `rotate(${-bearing}deg)`;
         }
 
-        place(root, left, top, shown ? opacity : 0);
-        place(leftRoot, aLeft, aTop, up && actionCount ? opacity : 0);
+        place(root, left, top, shown ? opacity : 0, clip);
+        place(leftRoot, aLeft, aTop, up && actionCount ? opacity : 0, aClip);
+        // Not to be pressed while mostly tucked away.
+        if (out < 0.5) { root.classList.add('faded'); leftRoot.classList.add('faded'); }
+        const tabClass = `fw-tab ${tabKind}`;
+        if (tab.className.replace(/ shown$/, '') !== tabClass) tab.className = tabClass;
+        const icon = tab.firstElementChild;
+        if (icon && icon.className !== `fa-solid fa-chevron-${tabIcon}`) icon.className = `fa-solid fa-chevron-${tabIcon}`;
+        tab.style.left = `${Math.round(tabLeft)}px`;
+        tab.style.top = `${Math.round(tabTop)}px`;
+        tab.style.opacity = String(up ? opacity : 0);
+        tab.classList.toggle('shown', up && opacity >= 0.5);
         // The window's own copies of the buttons, only while these are usable.
         if (up) win.classList.toggle('fw-actions-out', actionCount > 0 && opacity >= 0.5);
         if (!up) return;
@@ -1233,12 +1317,58 @@ export const FlightWindowControls = (() => {
         lastKey = '';
     }
 
-    function place(el, left, top, opacity) {
+    function place(el, left, top, opacity, clip = '') {
         el.style.left = `${Math.round(left)}px`;
         el.style.top = `${Math.round(top)}px`;
+        if (el.style.clipPath !== clip) el.style.clipPath = clip;
         el.style.opacity = String(opacity);
         el.classList.toggle('shown', opacity > 0);
         el.classList.toggle('faded', opacity < 0.5);
+    }
+
+    // --- Tucked away behind the window ------------------------------------
+
+    function setTucked(on) {
+        tucked = !!on;
+        try { localStorage.setItem(TUCKED_KEY, tucked ? '1' : '0'); } catch (_) {}
+        lastKey = '';
+    }
+
+    // Pulled by the tab: they follow the finger along the way they slide.
+    function onTabDown(e) {
+        e.stopPropagation();
+        drag = { id: e.pointerId, x: e.clientX, y: e.clientY, from: shown01, moved: 0 };
+        try { tab.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+
+    function onTabMove(e) {
+        if (!drag || e.pointerId !== drag.id) return;
+        const d = slide.axis === 'y' ? e.clientY - drag.y : e.clientX - drag.x;
+        drag.moved = Math.max(drag.moved, Math.abs(d));
+        shown01 = Math.min(Math.max(drag.from + d * slide.out / Math.max(slide.travel, 1), 0), 1);
+    }
+
+    function onTabUp(e) {
+        if (!drag || e.pointerId !== drag.id) return;
+        // A tap tucks them or pulls them out; a drag lets go where it is,
+        // and they settle whichever way they are nearer.
+        const tap = drag.moved < 5;
+        drag = null;
+        setTucked(tap ? !tucked : shown01 < 0.5);
+        haptic();
+    }
+
+    // How far out they are drawn this frame: following a drag, or sliding
+    // towards where they were left.
+    function stepTuck() {
+        const now = performance.now();
+        const dt = shownAt ? Math.min((now - shownAt) / 1000, 0.1) : 0;
+        shownAt = now;
+        if (drag) return shown01;
+        const want = tucked ? 0 : 1;
+        shown01 += (want - shown01) * (1 - Math.exp(-dt / TUCK_TAU));
+        if (Math.abs(want - shown01) < 0.002) shown01 = want;
+        return shown01;
     }
 
     // --- Public ------------------------------------------------------------
