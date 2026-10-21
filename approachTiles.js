@@ -1,10 +1,11 @@
 /**
  * approachTiles.js — the airport surface from the live map's own sources.
  *
- * The live map draws taxiways and runways from its base map's vector tiles
- * (the `aeroway` layer of Mapbox Streets, or of OpenMapTiles on the free
- * OpenFreeMap engine), and gates from our backend (/api/gates/{ICAO}, see
- * fetchAirportGates in flight.js). This module reads exactly those:
+ * The live map's free engine (and its 3D taxi view) draws from OpenFreeMap's
+ * keyless vector tiles — the OpenMapTiles schema, whose `aeroway` layer holds
+ * taxiway lines, aprons and gates — and gets gates from our backend
+ * (/api/gates/{ICAO}, see fetchAirportGates in flight.js). This module reads
+ * exactly those:
  *
  *   - fetches the vector tiles covering the field at z14 and decodes their
  *     `aeroway` layer (a small Mapbox Vector Tile / protobuf reader — no
@@ -144,9 +145,9 @@ async function fetchTile(url) {
 /**
  * Taxiways (and aprons) in a lat/lon box from one tile source, as GeoJSON
  * features with properties { aeroway, ref }. `kindOf` reads a feature's kind
- * from its properties (Mapbox: `type`; OpenMapTiles: `class`).
+ * from its properties (OpenMapTiles: `class`).
  */
-async function aerowayFromTiles(template, box, kindOf) {
+async function aerowayFromTiles(template, box, kindOf = p => p.class) {
     const x0 = tileX(box.w, ZOOM), x1 = tileX(box.e, ZOOM), y0 = tileY(box.n, ZOOM), y1 = tileY(box.s, ZOOM);
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) throw new Error('airport too big for tiles');
     const jobs = [];
@@ -180,27 +181,12 @@ async function aerowayFromTiles(template, box, kindOf) {
     return features;
 }
 
-/** The live map's Mapbox token, from the same config function flight.js reads. Null on the free engine. */
-async function mapboxToken() {
-    const r = await fetch('/.netlify/functions/config');
-    if (!r.ok) throw new Error(`config ${r.status}`);
-    const c = await r.json();
-    if (c.useFreeMap || !c.mapboxToken) throw new Error('the live map is on the free engine');
-    return c.mapboxToken;
-}
-
-export async function aerowayFromMapbox(box) {
-    const token = await mapboxToken();
-    return aerowayFromTiles(`https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf?access_token=${encodeURIComponent(token)}`,
-        box, p => p.type);
-}
-
 export async function aerowayFromOpenFreeMap(box) {
     // The tile URL carries a build date, so ask the TileJSON for the current one.
     const tj = await (await fetch('https://tiles.openfreemap.org/planet')).json();
     const template = tj.tiles && tj.tiles[0];
     if (!template) throw new Error('no OpenFreeMap tile URL');
-    return aerowayFromTiles(template, box, p => p.class);
+    return aerowayFromTiles(template, box);
 }
 
 /** The field's gates from our backend, as GeoJSON points (the shapes fetchAirportGates in flight.js handles). */

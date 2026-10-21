@@ -20,7 +20,7 @@ import { loadDem, terrainAt, renderRelief, buildMva, mvaAt, mvaArea, MVA_RING_NM
 import { buildGround, nearestNode, route, withCrossings, pointAt } from './approachGround.js';
 import { drawIcon } from './approachIcons.js';
 import { AirportLayoutManager } from './airportLayout.js';
-import { aerowayFromMapbox, aerowayFromOpenFreeMap, gatesFromBackend } from './approachTiles.js';
+import { aerowayFromOpenFreeMap, gatesFromBackend } from './approachTiles.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -287,7 +287,7 @@ function newGame(airport, level, opts) {
     G = {
         world, wind, level, opts, airport,
         positions: new Set(opts.positions),
-        ground: null, aiT: 0, aiSlots: {}, lastDepAt: new Map(), groundConf: new Set(),
+        ground: null, surfaceMap: null, aiT: 0, aiSlots: {}, lastDepAt: new Map(), groundConf: new Set(),
         dem: null, mva: null, relief: {},
         tiles: new TerrainTiles(airport.lat, airport.lon, world.elev),
         wx: [], met: null, nextCell: 0,
@@ -2219,7 +2219,7 @@ function draw() {
         }
     }
 
-    if (G.ground && s > 25) drawSurface();
+    if (G.surfaceMap && s > 25) drawSurface();
 
     // Departures waiting at each runway, as a queue count (no taxi map: they wait at the threshold).
     const queues = new Map();
@@ -2348,7 +2348,7 @@ function visible(a) {
 
 /** Taxiways, aprons and gates, when zoomed in on the field. */
 function drawSurface() {
-    const c = ctx, s = view.scale, gr = G.ground, chart = mapStyle === 'chart';
+    const c = ctx, s = view.scale, gr = G.surfaceMap, chart = mapStyle === 'chart';
     c.save();
     c.fillStyle = chart ? 'rgba(120,120,110,0.18)' : 'rgba(255,255,255,0.05)';
     for (const poly of gr.aprons) {
@@ -3027,12 +3027,13 @@ function toastStart(text) { $('#pos-summary').textContent = text; setTimeout(ren
 
 /**
  * The field's taxiways and gates, from the sources the live map itself uses:
- * its base map's vector tiles (Mapbox, or OpenFreeMap when the live map is on
- * the free engine) for the taxiways, and our backend's /api/gates for the
- * gates. OpenStreetMap via Overpass (three servers, plus the live map's own
+ * OpenFreeMap's free vector tiles (the live map's free engine and its 3D taxi
+ * view) for the taxiways, and our backend's /api/gates for the gates.
+ * OpenStreetMap via Overpass (three servers, plus the live map's own
  * airport-click request) runs alongside as a fallback. Every combination
  * that comes back is built, and the fullest network wins.
- * Resolves to { ground, source } or { error }.
+ * Resolves to { ground, source } or { error, map }, where `map` is whatever
+ * taxiways were found, to draw even when they can't be taxied on.
  */
 async function loadSurface(world) {
     const xs = world.ends.map(e => e.thr.x), ys = world.ends.map(e => e.thr.y);
@@ -3045,22 +3046,23 @@ async function loadSurface(world) {
     const tryIt = (label, p) => p.catch(err => { failures.push(`${label}: ${err.name === 'AbortError' ? 'timed out' : err.message}`); return null; });
     const within = (ms, p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timed out'), { name: 'AbortError' })), ms))]);
 
-    const tiles = tryIt('live map tiles', within(25000, aerowayFromMapbox(box)
-        .then(f => ({ f, src: 'Mapbox' }))
-        .catch(err => { failures.push(`Mapbox: ${err.message}`); return aerowayFromOpenFreeMap(box).then(f => ({ f, src: 'OpenFreeMap' })); })));
+    const tiles = tryIt('OpenFreeMap', within(25000, aerowayFromOpenFreeMap(box)));
     const gates = tryIt('InFlight gates', within(20000, gatesFromBackend(world.icao)));
     const osm = tryIt('OpenStreetMap', within(45000, overpassLayout(world, box)));
 
     const [t, g, o] = await Promise.all([tiles, gates, osm]);
     const options = [];
+    let map = null;
     const build = (features, source) => {
         const ground = buildGround({ type: 'FeatureCollection', features }, (lat, lon) => world.proj(lat, lon), world.ends);
-        if (ground.error) failures.push(`${source}: ${ground.error}`);
-        else options.push({ ground, source, score: ground.main.length + ground.gates.length * 5 });
+        if (ground.error) {
+            failures.push(`${source}: ${ground.error}`);
+            if (ground.map && (!map || ground.map.lines.length > map.lines.length)) map = ground.map;
+        } else options.push({ ground, source, score: ground.main.length + ground.gates.length * 5 });
     };
-    if (t) build([...t.f, ...(g || [])], `${t.src} taxiways${g ? ' + InFlight gates' : ''}`);
+    if (t) build([...t, ...(g || [])], `OpenFreeMap taxiways${g ? ' + InFlight gates' : ''}`);
     if (o) build([...o.features, ...(g || [])], `OpenStreetMap${g ? ' + InFlight gates' : ''}`);
-    if (!options.length) return { error: failures.join('; ') || 'no source answered' };
+    if (!options.length) return { error: failures.join('; ') || 'no source answered', map: map && map.lines.length ? map : null };
     options.sort((a, b) => b.score - a.score);
     return { ground: options[0].ground, source: options[0].source };
 }
@@ -3101,8 +3103,9 @@ async function startGame(airport, level) {
     const surface = await loadSurface(game.world);
     if (G !== game) return;
     game.ground = surface.ground || null;
+    game.surfaceMap = surface.ground || surface.map || null;
     if (surface.ground) sys(`Surface (${surface.source}): ${surface.ground.summary}.`);
-    else sys(`No taxi map: ${surface.error}.`, 'bad');
+    else sys(`No taxi map: ${surface.error}.${surface.map ? ` Drawing the ${surface.map.lines.length} taxiway segments found.` : ''}`, 'bad');
     if (!game.ground && game.positions.has('GND')) {
         game.positions.delete('GND');
         if (!game.positions.size) game.positions.add('TWR');

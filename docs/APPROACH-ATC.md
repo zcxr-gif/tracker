@@ -261,13 +261,14 @@ B, K, hold short of runway 13L/31R"*.
 - The taxi map comes from the sources the live map itself uses
   (`approachTiles.js`). All three are asked at once, and the fullest
   network built from them is kept:
-  - **Taxiways** from the live map's base-map vector tiles: Mapbox
-    Streets' `aeroway` layer, read with the token the live map gets from
-    `/.netlify/functions/config`; or OpenFreeMap (OpenMapTiles) when the live
-    map is on the free engine. The tiles are decoded by a small built-in
-    reader, and since they cut and simplify lines, the network builder
-    splits crossings, joins line ends that stop on another line, and merges
-    points within ~11 m.
+  - **Taxiways** from OpenFreeMap's keyless vector tiles (the live map's
+    free engine and 3D taxi view): the OpenMapTiles `aeroway` layer at z14,
+    `class` taxiway/apron/gate with `ref` letters. No Mapbox token is used.
+    The tiles are decoded by a small built-in reader, and since they cut and
+    simplify lines, the network builder splits crossings, joins line ends
+    that stop on another line, and merges points within ~11 m. If the lines
+    can't be joined into a network to taxi on, they're still drawn on the
+    scope (Ground is then unavailable).
   - **Gates** from our backend's `/api/gates/{ICAO}`, the same data
     the live map uses for departure and arrival gates.
   - **OpenStreetMap** (three Overpass servers, plus the live map's own

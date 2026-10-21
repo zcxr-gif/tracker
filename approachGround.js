@@ -139,7 +139,9 @@ export function buildGround(layout, proj, ends) {
         }
     }
     const list = network(lines);
-    if (list.length < 10) return { error: `only ${lines.length} taxiways mapped (${list.length} points)` };
+    // What was mapped, for drawing even when it can't be taxied on.
+    const fail = error => ({ error, map: { lines, aprons, gates: gatesRaw } });
+    if (list.length < 10) return fail(`only ${lines.length} taxiways mapped (${list.length} points)`);
 
     // Keep the biggest connected network; stray fragments can't be reached.
     const comp = new Int32Array(list.length).fill(-1);
@@ -153,7 +155,7 @@ export function buildGround(layout, proj, ends) {
         c++;
     }
     const main = list.filter(n => comp[n.id] === best);
-    if (main.length < 10) return { error: 'the taxiways are mapped in pieces that never join up' };
+    if (main.length < 10) return fail('the taxiways are mapped in pieces that never join up');
 
     const physRunways = [];
     for (const e of ends) if (!physRunways.some(r => r.phys === e.phys)) physRunways.push({ phys: e.phys, a: e.thr, b: e.far, half: e.width / 2, label: `${e.id}/${e.opp.id}` });
@@ -193,7 +195,7 @@ export function buildGround(layout, proj, ends) {
             if (gates.length >= 12) break;
         }
     }
-    if (gates.length < 3) return { error: `nowhere to park (${gatesRaw.length} gates mapped, none near a taxiway)` };
+    if (gates.length < 3) return fail(`nowhere to park (${gatesRaw.length} gates mapped, none near a taxiway)`);
 
     // Per runway end: where departures hold short, and where arrivals can turn off.
     const holds = new Map(), exits = new Map();
