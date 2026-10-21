@@ -39,21 +39,20 @@
  * screen space, so it is the same width in every world and at every tilt.
  *
  * Public API:
- *   init(map, { features, pose, selected, onModelled, path, pathOn, pathColour })
+ *   init(map, { features, pose, selected, onModelled, path, pathOn })
  *     features()            -> the live feature cache (currentMapFeatures)
  *     pose(id, nowMs)       -> [lon, lat, heading] as the icon is drawn, or null
  *     selected()            -> the open flight's id
  *     onModelled(id, bool)  -> show/hide that flight's flat icon
- *     path(id)              -> its trail: [{ latitude, longitude, altitude
- *                              (ft), groundSpeed (kt) }, …], oldest first
+ *     path(id)              -> its flown path as built by flownPath.js
+ *                              (buildFlownPath with air on): { runs: [{
+ *                              coords, colour, heights, sea }] }, or null
  *     pathOn()              -> whether the flown path is shown
- *     pathColour(feet)      -> [r, g, b] 0…1, the path's colour at a height
  *   setVisible(on), isVisible(), refresh(), hitTest({x, y}) -> flightId|null
  * ===================================================================
  */
 
 import { loadThree } from './threeLoader.js';
-import { FlownHead } from './flownHead.js';
 import {
     designatorForName, chooseModel, loadGeometry, loadTexture, texturePath, forgetTexture
 } from './aircraftModels.js';
@@ -854,91 +853,39 @@ void main() {
     const PATH_HALO_PX = 7;
     const PATH_HALO = [0.03, 0.05, 0.09, 0.55];
     const PATH_CURTAIN = 0.24;
-    // Most points projected a frame; older stretches are thinned to fit,
-    // the latest kept whole.
-    const PATH_MAX_POINTS = 1800;
-    const PATH_KEEP_RECENT = 300;
-    const FEET = 0.3048;
-
-    let pathCache = null;   // { id, trail, length, last, pts }
+    let pathCache = null;   // { path, pts }
     let pathMesh = null;    // { mesh, geometry, materials }
 
-    // The trail as heights above the field the aeroplane last stood on, as
-    // iOS FlownPathProfile.heights: on the ground 0; in the air above the
-    // last field before (or, before any, the first after); a sample with no
-    // height filled between its neighbours.
-    function pathPoints(id, trail) {
-        const n = trail.length;
-        const lastPt = trail[n - 1];
-        if (pathCache && pathCache.id === id && pathCache.trail === trail
-            && pathCache.length === n && pathCache.last === lastPt) return pathCache.pts;
-
-        // Thin the older part of a long trail.
-        const idx = [];
-        if (n > PATH_MAX_POINTS) {
-            const older = n - PATH_KEEP_RECENT;
-            const stride = Math.ceil(older / (PATH_MAX_POINTS - PATH_KEEP_RECENT));
-            for (let i = 0; i < older; i += stride) idx.push(i);
-            for (let i = older; i < n; i++) idx.push(i);
-        } else {
-            for (let i = 0; i < n; i++) idx.push(i);
+    // The path's runs (flownPath.js buildFlownPath, as iOS AircraftPath) as
+    // one list of points, each carrying its height above the ground and the
+    // sea, its colour and where it lies on Mapbox's flat world — worked out
+    // once per path rather than on every frame it is drawn. Runs share their
+    // end points; each shared point is taken once, in the later run's colour.
+    function pathPoints(path) {
+        if (pathCache && pathCache.path === path) return pathCache.pts;
+        const pts = [];
+        for (const run of path.runs || []) {
+            const c = run.colour || [0.22, 0.74, 0.97, 1];
+            const colour = [c[0], c[1], c[2]];
+            run.coords.forEach((xy, i) => {
+                const lon = xy[0], lat = Math.min(Math.max(xy[1], -85), 85);
+                if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+                const h = Math.max(run.heights[i] || 0, 0);
+                const sea = run.sea.length ? run.sea[i] : h;
+                const p = {
+                    lon, lat,
+                    mx: (lon + 180) / 360,
+                    my: (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + lat * DEG / 2))) / 360,
+                    sm: 1 / (CIRCUMFERENCE * Math.cos(lat * DEG)),
+                    h, sea, colour, ground: 0, groundAt: -1
+                };
+                const prev = pts[pts.length - 1];
+                if (i === 0 && prev && prev.lon === lon && prev.lat === lat) pts[pts.length - 1] = p;
+                else pts.push(p);
+            });
         }
-
-        const raw = idx.map((i) => {
-            const p = trail[i] || {};
-            const lon = Number(p.longitude != null ? p.longitude : p.lon);
-            const lat = Number(p.latitude != null ? p.latitude : p.lat);
-            const ft = p.altitude != null ? Number(p.altitude) : NaN;
-            const gs = Number(p.groundSpeed != null ? p.groundSpeed : p.gs) || 0;
-            return { lon, lat, ft, gs };
-        }).filter((p) => Number.isFinite(p.lon) && Number.isFinite(p.lat));
-
-        const known = raw.map((p) => Number.isFinite(p.ft));
-        const airborne = raw.map((p) => !(p.gs < 40 && p.ft < 10000));
-        let firstGround = null;
-        for (let i = 0; i < raw.length; i++) {
-            if (known[i] && !airborne[i]) { firstGround = raw[i].ft; break; }
-        }
-        let lastGround = null;
-        const h = new Array(raw.length).fill(null);
-        const sea = new Array(raw.length).fill(null);
-        for (let i = 0; i < raw.length; i++) {
-            if (!known[i]) continue;
-            if (!airborne[i]) { lastGround = raw[i].ft; h[i] = 0; }
-            else h[i] = Math.max(raw[i].ft - (lastGround != null ? lastGround : (firstGround || 0)), 0) * FEET;
-            sea[i] = raw[i].ft * FEET;
-        }
-        fillGaps(h);
-        fillGaps(sea);
-
-        const pts = raw.map((p, i) => {
-            const ft = Number.isFinite(p.ft) ? p.ft : (sea[i] || 0) / FEET;
-            const c = (opts.pathColour && opts.pathColour(ft)) || [0.22, 0.74, 0.97];
-            // Where it lies on Mapbox's flat world, worked out once rather
-            // than on every frame it is drawn.
-            const lat = Math.min(Math.max(p.lat, -85), 85);
-            const mx = (p.lon + 180) / 360;
-            const my = (180 - (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + lat * DEG / 2))) / 360;
-            const sm = 1 / (CIRCUMFERENCE * Math.cos(lat * DEG));
-            return { lon: p.lon, lat: p.lat, mx, my, sm, h: h[i] || 0, sea: sea[i] || 0, colour: c, ground: 0, groundAt: -1 };
-        });
-        pathCache = { id, trail, length: n, last: lastPt, pts };
+        pathCache = { path, pts };
         return pts;
-    }
-
-    function fillGaps(values) {
-        const first = values.findIndex((v) => v != null);
-        if (first < 0) { values.fill(0); return; }
-        for (let i = 0; i < first; i++) values[i] = values[first];
-        let prev = first;
-        for (let i = first + 1; i < values.length; i++) {
-            if (values[i] == null) continue;
-            for (let g = prev + 1; g < i; g++) {
-                values[g] = values[prev] + (values[i] - values[prev]) * (g - prev) / (i - prev);
-            }
-            prev = i;
-        }
-        for (let i = prev + 1; i < values.length; i++) values[i] = values[prev];
     }
 
     function ensurePathMesh() {
@@ -1002,18 +949,17 @@ void main() { gl_FragColor = vColor; }`;
     let pathGroundCursor = 0;
 
     function drawPath(id, head, f) {
-        const trail = id && opts.path && (!opts.pathOn || opts.pathOn()) ? opts.path(id) : null;
-        if (!trail || trail.length < 1) { hidePath(); return; }
-        const pts = pathPoints(id, trail);
+        const path = id && opts.path && (!opts.pathOn || opts.pathOn()) ? opts.path(id) : null;
+        if (!path || !path.runs || !path.runs.length) { hidePath(); return; }
+        const pts = pathPoints(path);
         if (!pts.length) { hidePath(); return; }
 
         const { PA, PG, phase, eye, width, height, terrain, t } = f;
         const globe = !!(PG && phase < 1);
 
-        // On to the aeroplane, when it is drawn on this frame — from the
-        // last breadcrumb it has passed, not from one it has yet to reach,
-        // so the path never runs out in front of it (see flownHead.js).
-        const count = head ? FlownHead.trimAhead(pts, [head.lon, head.lat, head.heading], (p) => [p.lon, p.lat]) : pts.length;
+        // On to the aeroplane, when it is drawn on this frame: the last run
+        // is extended to the middle of the model (iOS AircraftPathMesh).
+        const count = pts.length;
         const n = count + (head ? 1 : 0);
         if (n < 1) { hidePath(); return; }
         growScratch(n);

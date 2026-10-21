@@ -1,90 +1,50 @@
 /**
  * flownHead.js
  * -------------------------------------------------------------------
- * The open flight's flown path, ending on the aeroplane — the iOS app's
+ * The open flight's flown path, grown to the aeroplane — the iOS app's
  * flown head (TrackerMapView.Coordinator.updateFlownHead), on the website.
  *
- * The flown line is built from breadcrumbs, and the newest breadcrumb is not
- * where the aeroplane is drawn: the plane glides between reports, and the
- * report pipelines (history, the live feed, the map's own feed) do not agree
- * on what is newest. Ending the line on the newest report therefore leaves
- * it running ahead of the aeroplane whenever the aeroplane is drawn behind
- * that report, and no trim by timestamp can promise otherwise.
+ * The track ends at the newest breadcrumb, and breadcrumbs are two nautical
+ * miles apart at best (flownPath.js, FlownTrail) — so the aeroplane spends
+ * most of its time flying off the end of its own path. This is one short
+ * segment from where the path ends to the aeroplane as it is drawn,
+ * rewritten on the frame clock whenever the aeroplane has moved a fifth of a
+ * pixel off it, so the two travel together. It is drawn as the path is: in
+ * the colour the path ends in, over its halo, at its width and opacity.
  *
- * So, as on iOS, the line is cut by where the aeroplane is drawn rather than
- * by any clock:
- *   - the line itself ends on the last breadcrumb the aeroplane has passed
- *     (trimAhead, applied when the line is built);
- *   - one short segment, from there to the aeroplane as it is drawn, is
- *     rewritten on the frame clock, whenever the aeroplane has moved a
- *     fifth of a pixel off it, so the two travel together;
- *   - when the aeroplane passes a breadcrumb held back from the line, the
- *     line is rebuilt to take it in.
+ * The path's other layers (its halo, the inferred leg before it) follow the
+ * flat line's visibility here too, so whatever hides or shows that line —
+ * the flown-path button, the replay — takes them with it.
  *
  * Public API:
  *   init(map, host)  host: {
  *     selected()        the open flight's id, or null
  *     pose(id)          [lon, lat, heading] where it is drawn now, or null
  *     flownLayer(id)    the flight's flown-path layer id
- *     rebuild(id)       rebuild the flight's flown line now
- *     colour(altFt)     the flown path's colour at a height
+ *     companions(id)    the path's other layer ids, shown and hidden with it
+ *     haloLayer(id)     the flight's flown-path halo layer id
  *     anchor()          the layer id to draw the head under
  *   }
- *   noteEnd(id, end)    where the line built for `id` ends: { lon, lat,
- *                       alt, trail, kept } — `kept` being how many of
- *                       `trail`'s points it took in — or null
- *   trimAhead(points, pose, lonLat)
- *                       how many of `points` to keep: all but the newest
- *                       ones the aeroplane at `pose` has yet to reach
- *   isAhead(lon, lat, pose)
+ *   noteEnd(id, end)    where the path built for `id` ends: { lon, lat,
+ *                       colour, halo } (CSS colours) — or null
  * ===================================================================
  */
 
 export const FlownHead = (() => {
     const SOURCE = 'flown-head-source';
     const LAYER = 'flown-head-layer';
-    const M_PER_DEG = 111320;
-    const DEG2RAD = Math.PI / 180;
-    // How far ahead of the aeroplane a breadcrumb can be and still be one it
-    // is about to fly over (iOS FlightMotion.maximumLeadMetres). Further than
-    // this it is a different place — a respawn, a broken clock — and is left
-    // in the line rather than taken as a lead.
-    const MAX_LEAD_M = 7000;
+    const HALO = 'flown-head-halo';
     // Rewritten once the aeroplane is this far off the written head.
     const REWRITE_PX = 0.2;
-    // At most one rebuild of the whole line this often.
-    const REBUILD_MS = 250;
+    const M_PER_DEG = 111320;
+    const DEG2RAD = Math.PI / 180;
+    const EARTH_CIRCUMFERENCE = 40075016.686;
 
     let map = null;
     let host = null;
     let end = null;
-    let written = null;     // { id, lon, lat, colour, width, opacity, vis }
-    let lastRebuild = -Infinity;
-
-    // Whether a point lies in front of the aeroplane, along its heading, and
-    // near enough to be one it is about to reach.
-    function isAhead(lon, lat, pose) {
-        if (!pose) return false;
-        const north = (lat - pose[1]) * M_PER_DEG;
-        const east = (((lon - pose[0] + 540) % 360) - 180) * M_PER_DEG * Math.cos(pose[1] * DEG2RAD);
-        const h = (Number(pose[2]) || 0) * DEG2RAD;
-        const along = north * Math.cos(h) + east * Math.sin(h);
-        return along > 0 && Math.hypot(north, east) < MAX_LEAD_M;
-    }
-
-    function trimAhead(points, pose, lonLat) {
-        let n = points.length;
-        if (!pose) return n;
-        while (n > 0) {
-            const ll = lonLat(points[n - 1]);
-            if (!ll || !isAhead(ll[0], ll[1], pose)) break;
-            n--;
-        }
-        return n;
-    }
-
-    // Paint values may be expressions: compared by what they say.
-    const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
+    let written = null;     // { id, lon, lat, endLon, endLat, colour, halo }
+    let styled = null;      // the paint last copied from the path's layers
 
     function noteEnd(id, e) {
         end = e && id != null ? { ...e, id: String(id) } : null;
@@ -97,80 +57,93 @@ export const FlownHead = (() => {
         if (src) src.setData({ type: 'FeatureCollection', features: [] });
     }
 
+    // Paint values may be expressions: compared by what they say.
+    const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
+
     function tick() {
         requestAnimationFrame(tick);
         try { step(); } catch (_) { /* a style mid-swap; next frame */ }
     }
 
-    function step() {
-        const id = host.selected();
-        const layer = id != null ? host.flownLayer(id) : null;
-        if (id == null || !end || end.id !== String(id) || !layer || !map.getLayer(layer)) { clear(); return; }
-        const vis = map.getLayoutProperty(layer, 'visibility') || 'visible';
-        const pose = host.pose(id);
-        if (!pose || vis === 'none') { clear(); return; }
-
-        // A breadcrumb held back from the line that the aeroplane has now
-        // passed: the line takes it in.
-        const now = performance.now();
-        const next = !end.stalled && end.trail && end.kept < end.trail.length ? end.trail[end.kept] : null;
-        if (next && now - lastRebuild > REBUILD_MS) {
-            const lon = next.longitude != null ? next.longitude : next.lon;
-            const lat = next.latitude != null ? next.latitude : next.lat;
-            if (Number.isFinite(lon) && Number.isFinite(lat) && !isAhead(lon, lat, pose)) {
-                lastRebuild = now;
-                const before = end;
-                host.rebuild(id);
-                if (!end || end.id !== String(id)) { clear(); return; }
-                // The rebuild left it out anyway (the line's own trims): not
-                // asked again until the line is next built.
-                if (end === before || (end.trail === before.trail && end.kept <= before.kept)) end.stalled = true;
-            }
-        }
-
+    function ensureLayers() {
         if (!map.getSource(SOURCE)) {
             written = null;
             map.addSource(SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         }
-        if (!map.getLayer(LAYER)) {
-            written = null;
-            const anchor = host.anchor();
+        const anchor = host.anchor();
+        const before = anchor && map.getLayer(anchor) ? anchor : undefined;
+        if (!map.getLayer(HALO)) {
+            styled = null;
             map.addLayer({
-                id: LAYER,
-                type: 'line',
-                source: SOURCE,
+                id: HALO, type: 'line', source: SOURCE,
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-width': 3, 'line-color': '#38bdf8', 'line-opacity': 1 }
-            }, anchor && map.getLayer(anchor) ? anchor : undefined);
+                paint: { 'line-color': ['get', 'halo'], 'line-width': 8, 'line-opacity': 0.26, 'line-blur': 1 }
+            }, before);
         }
+        if (!map.getLayer(LAYER)) {
+            styled = null;
+            map.addLayer({
+                id: LAYER, type: 'line', source: SOURCE,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 1 }
+            }, before);
+        }
+    }
 
-        // Drawn as the line it grows from is.
-        const colour = host.colour(end.alt);
-        const width = map.getPaintProperty(layer, 'line-width');
-        const opacity = map.getPaintProperty(layer, 'line-opacity');
-        const w = written;
-        if (!w || !same(w.width, width)) map.setPaintProperty(LAYER, 'line-width', width != null ? width : 3);
-        if (!w || !same(w.opacity, opacity)) map.setPaintProperty(LAYER, 'line-opacity', opacity != null ? opacity : 1);
-        if (!w || w.colour !== colour) map.setPaintProperty(LAYER, 'line-color', colour);
+    function step() {
+        const id = host.selected();
+        const layer = id != null ? host.flownLayer(id) : null;
+        if (id == null || !layer || !map.getLayer(layer)) { clear(); return; }
 
-        if (w && w.id === end.id && w.endLon === end.lon && w.endLat === end.lat) {
-            const a = map.project([w.lon, w.lat]);
-            const b = map.project([pose[0], pose[1]]);
-            if (Math.hypot(a.x - b.x, a.y - b.y) < REWRITE_PX) {
-                written = { ...w, colour, width, opacity };
-                return;
+        const vis = map.getLayoutProperty(layer, 'visibility') || 'visible';
+        for (const other of host.companions(id)) {
+            if (map.getLayer(other) && (map.getLayoutProperty(other, 'visibility') || 'visible') !== vis) {
+                map.setLayoutProperty(other, 'visibility', vis);
             }
         }
-        // Unwrapped onto the line's end, so the antimeridian is a short hop.
+
+        const pose = host.pose(id);
+        if (!end || end.id !== String(id) || !pose || vis === 'none') { clear(); return; }
+        ensureLayers();
+
+        // Drawn as the path it grows from is.
+        const halo = host.haloLayer(id);
+        const paint = {
+            width: map.getPaintProperty(layer, 'line-width'),
+            opacity: map.getPaintProperty(layer, 'line-opacity'),
+            haloWidth: halo && map.getLayer(halo) ? map.getPaintProperty(halo, 'line-width') : null,
+            haloOpacity: halo && map.getLayer(halo) ? map.getPaintProperty(halo, 'line-opacity') : 0
+        };
+        const s = styled;
+        if (!s || !same(s.width, paint.width)) map.setPaintProperty(LAYER, 'line-width', paint.width != null ? paint.width : 4);
+        if (!s || !same(s.opacity, paint.opacity)) map.setPaintProperty(LAYER, 'line-opacity', paint.opacity != null ? paint.opacity : 1);
+        if (!s || !same(s.haloWidth, paint.haloWidth)) map.setPaintProperty(HALO, 'line-width', paint.haloWidth != null ? paint.haloWidth : 8);
+        if (!s || !same(s.haloOpacity, paint.haloOpacity)) map.setPaintProperty(HALO, 'line-opacity', paint.haloOpacity != null ? paint.haloOpacity : 0);
+        styled = paint;
+
+        // How far it has moved, in pixels at the map's scale where it is
+        // (iOS FlightMotion.pointsApart) — not through the projection, which
+        // with the map tilted can put the ground under an aeroplane in the
+        // air behind the camera, where every point projects to the same place.
+        const w = written;
+        if (w && w.id === end.id && w.endLon === end.lon && w.endLat === end.lat
+            && w.colour === end.colour && w.halo === end.halo) {
+            const cosLat = Math.max(Math.cos(pose[1] * DEG2RAD), 0.01);
+            const pxPerMetre = 512 * Math.pow(2, map.getZoom()) / (EARTH_CIRCUMFERENCE * cosLat);
+            const north = (pose[1] - w.lat) * M_PER_DEG;
+            const east = (((pose[0] - w.lon + 540) % 360) - 180) * M_PER_DEG * cosLat;
+            if (Math.hypot(north, east) * pxPerMetre < REWRITE_PX) return;
+        }
+        // Unwrapped onto the path's end, so the antimeridian is a short hop.
         let lon = pose[0];
         while (lon - end.lon > 180) lon -= 360;
         while (lon - end.lon < -180) lon += 360;
         map.getSource(SOURCE).setData({
             type: 'Feature',
-            properties: {},
+            properties: { color: end.colour, halo: end.halo },
             geometry: { type: 'LineString', coordinates: [[end.lon, end.lat], [lon, pose[1]]] }
         });
-        written = { id: end.id, lon: pose[0], lat: pose[1], endLon: end.lon, endLat: end.lat, colour, width, opacity };
+        written = { id: end.id, lon: pose[0], lat: pose[1], endLon: end.lon, endLat: end.lat, colour: end.colour, halo: end.halo };
     }
 
     function init(m, h) {
@@ -180,5 +153,5 @@ export const FlownHead = (() => {
         requestAnimationFrame(tick);
     }
 
-    return { init, noteEnd, trimAhead, isAhead };
+    return { init, noteEnd };
 })();

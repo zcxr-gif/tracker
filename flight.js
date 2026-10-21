@@ -12,6 +12,7 @@ import { LiveTraffic3D } from './liveTraffic3D.js';
 import { AircraftEngine } from './aircraftEngine.js';
 import { FlightWindowControls } from './flightWindowControls.js';
 import { FlownHead } from './flownHead.js';
+import { FlownTrail, buildFlownPath, altitudeBand, distanceNM, trackPoint, rgba, haloFor, FLOWN_STYLE } from './flownPath.js';
 import { MobileSettingsUI } from './MobileSettingsUI.js';
 import { spriteUVs } from './spriteUVs.js';
 import { PilotProfiles } from './pilotProfiles.js';
@@ -1944,7 +1945,11 @@ function setAircraftModels3D(on) {
     on = !!on;
     mapFilters.aircraftModels3D = on;
     try { saveFiltersToLocalStorage(); } catch (_) {}
-    AircraftEngine.setVisible(on);
+    Promise.resolve(AircraftEngine.setVisible(on)).then(() => {
+        // In the air with the models, flat without: the open path is
+        // rebuilt either way (see syncFlownPath).
+        if (currentFlightInWindow) syncFlownPath(currentFlightInWindow, { force: true });
+    });
     const toggle = document.getElementById('set-3d-aircraft');
     if (toggle) toggle.checked = on;
 }
@@ -8775,6 +8780,7 @@ function generateTrafficForecastHTML(congestion) {
         pilotMarkers = {};
         
         liveTrailCache.clear();
+        FlownTrail.clear();
         
         for (const key in currentMapFeatures) {
             delete currentMapFeatures[key];
@@ -13733,6 +13739,12 @@ function handleSocketFlightUpdate(data) {
 
         updatedFlightIds.add(flightId);
 
+        // Every aircraft's own trail, as the iOS app keeps one (FlownTrail).
+        FlownTrail.record(flightId, {
+            lat: flight.position.lat, lon: flight.position.lon,
+            alt_ft: flight.position.alt_ft, gs_kt: flight.position.gs_kt, date: newTime
+        });
+
         const litePhase = getLiteFlightPhase(flight.position);
         const aircraftData = flight.aircraft || null;
         const acName = aircraftData?.aircraftName || '';
@@ -13964,23 +13976,14 @@ function handleSocketFlightUpdate(data) {
                     refreshNavDisplayFromCache(); // Reuse helper logic for consistency
                 }
 
-                // 8. Update Map Trail — the path builds up as the plane
-                // moves: a packet that didn't advance the trail (same or older
-                // fix) changes nothing, so skip the rebuild entirely instead
-                // of re-deriving the path end every tick.
-                if (isMapReady && trailGrew) {
-                    const layerId = sectorOpsLiveFlightPathLayers[flightId]?.flown;
-                    const source = layerId ? sectorOpsMap.getSource(layerId) : null;
-                    if (source) {
-                        const newRouteData = generateAltitudeColoredRoute(localTrail, flight.position, cachedFlightDataForStatsView.plan, flightId);
-                        source.setData(newRouteData);
-                        updateTaxiOverlay(flightId, localTrail);
-                        // Progress fractions shift as the line grows — re-apply
-                        // the altitude gradient against the new geometry.
-                        applyFlownPathGradient(layerId, newRouteData);
-                    }
-                }
+                // 8. The path's taxi and milestone labels, as the trail grows.
+                if (isMapReady && trailGrew) updateTaxiOverlay(flightId, localTrail);
             }
+
+            // The flown path itself, rebuilt when it has something new to
+            // draw (see syncFlownPath) — from the first packet, before the
+            // history has answered, as the iOS app's is.
+            if (isMapReady) syncFlownPath(flightId);
 
             // 9. Update Planned Route Line
             if (cachedFlightDataForStatsView.plan && mapFilters.planDisplayMode !== 'none' && isMapReady) {
@@ -14004,22 +14007,16 @@ function handleSocketFlightUpdate(data) {
                 track: flight.position.heading_deg,
                 date: new Date(flight.position.lastReport || Date.now()).toISOString()
             };
-            const pinnedTrailGrew = appendTrailPoint(localTrail, newRoutePoint);
+            appendTrailPoint(localTrail, newRoutePoint);
             liveTrailCache.set(flightId, localTrail);
             
             if (typeof FlownPath3D !== 'undefined') {
                 FlownPath3D.updatePath(sectorOpsMap, flightId, localTrail, mapFilters.show3DPath);
             }
-            
-            const flownLayerId = `flown-path-${flightId}`;
 
-            if (pinnedTrailGrew && sectorOpsMap && sectorOpsMap.getSource(flownLayerId)) {
-                // Same gradient-line generator as the focused flight so pinned
-                // trails colour and update identically.
-                const newPinnedRouteData = generateAltitudeColoredRoute(localTrail, flight.position);
-                sectorOpsMap.getSource(flownLayerId).setData(newPinnedRouteData);
-                applyFlownPathGradient(flownLayerId, newPinnedRouteData);
-            }
+            // Drawn as the open flight's is, once its path has been made
+            // (ensurePinnedFlownPath).
+            if (isMapReady && sectorOpsMap.getSource(`flown-path-${flightId}`)) syncFlownPath(flightId);
 
             // Update Mini Card Stats
             const card = document.getElementById(`pinned-flight-${flightId}`);
@@ -14035,6 +14032,9 @@ function handleSocketFlightUpdate(data) {
         // just wrote above, so there is nothing further to hand it per
         // aircraft — the tick is flushed once, after the loop.
     });
+
+    // Aircraft that have stopped reporting keep no trail.
+    FlownTrail.prune(updatedFlightIds);
 
     // Clean up flights that stopped reporting. Keys are already strings, so
     // the old String() coercion per key was dead work.
@@ -17650,12 +17650,8 @@ function initializeAircraftLayer() {
             onModelled: setFlightModelled,
             // The open flight's path in the air, as the iOS app draws it
             // beside the 3D aircraft; the flat line stays as its shadow.
-            path: (id) => liveTrailCache.get(id) || liveTrailCache.get(String(id)) || null,
-            pathOn: () => mapFilters.showFlownPath !== false,
-            pathColour: (feet) => {
-                const m = String(flownAltColor(feet)).match(/\d+/g) || [56, 189, 248];
-                return [m[0] / 255, m[1] / 255, m[2] / 255];
-            }
+            path: (id) => (flownPathBuilt.get(String(id)) || {}).path || null,
+            pathOn: () => mapFilters.showFlownPath !== false
         });
         if (mapFilters.aircraftModels3D) setAircraftModels3D(true);
 
@@ -17664,9 +17660,9 @@ function initializeAircraftLayer() {
         FlownHead.init(sectorOpsMap, {
             selected: () => currentFlightInWindow,
             pose: (id) => (mapAnimator ? mapAnimator.pose(id) : null),
-            flownLayer: (id) => (sectorOpsLiveFlightPathLayers[id] && sectorOpsLiveFlightPathLayers[id].flown) || `flown-path-${id}`,
-            rebuild: (id) => redrawFlownPath(id),
-            colour: (alt) => flownAltColor(alt),
+            flownLayer: (id) => flownPathLayerIds(id).flown,
+            haloLayer: (id) => flownPathLayerIds(id).flownGlow,
+            companions: (id) => [flownPathLayerIds(id).flownGlow, flownPathLayerIds(id).inferred],
             anchor: () => getUnderAircraftAnchor()
         });
 
@@ -22532,6 +22528,7 @@ function onAtcDataReceived(newAtcData) {
     function clearLiveFlightPath(flightId) {
         if (!sectorOpsMap || !flightId) return;
         if (flightId === _taxiOverlayFlight) removeTaxiOverlay();
+        flownPathBuilt.delete(String(flightId));
 
         // Get all layers associated with this flight
         const layersObj = sectorOpsLiveFlightPathLayers[flightId];
@@ -22626,45 +22623,13 @@ function onAtcDataReceived(newAtcData) {
             clearLiveFlightPath(flightId); 
             delete sectorOpsLiveFlightPathLayers[flightId]; 
 
-            const { flightProps, plan } = cachedFlightDataForStatsView;
-            // Inside rebuildDynamicLayers() -> section 8 (active flight trail)
-if (flightProps) {
-    const localTrail = liveTrailCache.get(flightId) || [];
-    const currentPosition = currentAircraftPositionForGeocode || flightProps.position;
-    const routeFeature = generateAltitudeColoredRoute(localTrail, currentPosition, plan, flightId);
-
-    sectorOpsMap.addSource(`flown-path-${flightId}`, {
-        type: 'geojson',
-        data: routeFeature,
-        lineMetrics: true // CRITICAL for the line-gradient altitude colouring
-        // Default tolerance stays on: zoom-scaled simplification keeps the
-        // single line crisp when zoomed out. (tolerance: 0 was only needed
-        // when the path was thousands of 2-point features that simplification
-        // could drop whole.)
-    });
-
-    sectorOpsMap.addLayer({
-                id: `flown-path-${flightId}`,
-                type: 'line',
-                source: `flown-path-${flightId}`,
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                paint: {
-                    'line-width': 4,
-                    'line-opacity': 1,
-                    // Solid fallback — the altitude line-gradient applied just
-                    // below overrides this whenever the trail supports one.
-                    'line-color': '#38bdf8'
-                }
-            }, getUnderAircraftAnchor());
-    applyFlownPathGradient(`flown-path-${flightId}`, routeFeature);
-    // The style change took the taxi overlay with it; put it back.
-    if (_taxiOverlayFlight === flightId) { _taxiOverlayFlight = null; updateTaxiOverlay(flightId, localTrail); }
-
-    sectorOpsLiveFlightPathLayers[flightId] = { flown: `flown-path-${flightId}` };
-}
+            // The path back as it was (see syncFlownPath), and the taxi
+            // overlay the style change took with it.
+            syncFlownPath(flightId, { force: true });
+            if (_taxiOverlayFlight === flightId) {
+                _taxiOverlayFlight = null;
+                updateTaxiOverlay(flightId, liveTrailCache.get(flightId) || []);
+            }
         }
         
         // 9. Re-apply aircraft filters
@@ -23490,75 +23455,6 @@ function densifyRoute(coordinates, maxSegmentLengthKm = 100) {
     return densified;
 }
 
-/**
- * Smoothes a path using Catmull-Rom Splines with high-fidelity resolution.
- * Makes aircraft turns look "smooth as hell" by increasing interpolation steps.
- */
-function generateSmoothPath(points, tension = 0.5) {
-    if (points.length < 4) return points;
-    const result = [];
-    smoothSegmentsInto(points, 0, points.length - 2, result);
-    result.push(points[points.length - 1]);
-    return result;
-}
-
-// Standard Catmull-Rom spline formula.
-function _crInterpolate(p0, p1, p2, p3, t) {
-    const t2 = t * t;
-    const t3 = t2 * t;
-    return 0.5 * (
-        (2 * p1) +
-        (-p0 + p2) * t +
-        (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-        (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-    );
-}
-
-// Turn angle at vertex b (degrees) — how sharply the path bends there.
-function _crTurnDeg(a, b, c) {
-    const v1x = b.unwrappedLon - a.unwrappedLon, v1y = b.lat - a.lat;
-    const v2x = c.unwrappedLon - b.unwrappedLon, v2y = c.lat - b.lat;
-    const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
-    if (m1 === 0 || m2 === 0) return 0;
-    const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)));
-    return Math.acos(cos) * 180 / Math.PI;
-}
-
-/**
- * Appends the smoothed output of segments [from, to] of `points` to `result`.
- * Segment i runs from points[i] to points[i + 1] and reads points[i - 1] and
- * points[i + 2] (clamped at the ends of `points`). Split out of
- * generateSmoothPath so a long trail can be smoothed in pieces
- * (smoothTrailIncremental) with results identical to a single pass.
- */
-function smoothSegmentsInto(points, from, to, result) {
-    for (let i = from; i <= to; i++) {
-        const p0 = points[i === 0 ? i : i - 1];
-        const p1 = points[i];
-        const p2 = points[i + 1];
-        const p3 = points[i + 2 >= points.length ? i + 1 : i + 2];
-
-        // --- Curvature-adaptive resolution ---
-        // Straight stretches (all of cruise) need no subdivision: Catmull-Rom
-        // over collinear samples returns the chord anyway, so extra steps
-        // only add cost. Bends get one step per ~2° of local turn so curves
-        // stay silky (a 30°/sample holding pattern → 15 steps). The old flat
-        // 24–64 steps per sample blew a long-haul trail up to 30k+ points —
-        // tens of thousands of sub-pixel segments that rendered fuzzy when
-        // zoomed out and made every re-tile expensive.
-        const bend = Math.max(_crTurnDeg(p0, p1, p2), _crTurnDeg(p1, p2, p3));
-        const steps = Math.max(1, Math.min(64, Math.ceil(bend / 2)));
-
-        for (let t = 0; t < 1 - 1e-6; t += 1 / steps) {
-            result.push({
-                unwrappedLon: _crInterpolate(p0.unwrappedLon, p1.unwrappedLon, p2.unwrappedLon, p3.unwrappedLon, t),
-                lat: _crInterpolate(p0.lat, p1.lat, p2.lat, p3.lat, t),
-                alt: p1.alt + (p2.alt - p1.alt) * t
-            });
-        }
-    }
-}
-
 // Append a live packet to a trail ONLY if it's newer than the cached tip.
 // The route-history seed can already contain samples at (or past) the live
 // feed's clock, and pushing an older/duplicate fix behind them kinks the
@@ -23596,87 +23492,6 @@ function appendTrailPoint(localTrail, newRoutePoint) {
     }
     localTrail.push(newRoutePoint);
     return true;
-}
-
-// Altitude → colour palette for the flown path. A fine-grained warm→cool
-// spectrum (FR24-style): grey on the ground, warm oranges/yellows down low,
-// greens through the teens, blues in the twenties/thirties, violet→magenta
-// up high. flownAltColor() blends linearly between stops, so every phase of
-// a climb or descent reads as its own hue on the line-gradient.
-const FLOWN_PATH_ALT_STOPS = [
-    [0,     [148, 163, 184]], // #94a3b8 On ground (grey)
-    [500,   [249, 115, 22]],  // #f97316 Rotation / short final (orange)
-    [3000,  [251, 191, 36]],  // #fbbf24 Pattern / initial climb (amber)
-    [6000,  [250, 204, 21]],  // #facc15 Yellow
-    [9000,  [163, 230, 53]],  // #a3e635 Lime
-    [12000, [74, 222, 128]],  // #4ade80 Green
-    [16000, [45, 212, 191]],  // #2dd4bf Teal
-    [20000, [34, 211, 238]],  // #22d3ee Cyan
-    [24000, [56, 189, 248]],  // #38bdf8 Sky blue
-    [28000, [59, 130, 246]],  // #3b82f6 Blue
-    [32000, [99, 102, 241]],  // #6366f1 Indigo
-    [36000, [139, 92, 246]],  // #8b5cf6 Violet
-    [41000, [192, 132, 252]], // #c084fc Light purple
-    [45000, [217, 70, 239]]   // #d946ef Magenta (high cruise+)
-];
-
-function flownAltColor(alt) {
-    const s = FLOWN_PATH_ALT_STOPS;
-    const a = Number.isFinite(alt) ? alt : 0;
-    if (a <= s[0][0]) return `rgb(${s[0][1][0]},${s[0][1][1]},${s[0][1][2]})`;
-    for (let i = 1; i < s.length; i++) {
-        if (a <= s[i][0]) {
-            const t = (a - s[i - 1][0]) / (s[i][0] - s[i - 1][0]);
-            const c0 = s[i - 1][1], c1 = s[i][1];
-            return `rgb(${Math.round(c0[0] + (c1[0] - c0[0]) * t)},${Math.round(c0[1] + (c1[1] - c0[1]) * t)},${Math.round(c0[2] + (c1[2] - c0[2]) * t)})`;
-        }
-    }
-    const last = s[s.length - 1][1];
-    return `rgb(${last[0]},${last[1]},${last[2]})`;
-}
-
-// Build the 'line-gradient' expression that paints the single flown-path
-// LineString by altitude. Progress along the line is cumulative planar
-// distance (lon scaled by cos(lat) so high-latitude legs aren't stretched);
-// stops are a bounded baseline stride plus altitude-triggered extras (see
-// below) so the expression stays small no matter how long the flight is,
-// while climbs/descents keep full colour resolution. Returns null when the
-// geometry is degenerate.
-function buildFlownPathGradient(points) {
-    if (!points || points.length < 2) return null;
-    const cum = new Array(points.length);
-    cum[0] = 0;
-    for (let i = 1; i < points.length; i++) {
-        const midLat = ((points[i].lat + points[i - 1].lat) / 2) * Math.PI / 180;
-        const dx = (points[i].unwrappedLon - points[i - 1].unwrappedLon) * Math.cos(midLat);
-        const dy = points[i].lat - points[i - 1].lat;
-        cum[i] = cum[i - 1] + Math.sqrt(dx * dx + dy * dy);
-    }
-    const total = cum[points.length - 1];
-    if (!(total > 0)) return null;
-
-    // Stop placement: a baseline stride (≤95 interior stops) plus an extra
-    // stop whenever altitude has moved ≥1500 ft since the last one, so short
-    // climbs/descents on very long flights still resolve every hue band of
-    // the palette. The altitude-triggered stops are bounded by total climb +
-    // descent (~48 for a full flight), keeping the expression small.
-    const stride = Math.max(1, Math.ceil(points.length / 95));
-    const expr = ['interpolate', ['linear'], ['line-progress']];
-    let prevProgress = -1;
-    let lastAlt = null;
-    for (let idx = 0; idx < points.length; idx++) {
-        const isEdge = idx === 0 || idx === points.length - 1;
-        const altMoved = lastAlt !== null && Math.abs((points[idx].alt || 0) - lastAlt) >= 1500;
-        if (!isEdge && idx % stride !== 0 && !altMoved) continue;
-        const progress = idx === 0 ? 0 : (idx === points.length - 1 ? 1 : cum[idx] / total);
-        // line-progress stops must be strictly ascending.
-        if (progress <= prevProgress + 1e-6) continue;
-        expr.push(progress, flownAltColor(points[idx].alt));
-        prevProgress = progress;
-        lastAlt = points[idx].alt || 0;
-    }
-    // An interpolate expression needs at least two stops (3 header + 2×2).
-    return expr.length >= 7 ? expr : null;
 }
 
 /*
@@ -23929,272 +23744,177 @@ function redrawAllFlownPaths() {
 }
 
 function redrawFlownPath(flightId) {
-    if (!sectorOpsMap || typeof sectorOpsLiveFlightPathLayers === 'undefined') return;
-    const layerId = sectorOpsLiveFlightPathLayers[flightId] && sectorOpsLiveFlightPathLayers[flightId].flown;
-    const src = layerId && sectorOpsMap.getSource(layerId);
-    const trail = liveTrailCache.get(flightId);
-    const f = currentMapFeatures[flightId];
-    if (!src || !trail || !f) return;
-    const pos = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], alt_ft: f.properties && f.properties.altitude };
-    const plan = flightId === currentFlightInWindow && typeof cachedFlightDataForStatsView !== 'undefined' && cachedFlightDataForStatsView
-        ? cachedFlightDataForStatsView.plan : null;
-    const data = generateAltitudeColoredRoute(trail, pos, plan, flightId);
-    src.setData(data);
-    applyFlownPathGradient(layerId, data);
-    if (flightId === currentFlightInWindow) updateTaxiOverlay(flightId, trail);
+    syncFlownPath(flightId, { force: true });
+    if (String(flightId) === String(currentFlightInWindow)) updateTaxiOverlay(flightId, liveTrailCache.get(flightId));
 }
 
-// `flightId`, when it is the open flight, ends the line on the last
-// breadcrumb the aeroplane has passed as it is drawn, and hands that end to
-// FlownHead, which joins it to the aeroplane every frame (the iOS app's
-// flown head — see flownHead.js).
-function generateAltitudeColoredRoute(trailPoints, currentPosition, plan, flightId) {
-    const allPoints = [...(trailPoints || [])];
+// --- The flown path, as the iOS app draws it (TrackerMapView.syncRoute) ---
+//
+// The trail is FlownTrail's breadcrumbs (flownPath.js): every aircraft is
+// sampled on every packet and a breadcrumb kept each time it has moved two
+// miles, and opening a flight seeds the whole trip from /history. The path is
+// rebuilt only when what it is drawn from changes — a new breadcrumb, the
+// live altitude band, the taxiways, the 3D aircraft going on or off — and
+// ends on the live position as it was at that moment. Between rebuilds the
+// flown head (flownHead.js) carries it on to the aeroplane on every frame.
+// It is drawn as runs of one colour, over a halo of the same colour (or a
+// shadow, under a pale one), with a dashed guess from the departure field to
+// the first point we have. With the 3D aircraft on, the same runs are drawn
+// in the air at their heights (aircraftEngine.js) and the flat line stays
+// under them as their shadow.
+const flownPathBuilt = new Map(); // flightId -> { key, path }
 
-    // The trail history (route API) and the live position (flight feed) come
-    // from different pipelines with different latencies. When the history
-    // holds samples NEWER than the live fix, appending the (older) live tip
-    // makes the line double back — the path visibly extends AHEAD of the
-    // aircraft when zoomed in. Trim anything newer than the live fix so the
-    // line always ends exactly at the plane.
-    if (currentPosition) {
-        const liveTs = currentPosition.lastReport ? new Date(currentPosition.lastReport).getTime() : NaN;
-        if (Number.isFinite(liveTs)) {
-            // Time-bounded like appendTrailPoint: drop a genuine freshness
-            // lead (<10 min) however many samples it spans; a bigger lead is
-            // a broken clock and must not wipe the trail.
-            let newer = 0;
-            while (newer < allPoints.length) {
-                const t = new Date(allPoints[allPoints.length - 1 - newer].date || NaN).getTime();
-                if (Number.isFinite(t) && t > liveTs && (t - liveTs) < 600000) newer++;
-                else break;
-            }
-            if (newer > 0) allPoints.length -= newer;
-        }
-        allPoints.push({
-            latitude: currentPosition.lat,
-            longitude: currentPosition.lon,
-            altitude: currentPosition.alt_ft || 0
-        });
-    }
-
-    // The open flight's line stops where the aeroplane is drawn: whatever it
-    // has yet to reach is the flown head's to draw, not the line's.
-    const isOpen = flightId != null && String(flightId) === String(currentFlightInWindow);
-    const pose = isOpen && mapAnimator ? mapAnimator.pose(flightId) : null;
-    if (pose) {
-        allPoints.length = FlownHead.trimAhead(allPoints, pose, (p) => {
-            const lon = (p.longitude != null) ? p.longitude : p.lon;
-            const lat = (p.latitude != null) ? p.latitude : p.lat;
-            return Number.isFinite(lon) && Number.isFinite(lat) ? [lon, lat] : null;
-        });
-    }
-    const noteEnd = (lon, lat, alt) => {
-        if (!isOpen) return;
-        FlownHead.noteEnd(flightId, Number.isFinite(lon) && Number.isFinite(lat) ? {
-            lon, lat, alt,
-            trail: trailPoints || [],
-            kept: Math.min(allPoints.length, (trailPoints || []).length)
-        } : null);
+function flownPathLayerIds(flightId) {
+    return {
+        flown: `flown-path-${flightId}`,
+        flownGlow: `flown-path-glow-${flightId}`,
+        inferred: `flown-inferred-${flightId}`
     };
-
-    if (allPoints.length < 2) {
-        const only = allPoints[0];
-        if (only) {
-            noteEnd((only.longitude != null) ? only.longitude : only.lon,
-                (only.latitude != null) ? only.latitude : only.lat,
-                (only.altitude != null) ? only.altitude : (only.alt || 0));
-        } else {
-            noteEnd(NaN, NaN, 0);
-        }
-        return { type: 'FeatureCollection', features: [] };
-    }
-
-    // Normalise field names once ({lat, lon, alt}).
-    let raw = allPoints.map(p => ({
-        lat: (p.latitude != null) ? p.latitude : p.lat,
-        lon: (p.longitude != null) ? p.longitude : p.lon,
-        alt: (p.altitude != null) ? p.altitude : (p.alt || 0)
-    }));
-
-    // Taxiing: drawn along the taxiways, the same way as the flight window's
-    // taxi card (rolls and pushback as flown). See taxiSnapForTrail.
-    const snap = taxiSnapForTrail(trailPoints);
-    if (snap.ranges.length) {
-        const times = allPoints.map(p => (p.date ? Date.parse(p.date) : NaN));
-        // From the end backwards, so earlier indices stay put.
-        for (const r of snap.ranges.slice().sort((a, b) => b.t0 - a.t0)) {
-            let i0 = -1, i1 = -1;
-            for (let i = 0; i < times.length; i++) {
-                if (!Number.isFinite(times[i])) continue;
-                if (i0 < 0 && times[i] >= r.t0) i0 = i;
-                if (times[i] <= r.t1) i1 = i;
-            }
-            if (i0 < 0 || i1 < i0) continue;
-            const pts = r.pts.map(q => ({ lat: q.lat, lon: q.lon, alt: r.alt }));
-            raw = raw.slice(0, i0).concat(pts, raw.slice(i1 + 1));
-            times.splice(i0, i1 - i0 + 1, ...pts.map(() => NaN));
-        }
-    }
-
-    // --- Great-circle densification (polar routes / sparse gaps) ---
-    // Rendered vertices are joined by STRAIGHT lines in lon/lat (mercator)
-    // space. Near the poles that is badly wrong: a plane barely moving on the
-    // ground swings tens of degrees of longitude (≈180° crossing the pole
-    // itself), and the straight chord draws as a huge sideways sweep AROUND
-    // the pole at constant latitude instead of the true track OVER it. Long
-    // sparse-history gaps bend the same way in milder form. Insert points
-    // along the actual great circle wherever a segment spans a big ground
-    // distance or longitude delta, so the drawn path follows the real
-    // geometry (the renderer clips above ~±85°, so a true pole crossing
-    // correctly runs up to the polar cap and back down the far side).
-    // Densify (great-circle), unwrap longitudes and Catmull-Rom smooth —
-    // incrementally for long trails, see smoothTrailIncremental.
-    const smoothedPoints = smoothTrailIncremental(raw, trailPoints, snap.sig);
-
-    // ONE continuous LineString, coloured along its length by a line-gradient
-    // (see buildFlownPathGradient). The old approach — a distinct 2-point
-    // feature per smoothed segment, coloured via a per-feature altitude
-    // property — fell apart when zoomed out: tens of thousands of sub-pixel
-    // features collapse in the tile pipeline into beads and gaps, and every
-    // trail tick re-tiled the whole swarm. A single feature renders with
-    // proper joins at every zoom and tiles in one pass. The gradient
-    // expression rides along as a foreign member (__altGradient — valid
-    // GeoJSON, ignored by Mapbox) so callers can apply it to the layer via
-    // applyFlownPathGradient after setData.
-    // Rounded to 1e-6° (~0.1 m, far below a pixel at any zoom): setData
-    // JSON-stringifies the whole line on every packet and the worker parses
-    // it back, and 6-decimal numbers print and parse in ~60% of the time and
-    // bytes of full 17-digit doubles.
-    const coordinates = new Array(smoothedPoints.length);
-    for (let i = 0; i < smoothedPoints.length; i++) {
-        const p = smoothedPoints[i];
-        coordinates[i] = [Math.round(p.unwrappedLon * 1e6) / 1e6, Math.round(p.lat * 1e6) / 1e6];
-    }
-    const fc = {
-        type: 'FeatureCollection',
-        features: [{
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates },
-            properties: {}
-        }]
-    };
-    fc.__altGradient = buildFlownPathGradient(smoothedPoints);
-    const tip = coordinates[coordinates.length - 1];
-    noteEnd(tip[0], tip[1], raw[raw.length - 1].alt);
-    return fc;
 }
 
-// --- Flown-trail geometry pipeline -------------------------------------------
-// Great-circle densification: rendered vertices are joined by STRAIGHT lines
-// in lon/lat (mercator) space. Near the poles that is badly wrong: a plane
-// barely moving on the ground swings tens of degrees of longitude (≈180°
-// crossing the pole itself), and the straight chord draws as a huge sideways
-// sweep AROUND the pole at constant latitude instead of the true track OVER
-// it. Long sparse-history gaps bend the same way in milder form. Points are
-// inserted along the actual great circle wherever a segment spans a big
-// ground distance or longitude delta, so the drawn path follows the real
-// geometry (the renderer clips above ~±85°, so a true pole crossing
-// correctly runs up to the polar cap and back down the far side).
-// Appends, for each i >= from, the points between raw[i-1] and raw[i] and
-// then raw[i] itself.
-function densifyTrailInto(raw, from, out) {
-    for (let i = Math.max(1, from); i < raw.length; i++) {
-        const a = raw[i - 1], b = raw[i];
-        let dLon = Math.abs(b.lon - a.lon);
-        if (dLon > 180) dLon = 360 - dLon; // the plane took the short way round
-        const distKm = getDistanceKm(a.lat, a.lon, b.lat, b.lon);
-        const steps = Math.min(200, Math.max(Math.ceil(distKm / 100), Math.ceil(dLon / 3)));
-        if (steps > 1) {
-            for (let s = 1; s < steps; s++) {
-                const f = s / steps;
-                const gp = getIntermediatePoint(a.lat, a.lon, b.lat, b.lon, f);
-                out.push({ lat: gp.lat, lon: gp.lon, alt: a.alt + (b.alt - a.alt) * f });
-            }
-        }
-        out.push(b);
-    }
+function flownPathAirOn() {
+    return !!mapFilters.aircraftModels3D && AircraftEngine.isVisible();
 }
 
-// Unwrap longitudes so the line never stretches across the globe at the
-// anti-meridian; the unwrapped value rides on each point as `unwrappedLon`
-// so the smoother can interpolate without hopping the dateline.
-function unwrapTrailInto(points, from, prevLon, out) {
-    for (let i = from; i < points.length; i++) {
-        let lon = points[i].lon;
-        while (lon - prevLon > 180) lon -= 360;
-        while (prevLon - lon > 180) lon += 360;
-        out.push({ unwrappedLon: lon, lat: points[i].lat, alt: points[i].alt });
-        prevLon = lon;
+// The taxi parts of a trail, matched onto the taxiways (taxiSnapForTrail,
+// from the full live trail), put in place of the breadcrumbs over the same
+// times. Marked as pavement, so the curve leaves their corners alone.
+function withTaxiways(points, snap) {
+    let out = points.map((p) => ({ ...p, pinned: false }));
+    for (const r of snap.ranges.slice().sort((a, b) => b.t0 - a.t0)) {
+        const keep = out.filter((p) => !(Number.isFinite(p.date) && p.date >= r.t0 && p.date <= r.t1));
+        let at = keep.findIndex((p) => Number.isFinite(p.date) && p.date > r.t1);
+        if (at < 0) at = keep.length;
+        const pts = r.pts.map((q) => ({ lat: q.lat, lon: q.lon, alt: r.alt, gs: 0, date: NaN, pinned: true }));
+        out = keep.slice(0, at).concat(pts, keep.slice(at));
     }
-    return prevLon;
-}
-
-function smoothTrailFull(raw) {
-    const densified = [raw[0]];
-    densifyTrailInto(raw, 1, densified);
-    const unwrapped = [{ unwrappedLon: densified[0].lon, lat: densified[0].lat, alt: densified[0].alt }];
-    unwrapTrailInto(densified, 1, densified[0].lon, unwrapped);
-    // generateSmoothPath needs >= 4 points; with fewer (very early in a flight), draw raw.
-    return { unwrapped, smoothed: unwrapped.length >= 4 ? generateSmoothPath(unwrapped, 0.5) : unwrapped };
-}
-
-// The trail line is rebuilt on every packet while a flight is open, and a
-// long-haul trail is thousands of points — densifying and smoothing all of
-// them each time was ~6 ms a packet at 6,000 points. Only the end of the
-// trail ever changes (points are appended; the newest few may be trimmed
-// against the live fix), so the body is processed once and cached per trail
-// array, and each call does just the tail. The stitch overlaps the smoother's
-// window (each segment reads one point either side), so the result is
-// identical to a single full pass.
-const TRAIL_TAIL_RAW = 200;          // raw points always recomputed
-const TRAIL_BODY_REBUILD_AFTER = 400; // tail length that triggers a new body
-const TRAIL_INCREMENTAL_MIN = 800;   // below this a full pass is cheap enough
-const _trailBodies = new WeakMap();
-
-function smoothTrailIncremental(raw, src, sig = '') {
-    const n = raw.length;
-    if (!src || typeof src !== 'object' || n < TRAIL_INCREMENTAL_MIN) return smoothTrailFull(raw).smoothed;
-
-    // `sig` changes when the taxi parts of the trail are redrawn along the
-    // taxiways (taxiSnapForTrail), which rewrites the start of `raw`.
-    const first = ((src[0] && src[0].date) || '') + '|' + sig;
-    let body = _trailBodies.get(src);
-    const same = (a, b) => a && b && a.lat === b.lat && a.lon === b.lon && a.alt === b.alt;
-    const valid = body && body.first === first && body.R + 3 <= n
-        && same(raw[body.R - 1], body.rawLast)
-        && (n - body.R) <= TRAIL_TAIL_RAW + TRAIL_BODY_REBUILD_AFTER;
-    if (!valid) {
-        const R = n - TRAIL_TAIL_RAW;
-        const U = smoothTrailFull(raw.slice(0, R)).unwrapped;
-        const S = [];
-        smoothSegmentsInto(U, 0, U.length - 3, S); // segments that never read past the body
-        body = { first, R, rawLast: { ...raw[R - 1] }, U, S };
-        _trailBodies.set(src, body);
-    }
-
-    const { R, U, S } = body;
-    const B = U.length;
-    const dens = [];
-    densifyTrailInto(raw, R, dens);
-    const T = [U[B - 3], U[B - 2], U[B - 1]];
-    unwrapTrailInto(dens, 0, U[B - 1].unwrappedLon, T);
-    const out = S.slice();
-    smoothSegmentsInto(T, 1, T.length - 2, out); // T[j] is global U index B-3+j
-    out.push(T[T.length - 1]);
     return out;
 }
 
-// Apply the altitude gradient carried on a flown-path FeatureCollection to
-// its layer. line-gradient needs the source created with lineMetrics: true;
-// when the gradient couldn't be built (degenerate trail) the layer's solid
-// line-color fallback shows instead. Never fatal.
-function applyFlownPathGradient(layerId, routeData) {
-    if (!sectorOpsMap || !routeData || !routeData.__altGradient) return;
-    if (!sectorOpsMap.getLayer || !sectorOpsMap.getLayer(layerId)) return;
-    try {
-        sectorOpsMap.setPaintProperty(layerId, 'line-gradient', routeData.__altGradient);
-    } catch (_) { /* solid line-color fallback still renders */ }
+function syncFlownPath(flightId, { force = false } = {}) {
+    if (!sectorOpsMap || flightId == null) return;
+    const id = String(flightId);
+    const ids = flownPathLayerIds(id);
+    const f = currentMapFeatures[id];
+    const live = f && f.geometry && f.properties ? trackPoint({
+        lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
+        alt_ft: f.properties.altitude, gs_kt: f.properties.speed, date: f.properties.__lastUpdateMs
+    }) : null;
+    const trail = FlownTrail.points(id);
+    if (!trail.length && !live) return;
+
+    const isOpen = id === String(currentFlightInWindow);
+    const air = isOpen && flownPathAirOn();
+    const snap = taxiSnapForTrail(liveTrailCache.get(flightId) || liveTrailCache.get(id));
+    const departure = f && f.properties ? f.properties.departureIcao || '' : '';
+    const key = [
+        trail.length, FlownTrail.revision(id),
+        live ? altitudeBand(live.alt) : '-',
+        air ? 'air' : 'flat', snap.sig, departure, isOpen ? 'open' : ''
+    ].join('|');
+    const built = flownPathBuilt.get(id);
+    const missing = !sectorOpsMap.getLayer(ids.flown) || !sectorOpsMap.getSource(ids.flown);
+    if (!force && !missing && built && built.key === key) return;
+
+    // The aircraft's live position is the head of its own track.
+    const flown = trail.slice();
+    const lastPt = flown[flown.length - 1];
+    if (live && (!lastPt || distanceNM(lastPt.lat, lastPt.lon, live.lat, live.lon) > 0.1)) flown.push(live);
+
+    const drawn = withTaxiways(flown, snap);
+    const path = buildFlownPath(drawn, { onPavement: drawn.map((p) => p.pinned), air });
+    flownPathBuilt.set(id, { key, path: path && air ? path : null });
+
+    const r6 = (v) => Math.round(v * 1e6) / 1e6;
+    const runs = path ? path.runs.map((run) => ({
+        type: 'Feature',
+        properties: { color: rgba(run.colour), halo: rgba(haloFor(run.colour)) },
+        geometry: { type: 'LineString', coordinates: run.coords.map((c) => [r6(c[0]), r6(c[1])]) }
+    })) : [];
+
+    // Before we were watching: departure to the first point we have. A
+    // guess, and drawn like one — a great circle.
+    const inferred = [];
+    const dep = departure && typeof airportsData !== 'undefined' ? airportsData[String(departure).toUpperCase()] : null;
+    const first = flown[0];
+    if (dep && first && Number.isFinite(dep.lat) && Number.isFinite(dep.lon)
+        && distanceNM(dep.lat, dep.lon, first.lat, first.lon) > 1) {
+        const steps = Math.min(128, Math.max(2, Math.ceil(distanceNM(dep.lat, dep.lon, first.lat, first.lon) / 20)));
+        const coords = [];
+        for (let k = 0; k <= steps; k++) {
+            const g = getIntermediatePoint(dep.lat, dep.lon, first.lat, first.lon, k / steps);
+            let lon = g.lon;
+            if (coords.length) {
+                const prev = coords[coords.length - 1][0];
+                while (lon - prev > 180) lon -= 360;
+                while (prev - lon > 180) lon += 360;
+            }
+            coords.push([r6(lon), r6(g.lat)]);
+        }
+        inferred.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
+    }
+
+    ensureFlownPathLayers(id);
+    sectorOpsMap.getSource(ids.flown).setData({ type: 'FeatureCollection', features: runs });
+    sectorOpsMap.getSource(ids.inferred).setData({ type: 'FeatureCollection', features: inferred });
+
+    // The flat line under the one in the air is its shadow.
+    const coreOpacity = air ? FLOWN_STYLE.shadowOpacity : 1;
+    const glowOpacity = air ? 0 : FLOWN_STYLE.glowOpacity;
+    if (sectorOpsMap.getPaintProperty(ids.flown, 'line-opacity') !== coreOpacity) {
+        sectorOpsMap.setPaintProperty(ids.flown, 'line-opacity', coreOpacity);
+    }
+    if (sectorOpsMap.getPaintProperty(ids.flownGlow, 'line-opacity') !== glowOpacity) {
+        sectorOpsMap.setPaintProperty(ids.flownGlow, 'line-opacity', glowOpacity);
+    }
+
+    if (isOpen) {
+        FlownHead.noteEnd(id, path ? {
+            lon: path.tail[0], lat: path.tail[1],
+            colour: rgba(path.tailColour), halo: rgba(haloFor(path.tailColour))
+        } : null);
+        if (AircraftEngine.isVisible()) AircraftEngine.refresh();
+    }
+}
+
+function ensureFlownPathLayers(flightId) {
+    const ids = flownPathLayerIds(flightId);
+    const map = sectorOpsMap;
+    const empty = { type: 'FeatureCollection', features: [] };
+    if (!map.getSource(ids.flown)) map.addSource(ids.flown, { type: 'geojson', data: empty });
+    if (!map.getSource(ids.inferred)) map.addSource(ids.inferred, { type: 'geojson', data: empty });
+    const anchor = getUnderAircraftAnchor();
+    const before = anchor && map.getLayer(anchor) ? anchor : undefined;
+    const round = { 'line-join': 'round', 'line-cap': 'round' };
+    if (!map.getLayer(ids.inferred)) {
+        map.addLayer({
+            id: ids.inferred, type: 'line', source: ids.inferred, layout: round,
+            paint: {
+                'line-color': FLOWN_STYLE.inferredColour,
+                'line-width': FLOWN_STYLE.inferredWidth,
+                'line-dasharray': FLOWN_STYLE.inferredDash
+            }
+        }, before);
+    }
+    if (!map.getLayer(ids.flownGlow)) {
+        map.addLayer({
+            id: ids.flownGlow, type: 'line', source: ids.flown, layout: round,
+            paint: {
+                'line-color': ['get', 'halo'],
+                'line-width': FLOWN_STYLE.haloWidth,
+                'line-opacity': FLOWN_STYLE.glowOpacity,
+                'line-blur': 1
+            }
+        }, before);
+    }
+    if (!map.getLayer(ids.flown)) {
+        map.addLayer({
+            id: ids.flown, type: 'line', source: ids.flown, layout: round,
+            paint: { 'line-color': ['get', 'color'], 'line-width': FLOWN_STYLE.width, 'line-opacity': 1 }
+        }, before);
+    }
+    if (!sectorOpsLiveFlightPathLayers[flightId]) sectorOpsLiveFlightPathLayers[flightId] = {};
+    Object.assign(sectorOpsLiveFlightPathLayers[flightId], ids);
 }
 
 /**
@@ -24652,75 +24372,33 @@ async function handleAircraftClick(flightProps, optionalSessionId = null, event 
 }
 
 // The open flight's flown trail, from its /history, into the live-trail cache
-// (which the 3D path beside the aircraft is drawn from) and onto the map as
-// its flat flown line. Called the moment the history answers, ahead of the
-// rest of the window (see the open flow).
+// (the window's graphs and the taxi overlay) and the flown path's own trail
+// (FlownTrail), and onto the map. Called the moment the history answers,
+// ahead of the rest of the window (see the open flow).
 //
 // Seeded CLAMPED to what the map marker currently shows. The history
-// endpoint often runs ahead of the socket broadcast; seeding those
-// future-dated samples made the drawn path stick out PAST the aircraft icon
-// by roughly a socket frame. And the line ends on the live marker rather
-// than on `flightProps.position`, the snapshot from click time, which is
-// often a few hundred ms (sometimes seconds) stale by now.
+// endpoint often runs ahead of the socket broadcast, and samples dated after
+// the marker's own report are places the aeroplane has not been drawn yet.
 function showOpenFlightPath(flightProps, sortedRoutePoints) {
     const flightId = flightProps.flightId;
     const liveFeature = (typeof currentMapFeatures !== 'undefined') ? currentMapFeatures[flightId] : null;
     const liveLastUpdateMs = liveFeature?.properties?.last_update
         ? new Date(liveFeature.properties.last_update).getTime() : null;
-    const livePosition = liveFeature?.geometry?.coordinates
-        ? {
-            lat: liveFeature.geometry.coordinates[1],
-            lon: liveFeature.geometry.coordinates[0],
-            alt_ft: liveFeature.properties?.altitude ?? flightProps.position?.alt_ft ?? 0
-          }
-        : flightProps.position;
     const trailUpToMarker = (liveLastUpdateMs != null)
         ? sortedRoutePoints.filter(p => !p.date || new Date(p.date).getTime() <= liveLastUpdateMs)
         : sortedRoutePoints.slice();
 
     if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightId, trailUpToMarker);
+    // The whole trip, in place of the fragment seen since the app first saw
+    // this aircraft (iOS FlightTrailStore.seed).
+    FlownTrail.seed(flightId, trailUpToMarker);
     if (typeof FlownPath3D !== 'undefined') {
         FlownPath3D.updatePath(sectorOpsMap, flightId, sortedRoutePoints, mapFilters.show3DPath);
     }
     if (!sectorOpsMap) return;
 
-    const flownLayerId = `flown-path-${flightId}`;
-    const routeData = generateAltitudeColoredRoute(trailUpToMarker, livePosition, null, flightId);
-    const source = sectorOpsMap.getSource(flownLayerId);
-    if (source) {
-        source.setData(routeData);
-    } else {
-        sectorOpsMap.addSource(flownLayerId, {
-            type: 'geojson',
-            data: routeData,   // Single gradient-coloured LineString
-            lineMetrics: true  // CRITICAL for the line-gradient colouring
-            // Default tolerance stays on — see rebuildDynamicLayers' twin
-            // source: zoom-scaled simplification keeps the line crisp.
-        });
-        sectorOpsMap.addLayer({
-            id: flownLayerId,
-            type: 'line',
-            source: flownLayerId,
-            layout: {
-                'line-join': 'round',
-                'line-cap': 'round'
-            },
-            paint: {
-                'line-width': 3,
-                'line-opacity': 1,
-                // Solid fallback — the altitude line-gradient applied just
-                // below overrides this whenever the trail supports one.
-                'line-color': '#38bdf8'
-            }
-        }, getUnderAircraftAnchor());
-    }
-    applyFlownPathGradient(flownLayerId, routeData);
+    syncFlownPath(flightId, { force: true });
     updateTaxiOverlay(flightId, trailUpToMarker);
-
-    if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-        if (!sectorOpsLiveFlightPathLayers[flightId]) sectorOpsLiveFlightPathLayers[flightId] = {};
-        sectorOpsLiveFlightPathLayers[flightId].flown = flownLayerId;
-    }
 }
 
 // Draw the flown-path trail for a flight that is PINNED but not currently open
@@ -24754,14 +24432,7 @@ async function ensurePinnedFlownPath(flightId) {
             : sortedRoutePoints;
 
         if (typeof liveTrailCache !== 'undefined') liveTrailCache.set(flightId, trailUpToMarker.slice());
-
-        const livePosition = (mk?.geometry?.coordinates)
-            ? { lat: mk.geometry.coordinates[1], lon: mk.geometry.coordinates[0], alt_ft: mk.properties?.altitude ?? 0 }
-            : null;
-
-        // Nothing to render (no history and no live fix) — a later live tick will
-        // re-run this once the marker exists.
-        if (!trailUpToMarker.length && !livePosition) return;
+        FlownTrail.seed(flightId, trailUpToMarker);
 
         // The fetch is async; if the user unpinned while it was in flight, don't
         // leave an orphaned trail on the map.
@@ -24769,28 +24440,13 @@ async function ensurePinnedFlownPath(flightId) {
             && !window.pinnedFlights.has(flightId)
             && flightId !== currentFlightInWindow) return;
 
-        const routeFeature = generateAltitudeColoredRoute(trailUpToMarker, livePosition, null);
-
         if (typeof FlownPath3D !== 'undefined') {
             try { FlownPath3D.updatePath(sectorOpsMap, flightId, trailUpToMarker, mapFilters.show3DPath); } catch (_) {}
         }
 
-        // Re-check after the await — a concurrent open/pin may have created it.
-        if (!sectorOpsMap.getSource(flownLayerId)) {
-            sectorOpsMap.addSource(flownLayerId, { type: 'geojson', data: routeFeature, lineMetrics: true });
-            sectorOpsMap.addLayer({
-                id: flownLayerId,
-                type: 'line',
-                source: flownLayerId,
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-width': 3, 'line-opacity': 1, 'line-color': '#38bdf8' }
-            }, (typeof getUnderAircraftAnchor === 'function') ? getUnderAircraftAnchor() : undefined);
-            if (typeof applyFlownPathGradient === 'function') applyFlownPathGradient(flownLayerId, routeFeature);
-            if (typeof sectorOpsLiveFlightPathLayers !== 'undefined') {
-                if (!sectorOpsLiveFlightPathLayers[flightId]) sectorOpsLiveFlightPathLayers[flightId] = {};
-                sectorOpsLiveFlightPathLayers[flightId].flown = flownLayerId;
-            }
-        }
+        // Nothing to draw yet (no history and no live fix) — the next live
+        // tick draws it once there is (see syncFlownPath).
+        syncFlownPath(flightId, { force: true });
     } catch (err) {
         console.warn('ensurePinnedFlownPath failed:', err);
     }
