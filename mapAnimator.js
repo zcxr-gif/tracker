@@ -108,6 +108,18 @@ const KT_TO_MS = 0.514444;
 const wrapLon = (lon) => ((lon + 540) % 360) - 180;
 const angleDelta = (from, to) => ((to - from + 540) % 360) - 180;
 
+// Whether the style itself is in place, so the source can take data.
+// isStyleLoaded() is not that: Mapbox and MapLibre both answer false while
+// any source still has tiles in flight — and this source has them after its
+// own every write. A tilted camera following the open flight keeps tiles
+// loading almost every frame, so behind isStyleLoaded() the flushes were
+// dropped and the 3D aircraft stood still while its flown path ran on ahead.
+function styleReady(map) {
+    const style = map.style;
+    if (!style) return false;
+    return typeof style._loaded === 'boolean' ? style._loaded : map.isStyleLoaded();
+}
+
 export class MapAnimator {
     // Longest a source update may be held back by camera interaction. A pinch
     // held mid-gesture, or a slow flyTo, must not stall live traffic forever.
@@ -377,7 +389,7 @@ export class MapAnimator {
      */
     _updateMapSource() {
         const source = this.map.getSource(this.sourceName);
-        if (!source || !this.map.isStyleLoaded()) {
+        if (!source || !styleReady(this.map)) {
             // Not ready yet — most often mid style-change, where the source has
             // just been re-created empty and the style's own tiles are still
             // arriving. Dropping the flush here left the map bare until the
@@ -683,7 +695,7 @@ export class MapAnimator {
         // A flush held back by a camera move is not waited for: the motion
         // already on the map is written meanwhile, and the flush folds the
         // new reports in when it lands.
-        if (source._pendingLoad || !map.isStyleLoaded()) {
+        if (source._pendingLoad || !styleReady(map)) {
             this._glideHandle = requestAnimationFrame(() => this._glideFrame());
             return;
         }
