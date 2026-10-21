@@ -61,6 +61,10 @@
                     text: 'Too many buttons? A small tab on the flight window’s edge tucks them all away behind it, and pulls them back out — tap it, or drag it.'
                 },
                 {
+                    tag: 'improved', icon: 'fa-water',
+                    text: 'North Atlantic Tracks, drawn as on iPhone: each track in a colour of its own along the great circle it is flown on, a badge at each end carrying its letter and pointing the way it is flown, and its flight levels where you enter it.'
+                },
+                {
                     tag: 'improved', icon: 'fa-window-maximize',
                     text: 'The flight window scrolls without a scrollbar, and the Legacy window on desktop has its photo, aircraft and route card rearranged.'
                 },
