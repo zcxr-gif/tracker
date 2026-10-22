@@ -234,7 +234,8 @@ traffic doesn't count against you.
   or alternating sides off a lone runway (7110.65 5-8-3 diverging
   departures). It approves runway crossings when the runway is clear.
 - **Ground (system)**: approves pushback when the pilot calls ready, and
-  taxis departures to the runway and arrivals to their gate.
+  taxis departures to the runway ("contact Tower when ready") and arrivals
+  to their gate. Tower (system) sends arrivals to Ground once clear.
 
 ## Ground
 
@@ -244,12 +245,31 @@ taxilanes, aprons and gates, the same data the live map draws.
 and the clearance reads out the taxiway names, e.g. *"runway 22R, taxi via
 B, K, hold short of runway 13L/31R"*.
 
+- **Drag and drop.** Drag a ground aircraft onto a runway, a taxiway or a
+  gate dot. The route is drawn as you drag, with what the clearance will
+  say ("Runway 31L via C K", "Gate 12 via B", "Via A, hold short of B") and
+  red dots at runway hold-short lines. Release to transmit it.
+  - On a runway: a departure taxis to that end's holding point (drop it
+    toward the end you want).
+  - On a gate: an arrival taxis there.
+  - On a taxiway: taxi there and hold, e.g. *"taxi via A, hold short of B"*.
+  - From a gate: pushback. Onto the runway it is waiting to cross: cross it.
+    A departure holding short, onto its runway: *contact Tower* (on Ground)
+    or *line up and wait* (on Tower).
 - Departures call ready to push at a gate. You approve pushback, the pilot
-  reports ready to taxi, and you clear them to their runway. At the
-  holding point they switch to Tower.
-- Arrivals roll out, turn off at the first exit past about 0.9 NM, and call
-  Ground clear of the runway. You taxi them to their assigned gate. They
-  park and leave after about 25 s.
+  reports ready to taxi, and you clear them to their runway. Tell them
+  **contact Tower when ready** on the way (or **contact Tower** once they're
+  holding short). Without it they report holding short to Ground and wait,
+  and Tower can't clear them.
+- Arrivals roll out, turn off at the first exit past about 0.9 NM, and
+  report clear of the runway to **Tower**, who tells them **contact Ground**.
+  You then taxi them to their gate. They park and leave after about 25 s.
+- Commands: `tx` (taxi to the usual place), `tx 31L`, `tx 12` (a gate),
+  `pb`, `hp` / `ct` (hold position / continue), `cr` (cross), `mt` (contact
+  Tower), `mg` (contact Ground).
+- **Starting traffic** on the start screen sets how many aircraft are
+  already on frequency when the shift opens: none, a random number, or a
+  set count (1 to 20). New traffic keeps coming at the Traffic rate.
 - A route that crosses a runway stops at the hold-short line, and the pilot
   asks **Tower** to cross. Crossing clearances are always Tower's.
 - Pilots stop behind traffic ahead (about 85 m). If two aircraft meet nose

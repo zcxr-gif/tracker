@@ -17,7 +17,7 @@
  */
 
 import { loadDem, terrainAt, renderRelief, buildMva, mvaAt, mvaArea, MVA_RING_NM, MVA_WEDGE, TerrainTiles } from './approachTerrain.js';
-import { buildGround, nearestNode, route, withCrossings, pointAt } from './approachGround.js';
+import { buildGround, nearestNode, route, withCrossings, pointAt, toSegment } from './approachGround.js';
 import { drawIcon } from './approachIcons.js';
 import { AirportLayoutManager } from './airportLayout.js';
 import { aerowayFromOpenFreeMap, gatesFromBackend } from './approachTiles.js';
@@ -340,14 +340,16 @@ function makeCallsign() {
     return null;
 }
 
-function spawnArrival() {
+/** An arrival checking in at an entry fix, or (`dist`) already that far inbound from one. */
+function spawnArrival(dist) {
     const id = makeCallsign();
     if (!id) return false;
     const entries = G.world.fixes.filter(f => f.kind === 'arr').sort(() => Math.random() - 0.5);
     for (const f of entries) {
-        const r = SCOPE_NM - 0.5;
-        const x = Math.sin(f.bearing * D2R) * r, y = Math.cos(f.bearing * D2R) * r;
-        let alt = Math.round((G.world.elev + rand(8000, 12500)) / 1000) * 1000;
+        const r = dist || SCOPE_NM - 0.5;
+        const b = (f.bearing + (dist ? rand(-20, 20) : 0)) * D2R;
+        const x = Math.sin(b) * r, y = Math.cos(b) * r;
+        let alt = Math.round((G.world.elev + (dist ? clamp(dist * 280, 4000, 12000) : rand(8000, 12500))) / 1000) * 1000;
         if (terrainOn()) alt = Math.max(alt, Math.ceil((mvaAt(G.mva, x, y) + 1000) / 1000) * 1000);
         const crowded = G.aircraft.some(a => airborne(a) && Math.hypot(a.x - x, a.y - y) < 7 && Math.abs(a.alt - alt) < 1500);
         if (crowded) continue;
@@ -364,6 +366,15 @@ function spawnArrival() {
         return true;
     }
     return false;
+}
+
+/** The traffic already on frequency when the shift opens: arrivals spread inbound, departures at gates or the runway. */
+function seedTraffic(n) {
+    for (let i = 0, misses = 0; i < n && misses < 30; ) {
+        const wantDep = Math.random() < 0.4;
+        const ok = wantDep ? spawnDeparture() || spawnArrival(rand(12, SCOPE_NM - 1)) : spawnArrival(rand(12, SCOPE_NM - 1)) || spawnDeparture();
+        if (ok) i++; else misses++;
+    }
 }
 
 function nextDepRunway() {
@@ -557,8 +568,29 @@ function issueCall(ac, c) {
         parts.push('pushback approved'); back.push('pushing back');
     }
     if (c.taxi) {
-        const r = c.taxi === true ? null : c.taxi;
-        if (!taxiClearance(ac, r, parts, back)) return false;
+        if (!taxiClearance(ac, c.taxi, parts, back)) return false;
+    }
+    if (c.tower) {
+        if (ac.kind !== 'dep' || ac.freq !== 'GND' || !['taxi', 'wait'].includes(ac.state)) { sys(`${ac.cs} isn't taxiing out on Ground.`); return false; }
+        if (ac.state === 'wait') {
+            atc(`${ac.radio}, contact Tower.`, G.aiActing);
+            pilot(ac, `Over to Tower, ${ac.radio}.`);
+            toTower(ac);
+            return true;
+        }
+        ac.toTower = true;
+        parts.push('contact Tower when ready'); back.push('Tower when ready');
+    }
+    if (c.ground) {
+        if (ac.kind !== 'arr' || ac.freq !== 'TWR' || !['clear', 'rollout', 'taxi'].includes(ac.state)) { sys(`${ac.cs} isn't rolling off the runway.`); return false; }
+        if (ac.state === 'clear') {
+            atc(`${ac.radio}, contact Ground.`, G.aiActing);
+            pilot(ac, `Over to Ground, ${ac.radio}.`);
+            toGround(ac);
+            return true;
+        }
+        ac.toGround = true;
+        parts.push('contact Ground when clear of the runway'); back.push('Ground when clear');
     }
     if (c.holdPos) {
         if (!['taxi', 'push'].includes(ac.state)) { sys(`${ac.cs} isn't moving on the ground.`); return false; }
@@ -576,6 +608,7 @@ function issueCall(ac, c) {
     }
 
     // ---- things that stop the call before it is made
+    if ((c.luaw || c.takeoff) && ac.freq === 'GND') { sys(`${ac.cs} is still on Ground: have it contact Tower first.`); return false; }
     if (c.luaw && ac.state !== 'wait') { sys(`${ac.cs} is not holding short.`); return false; }
     if (c.takeoff && ac.state !== 'wait' && ac.state !== 'luaw') { sys(`${ac.cs} is not at the runway.`); return false; }
     if (c.luaw && G.aircraft.some(a => a !== ac && a.state === 'luaw' && a.rwy.phys === ac.rwy.phys)) {
@@ -746,45 +779,102 @@ function issueCall(ac, c) {
     return true;
 }
 
-/** Route a ground aircraft and read the route out: to its runway, or to a gate. */
-function taxiClearance(ac, rwyId, parts, back) {
-    const gr = G.ground;
-    if (!gr) { sys('There is no taxiway map for this airport.'); return false; }
+/**
+ * Where a taxi instruction goes: { kind: 'rwy', end } (a departure's holding
+ * point), { kind: 'gate', gate }, or { kind: 'twy', node } (taxi there and
+ * hold). `true` means the usual: a departure's runway, an arrival's gate.
+ */
+function defaultTaxiTarget(ac, want) {
+    if (want && typeof want === 'object') return want;
     if (ac.kind === 'dep') {
-        if (ac.state === 'gate') { sys(`${ac.cs} needs pushback first.`); return false; }
-        if (ac.state !== 'pushed') { sys(`${ac.cs} isn't ready to taxi.`); return false; }
-        if (rwyId) {
-            const e = findEnd(rwyId);
-            if (!e) { sys('No such runway.'); return false; }
-            ac.rwy = e;
-        }
-        const hold = gr.holds.get(ac.rwy);
-        if (!hold) { sys(`No holding point found for runway ${ac.rwy.id}.`); return false; }
-        const from = nearestNode(gr, ac);
-        const r = from && route(gr, from.id, hold.node);
-        if (!r) { sys(`No taxi route to runway ${ac.rwy.id} from here.`); return false; }
-        r.pts.unshift({ x: ac.x, y: ac.y });
-        withCrossings(gr, r);
-        startTaxi(ac, r, 'runway');
-        const hs = r.crossings.length ? `, hold short of runway ${r.crossings[0].label}` : '';
-        parts.push(`runway ${ac.rwy.id}, taxi via ${r.names.join(', ') || 'the taxiway'}${hs}`);
-        back.push(`runway ${ac.rwy.id}, via ${r.names.join(', ') || 'the taxiway'}${hs}`);
-        return true;
+        const e = typeof want === 'string' ? findEnd(want) : ac.rwy;
+        return e ? { kind: 'rwy', end: e } : null;
     }
-    if (ac.state !== 'clear') { sys(`${ac.cs} isn't clear of the runway yet.`); return false; }
-    const stand = ac.stand || (ac.stand = freeStand());
-    if (!stand) { sys('Every gate is taken.'); return false; }
+    if (typeof want === 'string') {
+        const g = G.ground.gates.find(x => x.ref.toUpperCase() === want.toUpperCase());
+        if (g) return { kind: 'gate', gate: g };
+    }
+    const stand = ac.stand || freeStand();
+    return stand ? { kind: 'gate', gate: stand } : null;
+}
+
+/** The route for a taxi instruction, without giving it: { r, purpose, hold } or { err }. Also drives the drag preview. */
+function planTaxi(ac, tgt) {
+    const gr = G.ground;
+    if (!gr) return { err: 'no taxiway map here' };
+    if (!tgt) return { err: ac.kind === 'dep' ? 'no such runway' : 'every gate is taken' };
+    const dep = ac.kind === 'dep';
+    if (ac.state === 'gate') return { err: dep ? 'needs pushback first' : 'parked' };
+    const ready = dep ? ['pushed', 'taxi', 'wait'].includes(ac.state) : ['clear', 'taxi'].includes(ac.state);
+    if (!ready || ac.purpose === 'exit' && ac.state === 'taxi') return { err: 'not ready to taxi' };
+    let goal, purpose;
+    if (tgt.kind === 'rwy') {
+        if (!dep) return { err: 'landed: taxi it to a gate' };
+        const hold = gr.holds.get(tgt.end);
+        if (!hold) return { err: `no holding point for ${tgt.end.id}` };
+        goal = hold.node; purpose = 'runway';
+    } else if (tgt.kind === 'gate') {
+        if (dep) return { err: 'departing: taxi it to a runway' };
+        if (G.aircraft.some(a => a !== ac && a.stand === tgt.gate)) return { err: `gate ${tgt.gate.ref} is taken` };
+        goal = tgt.gate.node; purpose = 'gate';
+    } else { goal = tgt.node.id; purpose = 'point'; }
     const from = nearestNode(gr, ac);
-    const r = from && route(gr, from.id, stand.node);
-    if (!r) { sys(`No taxi route to gate ${stand.ref}.`); return false; }
+    const r = from && route(gr, from.id, goal);
+    if (!r) return { err: 'no taxi route there' };
     r.pts.unshift({ x: ac.x, y: ac.y });
-    r.pts.push({ x: stand.x, y: stand.y });
+    if (purpose === 'gate') r.pts.push({ x: tgt.gate.x, y: tgt.gate.y });
     withCrossings(gr, r);
-    startTaxi(ac, r, 'gate');
+    let hold = null;
+    if (purpose === 'point') {
+        // "Taxi via A, hold short of B": stop just short of the next taxiway at that point.
+        const last = r.names[r.names.length - 1];
+        const other = [...new Set(tgt.node.edges.map(e => e.name).filter(Boolean))].find(n => n !== last);
+        hold = other ? `hold short of ${other}` : `hold on ${last || 'the taxiway'}`;
+        if (other && r.len > 0.05) r.stopEarly = 0.02;
+    }
+    return { r, purpose, hold };
+}
+
+/** Route a ground aircraft and read the route out: to a runway, a gate, or a point on a taxiway. */
+function taxiClearance(ac, want, parts, back) {
+    if (!G.ground) { sys('There is no taxiway map for this airport.'); return false; }
+    const tgt = defaultTaxiTarget(ac, want);
+    const plan = planTaxi(ac, tgt);
+    if (plan.err) { sys(`${ac.cs}: ${plan.err}.`); return false; }
+    const { r, purpose, hold } = plan;
+    if (purpose === 'runway') ac.rwy = tgt.end;
+    if (purpose === 'gate') ac.stand = tgt.gate;
+    ac.heldAt = hold;
+    const wasTower = ac.toTower;
+    startTaxi(ac, r, purpose);
+    ac.toTower = purpose === 'runway' && wasTower;
+    const via = r.names.join(', ') || 'the taxiway';
     const hs = r.crossings.length ? `, hold short of runway ${r.crossings[0].label}` : '';
-    parts.push(`taxi to gate ${stand.ref} via ${r.names.join(', ') || 'the taxiway'}${hs}`);
-    back.push(`gate ${stand.ref} via ${r.names.join(', ') || 'the taxiway'}${hs}`);
+    if (purpose === 'runway') {
+        parts.push(`runway ${ac.rwy.id}, taxi via ${via}${hs}`);
+        back.push(`runway ${ac.rwy.id}, via ${via}${hs}`);
+    } else if (purpose === 'gate') {
+        parts.push(`taxi to gate ${ac.stand.ref} via ${via}${hs}`);
+        back.push(`gate ${ac.stand.ref} via ${via}${hs}`);
+    } else {
+        parts.push(`taxi via ${via}${hs}, ${hold}`);
+        back.push(`via ${via}${hs}, ${hold}`);
+    }
     return true;
+}
+
+/** A departure at its holding point goes over to Tower and calls ready. */
+function toTower(ac) {
+    Object.assign(ac, { freq: 'TWR', toTower: false, remindAt: G.t + 240 });
+    if (G.positions.has('GND')) award(ac, 3);
+    pilot(ac, `${G.world.icao} Tower, ${ac.radio}, holding short runway ${ac.rwy.id}, ready for departure.`);
+}
+
+/** An arrival clear of the runway goes over to Ground and asks for its gate. */
+function toGround(ac) {
+    Object.assign(ac, { freq: 'GND', toGround: false });
+    ac.stand = ac.stand || freeStand();
+    pilot(ac, `${G.world.icao} Ground, ${ac.radio}, clear of ${ac.landEnd.id}${ac.exitTwy ? ' at ' + ac.exitTwy : ''}, taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'the ramp'}.`);
 }
 
 function startTaxi(ac, r, purpose) {
@@ -1053,7 +1143,13 @@ function groundStep(ac, dt) {
         }
         return true;
     }
-    case 'pushed': case 'clear':
+    case 'clear':
+        if (ac.freq === 'TWR' && G.t >= ac.remindAt) {
+            ac.remindAt = G.t + 60;
+            pilot(ac, `Tower, ${ac.radio}, clear of ${ac.landEnd.id}, request to taxi.`);
+        }
+        return true;
+    case 'pushed':
         return true;
     case 'lineup': {
         const t = ac.lineupAt, d = Math.hypot(t.x - ac.x, t.y - ac.y), stepNm = 8 / 3600 * dt;
@@ -1093,7 +1189,8 @@ function taxiStep(ac, dt) {
     const r = ac.route;
     // Stop short of any runway not yet cleared to cross.
     const cx = r.crossings.find(c => !c.cleared && c.stopS >= ac.s - 0.002);
-    let limit = cx ? Math.min(r.len, cx.stopS) : r.len;
+    const end = r.len - (r.stopEarly || 0);
+    let limit = cx ? Math.min(end, cx.stopS) : end;
     if (ac.holdPos) limit = ac.s;
     const block = trafficAhead(ac);
     if (block) {
@@ -1125,22 +1222,34 @@ function taxiStep(ac, dt) {
         cx.asked = true; ac.crossReq = cx;
         pilot(ac, `${G.world.icao} Tower, ${ac.radio}, holding short of runway ${cx.label}, request to cross.`);
     }
-    if (ac.s >= r.len - 0.0005) arrive(ac);
+    if (ac.s >= end - 0.0005) arrive(ac);
 }
 
 /** End of a taxi route. */
 function arrive(ac) {
     ac.spd = 0; ac.route = null;
     if (ac.purpose === 'runway') {
-        Object.assign(ac, { state: 'wait', freq: 'TWR', hdg: brg(ac.rwy.thr.x - ac.x, ac.rwy.thr.y - ac.y), remindAt: G.t + 240 });
-        if (G.positions.has('GND')) award(ac, 3);
-        pilot(ac, `${G.world.icao} Tower, ${ac.radio}, holding short runway ${ac.rwy.id}, ready for departure.`);
+        Object.assign(ac, { state: 'wait', hdg: brg(ac.rwy.thr.x - ac.x, ac.rwy.thr.y - ac.y) });
+        // Told to contact Tower when ready (or the system works Ground): over it goes. Otherwise it waits on Ground.
+        if (ac.freq !== 'GND' || ac.toTower || !G.positions.has('GND')) toTower(ac);
+        else {
+            ac.remindAt = G.t + 60;
+            pilot(ac, `Ground, ${ac.radio}, holding short runway ${ac.rwy.id}.`);
+        }
     } else if (ac.purpose === 'exit') {
         const where = nearestNode(G.ground, ac);
-        const twy = where && where.edges.find(e => e.name)?.name;
-        ac.state = 'clear'; ac.freq = 'GND';
+        ac.exitTwy = where && where.edges.find(e => e.name)?.name;
+        ac.state = 'clear';
         ac.stand = ac.stand || freeStand();
-        pilot(ac, `${G.world.icao} Ground, ${ac.radio}, clear of ${ac.landEnd.id}${twy ? ' at ' + twy : ''}, taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'the ramp'}.`);
+        if (ac.freq !== 'TWR' || ac.toGround || !G.positions.has('TWR')) toGround(ac);
+        else {
+            ac.remindAt = G.t + 60;
+            pilot(ac, `Tower, ${ac.radio}, clear of ${ac.landEnd.id}${ac.exitTwy ? ' at ' + ac.exitTwy : ''}.`);
+        }
+    } else if (ac.purpose === 'point') {
+        ac.state = ac.kind === 'dep' ? 'pushed' : 'clear';
+        pilot(ac, `${ac.radio}, ${(ac.heldAt || 'holding').replace(/^hold/, 'holding')}.`);
+        ac.heldAt = null;
     } else if (ac.purpose === 'gate') {
         Object.assign(ac, { state: 'gate', parkedUntil: G.t + 25 });
         G.stats.parked++;
@@ -1219,7 +1328,8 @@ const ai = (ac, c) => issue(ac, { ...c, ai: true });
 
 function aiGround(ac) {
     if (ac.state === 'gate' && ac.kind === 'dep' && ac.called) ai(ac, { push: true });
-    else if (ac.state === 'pushed' || ac.state === 'clear') ai(ac, { taxi: true });
+    else if (ac.state === 'pushed' || ac.state === 'clear') ai(ac, { taxi: true, ...(ac.kind === 'dep' ? { tower: true } : {}) });
+    else if (ac.state === 'wait' && ac.kind === 'dep') ai(ac, { tower: true });
 }
 
 function aiCross(ac) {
@@ -1232,6 +1342,7 @@ function aiCross(ac) {
 
 function aiTower(ac) {
     if (ac.appr?.loc && !ac.landClr && ac.appr.along < 8) { ai(ac, { land: true }); return; }
+    if (ac.kind === 'arr' && ac.state === 'clear') { ai(ac, { ground: true }); return; }
     if (ac.state !== 'wait' && ac.state !== 'luaw') return;
     const phys = ac.rwy.phys;
     const arriving = G.aircraft.some(a => a.appr?.loc && sameRunwayish(a.appr.end, ac.rwy) && a.appr.along < 4);
@@ -1709,7 +1820,8 @@ function step(ac, dt) {
     if (ac.state === 'wait' || ac.state === 'luaw') {
         if (G.t >= ac.remindAt) {
             ac.remindAt = G.t + 240;
-            pilot(ac, ac.state === 'luaw' ? `Tower, ${ac.radio}, lined up and waiting on ${ac.rwy.id}.` : `Tower, ${ac.radio}, still holding short ${ac.rwy.id}.`);
+            if (ac.freq === 'GND') { ac.remindAt = G.t + 60; pilot(ac, `Ground, ${ac.radio}, still holding short ${ac.rwy.id}, ready for Tower.`); }
+            else pilot(ac, ac.state === 'luaw' ? `Tower, ${ac.radio}, lined up and waiting on ${ac.rwy.id}.` : `Tower, ${ac.radio}, still holding short ${ac.rwy.id}.`);
         }
         return;
     }
@@ -2024,7 +2136,7 @@ function separation() {
 
 const view = { x: 0, y: 0, scale: 10, w: 0, h: 0, dpr: 1 };
 let canvas, ctx;
-let drag = null;              // { id, mode: 'ac'|'pan', ac, sx, sy, moved, hdg }
+let drag = null;              // { id, mode: 'ac'|'gnd'|'pan', ac, sx, sy, moved, hdg, tgt, plan }
 const pointers = new Map();
 let pinch = null;
 
@@ -2257,6 +2369,8 @@ function draw() {
         else drawAircraft(a);
     }
 
+    if (drag && drag.mode === 'gnd' && drag.moved) drawGroundDrag();
+
     // Heading drag.
     if (drag && drag.mode === 'ac' && drag.moved && drag.hdg != null) {
         const [ax, ay] = toS(drag.ac.x, drag.ac.y);
@@ -2376,10 +2490,11 @@ function drawSurface() {
             c.fillText(l.name, x, y);
         }
     }
-    if (s > 140) {
-        c.font = '9px "JetBrains Mono", monospace';
+    if (s > 60) {
+        // Parking spots as dots: names only clutter the field (they're in the strips and the card).
         c.fillStyle = chart ? '#334' : 'rgba(200,215,230,0.7)';
-        for (const g of gr.gates) { const [x, y] = toS(g.x, g.y); c.fillRect(x - 1.5, y - 1.5, 3, 3); c.fillText(g.ref, x, y - 8); }
+        const r = s > 160 ? 2.2 : 1.6;
+        for (const g of gr.gates || []) { const [x, y] = toS(g.x, g.y); c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); }
     }
     c.restore();
     c.textAlign = 'left'; c.textBaseline = 'alphabetic';
@@ -2485,6 +2600,82 @@ function intentTag(a) {
     return a.expect ? 'exp ' + a.expect.id : '';
 }
 
+/** What a ground drag would end on: a gate dot, a runway, or a point on a taxiway. */
+function groundTarget(sx, sy) {
+    const gr = G.ground;
+    const [wx, wy] = toW(sx, sy), p = { x: wx, y: wy }, px = 1 / view.scale;
+    let gate = null, gd = 14 * px;
+    for (const g of gr.gates) { const d = Math.hypot(g.x - wx, g.y - wy); if (d < gd) { gd = d; gate = g; } }
+    if (gate) return { kind: 'gate', gate, x: gate.x, y: gate.y, key: 'g' + gr.gates.indexOf(gate) };
+    for (const rw of gr.physRunways) {
+        const f = toSegment(p, rw.a, rw.b);
+        if (f.d > rw.half + 8 * px || f.t <= 0 || f.t >= 1) continue;
+        // Dropped toward one end: depart from that end.
+        const end = G.world.ends.filter(e => e.phys === rw.phys)
+            .sort((a, b) => Math.hypot(a.thr.x - wx, a.thr.y - wy) - Math.hypot(b.thr.x - wx, b.thr.y - wy))[0];
+        if (end) return { kind: 'rwy', end, x: end.thr.x, y: end.thr.y, key: 'r' + end.id };
+    }
+    let node = null, nd = 22 * px;
+    for (const n of gr.main) { const d = Math.hypot(n.x - wx, n.y - wy); if (d < nd && !gr.onRunway(n)) { nd = d; node = n; } }
+    return node ? { kind: 'twy', node, x: node.x, y: node.y, key: 'n' + node.id } : null;
+}
+
+/** What dropping an aircraft on a target means: { label, cmd, r } or { label, err }. */
+function dropPlan(ac, tgt) {
+    if (!tgt) return { err: true, label: 'Drop on a runway, taxiway or gate' };
+    if (ac.state === 'gate') return ac.kind === 'dep' && ac.called ? { label: 'Pushback approved', cmd: { push: true } } : { err: true, label: ac.kind === 'dep' ? 'Not ready to push yet' : 'Parked' };
+    if (ac.crossReq && tgt.kind === 'rwy' && tgt.end.phys === ac.crossReq.phys) return { label: `Cross runway ${ac.crossReq.label}`, cmd: { cross: true } };
+    if (ac.state === 'wait' && tgt.kind === 'rwy' && tgt.end.phys === ac.rwy.phys) {
+        return ac.freq === 'GND' ? { label: 'Contact Tower', cmd: { tower: true } } : { label: `Line up and wait ${ac.rwy.id}`, cmd: { luaw: true } };
+    }
+    if (ac.kind === 'arr' && ac.freq === 'TWR' && ['clear', 'rollout', 'taxi'].includes(ac.state)) {
+        if (!G.positions.has('GND') || tgt.kind !== 'gate') return { label: 'Contact Ground', cmd: { ground: true } };
+    }
+    const plan = planTaxi(ac, tgt);
+    if (plan.err) return { err: true, label: cap(plan.err) };
+    const via = plan.r.names.length ? ' via ' + plan.r.names.join(' ') : '';
+    const label = tgt.kind === 'rwy' ? `Runway ${tgt.end.id}${via}` : tgt.kind === 'gate' ? `Gate ${tgt.gate.ref}${via}` : `${via.trim() || 'Taxi'}, ${plan.hold}`;
+    return { label: cap(label) + (plan.r.crossings.length ? ` · hold short ${plan.r.crossings[0].label}` : ''), cmd: { taxi: tgt }, r: plan.r };
+}
+
+function dropGround(ac, tgt) {
+    const p = dropPlan(ac, tgt);
+    if (p.err) { sys(`${ac.cs}: ${p.label}.`); return; }
+    // Tower working both: an arrival dragged to a gate goes to Ground and gets its taxi in one go.
+    if (p.cmd.ground && G.positions.has('GND') && tgt?.kind === 'gate' && ac.state === 'clear') {
+        if (issue(ac, p.cmd)) issue(ac, { taxi: tgt });
+        return;
+    }
+    issue(ac, p.cmd);
+}
+
+function drawGroundDrag() {
+    const c = ctx, d = drag, [ax, ay] = toS(d.ac.x, d.ac.y);
+    const p = d.plan, bad = !p || p.err;
+    c.save();
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    if (p && p.r) {
+        c.strokeStyle = 'rgba(0,0,0,0.45)'; c.lineWidth = 7;
+        c.beginPath(); p.r.pts.forEach((q, i) => { const [x, y] = toS(q.x, q.y); if (i) c.lineTo(x, y); else c.moveTo(x, y); }); c.stroke();
+        c.strokeStyle = COLORS.sel; c.lineWidth = 3.5; c.stroke();
+        for (const cr of p.r.crossings) {
+            const q = pointAt(p.r, cr.stopS), [x, y] = toS(q.x, q.y);
+            c.fillStyle = '#ef4444'; c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2); c.fill();
+        }
+    } else {
+        c.strokeStyle = bad ? 'rgba(255,138,152,0.8)' : COLORS.sel; c.setLineDash([4, 4]); c.lineWidth = 1.5;
+        c.beginPath(); c.moveTo(ax, ay); c.lineTo(d.px, d.py); c.stroke(); c.setLineDash([]);
+    }
+    if (d.tgt) { const [tx, ty] = toS(d.tgt.x, d.tgt.y); c.strokeStyle = bad ? '#ff8a98' : COLORS.sel; c.lineWidth = 2; c.beginPath(); c.arc(tx, ty, 9, 0, Math.PI * 2); c.stroke(); }
+    const label = p ? p.label : 'Drop on a runway, taxiway or gate';
+    c.font = '700 12px "JetBrains Mono", monospace';
+    const w = c.measureText(label).width + 12;
+    const lx = Math.min(d.px + 14, view.w - w - 4), ly = Math.max(d.py - 30, 4);
+    c.fillStyle = 'rgba(6,11,15,0.85)'; c.fillRect(lx, ly, w, 20);
+    c.fillStyle = bad ? '#ff8a98' : COLORS.sel; c.textBaseline = 'middle'; c.fillText(label, lx + 6, ly + 10);
+    c.restore();
+}
+
 function hitAircraft(sx, sy) {
     let best = null, bestD = 18;
     for (const a of G.aircraft) {
@@ -2539,7 +2730,8 @@ function bindScope() {
         }
         const ac = G && hitAircraft(sx, sy);
         if (ac) select(ac);
-        drag = { id: e.pointerId, mode: ac ? 'ac' : 'pan', ac, sx, sy, px: sx, py: sy, moved: false, hdg: null, vx: view.x, vy: view.y };
+        const gnd = ac && G.ground && ac.state !== 'air' && ac.state !== 'roll';
+        drag = { id: e.pointerId, mode: gnd ? 'gnd' : ac ? 'ac' : 'pan', ac, sx, sy, px: sx, py: sy, moved: false, hdg: null, vx: view.x, vy: view.y };
     });
     canvas.addEventListener('pointermove', e => {
         const r = canvas.getBoundingClientRect();
@@ -2558,6 +2750,9 @@ function bindScope() {
         if (drag.mode === 'pan' && drag.moved) {
             view.x = drag.vx - (sx - drag.sx) / view.scale;
             view.y = drag.vy + (sy - drag.sy) / view.scale;
+        } else if (drag.mode === 'gnd' && drag.moved) {
+            const tgt = groundTarget(sx, sy);
+            if ((tgt && tgt.key) !== drag.tgtKey) { drag.tgtKey = tgt && tgt.key; drag.tgt = tgt; drag.plan = tgt ? dropPlan(drag.ac, tgt) : null; }
         } else if (drag.mode === 'ac' && drag.moved && drag.ac.state !== 'roll') {
             const [ax, ay] = toS(drag.ac.x, drag.ac.y);
             drag.hdg = Math.round(brg(sx - ax, -(sy - ay)) / 5) * 5 || 360;
@@ -2570,7 +2765,10 @@ function bindScope() {
         const d = drag;
         drag = null;
         if (e.type === 'pointercancel') return;
-        if (d.mode === 'ac' && d.moved && d.hdg != null) {
+        if (d.mode === 'gnd' && d.moved) {
+            dropGround(d.ac, d.tgt);
+            renderCard(true);
+        } else if (d.mode === 'ac' && d.moved && d.hdg != null) {
             issue(d.ac, { hdg: d.hdg });
             syncPending(true);
         } else if (d.mode === 'pan' && !d.moved) {
@@ -2656,21 +2854,25 @@ function renderCard(force) {
     if (!ac) {
         if (cardKey !== 'none' || force) {
             cardKey = 'none';
-            el.innerHTML = `<div class="card-empty">Select an aircraft on the scope or in the strips. Drag from a target to give it a heading.</div>`;
+            el.innerHTML = `<div class="card-empty">Select an aircraft on the scope or in the strips. Drag from a target to give it a heading. On the ground, drag it to a runway, a taxiway or a gate to taxi it there.</div>`;
         }
         return;
     }
-    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}`;
+    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}|${!!ac.toTower}|${!!ac.toGround}|${ac.purpose}`;
     if (!force && key === cardKey) { updateCard(); return; }
     cardKey = key;
     const ground = ac.state !== 'air';
-    const surface = ['gate', 'push', 'pushed', 'taxi', 'clear', 'rollout', 'lineup'].includes(ac.state);
+    const surface = ['gate', 'push', 'pushed', 'taxi', 'clear', 'rollout', 'lineup'].includes(ac.state) || ac.state === 'wait' && ac.freq === 'GND';
     const yours = mine(ac);
     const twr = G.positions.has('TWR');
     const groundBtns = [
         ac.state === 'gate' && ac.kind === 'dep' && ac.called ? `<button class="btn primary" data-act="push">Pushback approved</button>` : '',
         ac.state === 'pushed' ? `<button class="btn primary" data-act="taxi">Taxi to runway ${ac.rwy.id}</button>` : '',
-        ac.state === 'clear' ? `<button class="btn primary" data-act="taxi">Taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'a gate'}</button>` : '',
+        ac.state === 'clear' && ac.freq === 'GND' ? `<button class="btn primary" data-act="taxi">Taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'a gate'}</button>` : '',
+        ac.kind === 'dep' && ac.freq === 'GND' && (ac.state === 'wait' || ac.state === 'taxi' && ac.purpose === 'runway' && !ac.toTower)
+            ? `<button class="btn${ac.state === 'wait' ? ' primary' : ''}" data-act="tower">Contact Tower${ac.state === 'wait' ? '' : ' when ready'}</button>` : '',
+        ac.kind === 'arr' && ac.freq === 'TWR' && (ac.state === 'clear' || !ac.toGround && (ac.state === 'rollout' || ac.state === 'taxi'))
+            ? `<button class="btn${ac.state === 'clear' ? ' primary' : ''}" data-act="ground">Contact Ground</button>` : '',
         (ac.state === 'taxi' || ac.state === 'push') && !ac.holdPos ? `<button class="btn" data-act="holdPos">Hold position</button>` : '',
         ac.holdPos ? `<button class="btn primary" data-act="cont">Continue taxi</button>` : '',
     ].join('');
@@ -2773,7 +2975,7 @@ function bindCard() {
         else if (act === 'takeoff') transmitPending({ takeoff: true });
         else if (act === 'luaw') transmitPending({ luaw: true });
         else if (act === 'dev') { issue(ac, { deviate: true }); renderCard(true); }
-        else if (['push', 'taxi', 'holdPos', 'cont', 'cross'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
+        else if (['push', 'taxi', 'holdPos', 'cont', 'cross', 'tower', 'ground'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
         else if (act === 'land') { issue(ac, { land: true }); renderCard(true); }
         else if (act === 'ga') { issue(ac, { goAround: true }); syncPending(true); renderCard(true); }
         else if (act === 'orbitL' || act === 'orbitR') { issue(ac, { orbit: act === 'orbitL' ? 'L' : 'R' }); renderCard(true); }
@@ -2822,9 +3024,15 @@ function renderStrips() {
 }
 
 function renderHud() {
+    $('#s-score').textContent = G.score;
+    $('#s-landed').textContent = G.stats.landed;
+    $('#s-departed').textContent = G.stats.departed;
+    $('#s-incidents').textContent = G.stats.incidents;
     const z = new Date(G.zulu0 + G.t * 1000);
     const zulu = String(z.getUTCHours()).padStart(2, '0') + String(z.getUTCMinutes()).padStart(2, '0') + 'Z';
-    $('#hud').innerHTML = `<b>${G.world.icao}</b> ${zulu} · YOU <b>${['APP', 'TWR', 'GND'].filter(f => G.positions.has(f)).join(' ')}</b><br>`
+    const tog = `<button class="hud-tog" type="button" aria-label="${hudMin ? 'Show' : 'Hide'} the airport info">${hudMin ? '+' : '−'}</button>`;
+    if (hudMin) { $('#hud').innerHTML = `${tog}<b>${G.world.icao}</b> ${zulu}`; return; }
+    $('#hud').innerHTML = `${tog}<b>${G.world.icao}</b> ${zulu} · YOU <b>${['APP', 'TWR', 'GND'].filter(f => G.positions.has(f)).join(' ')}</b><br>`
         + `ATIS <b>${PHONETIC[G.atis].toUpperCase()}</b> · A<b>${G.altim}</b><br>`
         + `WIND <b>${hdg3(G.wind.dir)}/${String(G.wind.spd).padStart(2, '0')}${G.met.gust ? 'G' + G.met.gust : ''}</b>${G.opts.weather ? ` · <b>${metText(G.met)}</b>` : ''}<br>`
         + `ARR <b>${G.active.arr.map(e => e.id).join(' ')}</b><br>`
@@ -2833,10 +3041,6 @@ function renderHud() {
         + (G.surfaceStatus ? `<br><span class="taxi-st${G.ground ? '' : ' bad'}">TAXI MAP <b>${escapeHtml(G.surfaceStatus)}</b></span>` : '')
         + (G.opts.terrain && !G.mva ? '<br>loading terrain…' : '')
         + (below(G.met) ? '<br><b style="color:#ff8a98">BELOW MINIMUMS</b>' : '');
-    $('#s-score').textContent = G.score;
-    $('#s-landed').textContent = G.stats.landed;
-    $('#s-departed').textContent = G.stats.departed;
-    $('#s-incidents').textContent = G.stats.incidents;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2873,7 +3077,12 @@ function runCommand(text) {
         else if (t === 'LUAW' || t === 'LU') c.luaw = true;
         else if (t === 'DEV' || t === 'WX') c.deviate = true;
         else if (t === 'PB' || t === 'PUSH') c.push = true;
-        else if (t === 'TX' || t === 'TAXI') { const nx = toks[i + 1]; if (nx && findEnd(nx)) { c.taxi = nx; i++; } else c.taxi = true; }
+        else if (t === 'TX' || t === 'TAXI') {
+            const nx = toks[i + 1];
+            if (nx && (findEnd(nx) || G.ground?.gates.some(g => g.ref.toUpperCase() === nx))) { c.taxi = nx; i++; } else c.taxi = true;
+        }
+        else if (t === 'MT' || t === 'TWR' || t === 'TOWER') c.tower = true;
+        else if (t === 'MG' || t === 'GND' || t === 'GROUND') c.ground = true;
         else if (t === 'HP') c.holdPos = true;
         else if (t === 'CT' || t === 'CONT') c.cont = true;
         else if (t === 'CR' || t === 'CROSS') c.cross = true;
@@ -2962,6 +3171,14 @@ function endShift() {
 function bindGame() {
     bindScope();
     bindCard();
+    // The airport info box folds away to one line. On pointerdown: the box is redrawn several times a second.
+    $('#hud').addEventListener('pointerdown', e => {
+        if (!e.target.closest('.hud-tog') || !G) return;
+        e.preventDefault();
+        hudMin = !hudMin;
+        store.set('hudMin', hudMin);
+        renderHud();
+    });
     $('#speed').addEventListener('click', e => { const b = e.target.closest('button'); if (b && G) setSpeed(Number(b.dataset.speed)); });
     const voice = $('#voice');
     voice.classList.toggle('on', voiceOn);
@@ -3022,7 +3239,9 @@ function bindGame() {
     document.addEventListener('visibilitychange', () => { if (document.hidden && G && G.speed > 0 && !G.over) togglePause(); });
 }
 
-let opts = { terrain: store.get('terrain', false), weather: store.get('weather', false), positions: store.get('positions', ['APP', 'TWR']) };
+let hudMin = store.get('hudMin', false);
+let opts = { terrain: store.get('terrain', false), weather: store.get('weather', false), positions: store.get('positions', ['APP', 'TWR']),
+    start: store.get('start', 'random'), startN: store.get('startN', 6) };
 
 function toastStart(text) { $('#pos-summary').textContent = text; setTimeout(renderStart, 1600); }
 
@@ -3104,6 +3323,8 @@ async function startGame(airport, level) {
     store.set('terrain', opts.terrain);
     store.set('weather', opts.weather);
     store.set('positions', opts.positions);
+    store.set('start', opts.start);
+    store.set('startN', opts.startN);
     $('#start').hidden = true;
     $('#game').hidden = false;
     window.scrollTo(0, 0);
@@ -3162,8 +3383,7 @@ async function startGame(airport, level) {
     const yours = ['APP', 'TWR', 'GND'].filter(f => game.positions.has(f)).map(f => FREQ_NAME[f]).join(' and ');
     sys(`You're working ${yours}. The system works the rest.`);
     sys(`${airport.icao} approach is open. Landing ${G.active.arr.map(e => e.id).join(', ')}, departing ${G.active.dep.map(e => e.id).join(', ')}. Departures exit at ${terrainOn() ? 'the altitude on their strip' : fmtAlt(G.world.exitAlt) + ' or above'}.${wxNote}`);
-    spawnArrival();
-    spawnDeparture();
+    seedTraffic(game.opts.start === 'none' ? 0 : game.opts.start === 'set' ? game.opts.startN : Math.round(rand(2, TRAFFIC[level].max * 0.7)));
     const u = new URL(location.href);
     u.searchParams.set('airport', airport.icao);
     history.replaceState(null, '', u);
@@ -3194,6 +3414,9 @@ function renderStart() {
     document.querySelectorAll('#traffic button').forEach(b => b.classList.toggle('on', b.dataset.level === level));
     document.querySelectorAll('#opt-terrain button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.terrain));
     document.querySelectorAll('#opt-weather button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.weather));
+    document.querySelectorAll('#opt-start [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === opts.start));
+    $('#start-n').textContent = opts.startN;
+    $('#start-n-row').classList.toggle('off', opts.start !== 'set');
     document.querySelectorAll('#opt-pos button').forEach(b => {
         const on = opts.positions.includes(b.dataset.pos);
         b.classList.toggle('on', on);
@@ -3248,6 +3471,13 @@ async function init() {
         opts.positions = has ? opts.positions.filter(x => x !== p) : [...opts.positions, p];
         renderStart();
     });
+    $('#start-opts').addEventListener('click', e => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        if (b.dataset.v) opts.start = b.dataset.v;
+        if (b.dataset.n) { opts.start = 'set'; opts.startN = clamp(opts.startN + Number(b.dataset.n), 1, 20); }
+        renderStart();
+    });
     for (const k of ['terrain', 'weather']) {
         $('#opt-' + k).addEventListener('click', e => {
             const b = e.target.closest('button');
@@ -3271,7 +3501,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; } };
+    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud() };
 }
 
 init();
