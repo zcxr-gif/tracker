@@ -405,6 +405,19 @@ Not modelled: Center itself, cruise, Mach, active/away, Resume Flight
   runway and any Y/Z suffix: `I28R`, `H35LZ`. Telling it to expect another
   approach reprograms it.
 
+**GPS approach (IFATC 6.10):** under Infinite Flight rules:
+
+- 6.10.1 The system's Approach now approves a GPS request when it has 6 or
+  fewer aircraft, and vectors it onto the GPS approach rather than the ILS.
+- 6.10.2 Within 25 NM of one of the procedure's initial or intermediate
+  fixes, **Cleared GPS approach runway 28L** (no heading) is all it needs:
+  no vectors, altitude or intercept. It flies the procedure to the threshold.
+- 6.10.3 It goes to Tower once established on final; "Contact Tower" isn't
+  offered before.
+- 6.10.4 Further out, after a missed approach, or when the STAR doesn't lead
+  in: vectors to the procedure (or onto the final), and the clearance is
+  refused if it can't join from where it's heading.
+
 **Holding (IFATC 6.7):** under Infinite Flight rules:
 
 - 6.7.2 **Hold at…** lists **Present position** and the fixes still ahead on

@@ -1884,7 +1884,8 @@ function issueCall(ac, c) {
         const r = c.rnavProc;
         ac.via = { kind: 'IAP', id: r.name, legs: r.legs, i: 0, vert: true, end: r.end };
         Object.assign(ac, { appr: null, holdAt: null, direct: null, orbit: null, turn: null, landClr: false, request: null, pattern: null, expect: r.end });
-        parts.push(`cross ${r.legs[0].name}${r.legs[0].alt ? ` at or above ${fmtAlt(r.legs[0].alt)}` : ''}, cleared ${r.name.replace(' RWY ', ' runway ')} approach`);
+        // IFATC 6.10.2: no vectors, altitudes or intercept: it flies its flight plan to the threshold.
+        parts.push(G.rules.id === 'ifatc' ? `cleared GPS approach runway ${r.end.id}` : `cross ${r.legs[0].name}${r.legs[0].alt ? ` at or above ${fmtAlt(r.legs[0].alt)}` : ''}, cleared ${r.name.replace(' RWY ', ' runway ')} approach`);
         back.push(`cleared ${r.name.replace(' RWY ', ' runway ')}`);
     }
     if (c.visual) {
@@ -3790,6 +3791,8 @@ function aiApproach(ac) {
         // A check-in: what to expect (continue as filed when it has a route). Then a visual in good weather close in; anything else, unable.
         if (r.checkin) ai(ac, { expectApp: { type: r.kind, end: r.end }, asFiled: !!ac.via });
         else if (r.kind === 'VIS' && visualWx() && Math.hypot(ac.x, ac.y) < 18) { ai(ac, { visual: r.end }); if (ac.aiPlan) ac.aiPlan.phase = 'final'; return; }
+        // IFATC 6.10.1: a GPS approach is accommodated when traffic permits.
+        else if (r.kind === 'RNAV' && G.rules.id === 'ifatc' && G.aircraft.filter(a => a.freq === 'APP' && a.state === 'air').length <= 6) { ai(ac, { expectApp: { type: 'RNAV', end: r.end }, asFiled: !!ac.via }); ac.gpsOk = true; }
         else ai(ac, { unable: true });
     }
     if (ac.wxReq) {
@@ -3891,7 +3894,7 @@ function aiApproach(ac) {
 /** Turn onto the final: 30° intercept, maintain the join altitude until established, cleared ILS. */
 function turnIn(ac, plan) {
     const hdg = Math.round(norm(plan.e.course - 30 * plan.side));
-    const pref = appFor(plan.e), type = pref === 'VIS' ? 'ILS' : pref;
+    const pref = ac.gpsOk && hasApproach(plan.e, 'RNAV') ? 'RNAV' : appFor(plan.e), type = pref === 'VIS' ? 'ILS' : pref;
     if (G.atisCfg.apps.includes('VIS') && visualWx() && fieldInSight(ac) && ai(ac, { visual: plan.e })) { plan.phase = 'final'; return; }
     if (ai(ac, { hdg, ils: plan.e, appType: type, alt: plan.f.joinAlt, spd: 180 })) plan.phase = 'final';
     else plan.phase = 'new';
