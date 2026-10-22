@@ -804,7 +804,7 @@ function railRows() {
     if (G.ground) rows.push('GND');
     rows.push('TWR');
     if (!noRadar()) { rows.push('APP'); if (G.freqs?.DEP) rows.push('DEP'); }
-    rows.push('ATIS');
+    rows.push('ATIS', 'BCAST');
     return rows;
 }
 function renderRail() {
@@ -813,6 +813,7 @@ function renderRail() {
     const html = railRows().map(k => {
         if (k === 'STATUS') return `<button type="button" class="rail-i${hudMin ? '' : ' on'}" data-rail="STATUS">Status</button>`;
         if (k === 'ATIS') return `<button type="button" class="rail-i atis${railView === 'ATIS' ? ' on' : ''}" data-rail="ATIS">${escapeHtml(freqLabel('ATIS'))}</button>`;
+        if (k === 'BCAST') return `<button type="button" class="rail-i${broadcastOpen ? ' on' : ''}" data-rail="BCAST">Broadcast</button>`;
         const pos = k === 'DEP' ? 'APP' : k, yours = G.positions.has(pos);
         const n = yours ? G.aircraft.filter(a => onFreq[k](a) && wantsYou(a)).length : 0;
         return `<button type="button" class="rail-i${railView === k ? ' on' : ''}${yours ? '' : ' sys'}" data-rail="${k}" title="${yours ? 'Your frequency' : 'The system is working this'}">${escapeHtml(freqLabel(k))}${n ? `<b>${n}</b>` : ''}</button>`;
@@ -825,6 +826,7 @@ function bindRail() {
         if (!b || !G) return;
         const k = b.dataset.rail;
         if (k === 'ATIS') { openAtis(railView !== 'ATIS'); return; }
+        if (k === 'BCAST') { const open = !broadcastOpen; select(null); broadcastOpen = open; menuKey = ''; renderCard(true); renderRail(); return; }
         if (k === 'STATUS') { hudMin = !hudMin; store.set('hudMin', hudMin); renderHud(); renderRail(); return; }
         if (railView === 'ATIS') { $('#atis').hidden = true; $('#game').classList.remove('atis-open'); }
         railView = railView === k ? null : k;
@@ -1366,7 +1368,7 @@ function issueCall(ac, c) {
             if (near) violation(ac, 'IFATC 2.1.3', `${ac.cs} pushed back with ${near.cs} moving right behind: check the area is clear, or "hold position" / give way first`);
         }
         ac.state = 'push'; ac.pushLeft = 40;
-        parts.push('pushback approved'); back.push('pushing back');
+        parts.push(c.expectRwy ? `pushback approved, expect runway ${ac.rwy.id}` : 'pushback approved'); back.push(c.expectRwy ? `pushing back, expect ${ac.rwy.id}` : 'pushing back');
     }
     if (c.taxi) {
         if (!taxiClearance(ac, c.taxi, parts, back)) return false;
@@ -1410,13 +1412,16 @@ function issueCall(ac, c) {
         const why = r && !G.aiActing && crossingUnsafe(ac, cr);
         if (why) violation(ac, G.rules.id === 'ifatc' ? 'IFATC 2.3.2' : '7110.65 3-1-3', `${ac.cs} cleared to cross while ${why}`);
         cr.cleared = true; cr.asked = true; ac.crossReq = null;
-        parts.push(`cross runway ${crossName(cr)}`); back.push(`crossing ${crossName(cr)}`);
+        parts.push(`cross runway ${crossName(cr)}${c.expedite ? ', please expedite' : ''}`); back.push(`crossing ${crossName(cr)}`);
+        if (c.expedite) ac.expediteUntil = G.t + 60;
     }
     if (c.giveWay) {
         const o = c.giveWay;
         if (o === ac || !isSurface(o)) { sys('Give way to an aircraft on the ground.'); return false; }
         ac.giveWay = { o, t: G.t, closest: Infinity };
-        parts.push(`give way to ${o.radio}`); back.push(`giving way to ${o.radio}`);
+        const rel = diff(ac.hdg, brg(o.x - ac.x, o.y - ac.y));
+        const who = o.state === 'rollout' || o.purpose === 'exit' ? `aircraft exiting runway ${(o.landEnd || o.rwy).id}` : Math.abs(rel) < 35 ? 'aircraft ahead' : `aircraft on your ${rel < 0 ? 'left' : 'right'}`;
+        parts.push(`give way to ${who}`); back.push(`giving way to the ${who.replace('aircraft ', '')}`);
     }
     if (c.prog || c.follow || c.discretion || c.expectProg) {
         if (!progressive(ac, c, parts, back)) return false;
@@ -1501,8 +1506,15 @@ function issueCall(ac, c) {
     }
     if (c.goAround) {
         if (!ac.appr) { sys(`${ac.cs} isn't on an approach.`); return false; }
-        atc(`${ac.radio}, go around.`);
+        const e = ac.appr.end;
+        atc(`${ac.radio}, go around${c.traffic ? `, make ${c.traffic === 'R' ? 'right' : 'left'} traffic runway ${e.id}` : ''}.`, G.aiActing);
         goAround(ac, null);
+        // With a traffic direction: round the pattern for another go, staying with Tower.
+        if (c.traffic) {
+            ac.circuit = ac.circuit || { end: e, laps: 0, planned: 0, work: false };
+            Object.assign(ac.circuit, { end: e, side: c.traffic === 'R' ? 1 : -1, leg: 'up' });
+            Object.assign(ac, { freq: 'TWR', tAlt: circuitAlt(ac), pattern: null });
+        }
         return true;
     }
 
@@ -1542,7 +1554,7 @@ function issueCall(ac, c) {
     if (c.orbit) {
         ac.orbit = { dir: c.orbit, rem: 360 }; ac.holdAt = null;
         if (ac.appr) cancelApproach(ac);
-        parts.push(`make a ${c.orbit === 'L' ? 'left' : 'right'} three-sixty`);
+        parts.push(G.rules.id === 'ifatc' ? 'make a 360 for spacing' : `make a ${c.orbit === 'L' ? 'left' : 'right'} three-sixty`);
         back.push(`${c.orbit === 'L' ? 'left' : 'right'} three-sixty`);
     }
 
@@ -1573,6 +1585,14 @@ function issueCall(ac, c) {
             parts.push(`${verb} ${fmtAlt(a)}`);
             back.push(`${verb.replace(' and maintain', '')} ${fmtAlt(a)}`);
         }
+    }
+
+    // ---- messages from the lists, standby
+    if (c.msg) return sayMessage(ac, c.msg);
+    if (c.standby) {
+        atc(`${ac.radio}, ${c.standby === 'corr' ? 'correction, standby' : c.standby === 'disregard' ? 'disregard last message' : 'standby'}`, G.aiActing);
+        ac.standbyUntil = G.t + 45;
+        return true;
     }
 
     // ---- what to expect (IF: "expect vectors for the visual approach runway 2", or "expect …, continue as filed")
@@ -1663,6 +1683,22 @@ function issueCall(ac, c) {
         if (ac.appr) ac.appr.spd = sp; else ac.tSpd = sp;
         parts.push('maintain slowest practical speed'); back.push('slowest practical');
     }
+    if (c.spdDisc) {
+        if (ac.appr) Object.assign(ac.appr, { spd: null, spdUntil: undefined });
+        ac.spdHold = null; ac.matchSpd = null; ac.tSpd = isProp(ac) ? 120 : ac.alt < 10000 ? 250 : 280;
+        parts.push('speed at your discretion'); back.push('speed our discretion');
+    }
+    if (c.spdFollow) {
+        const o = trafficAhead2(ac) || c.spdFollow;
+        if (!o || o === true) { sys(`${ac.cs} has no aircraft ahead to follow.`); return false; }
+        ac.matchSpd = o; parts.push('adjust speed to follow aircraft ahead'); back.push('adjusting speed');
+    }
+    if (c.spdPresent || c.spdBest) {
+        const v = c.spdPresent ? Math.round(ac.spd / 10) * 10 : isProp(ac) ? 140 : ac.alt < 10000 ? 250 : 300;
+        if (ac.appr) Object.assign(ac.appr, { spd: v, spdUntil: FAF_NM }); else ac.tSpd = v;
+        ac.matchSpd = null;
+        parts.push(c.spdPresent ? 'maintain present speed' : 'maintain best forward speed'); back.push(c.spdPresent ? 'present speed' : 'best forward');
+    }
     if (c.spd != null) {
         let sp = clamp(Math.round(c.spd / 10) * 10, ac.perf.prop ? 60 : 130, 340);
         const min = minSpeed(ac);
@@ -1703,22 +1739,37 @@ function issueCall(ac, c) {
                 Object.assign(ac, { expect: end, appr: null, orbit: null, holdAt: null, direct: null, tAlt: circuitAlt(ac), tSpd: Math.min(ac.tSpd, isProp(ac) ? 110 : 210) });
             }
             parts.push(`enter ${PATTERN_SAY[kind]} runway ${end.id}`); back.push(`${PATTERN_SAY[kind]} ${end.id}`);
+            // Not first: the sequence and the traffic to follow go with the entry.
+            const ahead = trafficAhead2(ac);
+            if (ahead && !c.seqLand) { if (ac.circuit) ac.circuit.behind = ahead; parts.push(`number ${landingNumber(ac)}, traffic to follow is on ${legOf(ahead)}`); }
         }
         if (c.seqLand) { const n = landingNumber(ac); parts.push(`number ${n}`); back.push(`number ${n}`); }
     }
 
     // ---- Tower: the traffic pattern (IFATC 3.4)
-    if (c.seqBehind) {
-        const o = c.seqBehind, n = landingNumber(ac);
-        if (ac.circuit) ac.circuit.behind = o;
-        parts.push(`number ${n}, follow the ${typeWord(o)} on ${legOf(o)}`); back.push(`number ${n}, traffic in sight`);
+    if (c.seqBehind || c.cancelLand) {
+        const o = c.seqBehind || trafficAhead2(ac), n = landingNumber(ac);
+        if (ac.circuit && o) ac.circuit.behind = o;
+        if (c.cancelLand) { ac.landClr = false; ac.optionClr = false; }
+        const seq = o ? (G.rules.id === 'ifatc' ? `number ${n}, traffic to follow is on ${legOf(o)}` : `number ${n}, follow the ${typeWord(o)} on ${legOf(o)}`) : `number ${n}`;
+        parts.push(c.cancelLand ? `cancel landing clearance, ${seq}` : seq); back.push(c.cancelLand ? `cancel landing clearance, number ${n}` : `number ${n}${o ? ', traffic in sight' : ''}`);
     }
-    if (c.extend || c.turnBase || c.short || c.traffic && ac.state === 'air') {
+    if (c.descPat) {
+        if (ac.state !== 'air') { sys(`${ac.cs} is on the ground.`); return false; }
+        ac.tAlt = circuitAlt(ac); parts.push('descend to pattern altitude'); back.push('descending to pattern altitude');
+    }
+    if (c.turnCross || c.extUp) {
+        const k = ac.circuit;
+        if (!k || k.leg !== 'up') { sys(`${ac.cs} isn't on upwind.`); return false; }
+        if (c.turnCross) { k.leg = 'cross'; k.extUp = false; parts.push('turn crosswind'); back.push('turning crosswind'); }
+        else { k.extUp = true; parts.push("extend upwind, I'll call your crosswind"); back.push('extending upwind'); }
+    }
+    if (c.extend || c.turnBase || c.short || c.traffic && ac.state === 'air' && !c.option && !c.goAround) {
         const k = ac.circuit;
         if (!k) { sys(`${ac.cs} isn't in the pattern.`); return false; }
         const g = finalGeom(ac, k.end);
         if (c.traffic) { k.side = c.traffic === 'R' ? 1 : -1; parts.push(`make ${c.traffic === 'R' ? 'right' : 'left'} traffic`); back.push(`${c.traffic === 'R' ? 'right' : 'left'} traffic`); }
-        if (c.extend) { if (k.leg !== 'down') { sys(`${ac.cs} isn't on downwind.`); return false; } k.ext = true; parts.push('extend downwind'); back.push('extending downwind'); }
+        if (c.extend) { if (k.leg !== 'down') { sys(`${ac.cs} isn't on downwind.`); return false; } k.ext = true; parts.push("extend downwind, I'll call your base"); back.push('extending downwind'); }
         if (c.turnBase) {
             if (k.leg !== 'down' && k.leg !== 'joinDown') { sys(`${ac.cs} isn't on downwind.`); return false; }
             Object.assign(k, { ext: false, leg: 'base', baseAt: Math.max(g.along, isProp(ac) ? 0.8 : 1.5) });
@@ -1777,6 +1828,32 @@ function issueCall(ac, c) {
     }
 
     // ---- runway
+    if (c.backTaxi) {
+        // Back taxi (IF): onto the runway and down it to the full-length end, then lined up.
+        if (!['wait', 'taxi'].includes(ac.state) || ac.kind !== 'dep') { sys(`${ac.cs} isn't at the runway.`); return false; }
+        ac.inter = null;
+        if (c.expedite) ac.expediteUntil = G.t + 90;
+        if (ac.state === 'taxi') ac.preClr = 'luaw'; else startLineup(ac, 'luaw');
+        parts.push(`back taxi runway ${ac.rwy.id}${c.backTaxi === 'luaw' ? ', line up and wait' : ''}${c.expedite ? ', please expedite' : ''}`);
+        back.push(`back taxi ${ac.rwy.id}${c.backTaxi === 'luaw' ? ', line up and wait' : ''}`);
+    }
+    if (c.exitRwy) {
+        const x = c.exitRwy;
+        if (ac.state !== 'rollout') { sys(`${ac.cs} isn't rolling out.`); return false; }
+        // A turn-off on the side asked for (or any), far enough ahead to make.
+        const e = ac.landEnd, run = -finalGeom(ac, e).along, cc = e.course * D2R, exits = (G.ground?.exits.get(e) || []);
+        const sideOf = ex => { const n = G.ground.nodes[ex.node]; return (n.x - e.thr.x) * Math.cos(cc) - (n.y - e.thr.y) * Math.sin(cc) > 0 ? 'R' : 'L'; };
+        const stop = (ac.spd / 3600) ** 2 * 3600 / (2 * (x.expedite ? 4.5 : 3)) ;
+        const pickEx = exits.find(ex => ex.along > run + stop && (!x.side || sideOf(ex) === x.side));
+        if (pickEx) ac.exitAt = pickEx; else if (x.side) sys(`No ${x.side === 'L' ? 'left' : 'right'} turn-off ahead for ${ac.cs}: it takes the next one.`);
+        if (x.expedite) ac.expediteUntil = G.t + 60;
+        const other = x.cross || x.holdShort ? G.world.ends.find(o => o.phys !== e.phys && Math.abs(diff(o.course, e.course)) < 20 && parallelFt(o, e) != null && parallelFt(o, e) < 6000) : null;
+        const turn = x.side ? `when able turn ${x.side === 'L' ? 'left' : 'right'}` : 'exit runway when able';
+        if (x.holdShort) { ac.toGround = false; ac.exitHold = true; parts.push(`${turn}, hold short runway ${other ? other.id : 'the parallel'}`); }
+        else if (x.cross) { ac.toGround = true; ac.preCross = true; parts.push(`${turn}, cross runway ${other ? other.id : 'the parallel'} and contact ground`); }
+        else { ac.toGround = true; parts.push(`${turn}, contact ground when off the runway${x.expedite ? ', please expedite' : ''}`); }
+        back.push(x.side ? `${x.side === 'L' ? 'left' : 'right'} turn-off` : 'exiting when able');
+    }
     if (c.cancelTO) {
         if (ac.state === 'lineup' && ac.lineupThen === 'roll') {
             ac.lineupThen = 'luaw';
@@ -1785,7 +1862,7 @@ function issueCall(ac, c) {
             return true;
         }
         if (ac.state !== 'roll') { sys(`${ac.cs} isn't on its takeoff roll.`); return false; }
-        atc(`${ac.radio}, cancel takeoff clearance.`, G.aiActing);
+        atc(`${ac.radio}, cancel takeoff clearance, hold position.`, G.aiActing);
         // Too late above 100 kt (IFATC 3.1.3): it's going.
         if (ac.spd >= 100) { pilot(ac, `Unable, ${ac.radio}, too fast to stop.`); return false; }
         ac.state = 'rto';
@@ -1794,7 +1871,7 @@ function issueCall(ac, c) {
     }
     if (c.luaw) {
         if (ac.state === 'taxi') ac.preClr = 'luaw'; else startLineup(ac, 'luaw');
-        parts.push(`runway ${ac.rwy.id}, line up and wait`);
+        parts.push(G.rules.id === 'ifatc' ? `line up and wait runway ${ac.rwy.id}` : `runway ${ac.rwy.id}, line up and wait`);
         back.push(`line up and wait ${ac.rwy.id}`);
     }
     if (c.takeoff) {
@@ -1809,25 +1886,30 @@ function issueCall(ac, c) {
         if (ac.patternWork) ac.patternSide = c.traffic || ac.patternSide || 'L';
         const sidName = !ac.patternWork && !c.hdg && sidFor(ac.gate, ac.rwy)?.id;
         if (c.hdg != null) ac.hdgAssigned = true;
-        ac.straightOut = c.hdg == null && G.atisCfg.straight ? G.atisCfg.straight : 0;
+        ac.straightOut = c.rhUntil ? c.rhUntil - G.world.elev : c.hdg == null && G.atisCfg.straight ? G.atisCfg.straight : 0;
         let hdgPart = ac.patternWork ? `make ${ac.patternSide === 'R' ? 'right' : 'left'} traffic` : sidName ? `${sidName} departure` : runwayHdg ? 'fly runway heading' : `fly heading ${hdg3(ac.tHdg)}`;
         // In Infinite Flight the straight out is on the ATIS; in real life it's part of the clearance.
         if (ac.straightOut && G.rules.id !== 'ifatc') hdgPart = `fly runway heading until ${fmtAlt(Math.round((G.world.elev + ac.straightOut) / 100) * 100)}${sidName ? `, then the ${sidName} departure` : ''}`;
         const imm = ac.immediate ? 'immediate ' : '';
-        parts.push(`${wind}, runway ${ac.rwy.id}, ${hdgPart}, cleared for ${imm}takeoff`);
+        if (G.rules.id === 'ifatc' && !ac.patternWork) {
+            // Infinite Flight's own: "(wind), runway XX, cleared for takeoff. Fly runway heading until at or above X,XXXft."
+            parts.push(`${wind}, runway ${ac.rwy.id}, cleared for ${imm}takeoff${c.rhUntil ? `. Fly runway heading until at or above ${fmtAlt(c.rhUntil)}ft` : ''}`);
+        } else parts.push(`${wind}, runway ${ac.rwy.id}, ${c.rhUntil ? `fly runway heading until at or above ${fmtAlt(c.rhUntil)}` : hdgPart}, cleared for ${imm}takeoff`);
         back.push(`${ac.patternWork ? hdgPart : ac.straightOut && G.rules.id !== 'ifatc' ? hdgPart.replace(/^fly /, '') : sidName ? sidName + ' departure' : runwayHdg ? 'runway heading' : 'heading ' + hdg3(ac.tHdg)}, cleared for ${imm}takeoff ${ac.rwy.id}`);
     }
     if (c.option) {
         // Pattern work: the option (touch and go, stop and go, low approach or full stop) or a touch and go.
         ac.landClr = true; ac.optionClr = true;
         const le = (ac.appr || ac.circuit).end;
-        parts.push(`${wind}, runway ${le.id}, cleared ${c.option === 'tg' ? 'touch and go' : 'for the option'}`);
+        if (c.traffic && ac.circuit) ac.circuit.side = c.traffic === 'R' ? 1 : -1;
+        const tr = c.traffic ? `, make ${c.traffic === 'R' ? 'right' : 'left'} traffic` : '';
+        parts.push(G.rules.id === 'ifatc' ? `number ${landingNumber(ac)}, runway ${le.id}, cleared for the option${tr}` : `${wind}, runway ${le.id}, cleared ${c.option === 'tg' ? 'touch and go' : 'for the option'}${tr}`);
         back.push(`cleared ${c.option === 'tg' ? 'touch and go' : 'for the option'} ${le.id}`);
     }
     if (c.land) {
         ac.landClr = true; ac.optionClr = false;
         const le = (ac.appr || ac.pattern || ac.circuit).end;
-        parts.push(`${wind}, runway ${le.id}, cleared to land`);
+        parts.push(G.rules.id === 'ifatc' ? `number ${landingNumber(ac)}, runway ${le.id}, cleared to land` : `${wind}, runway ${le.id}, cleared to land`);
         back.push(`cleared to land ${le.id}`);
     }
 
@@ -1917,7 +1999,7 @@ function taxiClearance(ac, want, parts, back) {
     if (!G.rules.taxiVia) {
         // Infinite Flight: by runway or parking; the route is the one on the map.
         const where = purpose === 'runway' ? `runway ${ac.rwy.id}${ac.inter ? ' at ' + ac.inter.name : ''}` : purpose === 'gate' ? 'parking' : null;
-        parts.push(where ? `taxi to ${where}${hs}${purpose === 'runway' ? ', contact tower when ready' : ''}` : `taxi as shown, ${hold}${hs}`);
+        parts.push(where ? `taxi to ${where}${hs}${purpose === 'runway' ? ', contact tower when ready' : ', at your discretion'}` : `taxi as shown, ${hold}${hs}`);
         back.push(where ? `taxi to ${where}${hs}` : `${hold}${hs}`);
     } else if (purpose === 'runway') {
         parts.push(`runway ${ac.rwy.id}, taxi via ${via}${hs}`);
@@ -1976,8 +2058,92 @@ function landingNumber(ac) {
         : a.pattern ? a.pattern.pts.reduce((t, p, i, arr) => t + Math.hypot(p.x - (i ? arr[i - 1].x : a.x), p.y - (i ? arr[i - 1].y : a.y)), 6.5)
         : Math.hypot(a.x, a.y) + 10;
     const e = endOf(ac);
-    const q = G.aircraft.filter(a => a.kind === 'arr' && a.state === 'air' && a.freq === 'TWR' && !a.transit && endOf(a) && sameRunwayish(endOf(a), e)).sort((a, b) => left(a) - left(b));
+    const q = G.aircraft.filter(a => a.kind === 'arr' && a.state === 'air' && a.freq === 'TWR' && !a.transit && !a.divert && endOf(a) && sameRunwayish(endOf(a), e)).sort((a, b) => left(a) - left(b));
     return q.indexOf(ac) + 1;
+}
+
+/* ---- Infinite Flight's message lists, word for word: Misc. messages, Deny entry and Broadcast ---- */
+
+/** [key, menu label, what's sent (after the callsign), what the pilot does] — fx: expedite, divert, noPattern, flavour otherwise. */
+const MISC_COMMON = [
+    ['follow', 'Follow instructions (simple)', 'please follow instructions'],
+    ['followRep', 'Follow instructions (report)', 'please follow instructions or you will be reported'],
+    ['guide', 'Check user guide', 'please check the User Guide from the Home Screen for help using ATC instructions'],
+    ['dup', 'Duplicate messages', 'please avoid sending duplicate messages'],
+    ['stay', 'Stay on my frequency', 'stay on my frequency'],
+    ['exp', 'Please expedite', 'please expedite', 'expedite'],
+    ['busy', 'Freq busy, be patient', 'frequency is busy, please be patient'],
+    ['cs', 'Change callsign', 'please change callsign or you will be reported'],
+    ['large', 'Aircraft too large', 'aircraft is too large for this airport', 'divert'],
+    ['divert', 'Unable, divert', 'airport is unable to accept arriving traffic. Please divert to a suitable airport', 'divert'],
+    ['light', 'No light aircraft', 'no light aircraft accepted at this time. Please divert to a more appropriate airport', 'divert'],
+    ['alert', 'Traffic alert', 'traffic alert, check surroundings immediately'],
+    ['atis', 'Check ATIS', 'check ATIS frequency for Airfield information'],
+    ['rwy', 'Check runway', 'please check runway assignment'],
+];
+const MISC_GND = [
+    ['waitTaxi', 'Wait for clearance', 'please wait for clearance before taxiing!'],
+    ['waitCross', 'Wait for clearance before crossing runway', 'please wait for clearance before crossing the runway!'],
+    ['notRwy', 'Not cleared on runway', 'you were not cleared to enter the runway, please exit the runway.'],
+    ['notTwy', 'Not a taxiway', 'this is not a taxiway'],
+    ['grass', 'Taxi through grass', 'do not taxi through grass'],
+    ['line', "Don't cut in line", 'please do not cut in line'],
+    ['dist', 'Maintain safe distance', 'maintain safe distance with aircraft ahead please'],
+    ['dupFreq', 'Duplicate frequency change', 'you were already instructed to change frequency'],
+    ['sid', 'Amend FPL with SID', 'please amend flight plan to include ATC preferred Standard Instrument Departure'],
+];
+const MISC_TWR = [
+    ['waitTO', 'Wait for clearance before takeoff', 'please wait for clearance before taking off!'],
+    ['waitLdg', 'Wait for clearance before landing', 'please wait for clearance before landing!'],
+    ['already', 'Already cleared to land', 'you were already cleared to land, avoid unnecessary reports'],
+    ['exitRwy', 'Exit runway', 'you were not cleared to enter the runway, please exit the runway'],
+    ['noPat', 'No pattern work', 'Tower is not accepting pattern work at this time', 'noPattern'],
+    ['patFull', 'Pattern full', 'pattern is full, no pattern work accepted at this time', 'noPattern'],
+    ['noInt', 'No intersection departures', 'no intersection departures allowed'],
+    ['noMore', 'No more pattern work, land or divert', 'Tower is no longer accepting pattern work. Please land or divert', 'noPattern'],
+    ['rwy2', 'Check runway (last one)', 'please double check runway assignment'],
+];
+const DENY_ENTRY = [
+    ['full', 'Airport is full', 'due to heavy traffic, airport is not accepting incoming airplanes at this time', 'divert'],
+    ['event', 'Event in progress', 'an event is in progress, please contact approach for sequencing', 'divert'],
+];
+/** Broadcasts, to everyone on frequency: "Attention all aircraft, …". */
+const BROADCASTS = [
+    ['closed', 'Facility is closed', pos => `${pos} frequency is now closed, good day!`],
+    ['closing', 'Closing in 10 minutes', pos => `${pos} is closing in 10 minutes`],
+    ['first', 'Request takeoff when 1st', () => 'please only request takeoff when first in line'],
+    ['atis', 'Notify ATIS update', () => `ATIS information ${PHONETIC[G.atis]} is now current`],
+    ['noPat', 'No pattern work', () => 'no Pattern Work accepted at this time'],
+    ['delays', 'Expect delays', () => 'airport is busy, expect delays'],
+    ['checkAtis', 'Check ATIS', () => 'check ATIS frequency for airport information'],
+    ['fpl', 'Req. FPL before taxi', () => 'please file a flight plan before requesting taxi'],
+    ['busy', 'Frequency busy', () => 'frequency is busy, transmit important messages'],
+    ['change', 'Controller change', () => 'controller change is in progress, please standby'],
+    ['rwyChange', 'Runway change', () => 'runway change is in progress'],
+    ['restr', 'Notify airport restrictions', () => 'please check current airport restrictions. NOTAM will be enforced by reports'],
+];
+const MISC_REPLY = { exp: 'Expediting', divert: 'Diverting', alert: 'Looking', stay: 'Staying with you', busy: 'Standing by', atis: 'Checking ATIS', rwy: 'Checking', rwy2: 'Checking' };
+
+/** A message from the lists: said, read back, and acted on where there's something to do. */
+function sayMessage(ac, m) {
+    const [k, , text, fx] = m;
+    atc(`${ac.radio}, ${text}`, G.aiActing);
+    if (fx === 'expedite') ac.expediteUntil = G.t + 90;
+    if (fx === 'divert') {
+        if (ac.state === 'air') {
+            // Turns away and climbs out; leaves without counting against you.
+            Object.assign(ac, { divert: true, appr: null, pattern: null, circuit: null, request: null, landClr: false, via: null, viaSaved: null, holdAt: null, orbit: null, direct: null,
+                tHdg: brg(ac.x, ac.y), tAlt: Math.max(ac.tAlt, Math.round((G.world.elev + 4000) / 1000) * 1000) });
+            pilot(ac, `Diverting, ${ac.radio}.`);
+        } else { pilot(ac, `Roger, ${ac.radio}, we'll go elsewhere.`); ac.gone = true; }
+        return true;
+    }
+    if (fx === 'noPattern') {
+        if (ac.circuit) { ac.circuit.work = false; ac.optionClr = false; pilot(ac, `Full stop on this one, ${ac.radio}.`); return true; }
+        if (ac.patternWork && ac.state !== 'air') { ac.patternWork = false; pilot(ac, `Roger, we'll depart, ${ac.radio}.`); return true; }
+    }
+    pilot(ac, `${MISC_REPLY[k] || 'Roger'}, ${ac.radio}.`);
+    return true;
 }
 
 /* ---- The traffic pattern (IFATC 3.4): upwind, crosswind, downwind, base, final ---- */
@@ -2016,10 +2182,10 @@ function circuitNav(ac) {
     const radius = ac.spd * (1 + ac.alt / 1000 * 0.02) / 3600 / (turnRate(ac) * D2R);
     const near = (p, r) => Math.hypot(p.x - ac.x, p.y - ac.y) < Math.max(r, radius * 0.9);
     if (k.leg === 'up') {
-        const p = g.P(g.upEnd, 0);
+        const p = g.P(k.extUp ? Math.min(g.upEnd, fg.along - 1) : g.upEnd, 0);
         go(p); ac.tAlt = alt; ac.tSpd = prop ? 90 : 200;
-        // Crosswind once past the runway end and within 300 ft of pattern altitude.
-        if (near(p, 0.4) || fg.along < -e.len - 0.2 && ac.alt > alt - 300) k.leg = 'cross';
+        // Crosswind once past the runway end and within 300 ft of pattern altitude (unless extending upwind).
+        if (!k.extUp && (near(p, 0.4) || fg.along < -e.len - 0.2 && ac.alt > alt - 300)) k.leg = 'cross';
     } else if (k.leg === 'cross' || k.leg === 'joinDown') {
         // Crosswind to the downwind; or joining it at 45° to midfield.
         const p = k.leg === 'cross' ? g.P(g.upEnd, g.off) : g.P(-e.len / 2, g.off);
@@ -2059,6 +2225,15 @@ function touchAndGo(ac, e) {
     Object.assign(ac, { appr: null, landClr: false, optionClr: false, alt: G.world.elev + 30, hdg: e.course, tHdg: e.course, tAlt: circuitAlt(ac), vs: 0, rr: 0,
         spd: Math.max(ac.perf.vr + 5, ac.spd - 10), tSpd: isProp(ac) ? 90 : 200 });
     Object.assign(ac.circuit, { leg: 'up', laps: ac.circuit.laps + 1, behind: null, ext: false, short: false, baseAt: undefined, askedBase: false });
+}
+
+/** The aircraft just ahead in the landing order for the same runway, if any. */
+function trafficAhead2(ac) {
+    const n = landingNumber(ac);
+    if (n < 2) return null;
+    const e = ac.appr?.end || ac.pattern?.end || ac.circuit?.end || ac.expect;
+    return G.aircraft.filter(a => a !== ac && a.kind === 'arr' && a.state === 'air' && a.freq === 'TWR' && !a.transit && !a.divert && sameRunwayish(a.appr?.end || a.pattern?.end || a.circuit?.end || a.expect || e, e))
+        .find(a => landingNumber(a) === n - 1) || null;
 }
 
 /** How far an aircraft still has to fly to the threshold, for landing order. */
@@ -2463,9 +2638,10 @@ function groundStep(ac, dt) {
         const e = ac.landEnd;
         const run = -finalGeom(ac, e).along;                        // NM past the threshold
         const left = ac.exitAt.along - run;
-        // Brake to turn-off speed by the exit.
-        const vmax = Math.sqrt(Math.max(0, 2 * (3 / 3600) * left)) * 3600 + 15;
-        ac.spd = Math.max(15, Math.min(ac.spd - 3 * dt, vmax));
+        // Brake to turn-off speed by the exit (harder when told to expedite).
+        const brake = ac.expediteUntil > G.t ? 4.5 : 3;
+        const vmax = Math.sqrt(Math.max(0, 2 * (brake / 3600) * left)) * 3600 + 15;
+        ac.spd = Math.max(15, Math.min(ac.spd - brake * dt, vmax));
         ac.x += Math.sin(e.course * D2R) * ac.spd / 3600 * dt;
         ac.y += Math.cos(e.course * D2R) * ac.spd / 3600 * dt;
         if (left <= 0.01) {
@@ -2486,6 +2662,8 @@ function groundStep(ac, dt) {
 function taxiStep(ac, dt) {
     const r = ac.route;
     // Stop short of any runway not yet cleared to cross.
+    // "…cross runway XX and contact ground" with the exit: the first crossing is already cleared.
+    if (ac.preCross) { const first = r.crossings.find(c => !c.cleared); if (first) first.cleared = true; ac.preCross = false; }
     const cx = r.crossings.find(c => !c.cleared && c.stopS >= ac.s - 0.002);
     const end = r.len - (r.stopEarly || 0);
     let limit = cx ? Math.min(end, cx.stopS) : end;
@@ -2502,7 +2680,7 @@ function taxiStep(ac, dt) {
     } else ac.blockedBy = null;
     // Slow for turns.
     const here = pointAt(r, ac.s), i = here.i;
-    let want = TAXI_KT;
+    let want = ac.expediteUntil > G.t ? TAXI_KT * 1.4 : TAXI_KT;
     if (i + 1 < r.pts.length && r.cum[i] - ac.s < 0.03) {
         const h1 = brg(r.pts[i].x - r.pts[i - 1].x, r.pts[i].y - r.pts[i - 1].y), h2 = brg(r.pts[i + 1].x - r.pts[i].x, r.pts[i + 1].y - r.pts[i].y);
         if (Math.abs(diff(h1, h2)) > 30) want = TURN_KT;
@@ -2592,7 +2770,7 @@ function legFrom(node, hdg, turn) {
     return { ids, names };
 }
 
-const PROG_SAY = { L: 'turn left next taxiway', R: 'turn right next taxiway', S: 'continue straight ahead', 180: 'make a 180' };
+const PROG_SAY = { L: 'turn left next taxiway', R: 'turn right next taxiway', S: 'continue straight ahead', 180: 'make 180' };
 
 function progressive(ac, c, parts, back) {
     const gr = G.ground;
@@ -2619,7 +2797,7 @@ function progressive(ac, c, parts, back) {
         pts = [{ x: ac.x, y: ac.y }, ...r.pts, ...rest]; names = [...r.names, ...(o.route.names || [])];
         ac.prog = true;
         startTaxi(ac, withCrossings(gr, { pts, names }), 'prog');
-        parts.push(`follow ${o.radio}`); back.push(`following ${o.radio}`);
+        parts.push(c.followAhead ? 'follow aircraft ahead' : `follow ${o.radio}`); back.push(c.followAhead ? 'following the aircraft ahead' : `following ${o.radio}`);
         return true;
     }
     // Turn at the next junction (or, for a 180, back the way we came from where we are).
@@ -2735,7 +2913,7 @@ function fieldInSight(ac) {
 /** Pilots asking for things: reports of the field in sight when asked, and now and then a visual or RNAV request. */
 function pilotRequests() {
     for (const ac of G.aircraft) {
-        if (ac.kind !== 'arr' || ac.state !== 'air' || ac.appr || ac.pattern || ac.via?.kind === 'IAP' || ac.emerg) continue;
+        if (ac.kind !== 'arr' || ac.state !== 'air' || ac.appr || ac.pattern || ac.divert || ac.transit || ac.circuit || ac.via?.kind === 'IAP' || ac.emerg) continue;
         if (ac.reportField && fieldInSight(ac)) { ac.reportField = false; ac.fieldReported = true; pilot(ac, `${ac.radio}, field in sight.`); }
         if (ac.request || ac.asked || ac.freq !== 'APP' || Math.hypot(ac.x, ac.y) > 18) continue;
         ac.asked = true;
@@ -3102,7 +3280,7 @@ function holdFor(ac) {
 }
 
 function aiApproach(ac) {
-    if (ac.state !== 'air' || ac.pattern || ac.via?.kind === 'IAP') return;
+    if (ac.state !== 'air' || ac.pattern || ac.divert || ac.via?.kind === 'IAP') return;
     if (ac.request) {
         const r = ac.request;
         // A check-in: what to expect (continue as filed when it has a route). Then a visual in good weather close in; anything else, unable.
@@ -3381,6 +3559,7 @@ function tick(dt) {
 
     for (const ac of G.aircraft) {
         if (ac.state !== 'air' || ac.kind !== 'arr') continue;
+        if (ac.divert) continue;
         if (ac.transit) transitNav(ac);
         else if (ac.circuit && !ac.appr) circuitNav(ac);
         else if (!ac.appr && (ac.pattern || (noRadar() && ac.freq === 'TWR'))) patternNav(ac);
@@ -3542,6 +3721,9 @@ function step(ac, dt) {
         if (ac.appr.spd != null && al >= (ac.appr.spdUntil ?? FAF_NM)) tSpd = ac.appr.spd;
     }
     if (ac.holdAt) tSpd = Math.min(tSpd, ac.alt <= 6000 ? 200 : ac.alt <= 14000 ? 230 : 265);  // holding speeds
+    // "Adjust speed to follow aircraft ahead": its speed, within this one's limits, until inside the final approach fix.
+    if (ac.matchSpd) { if (ac.matchSpd.gone || ac.appr?.along < FAF_NM) ac.matchSpd = null; else tSpd = Math.max(minSpeed(ac), Math.round(ac.matchSpd.spd)); }
+    if (ac.expediteUntil > G.t) rate *= 1.3;
     // The vertical speed builds and eases (about 500 fpm each second) and levels off smoothly, rather than jumping.
     const dAlt = tAlt - ac.alt;
     const wantVs = Math.sign(dAlt) * Math.min(rate, Math.abs(dAlt) * 4);
@@ -3684,6 +3866,7 @@ function land(ac, e) {
 
 function exitScope(ac) {
     ac.gone = true;
+    if (ac.divert) return;                          // sent elsewhere: not yours any more
     if (!mine(ac)) {
         if (ac.kind === 'dep') G.stats.departed++;
         return;
@@ -4357,6 +4540,7 @@ function intentTag(a) {
     if (a.lowAlt) return 'LA ' + alt3(mvaHere(a));
     if (a.wxReq) return 'WX ' + a.wxReq.deg + a.wxReq.dir;
     if (a.request) return 'REQ ' + a.request.tag;
+    if (a.divert) return 'DIVERT';
     if (a.transit) return a.transit.ok ? 'TRANS' : 'TRANS?';
     if (a.circuit && !a.appr) return LEG_TAG[a.circuit.leg] + ' ' + a.circuit.end.id + (a.optionClr ? ' OPT' : a.landClr ? ' CL' : '');
     if (a.circuit && a.appr) return 'FNL ' + a.appr.end.id + (a.optionClr ? ' OPT' : a.landClr ? ' CL' : '');
@@ -4648,6 +4832,7 @@ function bindScope() {
 
 function select(ac) {
     if (G.selected !== ac) menuPath = [];
+    if (ac) broadcastOpen = false;
     G.selected = ac;
     if (ac) ac.reminded = false;
     closeLadder(); closeContext();
@@ -4751,49 +4936,92 @@ const expectList = ac => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} appr
     { label: `Runway ${e.id}`, cmd: { expectApp: { type: t, end: e } } },
 ]) }));
 
+/** Infinite Flight's Misc. messages list for the frequency the aircraft is on. */
+const miscMenu = ac => () => [...MISC_COMMON, ...(ac.freq === 'GND' ? MISC_GND : MISC_TWR)].map(m => ({ label: m[1], cmd: { msg: m } }));
+/** Standby, corrections and intentions (IF's uncategorized messages). */
+const standbyMenu = () => [
+    { label: 'Standby', cmd: { standby: 'sb' } }, { label: 'Correction, standby', cmd: { standby: 'corr' } },
+    { label: 'Disregard last message', cmd: { standby: 'disregard' } }, { label: 'Ask for intentions', cmd: { intentions: true } },
+];
+/** "Fly runway heading until at or above" heights: 1,000 to 5,000 ft above the field. */
+const rhAlts = () => [1000, 2000, 3000, 4000, 5000].map(h => Math.round((G.world.elev + h) / 100) * 100);
+
 function groundMenu(ac, add) {
-    const yours = ac.freq;
-    if (ac.state === 'gate' && ac.kind === 'dep' && ac.called) add('Pushback approved', { cmd: { push: true } }, true);
-    if (ac.state === 'pushed') {
-        add(`Taxi to runway ${ac.rwy.id}`, { cmd: { taxi: true } }, true);
-        if (G.ground) add('Taxi to runway…', { sub: () => G.active.dep.map(e => ({ label: `Runway ${e.id}`, cmd: { taxi: e.id } })) });
+    const onGnd = ac.freq === 'GND', onTwr = ac.freq === 'TWR', gr = G.ground;
+    // Pushback: "pushback approved, expect runway XX", or just approved.
+    if (ac.state === 'gate' && ac.kind === 'dep' && ac.called) {
+        add(`Pushback approved, expect runway ${ac.rwy.id}`, { cmd: { push: true, expectRwy: true } }, true);
+        add('Pushback approved', { cmd: { push: true } });
     }
-    if (ac.state === 'clear' && yours === 'GND') add(`Taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'parking'}`, { cmd: { taxi: true } }, true);
-    if (ac.kind === 'dep' && yours === 'GND' && (ac.state === 'wait' || ac.state === 'taxi' && ac.purpose === 'runway' && !ac.toTower))
+    // Taxi to…: the likely one first, then the list.
+    if (ac.state === 'pushed') add(`Taxi to runway ${ac.rwy.id}`, { cmd: { taxi: true } }, true);
+    if (ac.state === 'clear' && onGnd) add(`Taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'parking'}`, { cmd: { taxi: true } }, true);
+    if (onGnd && gr && (['pushed', 'clear'].includes(ac.state) || ac.state === 'taxi' && ac.purpose !== 'exit'))
+        add('Taxi to…', { sub: () => [...(ac.kind === 'dep' ? G.active.dep.map(e => ({ label: `Runway ${e.id}`, cmd: { taxi: e.id } })) : []), { label: 'Parking', cmd: { taxi: ac.kind === 'arr' ? true : (ac.stand?.ref || true) } }] });
+    if (ac.kind === 'dep' && onGnd && (ac.state === 'wait' || ac.state === 'taxi' && ac.purpose === 'runway' && !ac.toTower))
         add(`Contact Tower${ac.state === 'wait' ? '' : ' when ready'}`, { cmd: { tower: true } }, ac.state === 'wait');
-    if (ac.kind === 'arr' && yours === 'TWR' && (ac.state === 'clear' || !ac.toGround && (ac.state === 'rollout' || ac.state === 'taxi')))
-        add('Contact Ground', { cmd: { ground: true } }, ac.state === 'clear');
+    if (ac.kind === 'arr' && onTwr && (ac.state === 'clear' || !ac.toGround && (ac.state === 'rollout' || ac.state === 'taxi')))
+        add('Contact Ground', { cmd: { ground: true } }, ac.state === 'clear' && !ac.exitHold);
+    // Exit runway (IF): which side, expedite, cross the next runway or hold short of it.
+    if (onTwr && ac.state === 'rollout' && gr) add('Exit runway…', { sub: () => {
+        const v = (side, more, label) => ({ label, cmd: { exitRwy: { side, ...more } } });
+        return [v('L', {}, 'When able turn left'), v('R', {}, 'When able turn right'), v(null, {}, 'Exit runway when able'),
+            v('L', { expedite: true }, 'Turn left, expedite'), v('R', { expedite: true }, 'Turn right, expedite'), v(null, { expedite: true }, 'Exit when able, expedite'),
+            v('L', { cross: true }, 'Turn left, cross runway, contact ground'), v('R', { cross: true }, 'Turn right, cross runway, contact ground'), v(null, { cross: true }, 'Exit when able, cross runway, contact ground'),
+            v('L', { holdShort: true }, 'Turn left, hold short'), v('R', { holdShort: true }, 'Turn right, hold short'), v(null, { holdShort: true }, 'Exit when able, hold short')];
+    } });
     if ((ac.state === 'taxi' || ac.state === 'push') && !ac.holdPos) add('Hold position', { cmd: { holdPos: true } });
     if (ac.holdPos) add('Continue taxi', { cmd: { cont: true } }, true);
-    // Progressive taxi and give way (IFATC 2.2.1, 2.2.5).
-    if (G.ground && yours === 'GND' && (['pushed', 'clear'].includes(ac.state) || ac.state === 'taxi' && ac.purpose !== 'exit')) {
-        add('Progressive taxi', { sub: () => [
-            { label: 'Turn left at the next junction', cmd: { prog: 'L' } }, { label: 'Straight ahead', cmd: { prog: 'S' } },
-            { label: 'Turn right at the next junction', cmd: { prog: 'R' } }, { label: 'Make a 180', cmd: { prog: '180' } },
-            ac.prog ? { label: 'Continue at your discretion', cmd: { discretion: true } } : { label: 'Expect progressive taxi', cmd: { expectProg: true } },
-        ] });
+    // Progressive taxi and give way (IFATC 2.2.1, 2.2.5), in IF's words.
+    if (gr && onGnd && (['pushed', 'clear'].includes(ac.state) || ac.state === 'taxi' && ac.purpose !== 'exit')) {
         const near = G.aircraft.filter(o => o !== ac && isSurface(o) && o.state !== 'gate' && Math.hypot(o.x - ac.x, o.y - ac.y) < 0.8);
-        if (near.length) add('Give way to…', { sub: () => near.map(o => ({ label: `${o.cs} · ${typeTag(o)}`, cmd: { giveWay: o } })) });
-        const moving = near.filter(o => o.state === 'taxi');
-        if (moving.length) add('Follow…', { sub: () => moving.map(o => ({ label: `${o.cs} · ${typeTag(o)}`, cmd: { follow: o } })) });
+        const rel = o => diff(ac.hdg, brg(o.x - ac.x, o.y - ac.y));
+        const ahead = near.filter(o => o.state === 'taxi' && Math.abs(rel(o)) < 35).sort((a, b) => Math.hypot(a.x - ac.x, a.y - ac.y) - Math.hypot(b.x - ac.x, b.y - ac.y))[0];
+        const cr = ac.crossReq || ac.route?.crossings.find(x => !x.cleared);
+        add('Progressive taxi', { sub: () => [
+            ...(ac.prog ? [] : [{ label: 'Expect progressive taxi instructions', cmd: { expectProg: true } }]),
+            ...(cr && G.positions.has(crossOwner(ac)) ? [{ label: `Cross runway ${crossName(cr)}`, cmd: { cross: true } }] : []),
+            { label: 'Turn left next taxiway', cmd: { prog: 'L' } }, { label: 'Turn right next taxiway', cmd: { prog: 'R' } },
+            { label: 'Continue straight ahead', cmd: { prog: 'S' } }, { label: 'Make 180', cmd: { prog: '180' } },
+            ...(ac.prog ? [{ label: 'Continue taxi at your discretion', cmd: { discretion: true } }] : []),
+            ...(ahead ? [{ label: 'Follow aircraft ahead', cmd: { follow: ahead, followAhead: true } }] : []),
+        ] });
+        if (near.length) add('Give way', { sub: () => {
+            const out = [], seen = new Set();
+            for (const o of near.sort((a, b) => Math.hypot(a.x - ac.x, a.y - ac.y) - Math.hypot(b.x - ac.x, b.y - ac.y))) {
+                const r = rel(o), what = o.state === 'rollout' || o.purpose === 'exit' ? `Aircraft exiting runway ${(o.landEnd || o.rwy).id}` : Math.abs(r) < 35 ? 'Aircraft ahead' : `Aircraft on your ${r < 0 ? 'left' : 'right'}`;
+                if (!seen.has(what)) { seen.add(what); out.push({ label: `${what} (${o.cs})`, cmd: { giveWay: o } }); }
+            }
+            return out;
+        } });
     }
     // Tower: the departure at (or taxiing to) the runway.
-    const onTwr = yours === 'TWR';
     if (onTwr && ac.state === 'taxi' && ac.purpose === 'runway' && ac.preClr) add(`${ac.preClr === 'roll' ? 'Cleared for takeoff' : 'Line up and wait'} when it reaches the runway`, { cmd: null });
     if (onTwr && (ac.state === 'wait' || ac.state === 'luaw' || ac.state === 'taxi' && ac.purpose === 'runway' && !ac.preClr)) {
         if (ac.patternWork) {
             add(`Make left traffic, cleared for takeoff ${ac.rwy.id}`, { cmd: { takeoff: true, traffic: 'L' } }, true);
             add(`Make right traffic, cleared for takeoff ${ac.rwy.id}`, { cmd: { takeoff: true, traffic: 'R' } });
-        } else
-        add(`Cleared for takeoff runway ${ac.rwy.id}`, { cmd: { takeoff: true } }, true);
+        } else {
+            add(`Cleared for takeoff runway ${ac.rwy.id}`, { cmd: { takeoff: true } }, true);
+            add('Cleared for takeoff…', { sub: () => [
+                { label: `Runway ${ac.rwy.id}, immediate takeoff`, cmd: { immediate: true } },
+                ...rhAlts().map(a => ({ label: `Fly runway heading until at or above ${fmtAlt(a)}ft`, cmd: { takeoff: true, rhUntil: a } })),
+                ...rhAlts().map(a => ({ label: `Immediate, runway heading until at or above ${fmtAlt(a)}ft`, cmd: { immediate: true, rhUntil: a } })),
+            ] });
+        }
         if (ac.state !== 'luaw') add(`Line up and wait runway ${ac.rwy.id}`, { cmd: { luaw: true } });
-        add('Immediate takeoff', { cmd: { immediate: true } });
         if (ac.state === 'wait') {
             add(`Hold short runway ${ac.rwy.id}`, { cmd: { holdShort: true } });
             if (departureNumber(ac) > 1) add(`Number ${departureNumber(ac)} for departure`, { cmd: { seqNo: true } });
+            if (gr) add('Back taxi…', { sub: () => [
+                { label: `Back taxi runway ${ac.rwy.id}`, cmd: { backTaxi: 'bt' } }, { label: `Back taxi runway ${ac.rwy.id}, please expedite`, cmd: { backTaxi: 'bt', expedite: true } },
+                { label: `Back taxi runway ${ac.rwy.id}, line up and wait`, cmd: { backTaxi: 'luaw' } }, { label: `Back taxi, line up and wait, please expedite`, cmd: { backTaxi: 'luaw', expedite: true } },
+            ] });
         }
     }
     if (onTwr && (ac.state === 'roll' || ac.state === 'lineup' && ac.lineupThen === 'roll')) add('Cancel takeoff clearance', { cmd: { cancelTO: true } });
+    if (onGnd || onTwr) add('Misc. messages', { sub: miscMenu(ac) });
+    add('Standby / corrections', { sub: standbyMenu });
 }
 
 function airMenu(ac, add) {
@@ -4804,24 +5032,40 @@ function airMenu(ac, add) {
             add('Unable transition', { cmd: { transit: 'no' } });
         }
         add('Vectoring instructions', { sub: () => [{ label: 'Fly heading…', run: () => headingLadder(ac) }, { label: 'Climb or descend…', run: () => altitudeLadder(ac) }] });
+        add('Misc. messages', { sub: miscMenu(ac) });
+        add('Standby / corrections', { sub: standbyMenu });
         return;
     }
     if (ac.circuit) {
         const k = ac.circuit, e = k.end, others = G.aircraft.filter(o => o !== ac && o.state === 'air' && o.freq === 'TWR' && !o.transit && (o.circuit || o.pattern || o.appr) && sameRunwayish((o.appr || o.circuit || o.pattern).end, e));
+        const ifr = G.rules.id === 'ifatc', n = landingNumber(ac);
         if (!ac.landClr) {
-            if (k.work) add(`Cleared for the option runway ${e.id}`, { cmd: { option: 'opt' } }, k.leg === 'down' || !!ac.appr);
-            if (k.work) add(`Cleared touch and go runway ${e.id}`, { cmd: { option: 'tg' } });
-            add(`Cleared to land runway ${e.id}${k.work ? ' (full stop)' : ''}`, { cmd: { land: true } }, !k.work && (k.leg === 'down' || !!ac.appr));
+            // The clearance itself (IF: "number X, runway XX, cleared for the option[, make left/right traffic]").
+            if (k.work) add(`Number ${n}, runway ${e.id}, cleared for the option`, { cmd: { option: 'opt' } }, k.leg === 'down' || !!ac.appr);
+            else add(`Number ${n}, runway ${e.id}, cleared to land`, { cmd: { land: true } }, k.leg === 'down' || !!ac.appr);
+            add('Cleared to land / option…', { sub: () => [
+                { label: `Number ${n}, runway ${e.id}, cleared to land`, cmd: { land: true } },
+                ...(k.work ? [{ label: 'Cleared for the option', cmd: { option: 'opt' } },
+                    { label: 'Cleared for the option, make left traffic', cmd: { option: 'opt', traffic: 'L' } },
+                    { label: 'Cleared for the option, make right traffic', cmd: { option: 'opt', traffic: 'R' } },
+                    ...(ifr ? [] : [{ label: 'Cleared touch and go', cmd: { option: 'tg' } }])] : []),
+            ] });
         }
-        if (others.length) add('Number, follow traffic…', { sub: () => others.map(o => ({ label: `Follow the ${typeWord(o)} on ${legOf(o)} (${o.cs})`, cmd: { seqBehind: o } })) });
-        if (!ac.appr) {
-            if (k.leg === 'down' && !k.ext) add('Extend downwind', { cmd: { extend: true } });
-            if (k.leg === 'down' || k.leg === 'joinDown') add('Turn base', { cmd: { turnBase: true } }, k.ext && k.askedBase);
-            if (['up', 'cross', 'down', 'joinDown'].includes(k.leg) && !k.short) add('Make short approach', { cmd: { short: true } });
-            if (k.leg === 'up' || k.leg === 'cross') add(`Make ${k.side < 0 ? 'right' : 'left'} traffic`, { cmd: { traffic: k.side < 0 ? 'R' : 'L' } });
-            add('Make left 360', { cmd: { orbit: 'L' } }); add('Make right 360', { cmd: { orbit: 'R' } });
-        }
-        if (ac.appr) add('Go around', { cmd: { goAround: true } });
+        add('Pattern instructions', { sub: () => [
+            ...(k.leg === 'up' ? [{ label: 'Turn crosswind', cmd: { turnCross: true } }, ...(k.extUp ? [] : [{ label: 'Extend upwind', cmd: { extUp: true } }])] : []),
+            ...(k.leg === 'down' || k.leg === 'joinDown' ? [{ label: 'Turn base', cmd: { turnBase: true } }] : []),
+            ...(k.leg === 'down' && !k.ext ? [{ label: 'Extend downwind', cmd: { extend: true } }] : []),
+            ...(['up', 'cross', 'down', 'joinDown'].includes(k.leg) && !k.short && !ac.appr ? [{ label: 'Make short approach', cmd: { short: true } }] : []),
+            ...(k.leg === 'up' || k.leg === 'cross' ? [{ label: `Make ${k.side < 0 ? 'right' : 'left'} traffic`, cmd: { traffic: k.side < 0 ? 'R' : 'L' } }] : []),
+            ...(ac.alt > circuitAlt(ac) + 200 ? [{ label: 'Descend to pattern altitude', cmd: { descPat: true } }] : []),
+            ...(ac.landClr ? [{ label: 'Cancel landing clearance', cmd: { cancelLand: true } }] : []),
+            ...others.map(o => ({ label: `Number ${n}, traffic to follow is on ${legOf(o)} (${o.cs})`, cmd: { seqBehind: o } })),
+        ] });
+        add('Request speed', { sub: speedMenu(ac) });
+        if (!ac.appr) { if (ifr) add('Make a 360 for spacing', { cmd: { orbit: 'L' } }); else { add('Make left 360', { cmd: { orbit: 'L' } }); add('Make right 360', { cmd: { orbit: 'R' } }); } }
+        if (ac.appr) add('Go around…', { sub: () => [{ label: 'Go around', cmd: { goAround: true } }, { label: `Go around, make left traffic runway ${e.id}`, cmd: { goAround: true, traffic: 'L' } }, { label: `Go around, make right traffic runway ${e.id}`, cmd: { goAround: true, traffic: 'R' } }] });
+        add('Misc. messages', { sub: miscMenu(ac) });
+        add('Standby / corrections', { sub: standbyMenu });
         return;
     }
     const inbound = noRadar() && ac.kind === 'arr' && ac.freq === 'TWR' && !ac.appr?.loc;
@@ -4840,17 +5084,9 @@ function airMenu(ac, add) {
             { label: 'Left 360', cmd: { orbit: 'L' } }, { label: 'Right 360', cmd: { orbit: 'R' } },
             ...((ac.viaSaved || ac.via && !ac.via.vert) && (ac.viaSaved || ac.via).kind !== 'FPL' ? [{ label: `${ac.kind === 'arr' ? 'Descend via' : 'Climb via'} the ${(ac.viaSaved || ac.via).id}`, cmd: { via: true } }] : []),
         ] });
-        add('Request speed', { sub: () => {
-            const lo = Math.ceil(minSpeed(ac) / 10) * 10, hi = ac.perf.prop ? 140 : ac.alt < 10000 ? 250 : 300, out = [{ label: 'Slowest practical speed', cmd: { slowest: true } }];
-            for (let v = hi; v >= lo; v -= 10) out.push({ label: `Maintain ${v} knots`, cmd: { spd: v } });
-            if (ac.kind === 'arr') out.splice(1, 0, { label: 'Maintain speed until a mile final…', sub: () => {
-                const list = [];
-                for (let v = Math.min(hi, 230); v >= Math.max(lo, 160); v -= 10) list.push({ label: `${v} knots until…`, sub: () => [10, 8, 6, 5, 4].map(nm => ({ label: `${v} knots until ${nm} mile final`, cmd: { spd: v, spdUntil: nm } })) });
-                return list;
-            } });
-            return out;
-        } });
+        add('Request speed', { sub: speedMenu(ac) });
     }
+    if (inbound) add('Request speed', { sub: speedMenu(ac) });
     if (ac.kind === 'arr' && !inbound) add('Expect approach…', { sub: () => expectList(ac) });
     const other = [
         ...(ac.kind === 'arr' && ac.freq === 'APP' && (ac.appr || ac.pattern) ? [{ label: `Contact ${freqLabel('TWR')}`, cmd: { toTwr: true } }] : []),
@@ -4863,12 +5099,34 @@ function airMenu(ac, add) {
         ...(visualWx() && !ac.fieldReported ? [{ label: 'Report the airport in sight', cmd: { reportField: true } }] : []),
         ...(ac.request ? [{ label: 'Unable', cmd: { unable: true } }] : []),
         { label: 'Say intentions', cmd: { intentions: true } },
+        ...(ac.freq === 'TWR' ? miscMenu(ac)() : []),
     ] });
     if (ac.kind === 'arr') add('Missed approach instructions', { sub: () => [2000, 3000, 4000].map(h => Math.max(G.world.minAlt, Math.round((G.world.elev + h) / 1000) * 1000))
         .filter((v, i, a) => a.indexOf(v) === i).map(v => ({ label: `Runway heading, climb and maintain ${fmtAlt(v)}`, cmd: { missed: v } })) });
     if (filedRoute(ac) && !ac.appr && !ac.pattern && !(ac.via && ac.via.kind !== 'IAP') && !(ac.kind === 'dep' && ac.direct)) add('Continue as filed', { cmd: { asFiled: true } });
-    if (ac.appr) add('Go around', { cmd: { goAround: true } });
+    if (ac.appr) add(ac.freq === 'TWR' ? 'Go around…' : 'Go around', ac.freq === 'TWR' ? { sub: () => [{ label: 'Go around', cmd: { goAround: true } }, { label: `Go around, make left traffic runway ${ac.appr.end.id}`, cmd: { goAround: true, traffic: 'L' } }, { label: `Go around, make right traffic runway ${ac.appr.end.id}`, cmd: { goAround: true, traffic: 'R' } }] } : { cmd: { goAround: true } });
+    if (ac.kind === 'arr' && ac.freq === 'TWR' && !ac.landClr) add('Deny entry', { sub: () => DENY_ENTRY.map(m => ({ label: m[1], cmd: { msg: m } })) });
+    if (ac.freq === 'TWR' && ac.kind !== 'arr') add('Misc. messages', { sub: miscMenu(ac) });
+    add('Standby / corrections', { sub: standbyMenu });
 }
+
+/** Request speed, Infinite Flight's list: until a mile final, discretion, present, slowest, best forward, follow the one ahead, then exact speeds. */
+const speedMenu = ac => () => {
+    const ifr = G.rules.id === 'ifatc', lo = Math.ceil(minSpeed(ac) / 10) * 10, hi = ac.perf.prop ? 140 : ac.alt < 10000 ? 250 : 300;
+    const out = [];
+    if (ac.kind === 'arr') {
+        const spds = ifr ? [180, 170, 160] : [230, 220, 210, 200, 190, 180, 170, 160], nms = ifr ? [6, 5, 4] : [10, 8, 6, 5, 4];
+        const fits = spds.filter(v => v >= lo && v <= hi);
+        out.push({ label: 'Maintain speed until a mile final…', sub: () => ifr
+            ? fits.flatMap(v => nms.map(nm => ({ label: `Maintain ${v} knots until ${nm} mile final`, cmd: { spd: v, spdUntil: nm } })))
+            : fits.map(v => ({ label: `${v} knots until…`, sub: () => nms.map(nm => ({ label: `${v} knots until ${nm} mile final`, cmd: { spd: v, spdUntil: nm } })) })) });
+    }
+    out.push({ label: 'Speed at your discretion', cmd: { spdDisc: true } }, { label: 'Maintain present speed', cmd: { spdPresent: true } },
+        { label: 'Maintain slowest practical speed', cmd: { slowest: true } }, { label: 'Maintain best forward speed', cmd: { spdBest: true } });
+    if (ac.kind === 'arr' && trafficAhead2(ac)) out.push({ label: 'Adjust speed to follow aircraft ahead', cmd: { spdFollow: true } });
+    for (let v = hi; v >= lo; v -= 10) out.push({ label: `Maintain ${v} knots`, cmd: { spd: v } });
+    return out;
+};
 
 /** The fixes nearest an aircraft, for direct-to and holds. */
 function nearFixes(ac) {
@@ -4877,8 +5135,19 @@ function nearFixes(ac) {
         .map(({ f, d }) => ({ f, label: `${f.name} · ${f.kind === 'arr' ? 'entry' : f.kind === 'dep' ? 'exit' : f.kind === 'app' ? 'final ' + f.end.id : Math.round(d) + ' mi'}` }));
 }
 
+let broadcastOpen = false;
 function renderCard(force) {
     const el = $('#cmdmenu'), ac = G && G.selected;
+    if (!ac && broadcastOpen) {
+        // Broadcasts, to everyone on your frequencies (IF: "Attention all aircraft, …").
+        el.hidden = false; $('#strips').hidden = true;
+        if (force || menuKey !== 'bcast') {
+            menuKey = 'bcast';
+            el.innerHTML = `<div class="cm-h"><div><b>BROADCAST</b><small>Attention all aircraft…</small></div><button type="button" class="cm-x" data-close aria-label="Close">✕</button></div>
+                <div class="cm-list">${BROADCASTS.map((b, i) => `<button type="button" class="cm-i" data-bc="${i}"><span>${i + 1}</span>${escapeHtml(b[1])}</button>`).join('')}</div>`;
+        }
+        return;
+    }
     el.hidden = !ac;
     $('#strips').hidden = !!ac;
     if (!ac) { menuKey = ''; menuPath = []; el.innerHTML = ''; return; }
@@ -4921,6 +5190,14 @@ function menuPick(ac, it) {
 function bindCard() {
     $('#cmdmenu').addEventListener('click', e => {
         const ac = G && G.selected, b = e.target.closest('button');
+        if (b && broadcastOpen && !ac) {
+            if (b.dataset.bc != null) {
+                const pos = ['TWR', 'GND', 'APP'].filter(f => G.positions.has(f)).map(f => FREQ_NAME[f]).join('/');
+                atc(`Attention all aircraft, ${BROADCASTS[Number(b.dataset.bc)][2](pos)}.`);
+            }
+            broadcastOpen = false; menuKey = ''; renderCard(true); renderRail();
+            return;
+        }
         if (!ac || !b) return;
         if (b.hasAttribute('data-close')) { select(null); return; }
         if (b.hasAttribute('data-back')) { menuPath.pop(); renderCard(true); return; }
@@ -5013,6 +5290,7 @@ function closeContext() { const el = $('#ctx'); if (el) el.hidden = true; }
 
 /** A pilot waiting on you for something: the (1) on the strip's ATC cell. */
 function wantsYou(a) {
+    if (a.divert || a.standbyUntil > G.t) return false;
     if (a.transit) return a.transit.asked && a.transit.ok === null;
     if (a.circuit && a.circuit.leg === 'down' && !a.landClr) return true;
     return !!(a.emerg || a.crossReq || a.wxReq || a.lowAlt || a.reminded || a.request

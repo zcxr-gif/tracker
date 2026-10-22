@@ -641,6 +641,103 @@ The controls work the way the Infinite Flight ATC client does.
   - no Safari bars and no site header;
   - kept clear of the notch, the status bar and the home bar.
 
+## Infinite Flight's Tower and Ground commands
+
+The command menus follow the lists in the IF community guide *Guide into ATC
+instructions (Tower & Ground)*, with the same groups and, under Infinite
+Flight rules, the same wording. Each command also does something to the
+aircraft wherever there is something to do.
+
+- **Pushback**:
+  - *pushback approved, expect runway XX*;
+  - *pushback approved*.
+- **Taxi to…**:
+  - *taxi to runway XX, contact tower when ready*;
+  - *taxi to parking, at your discretion*.
+- **Progressive taxi**:
+  - *expect progressive taxi instructions*;
+  - *cross runway XX* (plus *please expedite*);
+  - *turn left/right next taxiway*;
+  - *continue straight ahead*;
+  - *make 180*;
+  - *continue taxi at your discretion*;
+  - *follow aircraft ahead*.
+- **Give way**: *give way to aircraft exiting runway XX / on your left / on
+  your right / ahead*, phrased from where the other aircraft is.
+- **Cleared for takeoff…**:
+  - *(wind), runway XX, cleared for takeoff*;
+  - *…cleared for immediate takeoff*;
+  - *…cleared for takeoff. Fly runway heading until at or above X,XXXft*
+    (1,000–5,000 ft above the field), on its own or with *immediate*.
+  - Pattern work also gets *make left/right traffic*.
+- **Line up and wait runway XX**, **hold short runway XX**, **you're number
+  X for departure**, and **cancel takeoff clearance, hold position** (too
+  late above 100 kt).
+- **Back taxi…**: *back taxi runway XX* (*, line up and wait*, *, please
+  expedite*). A departure at an intersection backtracks to the full length
+  and lines up.
+- **Exit runway…**: for an arrival rolling out:
+  - *when able turn left/right* or *exit runway when able*, then
+    *contact ground when off the runway*;
+  - each can add *please expedite* (harder braking), *cross runway XX and
+    contact ground* (the first crossing is pre-cleared), or *hold short
+    runway XX* (no handoff).
+  - It takes the first turn-off on that side it can make.
+- **Cleared to land / option…**:
+  - *number X, runway XX, cleared to land*;
+  - *number X, runway XX, cleared for the option[, make left/right
+    traffic]*. The option means a touch and go; with a traffic direction
+    the next circuit goes that way.
+- **Pattern instructions**:
+  - *enter [leg], runway XX* (the entry adds *number X, traffic to follow is
+    on [leg]* when someone is ahead);
+  - *turn crosswind*;
+  - *extend upwind, I'll call your crosswind*;
+  - *turn base*;
+  - *extend downwind, I'll call your base*;
+  - *make short approach*;
+  - *make left/right traffic*;
+  - *descend to pattern altitude*;
+  - *cancel landing clearance, number X, traffic to follow is on [leg]*;
+  - *number X, traffic to follow is on [leg]*.
+- **Request speed**:
+  - *maintain 160/170/180 knots until 4/5/6 mile final* (more choices
+    under Real-life rules);
+  - *speed at your discretion* (lifts restrictions);
+  - *maintain present speed*;
+  - *maintain slowest practical speed*;
+  - *maintain best forward speed*;
+  - *adjust speed to follow aircraft ahead* (matches it until the final
+    approach fix);
+  - then exact speeds.
+- **Go around…**: *go around*, or *go around, make left/right traffic runway
+  XX*. With a traffic direction it stays with Tower and flies the pattern
+  round.
+- **Make a 360 for spacing**.
+- **Deny entry**:
+  - *due to heavy traffic, airport is not accepting incoming airplanes at
+    this time*;
+  - *an event is in progress, please contact approach for sequencing*.
+  - Either way the aircraft turns away and leaves without counting against
+    you.
+- **Misc. messages**: Ground's and Tower's lists, word for word.
+  - *Please expedite* speeds the aircraft up for a while: taxiing, braking,
+    climbing and descending.
+  - *Unable, divert*, *aircraft too large* and *no light aircraft* send it
+    away.
+  - *No pattern work*, *pattern full* and *no more pattern work, land or
+    divert* end its pattern work.
+  - The rest (follow instructions, check ATIS, traffic alert, stay on my
+    frequency…) are read back.
+- **Standby / corrections**: *standby* (its request stops flashing for 45
+  s), *correction, standby*, *disregard last message*, *say intentions*.
+- **Broadcast** (on the frequency list): all twelve *Attention all aircraft,
+  …* messages, such as *ATIS information X is now current*, *runway change
+  is in progress* and *airport is busy, expect delays*.
+
+Not modelled: back taxi for arrivals (*back taxi runway XX, contact ground
+when off the runway*), and the On Guard messages.
+
 ## Rules: Real life or Infinite Flight
 
 The start screen picks the rule set (`RULESETS` in `approachGame.js`, one
