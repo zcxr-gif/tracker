@@ -190,10 +190,12 @@ export function buildGround(layout, proj, ends) {
     };
     const gates = [];
     const seenRef = new Set();
-    // Gates are often mapped at the terminal, a few hundred metres from the nearest taxilane.
+    const attach = attacher(list, main, onRunway, buildings);
+    // Gates are often mapped at the terminal, a way from the nearest taxilane: each gets a lead-in
+    // to the closest point on a taxiway or taxilane that doesn't pass through a building.
     for (const g of gatesRaw.sort((a, b) => b.gate - a.gate)) {
         if (onRunway(g)) continue;
-        const n = nearest(g, 0.35, n => !onRunway(n));
+        const n = attach(g, 0.3);
         if (!n) continue;
         const ref = g.ref || `S${gates.length + 1}`;
         if (seenRef.has(ref)) continue;
@@ -246,6 +248,59 @@ export function buildGround(layout, proj, ends) {
 
     return { nodes: list, main, gates, holds, exits, lines, aprons, buildings, physRunways, onRunway,
         summary: `${lines.length} taxiway segments, ${gates.length} ${gatesRaw.length >= 3 ? 'gates' : 'apron stands'}, holding points at ${holds.size} of ${ends.length} runway ends` };
+}
+
+/**
+ * Lead-ins for stands: the closest point on any taxiway edge of the main
+ * network (splitting the edge there), skipping lead-ins that would cut
+ * through a building. Returns the node to taxi to, or null.
+ */
+function attacher(list, main, onRunway, buildings) {
+    const CELL = 0.05, grid = new Map(), inMain = new Set(main.map(n => n.id));
+    const edges = [];
+    for (const n of main) for (const e of n.edges) if (n.id < e.to && inMain.has(e.to)) edges.push({ a: n, b: list[e.to], e });
+    const add = (ed) => {
+        const x0 = Math.floor(Math.min(ed.a.x, ed.b.x) / CELL), x1 = Math.floor(Math.max(ed.a.x, ed.b.x) / CELL);
+        const y0 = Math.floor(Math.min(ed.a.y, ed.b.y) / CELL), y1 = Math.floor(Math.max(ed.a.y, ed.b.y) / CELL);
+        for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) { const k = x + ',' + y; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(ed); }
+    };
+    edges.forEach(add);
+    const walls = [];
+    for (const poly of buildings) for (let i = 1; i < poly.length; i++) walls.push([poly[i - 1], poly[i]]);
+    const blocked = (p, q) => walls.some(([a, b]) => crossAt(p, q, a, b) >= 0);
+    return (g, max) => {
+        const r = Math.ceil(max / CELL), cx = Math.floor(g.x / CELL), cy = Math.floor(g.y / CELL);
+        const cand = new Set();
+        for (let x = cx - r; x <= cx + r; x++) for (let y = cy - r; y <= cy + r; y++) for (const ed of grid.get(x + ',' + y) || []) cand.add(ed);
+        const ranked = [];
+        for (const ed of cand) {
+            if (ed.dead) continue;
+            const f = toSegment(g, ed.a, ed.b);
+            if (f.d > max) continue;
+            const foot = { x: ed.a.x + (ed.b.x - ed.a.x) * f.t, y: ed.a.y + (ed.b.y - ed.a.y) * f.t };
+            if (onRunway(foot)) continue;
+            ranked.push({ ed, f, foot });
+        }
+        ranked.sort((p, q) => p.f.d - q.f.d);
+        for (const { ed, f, foot } of ranked.slice(0, 6)) {
+            if (walls.length && blocked(g, foot)) continue;
+            const len = Math.hypot(ed.b.x - ed.a.x, ed.b.y - ed.a.y);
+            // Close to an end: use that node. Otherwise split the edge at the foot.
+            if (f.t * len < 0.008) return ed.a;
+            if ((1 - f.t) * len < 0.008) return ed.b;
+            const n = { id: list.length, x: foot.x, y: foot.y, edges: [] };
+            list.push(n); main.push(n);
+            const { a, b, e } = ed, w = e.w, name = e.name;
+            a.edges = a.edges.filter(x => x.to !== b.id); b.edges = b.edges.filter(x => x.to !== a.id);
+            a.edges.push({ to: n.id, w: w * f.t, name }); n.edges.push({ to: a.id, w: w * f.t, name });
+            b.edges.push({ to: n.id, w: w * (1 - f.t), name }); n.edges.push({ to: b.id, w: w * (1 - f.t), name });
+            ed.dead = true;
+            add({ a, b: n, e: { w: w * f.t, name } });
+            add({ a: n, b, e: { w: w * (1 - f.t), name } });
+            return n;
+        }
+        return null;
+    };
 }
 
 /** Nearest node of the main network to a point (optionally off the runways). */

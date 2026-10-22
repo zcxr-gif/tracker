@@ -291,6 +291,12 @@ B, K, hold short of runway 13L/31R"*.
     that stop on another line, and merges points within ~11 m. If the lines
     can't be joined into a network to taxi on, they're still drawn on the
     scope (Ground is then unavailable).
+  - OpenFreeMap's tiles carry taxiways but not the **taxilanes** between
+    the terminals, so OpenStreetMap is always asked too, and the fuller
+    network (normally OpenStreetMap's) is used.
+  - Each stand gets a lead-in to the closest point on a taxiway or taxilane
+    within ~550 m that doesn't pass through a building (the edge is split
+    there), instead of a line to the nearest junction.
   - **Gates** from our backend's `/api/gates/{ICAO}`, the same data
     the live map uses for departure and arrival gates.
   - **OpenStreetMap** (three Overpass servers, plus the live map's own

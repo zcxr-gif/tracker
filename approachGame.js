@@ -3517,7 +3517,7 @@ async function loadSurface(world, say = () => {}) {
 
     const tiles = tryIt('OpenFreeMap', within(25000, aerowayFromOpenFreeMap(box)));
     const gates = tryIt('InFlight gates', within(15000, gatesFromBackend(world.icao)));
-    const osm = tryIt('OpenStreetMap', within(30000, overpassLayout(world, box)));
+    const osm = tryIt('OpenStreetMap', within(25000, overpassLayout(world, box)));
 
     const options = [];
     let map = null;
@@ -3540,10 +3540,10 @@ async function loadSurface(world, say = () => {}) {
         say('building the taxi network…');
         await paint();
         build([...t, ...(g || [])], `OpenFreeMap taxiways${g ? ' + InFlight gates' : ''}`);
-        // Good enough: don't keep the shift waiting on OpenStreetMap.
-        if (options.length) return { ground: options[0].ground, source: options[0].source };
     }
-    say('trying OpenStreetMap…');
+    // OpenFreeMap's tiles carry the taxiways but not the taxilanes between the terminals:
+    // OpenStreetMap has those, and whichever network comes out fuller (it usually will) wins.
+    say(t ? 'adding the apron taxilanes from OpenStreetMap…' : 'trying OpenStreetMap…');
     const [g, o] = await Promise.all([gates, osm]);
     if (o) {
         say('building the taxi network from OpenStreetMap…');
@@ -3600,6 +3600,7 @@ async function startGame(airport, level) {
     // On the scope too, so it's visible without reading the log.
     game.surfaceStatus = surface.ground ? `${surface.source} ✓`
         : surface.map ? `drawn only (${surface.map.lines.length} lines), no taxi network: ${surface.error}` : `none: ${surface.error}`;
+    renderHud();
     if (surface.ground) sys(`Surface (${surface.source}): ${surface.ground.summary}.`);
     else sys(`No taxi map: ${surface.error}.${surface.map ? ` Drawing the ${surface.map.lines.length} taxiway segments found.` : ''}`, 'bad');
     if (!game.ground && game.positions.has('GND')) {
