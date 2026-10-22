@@ -1020,3 +1020,484 @@ html:not(.dark) .ifc-prev-aurora{
 .ifc-prev-airline .ifc-bar .ifc-line{ background:rgb(255 255 255 / .6); }
 .ifc-prev-airline .ifc-cell:first-child{ background:#0E1116; }
 .dark .ifc-prev-airline{ --p-bg:#060D1A; --p-surface:#0E1A2E; --p-ink:#EAF0FA; }
+
+/* ============================================================================
+   18. CONSOLE
+
+   Not a coat of paint over the dashboard like the others: a shell of its own
+   (crewConsole.js) laid over it — a rail of icons, a row of tabs that opens
+   into one dark board, the pilot on the line under it and the inbox down the
+   right. Dark only, and orange unless an airline says otherwise.
+
+   The dashboard's own header and main are hidden only when the shell is on
+   this page (html[data-console], set by crewConsole.js in <head>), so a page
+   that does not carry the shell — the pilot home — falls back to essential
+   instead of going blank.
+
+   STATIC FOR NOW. Every figure in the shell is a placeholder; nothing is
+   fetched and no button does anything but look pressed.
+   ========================================================================== */
+
+:root[data-skin="console"][data-console] body > header,
+:root[data-skin="console"][data-console] body > main{ display:none !important; }
+:root[data-skin="console"][data-console] body{ background:#121212; overflow:hidden; }
+:root:not([data-skin="console"]) #crewConsole{ display:none !important; }
+
+#crewConsole{
+    --cc-frame:#181818; --cc-panel:#212121; --cc-raise:#2a2a2a; --cc-line:#303030;
+    --cc-ink:#F4F2F0; --cc-muted:#8E8C8A; --cc-faint:#5E5C5A;
+    /* The airline's accent, when it has one (crewConsole.js writes these on
+       the shell); the Console's own orange when it does not. -hi is the shade
+       that reads as text or a line on the dark board; -ink sits ON it. */
+    --cc-accent:#E8553B; --cc-accent-hi:#F0705A; --cc-accent-ink:#ffffff;
+    --cc-r:1.75rem;
+    position:fixed; inset:0; z-index:40; overflow:auto;
+    display:grid; grid-template-columns:5.25rem minmax(0,1fr) 23.5rem; gap:.6rem;
+    padding:.6rem; background:var(--cc-frame); color:var(--cc-ink);
+    font-family:'Manrope', 'Inter', system-ui, sans-serif; font-size:15px;
+    -webkit-font-smoothing:antialiased;
+}
+#crewConsole *{ box-sizing:border-box; }
+:where(#crewConsole) button{ font:inherit; color:inherit; background:none; border:0; cursor:pointer; }
+#crewConsole svg.lucide, #crewConsole [data-lucide]{ width:1.3rem; height:1.3rem; stroke-width:1.5; }
+
+/* ---- The rail ------------------------------------------------------------ */
+.cc-rail{ background:#1c1c1c; border-radius:var(--cc-r); display:flex; flex-direction:column;
+    align-items:center; gap:.4rem; padding:1.4rem 0; min-height:0; }
+.cc-logo{ width:3rem; height:3rem; margin-bottom:2.2rem; position:relative; }
+.cc-logo::before{ content:''; position:absolute; inset:.35rem .55rem .55rem; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--cc-accent) 55%, #fff), var(--cc-accent) 45%, color-mix(in srgb, var(--cc-accent) 55%, #000)); }
+/* An airline's own logo, or its initials, in place of the planet. */
+.cc-logo.has-img::before, .cc-logo.has-img::after,
+.cc-logo.is-mono::before, .cc-logo.is-mono::after{ display:none; }
+.cc-logo.has-img{ border-radius:.9rem; overflow:hidden; background:#fff; display:grid; place-items:center; }
+.cc-logo.has-img img{ width:100%; height:100%; object-fit:contain; padding:.3rem; box-sizing:border-box; }
+.cc-logo.is-mono{ border-radius:.9rem; display:grid; place-items:center; background:var(--cc-accent); color:var(--cc-accent-ink);
+    font-weight:800; font-size:1.05rem; letter-spacing:.02em; }
+.cc-logo::after{ content:''; position:absolute; left:0; right:0; top:1.55rem; height:.55rem; border-radius:50%;
+    border:2px solid #d9d9d9; border-top-color:transparent; transform:rotate(-8deg); }
+.cc-rail-btn{ position:relative; width:3.2rem; height:3.2rem; display:grid; place-items:center;
+    border-radius:1rem; color:#cfcdcb; transition:background .2s, color .2s; }
+.cc-rail-btn:hover{ background:var(--cc-raise); color:#fff; }
+.cc-rail-btn[aria-current="page"]{ color:#fff; }
+.cc-rail-btn .cc-pip{ position:absolute; top:.85rem; right:.8rem; width:.45rem; height:.45rem;
+    border-radius:50%; background:var(--cc-accent-hi); box-shadow:0 0 0 2px #1c1c1c; }
+.cc-rail-nav{ display:flex; flex-direction:column; gap:1.35rem; }
+.cc-rail-foot{ margin-top:auto; display:flex; flex-direction:column; gap:1.35rem; align-items:center; }
+.cc-rail .ifc-toggle{ width:3.2rem; height:3.2rem; border-radius:1rem; color:#cfcdcb; }
+.cc-rail .ifc-toggle:hover{ background:var(--cc-raise); color:#fff; }
+
+/* ---- The middle column --------------------------------------------------- */
+.cc-main{ display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto auto auto; gap:.6rem; min-width:0; align-content:start; }
+
+.cc-tabs{ display:flex; align-items:stretch; gap:.45rem; padding:.55rem 0 0; margin-bottom:-.6rem; overflow-x:auto; scrollbar-width:none; }
+.cc-tabs::-webkit-scrollbar{ display:none; }
+.cc-tab{ flex:0 0 auto; padding:.85rem 1.6rem; border-radius:1.4rem 1.4rem 1.4rem 1.4rem; background:#1e1e1e;
+    color:#6f6d6b; font-weight:600; font-size:.98rem; white-space:nowrap; transition:color .2s; }
+.cc-tab:hover{ color:#bdbbb9; }
+.cc-tab[aria-selected="true"]{ background:var(--cc-panel); color:var(--cc-ink); border-radius:1.4rem 1.4rem 0 0;
+    padding-bottom:1.45rem; min-width:7.5rem; }
+.cc-tab-cta{ margin-left:auto; background:var(--cc-accent); color:var(--cc-accent-ink); border-radius:1.6rem;
+    padding:.85rem 2.1rem; font-weight:600; align-self:flex-start;
+    box-shadow:0 10px 26px -14px var(--cc-accent); }
+.cc-tab-cta:hover{ background:color-mix(in srgb, var(--cc-accent) 88%, #fff); color:var(--cc-accent-ink); }
+
+.cc-board{ background:var(--cc-panel); border-radius:var(--cc-r); padding:2.2rem 2.4rem 1.4rem;
+    display:flex; flex-direction:column; gap:1.2rem; }
+.cc-top{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,27rem); gap:2.4rem; align-items:start; }
+
+/* ---- The hero ---------------------------------------------------------------
+   The aeroplane in the airline's livery (crewAircraft3D.js), flying through
+   a sky lit in the airline's colour: stars up top, a sunset glow on the
+   horizon, cloud drifting past the way the ground does at altitude. The
+   words sit on the left over a shade that keeps them readable whatever the
+   colour; the aeroplane has the right. */
+.cc-hero{ position:relative; min-height:21rem; border-radius:1.5rem; overflow:hidden; isolation:isolate;
+    margin:-.6rem -.8rem .4rem; background:#0c0f16; }
+.cc-sky{ position:absolute; inset:0; z-index:-2;
+    background:
+        radial-gradient(60% 75% at 82% 92%, color-mix(in srgb, var(--cc-accent) 55%, #ffb36b) 0%, transparent 60%),
+        radial-gradient(40% 50% at 70% 18%, color-mix(in srgb, var(--cc-accent-hi) 30%, transparent), transparent 70%),
+        linear-gradient(180deg, color-mix(in srgb, var(--cc-accent) 22%, #070a12) 0%, color-mix(in srgb, var(--cc-accent) 30%, #10131b) 58%, color-mix(in srgb, var(--cc-accent) 62%, #1b1512) 100%); }
+.cc-stars{ position:absolute; inset:0 0 45% 0; opacity:.45;
+    background-image:
+        radial-gradient(1px 1px at 12% 22%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 27% 61%, #fff 50%, transparent 51%),
+        radial-gradient(1.2px 1.2px at 41% 14%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 58% 38%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 66% 9%, #fff 50%, transparent 51%), radial-gradient(1.4px 1.4px at 79% 27%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 88% 52%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 94% 12%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 6% 48%, #fff 50%, transparent 51%), radial-gradient(1.2px 1.2px at 35% 33%, #fff 50%, transparent 51%);
+    animation:ccTwinkle 6s ease-in-out infinite alternate; }
+@keyframes ccTwinkle{ to{ opacity:.25; } }
+.cc-cloud{ position:absolute; border-radius:50%; filter:blur(22px); background:rgb(255 255 255 / .16); will-change:transform; }
+.cc-cloud.c1{ width:46%; height:30%; bottom:-8%; left:30%; animation:ccDrift 38s linear infinite; }
+.cc-cloud.c2{ width:34%; height:22%; bottom:6%; left:72%; background:color-mix(in srgb, var(--cc-accent-hi) 22%, rgb(255 255 255 / .14)); animation:ccDrift 52s linear infinite -18s; }
+.cc-cloud.c3{ width:60%; height:26%; bottom:-14%; left:-10%; background:rgb(255 255 255 / .1); animation:ccDrift 64s linear infinite -30s; }
+@keyframes ccDrift{ from{ transform:translateX(40%); } to{ transform:translateX(-140%); } }
+.cc-glow{ position:absolute; left:45%; right:0; bottom:22%; height:1px;
+    background:linear-gradient(90deg, transparent, color-mix(in srgb, var(--cc-accent-hi) 70%, #fff) 60%, transparent); opacity:.35; }
+.cc-hero::after{ content:''; position:absolute; inset:0; z-index:-1;
+    background:linear-gradient(90deg, rgb(8 10 14 / .78) 0%, rgb(8 10 14 / .45) 38%, transparent 62%); }
+.cc-hero-plane{ position:absolute; top:-4%; right:-3%; bottom:-6%; width:66%; z-index:0; }
+.cc-hero3d{ display:block; width:100%; height:100%; }
+.cc-hero-copy{ position:relative; z-index:1; max-width:min(30rem, 48%); padding:2.4rem 0 2.2rem 2.6rem; display:flex; flex-direction:column; gap:1rem; }
+.cc-eyebrow{ font-size:.74rem; font-weight:800; letter-spacing:.22em; color:color-mix(in srgb, var(--cc-accent-hi) 55%, #fff); }
+.cc-hero-title{ margin:0; font-size:2.7rem; line-height:1.05; font-weight:800; letter-spacing:-.02em; color:#fff; text-wrap:balance; }
+.cc-hstats{ display:flex; flex-wrap:wrap; gap:.5rem; }
+.cc-hstat{ display:inline-flex; align-items:center; gap:.4rem; padding:.42rem .8rem; border-radius:999px; font-size:.82rem; color:#e9e7e4;
+    background:rgb(255 255 255 / .08); box-shadow:inset 0 0 0 1px rgb(255 255 255 / .1); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); }
+.cc-hstat b{ color:#fff; font-weight:800; }
+.cc-hrank{ color:#fff; font-weight:700; }
+.cc-hrank svg.lucide{ width:.95rem !important; height:.95rem !important; color:var(--cc-accent-hi); fill:var(--cc-accent-hi); }
+.cc-hprog{ display:flex; flex-direction:column; gap:.45rem; max-width:24rem; }
+.cc-hprog-row{ display:flex; justify-content:space-between; font-size:.8rem; color:#cfcdcb; }
+.cc-hprog-row b{ color:#fff; }
+.cc-hbar{ height:.42rem; border-radius:999px; background:rgb(255 255 255 / .12); overflow:hidden; }
+.cc-hbar i{ display:block; height:100%; border-radius:inherit;
+    background:linear-gradient(90deg, var(--cc-accent), var(--cc-accent-hi) 70%, #fff);
+    box-shadow:0 0 18px color-mix(in srgb, var(--cc-accent-hi) 70%, transparent); }
+.cc-hcta{ display:flex; flex-wrap:wrap; gap:.55rem; margin-top:.3rem; }
+.cc-hbtn{ display:inline-flex; align-items:center; gap:.55rem; height:2.9rem; padding:0 1.2rem; border-radius:1.45rem;
+    font-size:.9rem; font-weight:700; color:#fff; box-shadow:inset 0 0 0 1px rgb(255 255 255 / .22);
+    background:rgb(255 255 255 / .06); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); transition:background .2s, transform .2s; }
+.cc-hbtn:hover{ background:rgb(255 255 255 / .14); transform:translateY(-1px); }
+.cc-hbtn.is-main{ background:#fff; color:#141414; box-shadow:0 12px 30px -14px rgb(0 0 0 / .8); }
+.cc-hbtn.is-main:hover{ background:#fff; }
+.cc-hbtn svg.lucide{ width:1.05rem !important; height:1.05rem !important; }
+.cc-hero-tag{ position:absolute; right:1.4rem; bottom:1.2rem; z-index:1; display:flex; flex-direction:column; align-items:flex-end; gap:.15rem;
+    text-align:right; color:#fff; text-shadow:0 1px 12px rgb(0 0 0 / .6); }
+.cc-hero-tag b{ font-size:1rem; font-weight:800; letter-spacing:.01em; }
+.cc-hero-tag span{ font-size:.75rem; color:#e3e1de; opacity:.85; }
+@media (prefers-reduced-motion: reduce){
+    .cc-stars, .cc-cloud{ animation:none; }
+}
+
+/* The card stack: one card face on, the rest standing behind it on edge. */
+.cc-stack{ position:relative; height:16.2rem; margin-top:1.4rem; }
+.cc-card{ position:absolute; top:0; height:15.6rem; border-radius:1.6rem; overflow:hidden;
+    text-align:left; cursor:pointer; view-transition-class:cc-card; }
+.cc-card:focus-visible{ outline:2px solid #fff; outline-offset:3px; }
+/* The next card leans out a little when pointed at — it is the one to press. */
+.cc-stack .cc-card-back{ transition:transform .25s cubic-bezier(.22,1,.36,1), filter .25s; }
+.cc-stack .cc-card-back:hover{ transform:translateY(-2.6rem); filter:brightness(1.15); }
+/* An aircraft not yet open, face on: the airline's card, darkened, with a
+   lock — something to fly towards rather than something held. */
+.cc-card-front.is-locked{ filter:saturate(.55) brightness(.82); }
+.cc-card-front .cc-bank svg.lucide{ width:1.05rem; height:1.05rem; flex:0 0 auto; }
+/* The aircraft itself, in 3D, behind the words (crewAircraft3D.js). */
+.cc-ac3d-host{ position:absolute; right:-5%; bottom:8%; width:64%; height:74%; z-index:0; }
+.cc-ac3d{ display:block; width:100%; height:100%; cursor:grab; touch-action:pan-y; }
+.cc-ac3d:active{ cursor:grabbing; }
+.cc-card-front > span:not(.cc-ac3d-host){ position:relative; z-index:1; }
+.cc-card-front.has-model .cc-num,
+.cc-card-front.has-model .cc-meta,
+.cc-card-front.has-model .cc-foot{ text-shadow:0 1px 10px rgb(0 0 0 / .35); }
+.cc-card-front .cc-meta{ margin-top:.55rem; font-size:.88rem; font-weight:600; opacity:.85; letter-spacing:.02em; }
+::view-transition-group(.cc-card){ animation-duration:.5s; animation-timing-function:cubic-bezier(.22,1,.36,1); }
+.cc-card-front{ left:0; width:25rem; z-index:5; padding:2.2rem 1.9rem 1.6rem;
+    display:flex; flex-direction:column; color:var(--cc-accent-ink);
+    background:
+        radial-gradient(70% 90% at 75% 70%, rgb(255 255 255 / .14), transparent 60%),
+        radial-gradient(60% 70% at 20% 90%, rgb(0 0 0 / .22), transparent 70%),
+        linear-gradient(120deg, color-mix(in srgb, var(--cc-accent) 88%, #fff), var(--cc-accent) 55%, color-mix(in srgb, var(--cc-accent) 92%, #fff));
+    box-shadow:0 30px 50px -30px color-mix(in srgb, var(--cc-accent) 90%, transparent); }
+.cc-card-front .cc-bank{ display:flex; align-items:center; gap:.8rem; }
+.cc-card-logo{ margin-left:auto; height:2.1rem; max-width:6rem; object-fit:contain; background:#fff; border-radius:.45rem; padding:.2rem .35rem; }
+.cc-card-front .cc-bank{ font-size:1rem; font-weight:600; letter-spacing:.01em; }
+.cc-card-front .cc-num{ margin-top:2.4rem; overflow:hidden; text-overflow:ellipsis; font-size:1.95rem; font-weight:800; letter-spacing:.04em;
+    font-variant-numeric:tabular-nums; white-space:nowrap; }
+.cc-card-front .cc-foot{ margin-top:auto; display:flex; justify-content:space-between; font-weight:500; font-size:1.05rem; }
+.cc-card-back{ width:14rem; padding:1.4rem 1rem 1.4rem .9rem; display:flex; flex-direction:column; gap:.5rem;
+    writing-mode:vertical-rl; color:#fff; font-size:.98rem; white-space:nowrap; }
+.cc-card-back b{ font-size:1.22rem; font-weight:700; letter-spacing:.06em; font-variant-numeric:tabular-nums; }
+.cc-card-back > span{ display:flex; font-weight:500; opacity:.9; }
+.cc-card-back small{ margin-top:auto; font-size:.8rem; }
+.cc-card-back:nth-child(2){ left:16.3rem; z-index:4; transform:translateY(-1.9rem); height:15.4rem;
+    background:linear-gradient(180deg, color-mix(in srgb, var(--cc-accent) 58%, #000), color-mix(in srgb, var(--cc-accent) 32%, #111) 60%, color-mix(in srgb, var(--cc-accent) 16%, #1a1a1a)); }
+.cc-card-back:nth-child(3){ left:21.6rem; z-index:3; transform:translateY(-1.9rem); height:15.4rem;
+    background:linear-gradient(180deg, color-mix(in srgb, var(--cc-accent) 26%, #222), color-mix(in srgb, var(--cc-accent) 10%, #1e1e1e)); }
+.cc-card-back:nth-child(4){ left:26.9rem; z-index:2; transform:translateY(-1.9rem); height:15.4rem;
+    background:linear-gradient(180deg, #2c2826, #242221); color:#9a9896; }
+.cc-card-back:nth-child(5){ left:32.2rem; z-index:1; transform:translateY(-1.9rem); height:15.4rem;
+    background:linear-gradient(180deg, #232323, #212121); color:#4c4a48; }
+
+.cc-h{ font-size:1.9rem; font-weight:700; letter-spacing:-.01em; margin:0; }
+.cc-chart svg{ display:block; width:100%; height:auto; overflow:visible; }
+.cc-chart text{ fill:#77757a; font-size:12px; font-family:inherit; }
+.cc-ln-now{ stroke:var(--cc-accent-hi); }
+.cc-ln-last{ stroke:color-mix(in srgb, var(--cc-accent-hi) 42%, #212121); }
+.cc-ring{ fill:#212121; stroke:var(--cc-accent-hi); }
+
+/* The table. No borders — the rows are spaced, not ruled. */
+.cc-table{ width:100%; border-collapse:collapse; }
+.cc-table th{ text-align:left; font-weight:500; font-size:.85rem; color:#8a8886; padding:0 .8rem .55rem 0; white-space:nowrap; }
+.cc-table td{ padding:.75rem .8rem .75rem 0; font-size:1.05rem; font-weight:500; white-space:nowrap; }
+.cc-table td.cc-strong{ font-weight:700; }
+.cc-who{ display:flex; align-items:center; gap:1.2rem; font-weight:700; }
+.cc-ico{ width:2.45rem; height:2.45rem; border-radius:50%; background:#fff; color:#1a1a1a;
+    display:grid; place-items:center; flex:0 0 auto; }
+.cc-ico svg.lucide, .cc-ico [data-lucide]{ width:1.15rem; height:1.15rem; stroke-width:1.8; }
+.cc-scroll{ overflow-x:auto; }
+.cc-table tbody tr[data-cc-pilot]{ cursor:pointer; }
+.cc-table tbody tr[data-cc-pilot]:hover td{ color:#fff; }
+.cc-table tbody tr.is-picked .cc-ico{ box-shadow:0 0 0 3px var(--cc-accent-hi); }
+.cc-table tr.cc-empty td{ color:var(--cc-muted); font-weight:500; padding:1.2rem 0; }
+#crewConsole button:disabled{ opacity:.45; cursor:default; }
+.cc-count-pill{ display:inline-grid; place-items:center; min-width:1.6rem; height:1.6rem; padding:0 .45rem; border-radius:999px;
+    background:var(--cc-accent-ink); color:var(--cc-accent); font-size:.8rem; font-weight:800; }
+.cc-note{ margin:1.2rem 0 0; font-size:.85rem; color:var(--cc-muted); line-height:1.45; }
+.cc-msg{ cursor:pointer; }
+
+/* ---- The pilot on the line ----------------------------------------------- */
+.cc-lower{ display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:.6rem; }
+.cc-panel{ background:var(--cc-panel); border-radius:var(--cc-r); padding:2.4rem; }
+.cc-pilot{ display:flex; gap:2.6rem; align-items:flex-start; }
+.cc-photo{ width:12rem; height:12rem; border-radius:1.6rem; flex:0 0 auto; overflow:hidden; position:relative;
+    background:linear-gradient(150deg, color-mix(in srgb, var(--cc-accent) 88%, #fff), color-mix(in srgb, var(--cc-accent) 85%, #000)); }
+.cc-photo.is-initials{ display:grid; place-items:center; color:var(--cc-accent-ink); font-size:3.4rem; font-weight:800; letter-spacing:.02em; }
+.cc-photo svg{ position:absolute; left:50%; bottom:-6%; width:88%; transform:translateX(-50%); }
+.cc-pills{ display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
+.cc-pill{ display:inline-flex; align-items:center; gap:.85rem; height:3.6rem; padding:0 1.6rem; border-radius:1.8rem;
+    background:#fff; color:#1a1a1a; font-size:.88rem; font-weight:500; }
+.cc-pill b{ font-weight:800; }
+.cc-rec{ display:inline-flex; align-items:center; gap:.8rem; height:3.4rem; padding:0 1.7rem; border-radius:1.7rem;
+    background:var(--cc-accent); color:var(--cc-accent-ink); font-size:.85rem; font-weight:600; }
+.cc-rec::before{ content:''; width:.4rem; height:.4rem; border-radius:50%; background:currentColor; animation:ccBlink 1.4s steps(2) infinite; }
+@keyframes ccBlink{ 50%{ opacity:.25; } }
+.cc-rec.is-quiet{ background:var(--cc-raise); color:#cfcdcb; }
+.cc-rec.is-quiet::before{ animation:none; }
+.cc-name{ font-size:2.35rem; font-weight:800; letter-spacing:-.01em; margin:1.1rem 0 .3rem; line-height:1.1; }
+.cc-tier{ display:flex; align-items:center; gap:.6rem; font-weight:500; font-size:1.05rem; }
+.cc-tier svg.lucide, .cc-tier [data-lucide]{ color:var(--cc-accent-hi); fill:var(--cc-accent-hi); width:1.1rem; height:1.1rem; }
+.cc-addr{ margin-top:2rem; font-size:.85rem; color:#8a8886; }
+
+.cc-ident{ display:grid; grid-template-columns:1fr auto; row-gap:1.2rem; align-content:start; padding:2.6rem 2.6rem 2.2rem; }
+.cc-kv{ font-size:.78rem; color:#8a8886; }
+.cc-kv b{ font-size:1.15rem; color:var(--cc-ink); font-weight:600; margin-left:.25rem; letter-spacing:.01em; }
+.cc-id{ font-size:.72rem; color:#5f5d5b; justify-self:end; }
+.cc-actions{ grid-column:1 / -1; display:flex; gap:.4rem; margin-top:.4rem; flex-wrap:wrap; }
+.cc-btn-w{ display:inline-flex; align-items:center; gap:.9rem; height:3.7rem; padding:0 2rem 0 1.3rem;
+    border-radius:1.9rem; background:#fff; color:#1a1a1a; font-size:.88rem; font-weight:600; }
+.cc-btn-o{ display:inline-flex; align-items:center; gap:.9rem; height:3.7rem; padding:0 1.8rem;
+    border-radius:1.9rem; border:1px solid #4a4846; font-size:.88rem; font-weight:600; }
+
+/* ---- The call bar -------------------------------------------------------- */
+.cc-callbar{ background:var(--cc-panel); border-radius:var(--cc-r); padding:1.1rem 2.1rem 1.1rem 4.2rem;
+    display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+.cc-cb{ display:inline-flex; align-items:center; gap:.85rem; height:4rem; padding:0 1.5rem; border-radius:2rem;
+    font-size:1.08rem; font-weight:500; transition:background .2s; }
+.cc-cb:hover{ background:var(--cc-raise); }
+.cc-cb svg.lucide, .cc-cb [data-lucide]{ width:1.6rem; height:1.6rem; }
+.cc-cb[aria-pressed="true"]{ background:#fff; color:#1a1a1a; }
+.cc-end{ margin-left:auto; display:inline-flex; align-items:center; gap:1rem; height:4.1rem; padding:0 2.4rem;
+    border-radius:2.05rem; background:var(--cc-accent); color:var(--cc-accent-ink); font-size:1.08rem; font-weight:600;
+    box-shadow:0 12px 28px -14px var(--cc-accent); }
+.cc-end:hover{ background:color-mix(in srgb, var(--cc-accent) 88%, #fff); }
+
+/* ---- Conversations ------------------------------------------------------- */
+.cc-convos{ background:#1c1c1c; border-radius:var(--cc-r); padding:2.3rem 2.1rem 1.6rem; display:flex; flex-direction:column;
+    position:sticky; top:0; height:calc(100vh - 1.2rem); min-height:0; }
+.cc-rail{ position:sticky; top:0; height:calc(100vh - 1.2rem); }
+.cc-convos-head{ display:flex; align-items:center; justify-content:space-between; }
+.cc-convos-head h2{ margin:0; font-size:2.15rem; font-weight:400; letter-spacing:-.01em; display:flex; align-items:flex-start; gap:.6rem; }
+.cc-convos-head h2::after{ content:''; width:.42rem; height:.42rem; border-radius:50%; background:var(--cc-accent-hi); margin-top:.35rem; }
+.cc-search{ display:flex; align-items:center; gap:.9rem; margin-top:2.6rem; padding:.5rem 0 .75rem; border-bottom:1px solid #3c3a38; }
+.cc-search input{ flex:1; min-width:0; background:none; border:0; outline:0; color:var(--cc-ink); font:inherit; font-size:.85rem; }
+.cc-search input::placeholder{ color:#bdbbb9; }
+.cc-count{ display:flex; align-items:center; gap:1.1rem; margin-top:.9rem; font-size:.75rem; color:#cfcdcb; }
+.cc-count span{ margin-right:auto; }
+.cc-convo-scroll{ flex:1; min-height:0; overflow:auto; margin:0 -.4rem; padding:0 .4rem;
+    mask-image:linear-gradient(180deg, #000 85%, transparent); -webkit-mask-image:linear-gradient(180deg, #000 85%, transparent); }
+.cc-sec{ font-size:1.05rem; font-weight:500; margin:1.6rem 0 1.1rem; }
+.cc-help{ display:block; width:100%; text-align:left; background:#fff; color:#1a1a1a; border-radius:1.4rem; padding:1.15rem 1.5rem; overflow:hidden; cursor:pointer; }
+.cc-help b{ display:block; font-weight:700; font-size:1rem; white-space:nowrap;
+    mask-image:linear-gradient(90deg, #000 75%, transparent); -webkit-mask-image:linear-gradient(90deg, #000 75%, transparent); }
+.cc-help span{ display:block; margin-top:.25rem; font-size:.78rem; color:#3a3836; white-space:nowrap;
+    mask-image:linear-gradient(90deg, #000 75%, transparent); -webkit-mask-image:linear-gradient(90deg, #000 75%, transparent); }
+.cc-div{ border-top:1px solid #3c3a38; margin-top:1.6rem; }
+.cc-msg{ display:grid; grid-template-columns:4.1rem minmax(0,1fr) auto; column-gap:1.1rem; align-items:start; padding:.55rem 0 .9rem; }
+.cc-av{ width:4.1rem; height:4.1rem; border-radius:50%; grid-row:span 2; display:grid; place-items:center;
+    font-weight:700; font-size:1.05rem; color:#fff; }
+.cc-msg-name{ display:flex; align-items:center; gap:.5rem; font-weight:700; font-size:1.08rem; padding-top:.5rem; }
+.cc-msg-name::before{ content:''; width:.32rem; height:.32rem; border-radius:50%; background:#6a6866; }
+.cc-msg.is-new .cc-msg-name::before{ background:var(--cc-accent-hi); }
+.cc-msg time{ font-size:.75rem; font-weight:600; padding-top:.4rem; }
+.cc-msg p{ grid-column:2 / -1; margin:.25rem 0 0; font-size:.82rem; color:#cfcdcb; white-space:nowrap; overflow:hidden; text-overflow:clip; }
+.cc-msg.is-old{ opacity:.35; }
+.cc-start{ margin-top:1rem; height:3.7rem; border-radius:1.85rem; border:1px solid #a8a6a4; font-weight:600; font-size:1.05rem; }
+.cc-start:hover{ background:#262626; }
+
+/* ---- Narrower screens ------------------------------------------------------
+   The picture is a 1920px desk. Below that it gives up the inbox column first,
+   then folds the board and the pilot into one column, then lays the rail
+   along the bottom like an app bar. */
+@media (max-width:1500px){
+    #crewConsole{ font-size:14px; }
+}
+@media (max-width:1400px){
+    .cc-top{ grid-template-columns:minmax(0,1fr); }
+    .cc-stack{ overflow-x:clip; }
+    .cc-chart{ max-width:34rem; }
+}
+@media (max-width:1240px){
+    #crewConsole{ grid-template-columns:5.25rem minmax(0,1fr); }
+    .cc-convos{ grid-column:2; }
+    .cc-convos, .cc-rail{ position:static; height:auto; }
+    .cc-rail{ height:calc(100vh - 1.2rem); position:sticky; }
+    .cc-convo-scroll{ mask-image:none; -webkit-mask-image:none; }
+}
+@media (max-width:980px){
+    .cc-lower{ grid-template-columns:minmax(0,1fr); }
+}
+/* ---- Phones ----------------------------------------------------------------
+   Not the desk squeezed: the same pieces arranged the way a phone app is.
+   A top bar with the way out and the inbox; the topics as chips; the crew ID
+   and its ratings as a row you swipe; flights as a list, not a table; the
+   pilot's photo beside their name; the call bar as a phone's call screen;
+   the inbox as a sheet that slides up; the rail as a tab bar. */
+.cc-mhead{ display:none; }
+@media (max-width:720px){
+    #crewConsole{ grid-template-columns:minmax(0,1fr); gap:.5rem;
+        padding:0 .5rem calc(5.4rem + env(safe-area-inset-bottom)); font-size:14px; }
+
+    /* The top bar. */
+    .cc-mhead{ display:flex; align-items:center; gap:.3rem; position:sticky; top:0; z-index:3;
+        margin:0 -.5rem; padding:calc(.5rem + env(safe-area-inset-top)) .6rem .5rem 1rem;
+        background:color-mix(in srgb, var(--cc-frame) 88%, transparent);
+        -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); }
+    .cc-mhead .cc-logo{ width:2.3rem; height:2.3rem; margin:0 .4rem 0 0; transform:scale(.8); transform-origin:left center; }
+    .cc-mhead .cc-logo.has-img, .cc-mhead .cc-logo.is-mono{ transform:none; width:2.1rem; height:2.1rem; border-radius:.6rem; font-size:.8rem; }
+    .cc-mtitle{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+    .cc-mtitle{ font-weight:700; font-size:1.1rem; margin-right:auto; }
+    .cc-mhead .ifc-toggle, .cc-mhead .cc-rail-btn{ width:3.1rem; height:3.1rem; border-radius:1rem; color:#cfcdcb; }
+    .cc-mhead .cc-pip{ box-shadow:0 0 0 2px var(--cc-frame); }
+
+    /* The rail, as a tab bar. The way out lives in the top bar instead. */
+    .cc-rail{ position:fixed; top:auto; height:auto; left:.5rem; right:.5rem; z-index:4;
+        bottom:calc(.5rem + env(safe-area-inset-bottom)); flex-direction:row; padding:.35rem .4rem;
+        border-radius:1.5rem; background:rgb(28 28 28 / .92); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+        box-shadow:0 -10px 30px -10px rgb(0 0 0 / .7); }
+    .cc-rail .cc-logo, .cc-rail-foot{ display:none; }
+    .cc-rail-nav{ flex:1; flex-direction:row; justify-content:space-between; gap:0; }
+    .cc-rail-btn{ width:3.1rem; height:3.1rem; }
+    .cc-rail-nav .cc-rail-btn[aria-current="page"]{ background:var(--cc-raise); }
+    .cc-rail-nav .cc-rail-btn[aria-current="page"]::after{ content:''; position:absolute; bottom:.35rem; width:.3rem; height:.3rem;
+        border-radius:50%; background:var(--cc-accent-hi); }
+
+    /* The hero: the aeroplane on top, the words under it. */
+    .cc-hero{ margin:-.3rem -.3rem .2rem; min-height:0; display:flex; flex-direction:column; }
+    .cc-hero-plane{ position:relative; top:auto; right:auto; bottom:auto; width:auto; height:12.5rem; margin:0 -8% -1.5rem; }
+    .cc-hero::after{ background:linear-gradient(180deg, transparent 0%, transparent 34%, rgb(8 10 14 / .55) 62%, rgb(8 10 14 / .8) 100%); }
+    .cc-hero-copy{ max-width:none; padding:0 1.1rem 1.3rem; gap:.75rem; }
+    .cc-hero-title{ font-size:1.75rem; }
+    .cc-hero-tag{ top:1rem; right:1rem; bottom:auto; }
+    .cc-hbtn{ height:2.6rem; padding:0 .95rem; font-size:.84rem; }
+
+    /* The topics, as chips. The call to action leads the row so it is seen. */
+    .cc-tabs{ margin:0 -.5rem; padding:.1rem .5rem .2rem; gap:.4rem; }
+    .cc-tab{ padding:.6rem 1.05rem; border-radius:999px; font-size:.9rem; }
+    .cc-tab[aria-selected="true"]{ border-radius:999px; padding-bottom:.6rem; min-width:0; background:#fff; color:#1a1a1a; }
+    .cc-tab-cta{ order:-1; margin-left:0; padding:.6rem 1.15rem; }
+
+    .cc-board, .cc-panel{ padding:1.3rem 1.1rem; border-radius:1.5rem; }
+    .cc-board{ gap:1.4rem; }
+
+    /* The crew ID and its ratings: a row to swipe through, each card stood
+       on its own rather than tucked behind the one in front. */
+    .cc-stack{ display:flex; gap:.5rem; height:auto; margin:0 -1.1rem; padding:0 1.1rem;
+        overflow-x:auto; scroll-snap-type:x mandatory; scroll-padding:0 1.1rem; scrollbar-width:none; }
+    .cc-stack::-webkit-scrollbar{ display:none; }
+    .cc-card{ position:relative; left:auto !important; transform:none !important; flex:0 0 auto; scroll-snap-align:start; height:12.4rem !important; }
+    .cc-card-front{ width:calc(100% - 3rem); padding:1.4rem 1.3rem 1.2rem; border-radius:1.3rem; box-shadow:none; }
+    .cc-card-front .cc-num{ font-size:1.32rem; margin-top:1.2rem; letter-spacing:.03em; }
+    .cc-card-front .cc-meta{ margin-top:.3rem; font-size:.78rem; }
+    .cc-card-front .cc-bank > span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+    .cc-card-front .cc-foot{ font-size:.95rem; }
+    .cc-card-back{ width:5.4rem; padding:1.1rem .7rem; border-radius:1.3rem; font-size:.85rem; }
+    /* The row is swiped sideways here, so the model turns on its own and is
+       not dragged — a drag on it would fight the swipe. */
+    .cc-ac3d{ pointer-events:none; }
+    .cc-ac3d-host{ right:-6%; bottom:14%; width:62%; height:62%; }
+    .cc-card-back b{ font-size:1.02rem; }
+    .cc-h{ font-size:1.5rem; }
+
+    /* Flights: a list. Flight and block on top, route and status under it,
+       when and on what under that — the icon stays in the gutter. */
+    .cc-table thead{ display:none; }
+    .cc-table, .cc-table tbody{ display:block; }
+    .cc-table tr{ display:grid; grid-template-columns:2.6rem minmax(0,1fr) auto; column-gap:.85rem; row-gap:.15rem;
+        grid-template-areas:"ico fl bl" "ico rt st" "ico wh ac"; padding:.8rem 0; border-top:1px solid var(--cc-line); }
+    .cc-table tr:first-child{ border-top:0; padding-top:0; }
+    .cc-table td{ padding:0; font-size:.9rem; white-space:normal; }
+    .cc-c-flight{ display:contents; }
+    .cc-c-flight .cc-who{ display:contents; }
+    .cc-c-flight .cc-ico{ grid-area:ico; align-self:start; width:2.6rem; height:2.6rem; }
+    .cc-table .cc-c-flight{ font-weight:700; }
+    .cc-table .cc-c-flight .cc-who{ font-size:1rem; }
+    .cc-c-route{ grid-area:rt; color:#cfcdcb; }
+    .cc-c-when{ grid-area:wh; font-size:.8rem !important; color:var(--cc-muted); }
+    .cc-c-when b{ font-weight:600; color:#cfcdcb; }
+    .cc-c-block{ grid-area:bl; text-align:right; font-weight:700 !important; font-variant-numeric:tabular-nums; }
+    .cc-c-status{ grid-area:st; text-align:right; font-size:.78rem !important; color:var(--cc-accent-hi); font-weight:600 !important; }
+    .cc-c-ac{ grid-area:ac; text-align:right; font-size:.8rem !important; color:var(--cc-muted); }
+    .cc-scroll{ overflow:visible; }
+    .cc-table tr.cc-empty{ display:block; padding:0; }
+    .cc-table tr.cc-empty td{ display:block; }
+    .cc-photo.is-initials{ font-size:2rem; }
+
+    /* The pilot: photo beside the name, the call pills under both. */
+    .cc-pilot{ display:grid; grid-template-columns:5.6rem minmax(0,1fr); column-gap:1rem; row-gap:0;
+        grid-template-areas:"photo name" "photo tier" "pills pills" "addr addr"; }
+    .cc-pilot > div:not(.cc-photo){ display:contents; }
+    .cc-photo{ grid-area:photo; width:5.6rem; height:5.6rem; border-radius:1.1rem; }
+    .cc-name{ grid-area:name; align-self:end; font-size:1.35rem; margin:0 0 .2rem; }
+    .cc-tier{ grid-area:tier; align-self:start; font-size:.92rem; }
+    .cc-pills{ grid-area:pills; margin-top:1.1rem; gap:.5rem; flex-wrap:nowrap; }
+    .cc-pill{ flex:1; justify-content:center; height:3rem; padding:0 1rem; font-size:.82rem; }
+    .cc-rec{ height:3rem; padding:0 1.2rem; }
+    .cc-addr{ grid-area:addr; margin-top:1rem; }
+
+    .cc-ident{ padding:1.3rem 1.1rem; row-gap:.8rem; }
+    .cc-actions{ flex-wrap:nowrap; gap:.5rem; }
+    .cc-btn-w{ flex:1; justify-content:center; height:3.2rem; padding:0 1rem; }
+    .cc-btn-o{ flex:0 0 3.2rem; height:3.2rem; padding:0; justify-content:center; }
+    .cc-btn-o .cc-lbl{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+
+    /* The call bar, as a phone's own call screen: round keys with a word under
+       each, and the red button across the bottom. */
+    .cc-callbar{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:.6rem .3rem; padding:1.1rem .8rem .9rem; border-radius:1.5rem; }
+    .cc-cb{ flex-direction:column; gap:.45rem; height:auto; padding:0; border-radius:0; font-size:.72rem; color:#cfcdcb; }
+    .cc-cb:hover{ background:none; }
+    #crewConsole .cc-cb svg.lucide, #crewConsole .cc-cb [data-lucide]{ box-sizing:content-box; width:1.35rem; height:1.35rem; padding:.85rem;
+        border-radius:50%; background:var(--cc-raise); color:#fff; }
+    .cc-cb[aria-pressed="true"]{ background:none; color:#fff; }
+    #crewConsole .cc-cb[aria-pressed="true"] svg.lucide, #crewConsole .cc-cb[aria-pressed="true"] [data-lucide]{ background:#fff; color:#1a1a1a; }
+    .cc-end{ grid-column:1 / -1; margin:.4rem 0 0; width:100%; height:3.4rem; justify-content:center; font-size:1rem; }
+
+    /* The inbox: a sheet from the bottom, over everything, closed by its X. */
+    .cc-convos{ position:fixed; inset:0; z-index:6; height:100dvh; border-radius:0; grid-column:auto;
+        padding:calc(1.2rem + env(safe-area-inset-top)) 1.2rem calc(1rem + env(safe-area-inset-bottom));
+        transform:translateY(100%); visibility:hidden;
+        transition:transform .38s cubic-bezier(.22,1,.36,1), visibility 0s linear .38s; }
+    #crewConsole.cc-inbox-open .cc-convos{ transform:none; visibility:visible; transition:transform .38s cubic-bezier(.22,1,.36,1); }
+    .cc-convos-head h2{ font-size:1.8rem; }
+    .cc-convos-head button{ width:2.8rem; height:2.8rem; display:grid; place-items:center; border-radius:50%; background:var(--cc-raise); }
+    .cc-search{ margin-top:1.4rem; }
+    .cc-convo-scroll{ mask-image:none; -webkit-mask-image:none; }
+    .cc-av{ width:3.3rem; height:3.3rem; font-size:.9rem; }
+    .cc-msg{ grid-template-columns:3.3rem minmax(0,1fr) auto; }
+    .cc-msg-name{ font-size:1rem; padding-top:.3rem; }
+    .cc-msg p{ text-overflow:ellipsis; }
+}
+@media (max-width:720px) and (prefers-reduced-motion: reduce){
+    .cc-convos, #crewConsole.cc-inbox-open .cc-convos{ transition:none; }
+}
+
+/* ---- The chooser's miniature -------------------------------------------- */
+.ifc-prev-console{
+    --p-bg:#181818; --p-surface:#242424; --p-ink:#F4F2F0;
+    --p-card-radius:5px; --p-bar-radius:999px; --p-hero-tint:.95;
+}
+.ifc-prev-console .ifc-bar{ background:transparent; border-color:transparent; }
+.ifc-prev-console .ifc-bar .ifc-line:last-child{ background:#E8553B; height:5px; width:18% !important; }
+.ifc-prev-console .ifc-hero::after{ background:linear-gradient(110deg, #E8553B 0 38%, transparent 38%) !important; }
+.ifc-prev-console .ifc-cell:last-child{ background:#1c1c1c; }

@@ -171,6 +171,9 @@
     <!-- The Airline interface's own pieces: departures board, boarding pass,
          crew ID card. Drawn only when that interface is on. -->
     <script src="/crewAirline.js"></script>
+    <!-- The Console interface: its own shell over this page. Placeholder
+         content for now; drawn only when that interface is on. -->
+    <script src="/crewConsole.js"></script>
     <!-- Being away on purpose, and spotting the pilots slipping away by
          accident while there is still time to say something. -->
     <script src="/crewLeave.js"></script>
@@ -12302,6 +12305,9 @@
             // Pictures and the designer's CSS. After CrewBrand, which owns the
             // colours, so a stylesheet written against them lands on top.
             if(window.CrewDesign){ CrewDesign.apply(b); paintDesign(); }
+            // The Console interface draws its own shell, so it is handed the
+            // record too: logo, name, flight code and accent.
+            if(window.CrewConsole) CrewConsole.brand(b);
             if(Array.isArray(b.allowedLayouts) && b.allowedLayouts.length){
                 ALLOWED = b.allowedLayouts.filter(l=>LAYOUT_META[l]);
                 if(!ALLOWED.length) ALLOWED=['editorial'];
