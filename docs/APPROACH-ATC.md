@@ -346,7 +346,36 @@ line per switch).
   - Messages drop the FAA paragraph numbers, and violations are labelled
     "IFATC procedure".
 
-The official IFATC manual couldn't be read while this was built (the site
+**Ground, from the IFATC manual (sections 2.1–2.3):**
+
+- 2.1.3 Pushback only with the area clear: pushing back with traffic moving
+  right behind the stand is a violation. Use "hold position" or "give way"
+  first.
+- 2.1.6 Departures are sent to the closest runway in use.
+- 2.2.1 **Give way**: drag one ground aircraft onto another, or pick it from
+  the card (`gw AAL123`). It stops while the other is close and still
+  coming, and carries on once it's past.
+- 2.2.2 The default commands are "Taxi to RWYXX, contact tower when ready"
+  and "Taxi to Parking". Drag and taxi gives a specific route, and jets go to
+  Tower at the runway either way. Ground issues each **runway crossing**,
+  one at a time: the next runway can't be cleared until the aircraft has
+  crossed the one before.
+- 2.2.4 No gates are assigned: arrivals taxi to parking and the pilot picks
+  the spot.
+- 2.2.5 **Progressive taxi**: expect progressive taxi instructions, turn
+  left/right next taxiway, continue straight ahead, make a 180, follow
+  aircraft ahead, then "continue taxi at your discretion" (`ept`, `tl`, `tr`,
+  `sa`, `180`, `fol AAL123`, `cyd`). Each leg runs to the next junction,
+  where the pilot holds and asks for further instructions.
+- 2.3.1 Runways are named in the direction in use ("cross runway 18", not 36).
+- 2.3.2 A crossing is a violation if a departure is rolling toward the
+  crossing point, or an arrival is over the threshold and neither past the
+  crossing point nor exiting before it.
+- 2.3.3 Anticipated crossings: "Cross runway" works before the aircraft
+  reaches the hold-short line.
+
+The rest of the manual (Tower, radar) wasn't available while this was
+built (the site
 wasn't reachable), so these follow Infinite Flight's features and community
 guidance. Where the manual says otherwise, change that line in `RULESETS`.
 

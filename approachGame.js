@@ -459,7 +459,7 @@ function freeStand() {
 
 function spawnDeparture() {
     const waiting = G.aircraft.filter(a => a.state === 'wait');
-    const rwy = nextDepRunway();
+    let rwy = nextDepRunway();
     if (!G.ground && waiting.filter(a => a.rwy === rwy).length >= 3) return false;
     const stand = G.ground ? freeStand() : null;
     if (G.ground && (!stand || G.aircraft.filter(a => a.kind === 'dep' && a.state !== 'air').length >= 6)) return false;
@@ -476,6 +476,12 @@ function spawnDeparture() {
     if (stand) {
         // At the gate, nose in: pointing at the taxiway it will push back onto.
         const n = G.ground.nodes[stand.node];
+        // IFATC 2.1.6: send aircraft to the closest runway in use.
+        if (G.rules.id === 'ifatc') {
+            const near = G.active.dep.map(e => ({ e, h: G.ground.holds.get(e) })).filter(x => x.h)
+                .sort((a, b) => Math.hypot(G.ground.nodes[a.h.node].x - stand.x, G.ground.nodes[a.h.node].y - stand.y) - Math.hypot(G.ground.nodes[b.h.node].x - stand.x, G.ground.nodes[b.h.node].y - stand.y))[0];
+            if (near) { ac.rwy = rwy = near.e; ac.tHdg = rwy.course; }
+        }
         Object.assign(ac, { state: 'gate', stand, x: stand.x, y: stand.y, hdg: brg(stand.x - n.x, stand.y - n.y), freq: 'GND', readyAt: G.t + rand(5, 60), called: false });
         G.aircraft.push(ac);
         maybeEmergency(ac);
@@ -613,12 +619,43 @@ function violation(ac, rule, text) {
     if (G.aiActing) return;
     G.stats.violations++;
     award(ac, -VIOLATION_PTS);
-    sys(`${text} — ${G.rules.id === 'ifatc' ? 'IFATC procedure' : rule}.`, 'bad');
+    sys(`${text} — ${G.rules.id === 'ifatc' && !rule.startsWith('IFATC') ? 'IFATC procedure' : rule}.`, 'bad');
 }
 
 function zuluAt(t) {
     const z = new Date(G.zulu0 + t * 1000);
     return String(z.getUTCHours()).padStart(2, '0') + String(z.getUTCMinutes()).padStart(2, '0');
+}
+
+const crossOwner = ac => (G.rules.id === 'ifatc' && ac.freq === 'GND' ? 'GND' : 'TWR');
+
+/** A runway as it's named for a crossing: by the direction in use (IFATC 2.3.1), whichever end the aircraft is at. */
+function crossName(cr) {
+    const ends = G.world.ends.filter(e => e.phys === cr.phys);
+    const used = ends.find(e => G.active.dep.includes(e) || G.active.arr.includes(e));
+    return (used || ends.sort((a, b) => a.id.localeCompare(b.id))[0])?.id || cr.label;
+}
+
+/**
+ * Why crossing this runway now isn't safe (IFATC 2.3.2), or null: a departure
+ * rolling and not yet past the crossing point (or airborne and turning), or an
+ * arrival over the threshold, not exiting before the crossing point or past it.
+ */
+function crossingUnsafe(ac, cr) {
+    const at = pointAt(ac.route, cr.s);
+    for (const o of G.aircraft) {
+        if (o === ac) continue;
+        const e = o.state === 'roll' ? o.rwy : o.state === 'rollout' || (o.state === 'taxi' && o.purpose === 'exit') ? o.landEnd : null;
+        if (!e || e.phys !== cr.phys) continue;
+        const c = e.course * D2R, along = p => (p.x - e.thr.x) * Math.sin(c) + (p.y - e.thr.y) * Math.cos(c);
+        const crossAt = along(at), here = along(o);
+        if (here > crossAt + 0.05) continue;                                         // past the crossing point
+        if (o.state === 'roll') return `${o.cs} is rolling toward the crossing point`;
+        if (o.exitAt && o.exitAt.along < crossAt - 0.05) continue;                   // turning off before it
+        if (o.state === 'taxi') continue;
+        return `${o.cs} has landed and is rolling toward the crossing point`;
+    }
+    return null;
 }
 
 /**
@@ -628,8 +665,8 @@ function zuluAt(t) {
  */
 function issue(ac, c) {
     if (!ac || ac.gone) return false;
-    // Runway crossings are the tower's to give, whoever the aircraft is talking to.
-    const owner = c.cross ? 'TWR' : ac.freq;
+    // Runway crossings are the tower's to give (real life) or Ground's, in coordination with Tower (IFATC 2.2.2).
+    const owner = c.cross ? crossOwner(ac) : ac.freq;
     if (!c.ai && !G.positions.has(owner)) {
         sys(`${ac.cs} is on ${FREQ_NAME[owner]}, which the system is working.`);
         return false;
@@ -647,6 +684,10 @@ function issueCall(ac, c) {
     // ---- ground
     if (c.push) {
         if (ac.state !== 'gate' || ac.kind !== 'dep') { sys(`${ac.cs} isn't waiting at a gate.`); return false; }
+        if (!G.aiActing && G.rules.id === 'ifatc') {
+            const near = G.aircraft.find(o => o !== ac && (o.state === 'taxi' || o.state === 'push') && Math.hypot(o.x - ac.x, o.y - ac.y) < 0.07);
+            if (near) violation(ac, 'IFATC 2.1.3', `${ac.cs} pushed back with ${near.cs} moving right behind: check the area is clear, or "hold position" / give way first`);
+        }
         ac.state = 'push'; ac.pushLeft = 40;
         parts.push('pushback approved'); back.push('pushing back');
     }
@@ -684,10 +725,24 @@ function issueCall(ac, c) {
         ac.holdPos = false; parts.push('continue taxi'); back.push('continuing');
     }
     if (c.cross) {
-        const cr = ac.crossReq;
-        if (!cr) { sys(`${ac.cs} isn't waiting to cross a runway.`); return false; }
-        cr.cleared = true; ac.crossReq = null;
-        parts.push(`cross runway ${cr.label}`); back.push(`crossing ${cr.label}`);
+        // Anticipated crossings are encouraged (IFATC 2.3.3): the next runway on the route, once any before it is crossed.
+        const r = ac.state === 'taxi' && ac.route;
+        const cr = ac.crossReq || (r && r.crossings.find(x => !x.cleared));
+        if (!cr) { sys(`${ac.cs} has no runway to cross.`); return false; }
+        if (r && r.crossings.some(x => x.cleared && x !== cr && ac.s < x.clearS)) { sys(`${ac.cs} has to finish crossing the runway it's on first (IFATC 2.2.2).`); return false; }
+        const why = r && !G.aiActing && crossingUnsafe(ac, cr);
+        if (why) violation(ac, G.rules.id === 'ifatc' ? 'IFATC 2.3.2' : '7110.65 3-1-3', `${ac.cs} cleared to cross while ${why}`);
+        cr.cleared = true; cr.asked = true; ac.crossReq = null;
+        parts.push(`cross runway ${crossName(cr)}`); back.push(`crossing ${crossName(cr)}`);
+    }
+    if (c.giveWay) {
+        const o = c.giveWay;
+        if (o === ac || !isSurface(o)) { sys('Give way to an aircraft on the ground.'); return false; }
+        ac.giveWay = { o, t: G.t, closest: Infinity };
+        parts.push(`give way to ${o.radio}`); back.push(`giving way to ${o.radio}`);
+    }
+    if (c.prog || c.follow || c.discretion || c.expectProg) {
+        if (!progressive(ac, c, parts, back)) return false;
     }
 
     // ---- things that stop the call before it is made
@@ -942,13 +997,15 @@ function taxiClearance(ac, want, parts, back) {
         coordSay('TWR', 'GND', `I asked you to hold them at the gate: ${ac.cs} is just going to wait at the runway.`);
     }
     startTaxi(ac, r, purpose);
-    ac.toTower = purpose === 'runway' && wasTower;
+    // IFATC 2.2.2: "Taxi to RWYXX, contact tower when ready" is the default, and jets are assumed ready at the runway.
+    ac.toTower = purpose === 'runway' && (wasTower || G.rules.id === 'ifatc');
+    ac.prog = false;
     const via = r.names.join(', ') || 'the taxiway';
-    const hs = r.crossings.length ? `, hold short of runway ${r.crossings[0].label}` : '';
+    const hs = r.crossings.length ? `, hold short of runway ${crossName(r.crossings[0])}` : '';
     if (!G.rules.taxiVia) {
         // Infinite Flight: by runway or parking; the route is the one on the map.
         const where = purpose === 'runway' ? `runway ${ac.rwy.id}` : purpose === 'gate' ? 'parking' : null;
-        parts.push(where ? `taxi to ${where}${hs}` : `taxi as shown, ${hold}${hs}`);
+        parts.push(where ? `taxi to ${where}${hs}${purpose === 'runway' ? ', contact tower when ready' : ''}` : `taxi as shown, ${hold}${hs}`);
         back.push(where ? `taxi to ${where}${hs}` : `${hold}${hs}`);
     } else if (purpose === 'runway') {
         parts.push(`runway ${ac.rwy.id}, taxi via ${via}${hs}`);
@@ -1233,7 +1290,7 @@ function groundStep(ac, dt) {
         if (ac.kind === 'arr' && G.t >= ac.parkedUntil) ac.gone = true;
         return true;
     case 'push': {
-        if (ac.holdPos) return true;
+        if (ac.holdPos || givingWay(ac)) return true;
         ac.pushLeft -= dt;
         // Back off the stand, tail first, toward the taxiway.
         const back = 0.035 / 40 * dt;
@@ -1293,7 +1350,7 @@ function taxiStep(ac, dt) {
     const cx = r.crossings.find(c => !c.cleared && c.stopS >= ac.s - 0.002);
     const end = r.len - (r.stopEarly || 0);
     let limit = cx ? Math.min(end, cx.stopS) : end;
-    if (ac.holdPos) limit = ac.s;
+    if (ac.holdPos || givingWay(ac)) limit = ac.s;
     const block = trafficAhead(ac);
     if (block) {
         limit = ac.s;
@@ -1322,9 +1379,114 @@ function taxiStep(ac, dt) {
     ac.x = p.x; ac.y = p.y;
     if (cx && !cx.asked && ac.s >= cx.stopS - 0.004) {
         cx.asked = true; ac.crossReq = cx;
-        pilot(ac, `${G.world.icao} Tower, ${ac.radio}, holding short of runway ${cx.label}, request to cross.`);
+        pilot(ac, `${G.world.icao} ${FREQ_NAME[crossOwner(ac)]}, ${ac.radio}, holding short of runway ${crossName(cx)}, request to cross.`);
     }
     if (ac.s >= end - 0.0005) arrive(ac);
+}
+
+/**
+ * Giving way: stopped while the other aircraft is close and still coming,
+ * free again once it's past (behind us or moving away) or gone.
+ */
+function givingWay(ac) {
+    const g = ac.giveWay;
+    if (!g) return false;
+    const o = g.o, d = Math.hypot(o.x - ac.x, o.y - ac.y);
+    const moving = (o.state === 'taxi' || o.state === 'push') && !o.holdPos;
+    g.closest = Math.min(g.closest, d);
+    const past = g.closest < 0.08 && d > g.closest + 0.03;
+    if (o.gone || !isSurface(o) || past || G.t - g.t > 180 || (!moving && G.t - g.t > 20)) { ac.giveWay = null; return false; }
+    return d < 0.2;
+}
+
+/* ---- Progressive taxi (IFATC 2.2.5): turn by turn, junction to junction ---- */
+
+/** The route so far up to the next junction ahead (3+ ways), or to the node the aircraft is at. */
+function toNextJunction(ac) {
+    const gr = G.ground, r = ac.route;
+    // Route points are node positions (plus the start, and a stand at the end): find the nodes by position.
+    if (!gr.byPos) { gr.byPos = new Map(); for (const n of gr.nodes) gr.byPos.set(n.x.toFixed(6) + ',' + n.y.toFixed(6), n); }
+    const nodeAt = p => gr.byPos.get(p.x.toFixed(6) + ',' + p.y.toFixed(6));
+    if (ac.state === 'taxi' && r) {
+        const i = pointAt(r, ac.s).i;
+        let lastNode = null, lastK = -1;
+        for (let k = i; k < r.pts.length; k++) {
+            const n = nodeAt(r.pts[k]);
+            if (!n) continue;
+            lastNode = n; lastK = k;
+            if (n.edges.length >= 3) break;
+        }
+        if (lastNode) {
+            const pts = [{ x: ac.x, y: ac.y }, ...r.pts.slice(i, lastK + 1)];
+            const a = pts[pts.length - 2] || ac, b = pts[pts.length - 1];
+            return { pts, node: lastNode, hdg: Math.hypot(b.x - a.x, b.y - a.y) > 1e-4 ? brg(b.x - a.x, b.y - a.y) : ac.hdg };
+        }
+    }
+    const n = nearestNode(gr, ac, false);
+    return n && { pts: [{ x: ac.x, y: ac.y }, { x: n.x, y: n.y }], node: n, hdg: ac.hdg };
+}
+
+/** From a junction, the next leg: left, right, straight on, or back the way we came, then on to the next junction. */
+function legFrom(node, hdg, turn) {
+    const N = G.ground.nodes;
+    const bearing = (a, b) => brg(b.x - a.x, b.y - a.y);
+    const opts = node.edges.map(e => ({ e, ang: diff(hdg, bearing(node, N[e.to])) }));
+    const want = { L: -90, R: 90, S: 0, 180: 180 }[turn];
+    const ok = turn === 'L' ? o => o.ang < -25 && o.ang > -160 : turn === 'R' ? o => o.ang > 25 && o.ang < 160 : turn === 'S' ? o => Math.abs(o.ang) <= 35 : o => Math.abs(o.ang) >= 135;
+    const pick = opts.filter(ok).sort((a, b) => Math.abs(Math.abs(a.ang) - Math.abs(want)) - Math.abs(Math.abs(b.ang) - Math.abs(want)))[0];
+    if (!pick) return null;
+    const ids = [], names = [pick.e.name].filter(Boolean);
+    let prev = node, cur = N[pick.e.to];
+    ids.push(cur.id);
+    for (let guard = 0; guard < 500 && cur.edges.length === 2; guard++) {
+        const nx = cur.edges.find(e => e.to !== prev.id);
+        if (!nx) break;
+        if (nx.name && names[names.length - 1] !== nx.name) names.push(nx.name);
+        prev = cur; cur = N[nx.to];
+        ids.push(cur.id);
+    }
+    return { ids, names };
+}
+
+const PROG_SAY = { L: 'turn left next taxiway', R: 'turn right next taxiway', S: 'continue straight ahead', 180: 'make a 180' };
+
+function progressive(ac, c, parts, back) {
+    const gr = G.ground;
+    if (!gr) { sys('There is no taxiway map for this airport.'); return false; }
+    if (!['taxi', 'pushed', 'clear'].includes(ac.state) || ac.purpose === 'exit' && ac.state === 'taxi') { sys(`${ac.cs} isn't taxiing.`); return false; }
+    if (c.expectProg) { ac.prog = true; parts.push('expect progressive taxi instructions'); back.push('expect progressive'); return true; }
+    if (c.discretion) {
+        ac.prog = false;
+        const plan = planTaxi(ac, defaultTaxiTarget(ac, true));
+        if (plan.err) { sys(`${ac.cs}: ${plan.err}.`); return false; }
+        startTaxi(ac, plan.r, plan.purpose);
+        if (plan.purpose === 'runway' && G.rules.id === 'ifatc') ac.toTower = true;
+        parts.push('continue taxi at your discretion'); back.push('continuing at our discretion');
+        return true;
+    }
+    let pts, ids, names;
+    if (c.follow) {
+        const o = c.follow;
+        if (o === ac || o.state !== 'taxi' || !o.route) { sys(`${o.cs} isn't taxiing.`); return false; }
+        const from = nearestNode(gr, ac, false), to = nearestNode(gr, o, false);
+        const r = from && to && route(gr, from.id, to.id);
+        if (!r) { sys(`No way to follow ${o.cs} from here.`); return false; }
+        const rest = o.route.pts.slice(pointAt(o.route, o.s).i);
+        pts = [{ x: ac.x, y: ac.y }, ...r.pts, ...rest]; names = [...r.names, ...(o.route.names || [])];
+        ac.prog = true;
+        startTaxi(ac, withCrossings(gr, { pts, names }), 'prog');
+        parts.push(`follow ${o.radio}`); back.push(`following ${o.radio}`);
+        return true;
+    }
+    // Turn at the next junction (or, for a 180, back the way we came from where we are).
+    const j = c.prog === '180' ? { pts: [{ x: ac.x, y: ac.y }], node: nearestNode(gr, ac, false), hdg: ac.hdg } : toNextJunction(ac);
+    const leg = j && j.node && legFrom(j.node, j.hdg, c.prog);
+    if (!leg) { sys(`${ac.cs}: no taxiway that way at the next junction.`); return false; }
+    pts = [...j.pts, ...(c.prog === '180' ? [{ x: j.node.x, y: j.node.y }] : []), ...leg.ids.map(id => ({ x: gr.nodes[id].x, y: gr.nodes[id].y }))];
+    ac.prog = true;
+    startTaxi(ac, withCrossings(gr, { pts, names: leg.names }), 'prog');
+    parts.push(PROG_SAY[c.prog]); back.push(PROG_SAY[c.prog]);
+    return true;
 }
 
 /** End of a taxi route. */
@@ -1348,6 +1510,10 @@ function arrive(ac) {
             ac.remindAt = G.t + 60;
             pilot(ac, `Tower, ${ac.radio}, clear of ${ac.landEnd.id}${ac.exitTwy ? ' at ' + ac.exitTwy : ''}.`);
         }
+    } else if (ac.purpose === 'prog') {
+        ac.state = ac.kind === 'dep' ? 'pushed' : 'clear';
+        const twy = nearestNode(G.ground, ac, false)?.edges.find(e => e.name)?.name;
+        pilot(ac, `${ac.radio}, holding${twy ? ' on ' + twy : ''}, request further instructions.`);
     } else if (ac.purpose === 'point') {
         ac.state = ac.kind === 'dep' ? 'pushed' : 'clear';
         pilot(ac, `${ac.radio}, ${(ac.heldAt || 'holding').replace(/^hold/, 'holding')}.`);
@@ -1420,7 +1586,7 @@ function aiControl() {
     if (!G.positions.has('APP')) { aiConflicts(); aiTerrainNet(); }
     for (const ac of G.aircraft) {
         if (ac.gone) continue;
-        if (ac.crossReq && !G.positions.has('TWR')) aiCross(ac);
+        if (ac.crossReq && !G.positions.has(crossOwner(ac))) aiCross(ac);
         if (G.positions.has(ac.freq)) continue;
         if (ac.freq === 'APP') aiApproach(ac);
         else if (ac.freq === 'TWR') aiTower(ac);
@@ -2879,6 +3045,8 @@ function intentTag(a) {
 function groundTarget(sx, sy) {
     const gr = G.ground;
     const [wx, wy] = toW(sx, sy), p = { x: wx, y: wy }, px = 1 / view.scale;
+    const other = G.aircraft.find(o => o !== drag?.ac && isSurface(o) && o.state !== 'gate' && Math.hypot(o.x - wx, o.y - wy) < 12 * px);
+    if (other) return { kind: 'ac', ac: other, x: other.x, y: other.y, key: 'a' + other.id };
     let gate = null, gd = 14 * px;
     for (const g of gr.gates) { const d = Math.hypot(g.x - wx, g.y - wy); if (d < gd) { gd = d; gate = g; } }
     if (gate) return { kind: 'gate', gate, x: gate.x, y: gate.y, key: 'g' + gr.gates.indexOf(gate) };
@@ -2898,6 +3066,7 @@ function groundTarget(sx, sy) {
 /** What dropping an aircraft on a target means: { label, cmd, r } or { label, err }. */
 function dropPlan(ac, tgt) {
     if (!tgt) return { err: true, label: 'Drop on a runway, taxiway or gate' };
+    if (tgt.kind === 'ac') return { label: `Give way to ${tgt.ac.cs}`, cmd: { giveWay: tgt.ac } };
     if (ac.state === 'gate') return ac.kind === 'dep' && ac.called ? { label: 'Pushback approved', cmd: { push: true } } : { err: true, label: ac.kind === 'dep' ? 'Not ready to push yet' : 'Parked' };
     if (ac.crossReq && tgt.kind === 'rwy' && tgt.end.phys === ac.crossReq.phys) return { label: `Cross runway ${ac.crossReq.label}`, cmd: { cross: true } };
     if (ac.state === 'wait' && tgt.kind === 'rwy' && tgt.end.phys === ac.rwy.phys) {
@@ -3130,7 +3299,7 @@ function renderCard(force) {
     el.hidden = !ac;
     $('#scope-wrap').classList.toggle('info-open', !!ac);
     if (!ac) { cardKey = 'none'; el.innerHTML = ''; return; }
-    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}|${!!ac.toTower}|${!!ac.toGround}|${ac.purpose}`;
+    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}|${!!ac.toTower}|${!!ac.toGround}|${ac.purpose}|${!!ac.prog}|${ac.route?.crossings.filter(x => x.cleared).length}`;
     if (!force && key === cardKey) { updateCard(); return; }
     cardKey = key;
     const ground = ac.state !== 'air';
@@ -3148,7 +3317,23 @@ function renderCard(force) {
         (ac.state === 'taxi' || ac.state === 'push') && !ac.holdPos ? `<button class="btn" data-act="holdPos">Hold position</button>` : '',
         ac.holdPos ? `<button class="btn primary" data-act="cont">Continue taxi</button>` : '',
     ].join('');
-    const crossBtn = ac.crossReq && twr ? `<div class="btn-row"><button class="btn primary" data-act="cross">Cross runway ${ac.crossReq.label}</button></div>` : '';
+    const nextCross = ac.crossReq || (ac.state === 'taxi' && ac.route?.crossings.find(x => !x.cleared));
+    const crossBtn = nextCross && G.positions.has(crossOwner(ac))
+        ? `<div class="btn-row"><button class="btn${ac.crossReq ? ' primary' : ''}" data-act="cross">Cross runway ${crossName(nextCross)}${ac.crossReq ? '' : ' (ahead)'}</button></div>` : '';
+    // Progressive taxi and give way (IFATC 2.2.1, 2.2.5), for whoever's on Ground and moving or ready to.
+    const gndMoving = G.ground && ac.freq === 'GND' && yours && (['pushed', 'clear'].includes(ac.state) || ac.state === 'taxi' && ac.purpose !== 'exit');
+    const nearby = gndMoving ? G.aircraft.filter(o => o !== ac && isSurface(o) && o.state !== 'gate' && Math.hypot(o.x - ac.x, o.y - ac.y) < 0.8) : [];
+    const progBtns = gndMoving ? `
+        <div class="btn-row">
+            <button class="btn" data-prog="L">↰ Left next</button><button class="btn" data-prog="S">↑ Straight</button><button class="btn" data-prog="R">Right next ↱</button><button class="btn" data-prog="180">180</button>
+        </div>
+        <div class="btn-row">
+            ${ac.prog ? `<button class="btn primary" data-act="discretion">Continue at your discretion</button>` : `<button class="btn" data-act="expectProg">Expect progressive taxi</button>`}
+        </div>
+        ${nearby.length ? `<div class="btn-row">
+            <select data-act="giveWay" aria-label="Give way to"><option value="">Give way to…</option>${nearby.map(o => `<option value="${o.id}">${o.cs}</option>`).join('')}</select>
+            <select data-act="follow" aria-label="Follow"><option value="">Follow…</option>${nearby.filter(o => o.state === 'taxi').map(o => `<option value="${o.id}">${o.cs}</option>`).join('')}</select>
+        </div>` : ''}` : '';
     const ilsBtns = ac.kind === 'arr' && !ground
         ? G.active.arr.map(e => `<button class="btn ils" data-ils="${e.id}">ILS ${e.id}</button>`).join('')
           + (ac.appr?.loc && !ac.landClr ? `<button class="btn primary" data-act="land">Cleared to land ${ac.appr.end.id}</button>` : '')
@@ -3167,6 +3352,7 @@ function renderCard(force) {
         </div>
         <div class="card-status" id="card-status"></div>
         ${crossBtn}
+        ${progBtns}
         ${!yours ? `<div class="card-empty">The system is working ${FREQ_NAME[ac.freq]}. It will reach your frequency when it's handed off.</div>` : surface ? (groundBtns ? `<div class="btn-row">${groundBtns}</div>` : '') : `
         ${ac.wxReq ? `<div class="btn-row"><button class="btn primary" data-act="dev">Approve ${ac.wxReq.deg}° ${ac.wxReq.dir === 'L' ? 'left' : 'right'} for weather</button></div>` : ''}
         ${ground ? '' : `<div class="row"><label>Heading</label><div class="stepper">
@@ -3243,6 +3429,8 @@ function bindCard() {
         if (!b || !G.selected) return;
         const ac = G.selected;
         if (b.dataset.act === 'close') { select(null); return; }
+        if (b.dataset.prog) { issue(ac, { prog: b.dataset.prog }); renderCard(true); return; }
+        if (b.dataset.act === 'discretion' || b.dataset.act === 'expectProg') { issue(ac, { [b.dataset.act]: true }); renderCard(true); return; }
         if (b.dataset.adj) { const [k, v] = b.dataset.adj.split(':'); adjust(k, Number(v)); return; }
         if (b.dataset.ils) { transmitPending({ ils: findEnd(b.dataset.ils) }); return; }
         const act = b.dataset.act;
@@ -3263,6 +3451,10 @@ function bindCard() {
         if (s.dataset.act === 'direct') issue(G.selected, { direct: G.world.fixes.find(f => f.name === s.value) });
         if (s.dataset.act === 'hold') issue(G.selected, { holdFix: G.world.fixes.find(f => f.name === s.value) });
         if (s.dataset.act === 'ils-other') { transmitPending({ ils: findEnd(s.value) }); return; }
+        if (s.dataset.act === 'giveWay' || s.dataset.act === 'follow') {
+            const o = G.aircraft.find(a => a.id === Number(s.value));
+            if (o) issue(G.selected, { [s.dataset.act]: o });
+        }
         renderCard(true);
     });
 }
@@ -3369,6 +3561,14 @@ function runCommand(text) {
             if (nx && (findEnd(nx) || G.ground?.gates.some(g => g.ref.toUpperCase() === nx))) { c.taxi = nx; i++; } else c.taxi = true;
         }
         else if (t === 'SP' || t === 'SLOW' || t === 'SLOWEST') c.slowest = true;
+        else if (t === 'TL' || t === 'TR' || t === 'SA' || t === '180' || t === 'M180') c.prog = t === 'TL' ? 'L' : t === 'TR' ? 'R' : t === 'SA' ? 'S' : '180';
+        else if (t === 'CYD' || t === 'DISC') c.discretion = true;
+        else if (t === 'EPT' || t === 'PROG') c.expectProg = true;
+        else if (t === 'GW' || t === 'FOL' || t === 'FOLLOW') {
+            const o = G.aircraft.find(a => a.cs === toks[i + 1] || (a.cs.endsWith(toks[i + 1] || '#') && /^\d+$/.test(toks[i + 1] || '')));
+            if (!o) { sys(`${t === 'GW' ? 'Give way to' : 'Follow'} whom? e.g. "${t.toLowerCase()} AAL123".`); return; }
+            c[t === 'GW' ? 'giveWay' : 'follow'] = o; i++;
+        }
         else if (t === 'MT' || t === 'TWR' || t === 'TOWER') c.tower = true;
         else if (t === 'MG' || t === 'GND' || t === 'GROUND') c.ground = true;
         else if (t === 'HP') c.holdPos = true;
