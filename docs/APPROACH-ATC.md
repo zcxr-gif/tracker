@@ -465,6 +465,20 @@ Not modelled: Center itself, cruise, Mach, active/away, Resume Flight
 - 6.13.2 At Tower a visual gets a sequence (if not number 1) and its
   clearance, no pattern entry (3.6.3 above).
 
+**Handover to Tower (IFATC 6.14):** under Infinite Flight rules, with you
+on Approach and the system on Tower:
+
+- An arrival established on the localizer stays with you until you switch
+  it: **Contact Tower** moves to the top of its card. It asks at 4 NM, and on
+  a 2 NM final it switches itself (−2).
+- 6.14.1 / 6.14.2 Switching an ILS or GPS arrival before it's established
+  (aligned with the centerline, not just in the cone) is a violation.
+- 6.14.3 So is switching one that's closing on the aircraft ahead fast
+  enough to be under 3 NM when that one lands (ground speeds, wind
+  included). Slow it first, or keep it on frequency until spacing is
+  assured.
+- 6.14.4 "Maintain 180 knots until 5 mile final" is in Request speed.
+
 **Holding (IFATC 6.7):** under Infinite Flight rules:
 
 - 6.7.2 **Hold at…** lists **Present position** and the fixes still ahead on

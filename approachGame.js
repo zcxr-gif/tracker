@@ -1867,6 +1867,13 @@ function issueCall(ac, c) {
                 : G.rules.id === 'ifatc' ? `${ac.cs} goes to Tower once it's cleared for an approach, or on vectors within 15 miles.` : `${ac.cs} goes to Tower once it's cleared for an approach.`);
             return false;
         }
+        // IFATC 6.14.1 / 6.14.2: established on the intended path (an ILS or GPS: on the localizer, not just in the cone),
+        // and 6.14.3: an acceptable closure on the one ahead.
+        if (G.rules.id === 'ifatc' && !G.aiActing && ac.appr && ac.appr.type !== 'VIS') {
+            if (!ac.appr.loc) violation(ac, 'IFATC 6.14.2', `${ac.cs} went to Tower before it was established on the ${ac.appr.type === 'ILS' ? 'localizer' : 'final approach course'}`);
+            const lead = closingOn(ac);
+            if (lead) violation(ac, 'IFATC 6.14.3', `${ac.cs} went to Tower closing on ${lead.ac.cs}: ${lead.gap.toFixed(1)} miles now, about ${Math.max(0, lead.at).toFixed(1)} when ${lead.ac.cs} lands. Slow it first, or keep it until spacing is assured`);
+        }
         // IFATC 6.12.1 / 6.12.2: on radar vectors, put on a recognizable leg and down to pattern altitude first (in VMC).
         if (vectors && !G.aiActing && visualWx() && ac.vfrIn !== 'FF') {
             const pa = circuitAlt(ac), d = Math.hypot(ac.x, ac.y);
@@ -2348,6 +2355,23 @@ const instrumentHandoff = ac => !noRadar() && !ac.circuit && !!ac.appr && ac.app
 const HANDOFF_SAY = { RV: 'radar vectors', FF: 'flight following' };
 /** Radar can hand an arrival not on an approach to Tower (IFATC 3.6.3): Infinite Flight rules, VMC, within 15 miles. */
 const radarVectorsOk = ac => G.rules.id === 'ifatc' && ac.state === 'air' && !ac.circuit && Math.hypot(ac.x, ac.y) < 15 && (visualWx() || imcVectorsOk(ac));
+/** Ground speed, roughly: true airspeed (2% a thousand feet) less the headwind along the course. */
+const groundSpeed = (ac, course) => ac.spd * (1 + Math.max(0, ac.alt) / 1000 * 0.02) - G.wind.spd * Math.cos(diff(course, G.wind.dir) * D2R);
+/**
+ * The aircraft ahead on the same final, when this one is closing on it fast enough to be under 3 miles by the time
+ * it lands (IFATC 6.14.3): { ac, gap, at }. Null when the closure is acceptable.
+ */
+function closingOn(ac) {
+    const e = ac.appr?.end;
+    if (!e) return null;
+    const ahead = G.aircraft.filter(o => o !== ac && o.state === 'air' && o.appr?.loc && sameRunwayish(o.appr.end, e) && o.appr.along < ac.appr.along)
+        .sort((a, b) => b.appr.along - a.appr.along)[0];
+    if (!ahead) return null;
+    const gap = ac.appr.along - ahead.appr.along, gsA = groundSpeed(ahead, e.course), gsB = groundSpeed(ac, e.course);
+    const at = gap - (gsB - gsA) * (ahead.appr.along / Math.max(gsA, 60));
+    return at < SEP_NM ? { ac: ahead, gap, at } : null;
+}
+
 /** Below VMC (IFATC 6.12.3): vectored toward an instrument final, placed to set itself up for it: in the cone 5–20 NM out, within 45° of the course, below the glideslope. */
 function imcVectorsOk(ac) {
     return G.active.arr.some(e => {
@@ -2775,6 +2799,15 @@ function checkIns() {
             const what = ac.svc === 'FF' ? 'request for flight following' : ac.svc === 'RV' ? 'request for vectors' : 'Check In';
             if (!ac.checkInRepeated && G.t - ac.checkInAt > 45) { ac.checkInRepeated = true; pilot(ac, ac.svc ? `${facName('APP')}, ${ac.radio}, ${fmtAlt(Math.round(ac.alt / 100) * 100)}, ${ac.svc === 'FF' ? 'request flight following' : 'request vectors to the field'}.` : `${facName('DEP')}, ${ac.radio}, checking in, ${fmtAlt(Math.round(ac.alt / 100) * 100)}.`); }
             if (!ac.checkInFlagged && G.t - ac.checkInAt > 90) { ac.checkInFlagged = true; violation(ac, ac.svc ? 'IFATC 6.5.1' : 'IFATC 6.4.4', `${ac.cs}'s ${what} wasn't answered`); }
+        }
+        // Established and still with your Approach (IFATC 6.14): it asks at 4 miles, and goes at 2 on its own.
+        if (ac.appr?.loc && ac.freq === 'APP' && mine(ac) && ac.state === 'air') {
+            if (ac.appr.along < 4 && !ac.askedTwr) { ac.askedTwr = true; pilot(ac, `${facName('APP')}, ${ac.radio}, ${Math.max(1, Math.round(ac.appr.along))} mile final, request frequency change to Tower.`); }
+            if (ac.appr.along < 2) {
+                award(ac, -2); sys(`${ac.cs} switched itself to Tower on a 2 mile final: hand it over once established and spaced (IFATC 6.14).`, 'bad');
+                Object.assign(ac, { freq: 'TWR', handoff: ac.appr.type });
+                pilot(ac, `${facName('TWR')}, ${ac.radio}, ${Math.max(1, Math.round(ac.appr.along))} mile final runway ${ac.appr.end.id}.`);
+            }
         }
         // An approach request not answered after a minute: asked again (IFATC 6.9.3).
         if (ac.request?.checkin && ac.freq === 'APP' && mine(ac) && !ac.reqRepeated && G.t - ac.born > 60) {
@@ -4393,6 +4426,8 @@ function approachLateral(ac) {
     ac.turn = null;
     if (!ap.est && Math.abs(g.xt) < 0.2 && Math.abs(diff(ac.hdg, c)) < 10) {
         ap.est = true;
+        // IFATC 6.14: your Approach (with the system on Tower) switches it, when its spacing is assured.
+        if (G.rules.id === 'ifatc' && ac.freq === 'APP' && G.positions.has('APP') && !G.positions.has('TWR')) return true;
         if (ac.freq === 'APP') ac.handoff = ap.type;
         ac.freq = 'TWR';
         // Approach hands it to the tower; you are both, so the call comes straight to you.
@@ -5750,10 +5785,12 @@ function airMenu(ac, add) {
     if (inbound) add('Request speed', { sub: speedMenu(ac) });
     if (ac.kind === 'arr' && !inbound && !ac.overfly) add('Expect approach…', { sub: () => expectList(ac) });
     const other = [
-        ...(ac.kind === 'arr' && ac.freq === 'APP' && (ac.appr || ac.pattern || radarVectorsOk(ac)) ? [{ label: `Contact ${freqLabel('TWR')}${ac.appr || ac.pattern ? '' : ` (${HANDOFF_SAY[ac.vfrIn || 'RV']})`}`, cmd: { toTwr: true } }] : []),
+        ...(ac.kind === 'arr' && ac.freq === 'APP' && (ac.appr || ac.pattern || radarVectorsOk(ac) && !ac.overfly) ? [{ label: `Contact ${freqLabel('TWR')}${ac.appr || ac.pattern ? '' : ` (${HANDOFF_SAY[ac.vfrIn || 'RV']})`}`, cmd: { toTwr: true } }] : []),
         ...(ac.kind === 'dep' && ac.freq === 'TWR' ? [{ label: 'Frequency change approved', cmd: { freqChange: true } }] : []),
     ];
-    if (other.length) add('Contact other frequency', { sub: () => other });
+    // Established on the localizer with your Approach (IFATC 6.14): the switch to Tower up front.
+    if (ac.appr?.loc && ac.freq === 'APP' && G.rules.id === 'ifatc') add(`Contact ${freqLabel('TWR')}`, { cmd: { toTwr: true } }, true);
+    else if (other.length) add('Contact other frequency', { sub: () => other });
     if (ac.kind === 'arr' && !inbound && !ac.overfly) add('Clear for approach', { sub: () => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t, ac).map(e => ({ label: `Runway ${e.id}`, cmd: t === 'VIS' ? { visual: e } : { ils: e, appType: t } })) })) });
     add('Ask for intentions', { cmd: { intentions: true } });
     if (ac.kind === 'arr') add('Misc. messages', { sub: () => [
