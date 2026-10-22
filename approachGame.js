@@ -1011,7 +1011,7 @@ let G = null;
 let nextId = 1;
 
 /** The three positions. Each aircraft is on exactly one frequency at a time. */
-const FREQ_NAME = { APP: 'Approach', TWR: 'Tower', GND: 'Ground' };
+const FREQ_NAME = { APP: 'Approach', TWR: 'Tower', GND: 'Ground', VFR: 'no frequency (VFR)' };
 const mine = ac => !!G && G.positions.has(ac.freq);
 
 function newGame(airport, level, opts, nav) {
@@ -1727,6 +1727,12 @@ function issueCall(ac, c) {
     }
 
     // ---- what to expect (IF: "expect vectors for the visual approach runway 2", or "expect …, continue as filed")
+    if ((c.expectApp || c.intentions) && G.rules.id === 'ifatc' && ac.svc === 'FF' && ac.freq === 'APP') {
+        // IFATC 6.5.5: flight following is an advisory service; its approach request isn't asked for.
+        if (c.intentions) violation(ac, 'IFATC 6.5.5', `${ac.cs} is on flight following: it isn't asked for its approach request`);
+        else sys(`IFATC 6.5.5: ${ac.cs} is on flight following. Vector it into the sequence, switch it to Tower early, or put it on a leg of the pattern.`);
+        if (c.expectApp) return false;
+    }
     if (c.expectApp) {
         if (ac.kind !== 'arr' || onGround) { sys(`${ac.cs} isn't an arrival.`); return false; }
         const { type, end } = c.expectApp;
@@ -1750,8 +1756,19 @@ function issueCall(ac, c) {
     // ---- IFATC 6.4.4: Check In, and handing the plan back once there's no conflict
     if (c.radarContact) {
         if (!ac.checkInPending) { sys(`${ac.cs} isn't checking in.`); return false; }
-        atc(`${ac.radio}, ${facName('DEP')}, radar contact.`, G.aiActing);
+        atc(`${ac.radio}, ${facName(ac.kind === 'dep' ? 'DEP' : 'APP')}, radar contact${ac.svc === 'FF' ? ', maintain VFR' : ''}.`, G.aiActing);
         radarContact(ac);
+        return true;
+    }
+    // IFATC 6.5.1: flight following can be denied when you're busy (still, work it when you can).
+    if (c.unableFF) {
+        if (!ac.checkInPending || !ac.svc) { sys(`${ac.cs} isn't asking for a VFR service.`); return false; }
+        const load = G.aircraft.filter(a => a.state === 'air' && a.freq === 'APP' && mine(a)).length;
+        if (!G.aiActing && load < 8) sys(`IFATC 6.5.1: deny VFR services only when busy (${load} aircraft on your frequency). Vectors away from the finals and the corridors are the better service.`, 'bad');
+        atc(`${ac.radio}, unable ${ac.svc === 'FF' ? 'flight following' : 'radar service'}, remain clear of the approach corridors, frequency change approved.`, G.aiActing);
+        pilot(ac, `Roger, ${ac.radio}.`);
+        Object.assign(ac, { checkInPending: false, freq: ac.vfrIn ? 'TWR' : 'VFR' });
+        if (ac.vfrIn) { ac.handoff = 'FF'; towerCheckInVfr(ac); }
         return true;
     }
     if (c.altDisc) {
@@ -1786,7 +1803,9 @@ function issueCall(ac, c) {
     if (c.intentions) {
         atc(`${ac.radio}, say intentions.`, G.aiActing);
         const r = ac.request;
-        pilot(ac, r ? `${ac.radio}, we'd like ${r.say} approach runway ${r.end.id}.`
+        pilot(ac, ac.overfly ? `${ac.radio}, VFR ${ac.overfly.to}bound through your airspace.`
+            : ac.vfrIn ? `${ac.radio}, VFR, inbound for landing.`
+            : r ? `${ac.radio}, we'd like ${r.say} approach runway ${r.end.id}.`
             : ac.kind === 'arr' ? `${ac.radio}, ${appWord(ac.expectType || appFor(ac.expect))} approach runway ${ac.expect.id}, full stop.`
             : `${ac.radio}, on course ${ac.gate.name}${ac.sid ? `, the ${ac.sid} departure` : ''}.`);
         return true;
@@ -1977,6 +1996,15 @@ function issueCall(ac, c) {
     }
 
     // ---- Tower: departures (IFATC 3.2)
+    if (c.freqChange && ac.overfly) {
+        // IFATC 6.5.4: when it's leaving your airspace and no longer affects your traffic.
+        if (ac.freq !== 'APP') { sys(`${ac.cs} isn't on your frequency.`); return false; }
+        if (!G.aiActing && (ac.conflict || Math.hypot(ac.x, ac.y) < SCOPE_NM - 12)) sys(`IFATC 6.5.4: switch it once it's leaving your airspace and no longer affects your traffic.`, 'bad');
+        atc(`${ac.radio}, frequency change approved.`, G.aiActing);
+        pilot(ac, `Frequency change approved, ${ac.radio}.`);
+        Object.assign(ac, { freq: 'VFR', fcByYou: !G.aiActing, checkInPending: false });
+        return true;
+    }
     if (c.freqChange) {
         if (ac.kind !== 'dep' || ac.state !== 'air' || ac.freq !== 'TWR') { sys(`${ac.cs} isn't a departure still with you.`); return false; }
         if (!G.aiActing && pastRunwayEnd(ac) < 0.5) violation(ac, 'IFATC 3.2.11', `${ac.cs} was switched before half a mile past the runway end, a critical phase of flight`);
@@ -2252,7 +2280,9 @@ function spawnVfrInbound() {
     if (G.aircraft.some(a => airborne(a) && Math.hypot(a.x - x, a.y - y) < 5)) return false;
     const hdg = brg(-x, -y), alt = Math.round((G.world.elev + rand(2500, 4500)) / 500) * 500, vfrIn = Math.random() < 0.5 ? 'RV' : 'FF';
     const ac = { id: nextId++, ...id, kind: 'arr', state: 'air', perf: perf(id.type), x, y, alt, hdg, spd: 120, tHdg: hdg, tAlt: alt, tSpd: 120, turn: null,
-        trail: [], trailT: 0, born: G.t, freq: 'APP', expect: pick(G.active.arr), vfrIn, asked: true };
+        trail: [], trailT: 0, born: G.t, freq: 'APP', expect: pick(G.active.arr), vfrIn, asked: true, noFpl: true };
+    // With you on Approach, it waits for "Radar contact" (IFATC 6.4.4, 6.5.1).
+    if (G.positions.has('APP')) Object.assign(ac, { checkInPending: true, checkInAt: G.t, svc: vfrIn });
     G.aircraft.push(ac);
     pilot(ac, `${facName('APP')}, ${ac.radio}, ${Math.round(r)} miles ${compass(brg(x, y))}, ${fmtAlt(alt)}, VFR inbound for landing, information ${infoOf(ac)}, ${vfrIn === 'RV' ? 'request vectors to the field' : 'request flight following'}.`);
     return true;
@@ -2470,6 +2500,38 @@ function circuitLeft(a) {
     return e.len * 2 + off * 2 + g.baseAt + 2;
 }
 
+/* ---- Flight following (IFATC 6.5): VFR aircraft crossing Approach's airspace ---- */
+
+/** A VFR light aircraft crossing the scope at a VFR level (odd thousands plus 500 eastbound, even westbound), asking Approach for flight following. */
+function spawnOverfly() {
+    const id = makeGACallsign([...PROPS]);
+    if (!id) return false;
+    const b = rand(0, 360) * D2R, r = SCOPE_NM - 0.5, x = Math.sin(b) * r, y = Math.cos(b) * r;
+    const hdg = norm(brg(-x, -y) + rand(-35, 35));
+    const east = hdg < 180, base = Math.max(G.world.elev + 2500, 3000);
+    let alt = Math.ceil(base / 1000) * 1000 + 500;
+    if ((Math.floor(alt / 1000) % 2 === 1) !== east) alt += 1000;
+    if (G.aircraft.some(a => airborne(a) && Math.hypot(a.x - x, a.y - y) < 5)) return false;
+    const ac = { id: nextId++, ...id, kind: 'arr', state: 'air', perf: perf(id.type), x, y, alt, hdg, spd: 120, tHdg: hdg, tAlt: alt, tSpd: 120, turn: null,
+        trail: [], trailT: 0, born: G.t, freq: 'APP', overfly: { to: compass(hdg) }, noFpl: true, asked: true, svc: 'FF' };
+    G.aircraft.push(ac);
+    pilot(ac, `${facName('APP')}, ${ac.radio}, ${Math.round(r)} miles ${compass(brg(x, y))}, ${fmtAlt(alt)}, VFR ${ac.overfly.to}bound, request flight following.`);
+    if (G.positions.has('APP')) Object.assign(ac, { checkInPending: true, checkInAt: G.t });
+    else { atc(`${ac.radio}, ${facName('APP')}, radar contact, maintain VFR.`, true); ac.fplAccepted = true; }
+    return true;
+}
+function overflyNav(ac) {
+    const d = Math.hypot(ac.x, ac.y), out = Math.cos((ac.hdg - brg(ac.x, ac.y)) * D2R) > 0;
+    // The system's Approach lets it go at the edge.
+    if (!mine(ac) && ac.freq === 'APP' && d > SCOPE_NM - 6 && out) { atc(`${ac.radio}, frequency change approved.`, true); ac.freq = 'VFR'; }
+    if (d > SCOPE_NM - 1 && out) {
+        ac.gone = true;
+        // IFATC 6.5.4: switched when it's leaving your airspace and no longer affects your traffic.
+        if (mine(ac) && ac.fplAccepted) { award(ac, -2); sys(`${ac.cs} left without "Frequency change approved" (IFATC 6.5.4).`, 'bad'); }
+        else if (ac.freq === 'VFR' && ac.fcByYou) award(ac, 3);
+    }
+}
+
 /* ---- Transitions through Tower's airspace (IFATC 3.4.2) ---- */
 
 /** A VFR aircraft crossing the field's airspace, below 5,000 ft above it, which asks Tower first. */
@@ -2542,6 +2604,7 @@ function departureCheckIn(ac) {
  */
 function radarContact(ac) {
     Object.assign(ac, { checkInPending: false, fplAccepted: true });
+    if (ac.kind !== 'dep') return;                 // a VFR service: it carries on as it was (IFATC 6.5.1)
     if (ac.hdgAssigned && !ac.via) ac.offHdg = true;
     if (!ac.offAlt) {
         ac.tAlt = Math.max(ac.tAlt, exitAlt(ac));
@@ -2554,8 +2617,9 @@ function radarContact(ac) {
 function checkIns() {
     for (const ac of G.aircraft) {
         if (ac.checkInPending && ac.freq === 'APP' && mine(ac)) {
-            if (!ac.checkInRepeated && G.t - ac.checkInAt > 45) { ac.checkInRepeated = true; pilot(ac, `${facName('DEP')}, ${ac.radio}, checking in, ${fmtAlt(Math.round(ac.alt / 100) * 100)}.`); }
-            if (!ac.checkInFlagged && G.t - ac.checkInAt > 90) { ac.checkInFlagged = true; violation(ac, 'IFATC 6.4.4', `${ac.cs}'s Check In wasn't answered with "Radar contact"`); }
+            const what = ac.svc === 'FF' ? 'request for flight following' : ac.svc === 'RV' ? 'request for vectors' : 'Check In';
+            if (!ac.checkInRepeated && G.t - ac.checkInAt > 45) { ac.checkInRepeated = true; pilot(ac, ac.svc ? `${facName('APP')}, ${ac.radio}, ${fmtAlt(Math.round(ac.alt / 100) * 100)}, ${ac.svc === 'FF' ? 'request flight following' : 'request vectors to the field'}.` : `${facName('DEP')}, ${ac.radio}, checking in, ${fmtAlt(Math.round(ac.alt / 100) * 100)}.`); }
+            if (!ac.checkInFlagged && G.t - ac.checkInAt > 90) { ac.checkInFlagged = true; violation(ac, ac.svc ? 'IFATC 6.5.1' : 'IFATC 6.4.4', `${ac.cs}'s ${what} wasn't answered`); }
         }
         // Off its plan near the edge, it asks to have it back (IFATC 6.4.4).
         if ((ac.offHdg || ac.offAlt) && ac.state === 'air' && mine(ac) && !ac.askedBack && Math.hypot(ac.x, ac.y) > SCOPE_NM - 10 && !ac.conflict) {
@@ -3181,7 +3245,7 @@ function fieldInSight(ac) {
 /** Pilots asking for things: reports of the field in sight when asked, and now and then a visual or RNAV request. */
 function pilotRequests() {
     for (const ac of G.aircraft) {
-        if (ac.kind !== 'arr' || ac.state !== 'air' || ac.appr || ac.pattern || ac.divert || ac.transit || ac.circuit || ac.via?.kind === 'IAP' || ac.emerg) continue;
+        if (ac.kind !== 'arr' || ac.state !== 'air' || ac.appr || ac.pattern || ac.divert || ac.transit || ac.overfly || ac.circuit || ac.via?.kind === 'IAP' || ac.emerg) continue;
         if (ac.reportField && fieldInSight(ac)) { ac.reportField = false; ac.fieldReported = true; pilot(ac, `${ac.radio}, field in sight.`); }
         if (ac.request || ac.asked || ac.freq !== 'APP' || Math.hypot(ac.x, ac.y) > 18) continue;
         ac.asked = true;
@@ -3554,7 +3618,7 @@ function holdFor(ac) {
 }
 
 function aiApproach(ac) {
-    if (ac.state !== 'air' || ac.pattern || ac.divert || ac.via?.kind === 'IAP') return;
+    if (ac.state !== 'air' || ac.pattern || ac.divert || ac.overfly || ac.via?.kind === 'IAP') return;
     if (ac.request?.radarPattern) {
         // IFATC 3.6.2: a radar pattern is Radar's call, on its own workload, with Tower's in mind: a long departure line makes it likelier to take one.
         const load = G.aircraft.filter(a => a.freq === 'APP' && a.state === 'air').length;
@@ -3863,6 +3927,7 @@ function tick(dt) {
         if (G.positions.has('TWR') && G.opts.pattern && visualWx() && !hasRemark('noPattern') && inPattern < cap) spawnDeparture(true);
         else if (G.positions.has('TWR') && noRadar() && Math.random() < 0.5 && G.aircraft.filter(a => a.transit).length < 2) spawnTransit();
         else if (G.rules.id === 'ifatc' && !noRadar() && visualWx() && Math.random() < 0.4 && G.aircraft.filter(a => a.vfrIn && a.state === 'air').length < 2) spawnVfrInbound();
+        else if (G.rules.id === 'ifatc' && G.positions.has('APP') && visualWx() && Math.random() < 0.5 && G.aircraft.filter(a => a.overfly).length < 2) spawnOverfly();
     }
 
     if (G.t >= G.nextWind) shiftWind();
@@ -3871,6 +3936,7 @@ function tick(dt) {
         if (ac.state !== 'air' || ac.kind !== 'arr') continue;
         if (ac.divert) continue;
         if (ac.transit) transitNav(ac);
+        else if (ac.overfly) overflyNav(ac);
         else if (ac.circuit && !ac.appr) circuitNav(ac);
         else if (!ac.appr && (ac.pattern || towerInbound(ac))) patternNav(ac);
         else if (ac.vfrIn && ac.freq === 'APP' && !ac.appr && !ac.vfrOrbited && Math.hypot(ac.x, ac.y) < 6) {
@@ -4912,6 +4978,8 @@ function intentTag(a) {
     if (a.emerg) return (a.emerg.mayday ? 'MAYDAY ' : 'PAN ') + (a.appr ? a.appr.end.id : '');
     if (a.lowAlt) return 'LA ' + alt3(mvaHere(a));
     if (a.wxReq) return 'WX ' + a.wxReq.deg + a.wxReq.dir;
+    if (a.checkInPending && a.svc) return 'REQ ' + a.svc;
+    if (a.overfly) return 'VFR ' + (a.fplAccepted ? 'FF' : '');
     if (a.request) return 'REQ ' + a.request.tag;
     if (a.divert) return 'DIVERT';
     if (a.transit) return a.transit.ok ? 'TRANS' : 'TRANS?';
@@ -5325,7 +5393,7 @@ function endsFor(type, ac) {
 }
 const APP_TYPES = () => ['ILS', ...(G.rules.id === 'ifatc' ? [] : ['LOC']), 'RNAV', 'VIS'];
 /** A filed route to carry on along: the STAR or SID it's flying or was taken off, or a departure's exit. */
-const filedRoute = ac => (ac.kind === 'dep' ? !!ac.gate : !!ac.expect);
+const filedRoute = ac => !ac.noFpl && (ac.kind === 'dep' ? !!ac.gate : !!ac.expect);
 /** "Expect approach…": each type, then the runways (requested first); with a filed route, also "…, continue as filed". */
 const expectList = ac => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t, ac).flatMap(e => [
     ...(filedRoute(ac) ? [{ label: `Runway ${e.id}, continue as filed`, cmd: { expectApp: { type: t, end: e }, asFiled: true } }] : []),
@@ -5486,13 +5554,13 @@ function airMenu(ac, add) {
         add('Request speed', { sub: speedMenu(ac) });
     }
     if (inbound) add('Request speed', { sub: speedMenu(ac) });
-    if (ac.kind === 'arr' && !inbound) add('Expect approach…', { sub: () => expectList(ac) });
+    if (ac.kind === 'arr' && !inbound && !ac.overfly) add('Expect approach…', { sub: () => expectList(ac) });
     const other = [
         ...(ac.kind === 'arr' && ac.freq === 'APP' && (ac.appr || ac.pattern || radarVectorsOk(ac)) ? [{ label: `Contact ${freqLabel('TWR')}${ac.appr || ac.pattern ? '' : ` (${HANDOFF_SAY[ac.vfrIn || 'RV']})`}`, cmd: { toTwr: true } }] : []),
         ...(ac.kind === 'dep' && ac.freq === 'TWR' ? [{ label: 'Frequency change approved', cmd: { freqChange: true } }] : []),
     ];
     if (other.length) add('Contact other frequency', { sub: () => other });
-    if (ac.kind === 'arr' && !inbound) add('Clear for approach', { sub: () => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t, ac).map(e => ({ label: `Runway ${e.id}`, cmd: t === 'VIS' ? { visual: e } : { ils: e, appType: t } })) })) });
+    if (ac.kind === 'arr' && !inbound && !ac.overfly) add('Clear for approach', { sub: () => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t, ac).map(e => ({ label: `Runway ${e.id}`, cmd: t === 'VIS' ? { visual: e } : { ils: e, appType: t } })) })) });
     add('Ask for intentions', { cmd: { intentions: true } });
     if (ac.kind === 'arr') add('Misc. messages', { sub: () => [
         ...(visualWx() && !ac.fieldReported ? [{ label: 'Report the airport in sight', cmd: { reportField: true } }] : []),
@@ -5500,9 +5568,11 @@ function airMenu(ac, add) {
         { label: 'Say intentions', cmd: { intentions: true } },
         ...(ac.freq === 'TWR' ? miscMenu(ac)() : []),
     ] });
-    if (ac.kind === 'arr') add('Missed approach instructions', { sub: () => [2000, 3000, 4000].map(h => Math.max(G.world.minAlt, Math.round((G.world.elev + h) / 1000) * 1000))
+    if (ac.kind === 'arr' && !ac.overfly) add('Missed approach instructions', { sub: () => [2000, 3000, 4000].map(h => Math.max(G.world.minAlt, Math.round((G.world.elev + h) / 1000) * 1000))
         .filter((v, i, a) => a.indexOf(v) === i).map(v => ({ label: `Runway heading, climb and maintain ${fmtAlt(v)}`, cmd: { missed: v } })) });
-    if (ac.checkInPending && ac.freq === 'APP') add('Radar contact', { cmd: { radarContact: true } }, true);
+    if (ac.checkInPending && ac.freq === 'APP') add(ac.svc === 'FF' ? 'Radar contact, maintain VFR' : 'Radar contact', { cmd: { radarContact: true } }, true);
+    if (ac.checkInPending && ac.svc && ac.freq === 'APP') add(ac.svc === 'FF' ? 'Unable flight following' : 'Unable radar service', { cmd: { unableFF: true } });
+    if (ac.overfly && ac.freq === 'APP' && !ac.checkInPending) add('Frequency change approved', { cmd: { freqChange: true } }, Math.hypot(ac.x, ac.y) > SCOPE_NM - 12);
     if (filedRoute(ac) && !ac.appr && !ac.pattern && !(ac.via && ac.via.kind !== 'IAP') && !(ac.kind === 'dep' && ac.direct)) add('Continue as filed', { cmd: { asFiled: true } }, !!ac.offHdg && ac.askedBack);
     if (G.rules.id === 'ifatc' && ac.freq === 'APP' && !ac.appr && !ac.pattern) {
         if (ac.offAlt || ac.kind === 'dep' && ac.tAlt < exitAlt(ac)) add('Altitude at your discretion', { cmd: { altDisc: true } }, !!ac.offAlt && ac.askedBack);
@@ -5824,6 +5894,7 @@ function runCommand(text) {
         else if (t === 'RC' || t === 'RADAR') c.radarContact = true;
         else if (t === 'AD' || t === 'ATYD') c.altDisc = true;
         else if (t === 'RON' || t === 'OWN') c.ownNav = true;
+        else if (t === 'UFF') c.unableFF = true;
         else if (t === 'DV' || t === 'CV' || t === 'VIA') c.via = true;
         else if (t === 'NO' || t === 'NUMBER') c.seqLand = true;
         else if (t === 'ENT' || t === 'ENTER') {
@@ -6468,7 +6539,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt };
+    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly };
 }
 
 init();

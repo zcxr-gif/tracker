@@ -373,6 +373,27 @@ The aircraft fly with airliner performance:
   - Still on vectors or an assigned altitude 10 NM from the edge of the scope,
     the pilot asks for them. Leaving that way costs 3.
 
+**Flight following (IFATC 6.5):** with you on Approach under Infinite Flight
+rules, VFR light aircraft cross the scope at VFR levels (odd thousands plus
+500 heading 000–179, even plus 500 heading 180–359) and ask for flight
+following. VFR inbounds ask for flight following or vectors to the field.
+
+- 6.5.1 **Radar contact, maintain VFR** (`rc`) acknowledges it; the pilot
+  sees and avoids and carries on. Unanswered, it asks again at 45 s and is a
+  violation at 90 s. **Unable flight following** (`uff`) denies it. That's
+  for when you're busy: with fewer than 8 aircraft on your frequency you're
+  reminded that vectors away from the finals are the better service.
+- 6.5.2 / 6.5.3 They take vectors and altitudes. With no flight plan, hand
+  them back with **Resume own navigation** ("Continue as filed" isn't
+  offered).
+- 6.5.4 **Frequency change approved** (`fc`) as it leaves your airspace and
+  no longer affects your traffic: switching one more than 12 NM inside the
+  edge, or in a conflict, gets a note. Leaving without it costs 2; with it,
+  +3.
+- 6.5.5 Never asked for an approach request: "Say intentions" to one is a
+  violation, and "Expect approach" is refused with the options (vectors into
+  the sequence, an early switch to Tower, or a leg of the pattern).
+
 ## Radio
 
 - Arrivals check in with the ATIS letter. Approach replies with the
