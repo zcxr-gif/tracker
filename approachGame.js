@@ -3364,6 +3364,8 @@ function frame(now) {
         draw();
         if ((uiT += dt) > 0.4) {
             uiT = 0;
+            const tiles = G.tiles ? G.tiles.loading + G.tiles.queue.length : 0;
+            if ((loading.get('tiles') || '') !== (tiles ? `Loading map tiles (${tiles})` : '')) busy('tiles', tiles ? `Loading map tiles (${tiles})` : null);
             renderHud();
             renderStrips();
             renderCard(false);
@@ -3387,6 +3389,7 @@ function togglePause() {
 
 function endShift() {
     G.over = true;
+    loading.clear(); busy('', null);
     $('#coord').hidden = true;
     const best = store.get('best', {});
     const prev = best[G.world.icao] || null;
@@ -3493,6 +3496,17 @@ let hudMin = store.get('hudMin', false);
 let opts = { terrain: store.get('terrain', false), weather: store.get('weather', false), positions: store.get('positions', ['APP', 'TWR']),
     start: store.get('start', 'random'), startN: store.get('startN', 6), emerg: store.get('emerg', true) };
 
+/* What's loading, shown with the InFlight mark in the bottom-right of the scope. */
+const loading = new Map();      // id -> text, in the order they started
+function busy(id, text) {
+    if (text) loading.set(id, text); else loading.delete(id);
+    const el = $('#loader');
+    if (!el) return;
+    el.hidden = !loading.size;
+    $('#scope-wrap').classList.toggle('loading', loading.size > 0);
+    $('#loader-steps').innerHTML = [...loading.values()].map(t => `<div>${escapeHtml(t)}</div>`).join('');
+}
+
 function toastStart(text) { $('#pos-summary').textContent = text; setTimeout(renderStart, 1600); }
 
 /**
@@ -3593,6 +3607,7 @@ function swapGround(up) {
     }
     G.ground = G.surfaceMap = gr;
     G.surfaceStatus = `${up.source} ✓`;
+    busy('swap', null);
     sys(`Taxilanes in: the taxi map is now ${up.source} (${gr.summary}).`, 'good');
     renderHud();
 }
@@ -3654,23 +3669,32 @@ async function startGame(airport, level) {
     newGame(airport, level, { ...opts });
     const game = G;
     renderAsk();
+    loading.clear(); busy('', null);
+    // Only this shift's loading reaches the badge.
+    const step = (id, text) => { if (G === game) busy(id, text); };
     fitView();
     resetView();
     cardKey = '';
     renderCard(true);
     // The map loads for everyone; with Terrain on, the shift waits for it so the MVAs are real from the start.
-    const dem = loadDem(airport.lat, airport.lon).catch(() => null);
+    step('map', 'Fetching the terrain map');
+    const dem = loadDem(airport.lat, airport.lon).catch(() => null).finally(() => step('map', null));
     setSpeed(0);
     sys(game.positions.has('GND') ? 'Loading the airport\'s taxiways and gates…' : 'Loading the airport…');
     game.surfaceStatus = 'loading…';
-    const surface = await loadSurface(game.world, msg => { if (G === game) { game.surfaceStatus = msg; renderHud(); } }).catch(err => ({ error: `couldn't be loaded (${err.message})` }));
+    step('surface', 'Fetching taxiways and gates');
+    const surface = await loadSurface(game.world, msg => { if (G === game) { game.surfaceStatus = msg; step('surface', cap(msg.replace(/…$/, ''))); renderHud(); } }).catch(err => ({ error: `couldn't be loaded (${err.message})` }));
+    step('surface', null);
     if (G !== game) return;
     game.ground = surface.ground || null;
     game.surfaceMap = surface.ground || surface.map || null;
     // On the scope too, so it's visible without reading the log.
     if (surface.later) {
+        step('lanes', 'Fetching taxilanes from OpenStreetMap');
         surface.later.then(up => {
+            step('lanes', null);
             if (G !== game) return;
+            if (up.ground) step('swap', 'Switching to the full taxi map');
             if (up.ground) { game.pendingGround = up; return; }
             game.surfaceStatus = game.surfaceStatus.replace(' · fetching taxilanes…', ` · no taxilanes (${up.error})`);
             sys(`No taxilanes between the terminals: ${up.error}. Stands are joined straight to the nearest taxiway.`, 'bad');
@@ -3693,7 +3717,9 @@ async function startGame(airport, level) {
     if (game.opts.terrain) {
         setSpeed(0);
         sys('Loading terrain…');
+        step('terrain', 'Building minimum vectoring altitudes from the terrain');
         const d = await dem;
+        step('terrain', null);
         if (G !== game) return;
         if (d) {
             game.dem = d;
