@@ -1509,6 +1509,8 @@ function issueCall(ac, c) {
             const near = G.aircraft.find(o => o !== ac && (o.state === 'taxi' || o.state === 'push') && Math.hypot(o.x - ac.x, o.y - ac.y) < 0.07);
             if (near) violation(ac, 'IFATC 2.1.3', `${ac.cs} pushed back with ${near.cs} moving right behind: check the area is clear, or "hold position" / give way first`);
         }
+        // The runway you tell it to expect is the one it taxis to (4.1.4: one not in use, if you can accommodate it).
+        if (c.expectRwy && c.expectRwy !== true) { ac.rwy = c.expectRwy; ac.tHdg = ac.rwy.course; }
         ac.state = 'push'; ac.pushLeft = 40;
         // The tail the way it was dragged or asked, or (automatically) away from its route out.
         const opts = pushOptions(ac), o = c.pushTail != null ? pushToward(opts, c.pushTail) : autoPush(ac, opts);
@@ -2283,9 +2285,9 @@ function pushOptions(ac) {
     return out;
 }
 /** Automatic: the tail away from the way it will taxi, so it ends nose toward its runway. */
-function autoPush(ac, opts = pushOptions(ac)) {
+function autoPush(ac, opts = pushOptions(ac), rwy = ac.rwy) {
     if (opts.length < 2) return opts[0] || null;
-    const gr = G.ground, hold = ac.rwy && gr.holds.get(ac.rwy), r = hold && route(gr, ac.stand.node, hold.node);
+    const gr = G.ground, hold = rwy && gr.holds.get(rwy), r = hold && route(gr, ac.stand.node, hold.node);
     if (!r || r.pts.length < 2) return opts[0];
     const a = r.pts[0], b = r.pts.find(q => Math.hypot(q.x - a.x, q.y - a.y) > 0.01) || r.pts[1], away = norm(brg(b.x - a.x, b.y - a.y) + 180);
     return opts.reduce((best, o) => Math.abs(diff(o.tail, away)) < Math.abs(diff(best.tail, away)) ? o : best);
@@ -5742,7 +5744,13 @@ function groundMenu(ac, add) {
     if (ac.state === 'gate' && ac.kind === 'dep' && ac.called) {
         // The tail chosen for it (away from its route out), or pick: drag it the way the tail should go.
         const opts = pushOptions(ac), auto = autoPush(ac, opts), t = auto ? `, tail ${auto.say}` : '';
-        add(`Pushback approved${t}, expect runway ${ac.rwy.id}`, { cmd: { push: true, expectRwy: true } }, true);
+        // You pick the runway: the ones in use first (the one it filed for on top), then any other it can reach.
+        const reach = e => !gr || gr.holds.has(e);
+        const rwys = [...new Set([ac.rwy, ...G.active.dep, ...G.world.ends])].filter(e => e && reach(e));
+        add('Pushback approved, expect runway…', { sub: () => rwys.map(e => {
+            const o = autoPush(ac, opts, e);
+            return { label: `Pushback approved${o ? `, tail ${o.say}` : ''}, expect runway ${e.id}${G.active.dep.includes(e) ? '' : ' (not in use)'}`, cmd: { push: true, expectRwy: e } };
+        }) }, true);
         add(`Pushback approved${t}`, { cmd: { push: true } });
         if (opts.length > 1) add('Pushback, tail…', { sub: () => opts.map(o => ({ label: `Pushback approved, tail ${o.say}`, cmd: { push: true, pushTail: o.tail } })) });
     }
@@ -6249,6 +6257,9 @@ function runCommand(text) {
             c.push = true;
             const CARD = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 }, nx = (toks[i + 1] === 'TAIL' ? toks[i + 2] : toks[i + 1]) || '';
             if (CARD[nx] != null) { c.pushTail = CARD[nx]; i += toks[i + 1] === 'TAIL' ? 2 : 1; }
+            // "pb 28L": pushback approved, expect runway 28L.
+            const er = toks[i + 1] && findEnd(toks[i + 1].replace(/^(?:RWY|RW)/, ''));
+            if (er) { c.expectRwy = er; i++; }
         }
         else if (t === 'TX' || t === 'TAXI') {
             const nx = toks[i + 1];

@@ -734,6 +734,10 @@ B, K, hold short of runway 13L/31R"*.
     it.
   - **Pushback, tail…** on the card lists each way it can go, and typed `pb e`
     (or `pb tail sw`) picks the closest to that direction.
+  - **Pushback approved, expect runway…** lets you pick the runway: the ones
+    in use first (the one it filed for on top), then any other with a holding
+    point, marked "(not in use)". It then taxis to that one, and the automatic
+    tail follows it. Typed: `pb 28L`, or `pb tail e 28L`.
 - Zoom goes in to about 3,000 pixels a mile, close enough to watch a push
   (aircraft icons grow to their real size). Tell them
   **contact Tower when ready** on the way (or **contact Tower** once they're
@@ -956,7 +960,7 @@ Flight rules, the same wording. Each command also does something to the
 aircraft wherever there is something to do.
 
 - **Pushback**:
-  - *pushback approved, tail south, expect runway XX*;
+  - *pushback approved, tail south, expect runway XX* (you pick XX);
   - *pushback approved, tail south*;
   - *Pushback, tail…*: each way it can push.
 - **Taxi to…**:
