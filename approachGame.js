@@ -1510,7 +1510,11 @@ function issueCall(ac, c) {
             if (near) violation(ac, 'IFATC 2.1.3', `${ac.cs} pushed back with ${near.cs} moving right behind: check the area is clear, or "hold position" / give way first`);
         }
         ac.state = 'push'; ac.pushLeft = 40;
-        parts.push(c.expectRwy ? `pushback approved, expect runway ${ac.rwy.id}` : 'pushback approved'); back.push(c.expectRwy ? `pushing back, expect ${ac.rwy.id}` : 'pushing back');
+        // The tail the way it was dragged or asked, or (automatically) away from its route out.
+        const opts = pushOptions(ac), o = c.pushTail != null ? pushToward(opts, c.pushTail) : autoPush(ac, opts);
+        ac.pushPath = o ? { pts: o.pts, i: 0, nose: o.nose } : null;
+        const tail = o ? `, tail ${o.say}` : '';
+        parts.push(c.expectRwy ? `pushback approved${tail}, expect runway ${ac.rwy.id}` : `pushback approved${tail}`); back.push(c.expectRwy ? `pushing back${tail}, expect ${ac.rwy.id}` : `pushing back${tail}`);
     }
     if (c.taxi) {
         if (!taxiClearance(ac, c.taxi, parts, back)) return false;
@@ -2256,6 +2260,39 @@ function defaultTaxiTarget(ac, want) {
 }
 
 /** The route for a taxi instruction, without giving it: { r, purpose, hold } or { err }. Also drives the drag preview. */
+/* ---- Pushback: tail first off the stand, then the tug swings it so the tail points along the taxilane ---- */
+
+const PUSH_KT = 4;
+/**
+ * The ways a departure at its gate can be pushed: for each taxilane leaving the stand's lead-in point, the tail along
+ * it. Straight back first (at most ~240 ft, less when the taxilane is closer), then the turn, ending ~180 ft along.
+ */
+function pushOptions(ac) {
+    const gr = G.ground, st = ac.stand;
+    if (!gr || !st || st.node == null) return [];
+    const n = gr.nodes[st.node], toN = Math.hypot(n.x - st.x, n.y - st.y), back = Math.min(toN, 0.04);
+    const Q = toN > 1e-4 ? { x: st.x + (n.x - st.x) * back / toN, y: st.y + (n.y - st.y) * back / toN } : { x: st.x, y: st.y };
+    const out = [];
+    for (const ed of n.edges) {
+        const m = gr.nodes[ed.to], len = m ? Math.hypot(m.x - n.x, m.y - n.y) : 0;
+        if (!m || len < 0.005 || gr.onRunway(m)) continue;
+        const ux = (m.x - n.x) / len, uy = (m.y - n.y) / len, L = Math.min(0.03, len * 0.45), tail = brg(ux, uy);
+        if (out.some(o => Math.abs(diff(o.tail, tail)) < 20)) continue;
+        out.push({ tail, say: cardinal(tail), nose: norm(tail + 180), pts: [{ x: st.x, y: st.y }, Q, { x: Q.x + ux * L, y: Q.y + uy * L }] });
+    }
+    return out;
+}
+/** Automatic: the tail away from the way it will taxi, so it ends nose toward its runway. */
+function autoPush(ac, opts = pushOptions(ac)) {
+    if (opts.length < 2) return opts[0] || null;
+    const gr = G.ground, hold = ac.rwy && gr.holds.get(ac.rwy), r = hold && route(gr, ac.stand.node, hold.node);
+    if (!r || r.pts.length < 2) return opts[0];
+    const a = r.pts[0], b = r.pts.find(q => Math.hypot(q.x - a.x, q.y - a.y) > 0.01) || r.pts[1], away = norm(brg(b.x - a.x, b.y - a.y) + 180);
+    return opts.reduce((best, o) => Math.abs(diff(o.tail, away)) < Math.abs(diff(best.tail, away)) ? o : best);
+}
+/** The option whose tail points closest to a bearing (a drag, or "tail south"). */
+const pushToward = (opts, b) => opts.reduce((best, o) => !best || Math.abs(diff(o.tail, b)) < Math.abs(diff(best.tail, b)) ? o : best, null);
+
 function planTaxi(ac, tgt) {
     const gr = G.ground;
     if (!gr) return { err: 'no taxiway map here' };
@@ -3151,6 +3188,24 @@ function groundStep(ac, dt) {
         return true;
     case 'push': {
         if (ac.holdPos || givingWay(ac)) return true;
+        const pp = ac.pushPath;
+        if (pp) {
+            // Tail first along the push path, the nose swinging round behind the tug (10°/s at most).
+            let left = PUSH_KT / 3600 * dt;
+            while (left > 0 && pp.i < pp.pts.length - 1) {
+                const t = pp.pts[pp.i + 1], d = Math.hypot(t.x - ac.x, t.y - ac.y);
+                if (d <= left) { ac.x = t.x; ac.y = t.y; pp.i++; left -= d; }
+                else { ac.x += (t.x - ac.x) / d * left; ac.y += (t.y - ac.y) / d * left; left = 0; }
+            }
+            const done = pp.i >= pp.pts.length - 1, t = pp.pts[Math.min(pp.i + 1, pp.pts.length - 1)];
+            const want = done || Math.hypot(t.x - ac.x, t.y - ac.y) < 1e-4 ? pp.nose : norm(brg(t.x - ac.x, t.y - ac.y) + 180);
+            ac.hdg = norm(ac.hdg + clamp(diff(ac.hdg, want), -10 * dt, 10 * dt));
+            if (done && Math.abs(diff(ac.hdg, pp.nose)) < 2) {
+                Object.assign(ac, { hdg: pp.nose, state: 'pushed', pushPath: null });
+                pilot(ac, `${ac.radio}, ready to taxi.`);
+            }
+            return true;
+        }
         ac.pushLeft -= dt;
         // Back off the stand, tail first, toward the taxiway.
         const back = 0.035 / 40 * dt;
@@ -5391,7 +5446,14 @@ function drawGroundDrag() {
     const p = d.plan, bad = !p || p.err;
     c.save();
     c.lineCap = 'round'; c.lineJoin = 'round';
-    if (p && p.r) {
+    if (p && p.push) {
+        // The push: back off the stand, then the tail along the taxilane, with an arrowhead where the tail ends up.
+        c.strokeStyle = COLORS.sel; c.lineWidth = 3; c.setLineDash([6, 4]);
+        c.beginPath(); p.push.forEach((q, i) => { const [x, y] = toS(q.x, q.y); if (i) c.lineTo(x, y); else c.moveTo(x, y); }); c.stroke(); c.setLineDash([]);
+        const [ex, ey] = toS(p.push[2].x, p.push[2].y), [fx, fy] = toS(p.push[1].x, p.push[1].y), a = Math.atan2(ey - fy, ex - fx);
+        c.fillStyle = COLORS.sel; c.beginPath(); c.moveTo(ex + Math.cos(a) * 8, ey + Math.sin(a) * 8);
+        c.lineTo(ex + Math.cos(a + 2.5) * 8, ey + Math.sin(a + 2.5) * 8); c.lineTo(ex + Math.cos(a - 2.5) * 8, ey + Math.sin(a - 2.5) * 8); c.fill();
+    } else if (p && p.r) {
         c.strokeStyle = 'rgba(0,0,0,0.45)'; c.lineWidth = 7;
         c.beginPath(); p.r.pts.forEach((q, i) => { const [x, y] = toS(q.x, q.y); if (i) c.lineTo(x, y); else c.moveTo(x, y); }); c.stroke();
         c.strokeStyle = COLORS.sel; c.lineWidth = 3.5; c.stroke();
@@ -5448,7 +5510,7 @@ function hitFix(sx, sy) {
 function zoomAt(sx, sy, k) {
     const [wx, wy] = toW(sx, sy);
     const min = Math.min(view.w, view.h) / 2 / (SCOPE_NM * 1.6);
-    view.scale = clamp(view.scale * k, min, 260);
+    view.scale = clamp(view.scale * k, min, 3000);         // close enough to watch a pushback
     // Keep the world point under the cursor still.
     view.x = wx - (sx - view.w / 2) / view.scale;
     view.y = wy + (sy - view.h / 2) / view.scale;
@@ -5493,6 +5555,12 @@ function bindScope() {
         if (drag.mode === 'pan' && drag.moved) {
             view.x = drag.vx - (sx - drag.sx) / view.scale;
             view.y = drag.vy + (sy - drag.sy) / view.scale;
+        } else if (drag.mode === 'gnd' && drag.moved && drag.ac.state === 'gate') {
+            // Pushback by drag: the tail goes toward where you drag, along the nearest-matching taxilane.
+            const [wx, wy] = toW(sx, sy), opts = pushOptions(drag.ac), o = opts.length && pushToward(opts, brg(wx - opts[0].pts[1].x, wy - opts[0].pts[1].y));
+            drag.tgt = null;
+            drag.plan = !(drag.ac.kind === 'dep' && drag.ac.called) ? { err: true, label: drag.ac.kind === 'dep' ? 'Not ready to push yet' : 'Parked' }
+                : o ? { label: `Pushback approved, tail ${o.say}`, cmd: { push: true, pushTail: o.tail }, push: o.pts } : { label: 'Pushback approved', cmd: { push: true } };
         } else if (drag.mode === 'gnd' && drag.moved) {
             const tgt = groundTarget(sx, sy);
             if ((tgt && tgt.key) !== drag.tgtKey) { drag.tgtKey = tgt && tgt.key; drag.tgt = tgt; drag.plan = tgt ? dropPlan(drag.ac, tgt) : null; }
@@ -5514,7 +5582,10 @@ function bindScope() {
         drag = null;
         clearTimeout(d.lpTimer);
         if (e.type === 'pointercancel' || d.lp) return;
-        if (d.mode === 'gnd' && d.moved) {
+        if (d.mode === 'gnd' && d.moved && d.ac.state === 'gate') {
+            if (d.plan && !d.plan.err) issue(d.ac, d.plan.cmd); else if (d.plan) sys(`${d.ac.cs}: ${d.plan.label}.`);
+            renderCard(true);
+        } else if (d.mode === 'gnd' && d.moved) {
             dropGround(d.ac, d.tgt);
             renderCard(true);
         } else if ((d.mode === 'ac' || d.mode === 'twr') && d.moved && d.air) {
@@ -5669,8 +5740,11 @@ function groundMenu(ac, add) {
     const onGnd = ac.freq === 'GND', onTwr = ac.freq === 'TWR', gr = G.ground;
     // Pushback: "pushback approved, expect runway XX", or just approved.
     if (ac.state === 'gate' && ac.kind === 'dep' && ac.called) {
-        add(`Pushback approved, expect runway ${ac.rwy.id}`, { cmd: { push: true, expectRwy: true } }, true);
-        add('Pushback approved', { cmd: { push: true } });
+        // The tail chosen for it (away from its route out), or pick: drag it the way the tail should go.
+        const opts = pushOptions(ac), auto = autoPush(ac, opts), t = auto ? `, tail ${auto.say}` : '';
+        add(`Pushback approved${t}, expect runway ${ac.rwy.id}`, { cmd: { push: true, expectRwy: true } }, true);
+        add(`Pushback approved${t}`, { cmd: { push: true } });
+        if (opts.length > 1) add('Pushback, tail…', { sub: () => opts.map(o => ({ label: `Pushback approved, tail ${o.say}`, cmd: { push: true, pushTail: o.tail } })) });
     }
     // Taxi to…: the likely one first, then the list.
     if (ac.state === 'pushed') add(`Taxi to runway ${ac.rwy.id}`, { cmd: { taxi: true } }, true);
@@ -6171,7 +6245,11 @@ function runCommand(text) {
         else if (t === 'GA') c.goAround = true;
         else if (t === 'LUAW' || t === 'LU') c.luaw = true;
         else if (t === 'DEV' || t === 'WX') c.deviate = true;
-        else if (t === 'PB' || t === 'PUSH') c.push = true;
+        else if (t === 'PB' || t === 'PUSH') {
+            c.push = true;
+            const CARD = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 }, nx = (toks[i + 1] === 'TAIL' ? toks[i + 2] : toks[i + 1]) || '';
+            if (CARD[nx] != null) { c.pushTail = CARD[nx]; i += toks[i + 1] === 'TAIL' ? 2 : 1; }
+        }
         else if (t === 'TX' || t === 'TAXI') {
             const nx = toks[i + 1];
             if (nx && (findEnd(nx) || G.ground?.gates.some(g => g.ref.toUpperCase() === nx))) { c.taxi = nx; i++; } else c.taxi = true;

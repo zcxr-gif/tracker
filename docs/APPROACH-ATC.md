@@ -715,11 +715,27 @@ B, K, hold short of runway 13L/31R"*.
     toward the end you want).
   - On a gate: an arrival taxis there.
   - On a taxiway: taxi there and hold, e.g. *"taxi via A, hold short of B"*.
-  - From a gate: pushback. Onto the runway it is waiting to cross: cross it.
+  - From a gate: pushback, the tail the way you drag (below). Onto the
+    runway it is waiting to cross: cross it.
     A departure holding short, onto its runway: *contact Tower* (on Ground)
     or *line up and wait* (on Tower).
 - Departures call ready to push at a gate. You approve pushback, the pilot
-  reports ready to taxi, and you clear them to their runway. Tell them
+  reports ready to taxi, and you clear them to their runway.
+- **Pushback** is a real push: straight back off the stand (up to about
+  240 ft), then the tug swings it round so the tail ends up along the
+  taxilane, about 180 ft down it, nose the other way. It moves at about 4 kt,
+  so the whole push takes about a minute. Hold position works during it.
+  - **Automatic**: plain *pushback approved* picks the tail for you, away from
+    its route to the runway, so it ends nose-first toward its runway:
+    *"pushback approved, tail south"*.
+  - **Drag**: drag the aircraft at its gate toward where the tail should go.
+    It snaps to the nearest taxilane direction, shows the push path dashed
+    with an arrow, and reads *"Pushback approved, tail east"*. Let go to send
+    it.
+  - **Pushback, tail…** on the card lists each way it can go, and typed `pb e`
+    (or `pb tail sw`) picks the closest to that direction.
+- Zoom goes in to about 3,000 pixels a mile, close enough to watch a push
+  (aircraft icons grow to their real size). Tell them
   **contact Tower when ready** on the way (or **contact Tower** once they're
   holding short). Without it they report holding short to Ground and wait,
   and Tower can't clear them.
@@ -940,8 +956,9 @@ Flight rules, the same wording. Each command also does something to the
 aircraft wherever there is something to do.
 
 - **Pushback**:
-  - *pushback approved, expect runway XX*;
-  - *pushback approved*.
+  - *pushback approved, tail south, expect runway XX*;
+  - *pushback approved, tail south*;
+  - *Pushback, tail…*: each way it can push.
 - **Taxi to…**:
   - *taxi to runway XX, contact tower when ready*;
   - *taxi to parking, at your discretion*.
