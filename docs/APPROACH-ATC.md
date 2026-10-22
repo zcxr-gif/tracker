@@ -418,6 +418,22 @@ Not modelled: Center itself, cruise, Mach, active/away, Resume Flight
   in: vectors to the procedure (or onto the final), and the clearance is
   refused if it can't join from where it's heading.
 
+**ILS approaches (IFATC 6.11):** under Infinite Flight rules:
+
+- 6.11.3 Intercepts as close to 30° as possible: over 30° is a violation, and
+  a vectored intercept of 10° or less (inside 20 NM) gets a note. Dragging an
+  aircraft onto a final picks a 30° heading for you.
+- 6.11.4 The altitude must be below the glideslope where it joins (300 ft per
+  mile above the field): above it is a violation.
+- 6.11.5 Every ILS clearance carries an altitude ("maintain 3,000 until
+  established"). Without a heading it flies its present track, refused when
+  that doesn't join outside the final approach fix.
+- 6.11.7 **Parallel operations**: IFR separation applies until both are
+  established on the localizer (or GPS final). Then, on parallel runways at
+  any spacing, it no longer does. Visual approaches don't get this.
+- 6.11.8 The system's Approach brings parallel finals in level, 1,000 ft
+  apart, and turns them in line abreast.
+
 **Holding (IFATC 6.7):** under Infinite Flight rules:
 
 - 6.7.2 **Hold at…** lists **Present position** and the fixes still ahead on

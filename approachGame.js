@@ -1901,15 +1901,16 @@ function issueCall(ac, c) {
         ac.holdAt = null; ac.direct = null; ac.orbit = null; ac.turn = null; ac.landClr = false; ac.request = null;
         parts.push(`cleared ${APP_NAME[appType]} runway ${e.id} approach`);
         back.push(`cleared ${APP_TAG[appType]} ${e.id}`);
-        // 7110.65 5-9-2: 30° max, 20° max within 2 NM of the approach gate.
-        const nearGate = icpt.along < GATE_NM + 2;
-        if (icpt.angle > 30.5) violation(ac, '7110.65 5-9-2', `${ac.cs} joins the localizer at ${Math.round(icpt.angle)}°; the limit is 30°`);
+        // 7110.65 5-9-2: 30° max, 20° max within 2 NM of the approach gate. IFATC 6.11.3: as close to 30° as possible, 10° or less avoided.
+        const nearGate = icpt.along < GATE_NM + 2, ifr = G.rules.id === 'ifatc';
+        if (ifr && !G.aiActing && icpt.angle <= 10.5 && icpt.along < 20 && c.hdg != null) sys(`IFATC 6.11.3: a ${Math.round(icpt.angle)}° intercept is too shallow to get ${ac.cs} onto the localizer expeditiously; aim for 30°.`, 'bad');
+        if (icpt.angle > 30.5) violation(ac, ifr ? 'IFATC 6.11.3' : '7110.65 5-9-2', `${ac.cs} joins the localizer at ${Math.round(icpt.angle)}°; the limit is 30°`);
         else if (nearGate && icpt.angle > 20.5) violation(ac, '7110.65 5-9-2', `${ac.cs} joins at ${Math.round(icpt.angle)}° within 2 miles of the approach gate; the limit there is 20°`);
         // 7110.65 5-9-1: join at least 2 NM outside the approach gate.
         if (nearGate) violation(ac, '7110.65 5-9-1', `${ac.cs} joins final ${icpt.along.toFixed(1)} miles out; vector to join at least 2 miles outside the approach gate (${GATE_NM + 2} miles)`);
         // The glideslope is joined from below.
         const gsAt = elev + icpt.along * GS_FT_PER_NM;
-        if (ac.tAlt > gsAt + 100) violation(ac, 'glideslope interception', `${fmtAlt(ac.tAlt)} is above the glideslope where ${ac.cs} joins (about ${fmtAlt(Math.round(gsAt / 100) * 100)}); it has to intercept from below`);
+        if (ac.tAlt > gsAt + 100) violation(ac, G.rules.id === 'ifatc' ? 'IFATC 6.11.4' : 'glideslope interception', `${fmtAlt(ac.tAlt)} is above the glideslope where ${ac.cs} joins (about ${fmtAlt(Math.round(gsAt / 100) * 100)}); it has to intercept from below`);
     }
 
     // ---- speed (an approach clearance cancels assigned speeds unless restated: 7110.65 5-7-1)
@@ -4466,6 +4467,8 @@ function inTrail(a, b) {
 /** The separation this pair needs right now, in NM, with the reason; null when none applies. */
 function requiredSep(a, b) {
     const ea = a.appr?.loc ? a.appr.end : null, eb = b.appr?.loc ? b.appr.end : null;
+    // IFATC 6.11.7: once both are established on the localizer (or GPS final) of parallel runways, IFR separation no longer applies.
+    if (G.rules.id === 'ifatc' && ea && eb && ea.phys !== eb.phys && parallelFt(ea, eb) != null && a.appr.type !== 'VIS' && b.appr.type !== 'VIS') return null;
     if (ea && eb && !sameRunwayish(ea, eb)) {
         const ft = parallelFt(ea, eb);
         if (ft != null && ft >= 4300) return null;                                         // 7110.65 5-9-7 independent
