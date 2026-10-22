@@ -829,7 +829,34 @@ Scoring by position:
 | Tower or Approach | Landing | +10 |
 | Approach | Departure out through its gate | +10 |
 
-## Real waypoints and procedures (US airports)
+## Waypoints and procedures
+
+Every airport has waypoints and procedures, from one of three sources:
+
+1. **Hand-built** by the InFlight team (`nav/custom/<ICAO>.json`). These
+   take priority, section by section: a file with only STARs keeps the other
+   sections from below. The authoring guide is `docs/NAV-AUTHORING.md`.
+2. **Published (US)**: FAA data, below.
+3. **Generated** everywhere else (`approachNavGen.js`), around the real
+   navaids:
+   - STARs from four directions, each starting at a real VOR (else NDB) in
+     that sector 24–37 NM out when there is one (at Heathrow: LAM, MID, CPT,
+     CFD), else at an invented fix;
+   - SIDs to four exits between them, likewise, each with a transition for
+     every runway end;
+   - an ILS (runways of 5,000 ft or more) and an RNAV (GPS) approach on every
+     runway end: IF at 10 NM, FAF at 5 NM, T-bar IAFs;
+   - the real navaids within 45 NM as waypoints.
+
+   They're seeded by the ICAO, so a field's procedures are the same every
+   shift. The navaids are every VOR, NDB and DME in the world from
+   OurAirports (public domain): `npm run build:navaids` writes
+   `nav/navaids.json` (about 11,000, 113 kB compressed), and it is loaded only
+   at airports without published data. Generated altitudes don't know the
+   terrain: with Terrain on, the MVAs and the system's terrain safety net
+   still apply.
+
+The Layers panel says which source is on the scope.
 
 At US airports the fixes and procedures are real, from FAA data: the
 current AIRAC cycle of the FAA's CIFP (SIDs, STARs, instrument approaches)
@@ -863,7 +890,8 @@ and NASR (waypoints, navaids), via the MIT-licensed `@squawk/procedure-data`,
     it. Plotted procedures show their route, their name, and each fix's
     altitude constraint once zoomed in.
   Choices are kept on the device, per airport.
-- Outside the US, and at airports without data, the fixes stay invented.
+- Airports with too little routing (fewer than two STAR entries or two SID
+  exits) fall back to the game's invented fixes.
 
 ## Controls
 

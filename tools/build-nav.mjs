@@ -103,8 +103,9 @@ for (const rec of procs.records) {
     }
 }
 
-fs.rmSync(OUT, { recursive: true, force: true });
+// Only this build's own files go: nav/navaids.json (build-navaids.mjs) and nav/custom/ (hand-built) stay.
 fs.mkdirSync(OUT, { recursive: true });
+for (const f of fs.readdirSync(OUT)) if (/^[A-Z0-9]{3,4}\.json$/.test(f) || f === 'index.json') fs.rmSync(path.join(OUT, f));
 const index = {};
 let bytes = 0;
 for (const [icao, recs] of byApt) {

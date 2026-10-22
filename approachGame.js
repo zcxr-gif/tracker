@@ -21,6 +21,7 @@ import { buildGround, nearestNode, route, withCrossings, pointAt, toSegment } fr
 import { drawIcon } from './approachIcons.js';
 import { AirportLayoutManager } from './airportLayout.js';
 import { aerowayFromOpenFreeMap, gatesFromBackend } from './approachTiles.js';
+import { generateNav } from './approachNavGen.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -261,11 +262,34 @@ function buildWorld(p, nav) {
 /* Real waypoints and procedures (FAA CIFP/NASR via tools/build-nav.mjs) */
 /* ------------------------------------------------------------------ */
 
-async function loadNav(icao) {
+async function getJson(url) {
     try {
-        const r = await Promise.race([fetch(`/nav/${encodeURIComponent(icao)}.json`), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]);
+        const r = await Promise.race([fetch(url), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]);
         return r.ok ? await r.json() : null;
     } catch { return null; }
+}
+let navaidList = null;
+/**
+ * The airport's waypoints and procedures:
+ *   - published (FAA, nav/<ICAO>.json), else generated around the real navaids (approachNavGen.js, nav/navaids.json);
+ *   - then hand-built ones (nav/custom/<ICAO>.json) on top: each of star, sid and iap they have replaces
+ *     that section, and their fixes add to (or correct) the rest. docs/NAV-AUTHORING.md has the format.
+ */
+async function loadNav(airport) {
+    const icao = encodeURIComponent(airport.icao);
+    const [faa, custom] = await Promise.all([getJson(`/nav/${icao}.json`), getJson(`/nav/custom/${icao}.json`)]);
+    let nav = faa;
+    if (!nav) {
+        navaidList = navaidList || (await getJson('/nav/navaids.json'))?.navaids || null;
+        nav = generateNav(buildWorld(airport, null), navaidList || []);
+    }
+    if (custom) {
+        nav = { ...nav, fix: { ...nav.fix, ...(custom.fix || {}) }, custom: custom.source || 'InFlight team', cycle: custom.cycle || nav.cycle };
+        for (const k of ['star', 'sid', 'iap']) if (Array.isArray(custom[k])) nav[k] = custom[k];
+        // Generated only where the hand-built file left a section to the generator.
+        nav.generated = !!nav.generated && !['star', 'sid', 'iap'].every(k => Array.isArray(custom[k]));
+    }
+    return nav;
 }
 
 /**
@@ -437,6 +461,16 @@ function drawProcedures() {
     c.restore();
 }
 
+/** Where the procedures on the scope come from, said plainly. */
+function navSource() {
+    const n = G.world.nav;
+    if (!n) return '';
+    if (n.custom && !n.generated) return `Hand-built by ${n.custom}${n.cycle && n.cycle !== 'generated' ? `, cycle ${n.cycle}` : ''}. Not for real-world navigation.`;
+    if (n.custom) return `Hand-built by ${n.custom} in part; the rest generated around the real navaids (not published procedures).`;
+    if (n.generated) return 'Generated around the real navaids (OurAirports): believable, not the published procedures.';
+    return `FAA data, cycle ${n.cycle || ''}.`;
+}
+
 function renderLayers() {
     const el = $('#layers');
     if (!el || el.hidden || !G) return;
@@ -452,7 +486,7 @@ function renderLayers() {
         <h4>Arrivals (STAR)</h4><div class="chips">${chips('STAR') || '<span class="none">None published</span>'}</div>
         <h4>Departures (SID)</h4><div class="chips">${chips('SID') || '<span class="none">None published</span>'}</div>
         <h4>Approaches</h4><div class="chips">${chips('IAP')}</div>
-        <p class="note">FAA data, cycle ${escapeHtml(G.world.nav.cycle || '')}. Tap a procedure to plot it.</p>`
+        <p class="note">${escapeHtml(navSource())} Tap a procedure to plot it.</p>`
         : `<p class="note">Real procedures are plotted at US airports. Here the fixes are the game's own.</p>`}`;
 }
 
@@ -6717,8 +6751,8 @@ async function startGame(airport, level) {
     $('#summary').hidden = true;
     $('#log').innerHTML = '';
     nextId = 1;
-    // Real waypoints and procedures for US fields (nav/<ICAO>.json, built by tools/build-nav.mjs).
-    const [nav, freqs] = await Promise.all([loadNav(airport.icao), loadFreqs(airport.icao)]);
+    // Waypoints and procedures: published (US), hand-built, or generated around the real navaids.
+    const [nav, freqs] = await Promise.all([loadNav(airport), loadFreqs(airport.icao)]);
     newGame(airport, level, { ...opts }, nav);
     G.freqs = freqs;
     railView = null; railHtml = '';
