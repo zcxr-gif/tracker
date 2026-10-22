@@ -1127,7 +1127,10 @@ function spawnArrival(dist) {
             ac.via = { kind: 'STAR', id: st.id, legs: st.legs, i: 0, vert: true };
             ac.star = st.id;
             ac.starLegs = st.legs;
+            // IFATC 6.6.12: some still level, asking for descent via the STAR before their top of descent.
+            if (ifr && G.positions.has('APP') && Math.random() < 0.35) { ac.via.vert = false; ac.wantsDescentVia = true; }
         }
+        ac.spawnAlt = ac.alt;
         G.aircraft.push(ac);
         maybeEmergency(ac);
         if (noRadar()) {
@@ -1142,7 +1145,7 @@ function spawnArrival(dist) {
         // As in Infinite Flight: it checks in asking for an approach, from its flight plan, and you answer.
         const type = appFor(ac.expect);
         ac.request = { kind: type, end: ac.expect, say: `the ${appWord(type)}`, tag: APP_TAG[type], checkin: true };
-        pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${infoOf(ac)}, requesting ${ac.via ? '' : 'radar vectors for '}the ${appWord(type)} approach runway ${ac.expect.id}.`);
+        pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.wantsDescentVia ? `, on the ${ac.via.id} arrival, request descent via the arrival` : ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${infoOf(ac)}, requesting ${ac.via ? '' : 'radar vectors for '}the ${appWord(type)} approach runway ${ac.expect.id}.`);
         return true;
     }
     return false;
@@ -1693,7 +1696,7 @@ function issueCall(ac, c) {
     if (c.via) {
         const resume = ac.kind === 'arr' ? ac.viaSaved || ac.via : ac.viaSaved || ac.via;
         if (!resume) { sys(`${ac.cs} isn't on a published ${ac.kind === 'arr' ? 'arrival' : 'departure'}.`); return false; }
-        ac.via = { ...resume, vert: true }; ac.viaSaved = null; ac.direct = null; ac.holdAt = null; ac.orbit = null;
+        ac.via = { ...resume, vert: true }; ac.viaSaved = null; ac.direct = null; ac.holdAt = null; ac.orbit = null; ac.wantsDescentVia = false;
         parts.push(ac.kind === 'arr' ? `descend via the ${resume.id} arrival` : `climb via the ${resume.id} departure`);
         back.push(ac.kind === 'arr' ? `descend via the ${resume.id}` : `climb via the ${resume.id}`);
     }
@@ -1720,6 +1723,7 @@ function issueCall(ac, c) {
 
     // ---- messages from the lists, standby
     if (c.msg) return sayMessage(ac, c.msg);
+    if (c.amendStar) { if (!notPreferredStar(ac)) { sys(`${ac.cs} is already on a preferred STAR.`); return false; } return amendStar(ac); }
     if (c.standby) {
         atc(`${ac.radio}, ${c.standby === 'corr' ? 'correction, standby' : c.standby === 'disregard' ? 'disregard last message' : 'standby'}`, G.aiActing);
         ac.standbyUntil = G.t + 45;
@@ -2371,6 +2375,32 @@ const BROADCASTS = [
     ['rwyChange', 'Runway change', () => 'runway change is in progress'],
     ['restr', 'Notify airport restrictions', () => 'please check current airport restrictions. NOTAM will be enforced by reports'],
 ];
+/** "Amend flight plan to include preferred STAR at destination" (IFATC 6.6.10, 6.9.4), for an arrival on a STAR that isn't preferred. */
+const notPreferredStar = ac => ac.kind === 'arr' && !!ac.star && G.atisCfg.stars.length > 0 && !G.atisCfg.stars.includes(ac.star);
+function amendStar(ac) {
+    atc(`${ac.radio}, amend flight plan to include preferred STAR at destination.`, G.aiActing);
+    // IFATC 6.6.13: not once it's established in the descent: vectors for sequencing instead.
+    if (!G.aiActing && ac.alt < (ac.spawnAlt ?? ac.alt) - 1000) sys(`IFATC 6.6.13: ${ac.cs} is already established in the descent. Amending now adds pilot workload: vectors for sequencing instead.`, 'bad');
+    const pref = ac.entry?.stars?.find(st => G.atisCfg.stars.includes(st.id));
+    if (!pref) { pilot(ac, `${ac.radio}, there's no preferred arrival from our direction, we'll stay on the ${ac.star}.`); return true; }
+    pilot(ac, `Wilco, amending, ${ac.radio}.`);
+    ac.amendAt = G.t + 30; ac.amendTo = pref;
+    return true;
+}
+/** The refiled STAR, joined at its leg nearest ahead, about 30 s after being asked. */
+function amendments() {
+    for (const ac of G.aircraft) {
+        if (!ac.amendTo || G.t < ac.amendAt || ac.state !== 'air') continue;
+        const st = ac.amendTo; ac.amendTo = null;
+        let i = 0, best = 1e9;
+        st.legs.forEach((l, k) => { const d = Math.hypot(l.x - ac.x, l.y - ac.y); if (d < best) { best = d; i = k; } });
+        const nv = { kind: 'STAR', id: st.id, legs: st.legs, i, vert: ac.via ? ac.via.vert : false };
+        if (ac.via?.kind === 'STAR') ac.via = nv; else ac.viaSaved = nv;
+        Object.assign(ac, { star: st.id, starLegs: st.legs });
+        pilot(ac, `${ac.radio}, flight plan amended, on the ${st.id} arrival.`);
+    }
+}
+
 const MISC_REPLY = { exp: 'Expediting', divert: 'Diverting', alert: 'Looking', stay: 'Staying with you', busy: 'Standing by', atis: 'Checking ATIS', rwy: 'Checking', rwy2: 'Checking' };
 
 /** A message from the lists: said, read back, and acted on where there's something to do. */
@@ -3267,6 +3297,7 @@ function aiControl() {
     if (G.rules.id === 'ifatc') towerDepartures();
     atisCheck();
     checkIns();
+    amendments();
     coordinate();
     if (!G.positions.has('APP')) { aiConflicts(); aiTerrainNet(); }
     for (const ac of G.aircraft) {
@@ -5564,6 +5595,7 @@ function airMenu(ac, add) {
     add('Ask for intentions', { cmd: { intentions: true } });
     if (ac.kind === 'arr') add('Misc. messages', { sub: () => [
         ...(visualWx() && !ac.fieldReported ? [{ label: 'Report the airport in sight', cmd: { reportField: true } }] : []),
+        ...(ac.freq === 'APP' && notPreferredStar(ac) && !ac.amendTo ? [{ label: 'Amend FPL with preferred STAR', cmd: { amendStar: true } }] : []),
         ...(ac.request ? [{ label: 'Unable', cmd: { unable: true } }] : []),
         { label: 'Say intentions', cmd: { intentions: true } },
         ...(ac.freq === 'TWR' ? miscMenu(ac)() : []),
@@ -5648,7 +5680,7 @@ function renderCard(force) {
         ? `${Math.round(ac.alt).toLocaleString('en-US')}ft ${hdg3(ac.hdg)}°<br>GS ${Math.round(ac.spd)} · ${ac.freq}`
         : `${ac.state === 'gate' ? 'Gate ' + (ac.stand?.ref || '') : Math.round(ac.spd) + ' kt'}<br>${ac.freq}`;
     $('#cm-st').textContent = statusText(ac);
-    $('#cm-fpl').textContent = 'FPL  ' + filedPlan(ac).text;
+    $('#cm-fpl').textContent = 'FPL  ' + filedPlan(ac).text + (notPreferredStar(ac) ? `  (${ac.star}: not a preferred STAR)` : '');
 }
 
 /** A menu item chosen: transmit it, open its list, or open its ladder. */

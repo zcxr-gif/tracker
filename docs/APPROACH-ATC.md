@@ -373,6 +373,24 @@ The aircraft fly with airliner performance:
   - Still on vectors or an assigned altitude 10 NM from the edge of the scope,
     the pilot asks for them. Leaving that way costs 3.
 
+**STARs from Center's part of the manual (IFATC 6.6):** there's no Center
+position, so Approach does the STAR work Center would.
+
+- 6.6.12 About one STAR arrival in three (with you on Approach) checks in
+  still level: *"…on the BDEGA4 arrival, request descent via the arrival"*.
+  It stays level until you send **Descend via the BDEGA4** (`dv`), or you
+  vector it and give it altitudes instead.
+- 6.6.10 An arrival on a STAR that isn't preferred shows "(not a preferred
+  STAR)" on its card. **Amend FPL with preferred STAR** (Misc. messages):
+  about 30 s later it's on the preferred STAR from its entry, joined at the
+  nearest leg. With none from that direction, it says so.
+- 6.6.13 Asking one already established in the descent is flagged: vector it
+  for sequencing instead.
+- 6.6.8 VFR semicircular levels are used for VFR traffic (below).
+
+Not modelled: Center itself, cruise, Mach, active/away, Resume Flight
+(6.6.1–6.6.7, 6.6.14).
+
 **Flight following (IFATC 6.5):** with you on Approach under Infinite Flight
 rules, VFR light aircraft cross the scope at VFR levels (odd thousands plus
 500 heading 000–179, even plus 500 heading 180–359) and ask for flight
