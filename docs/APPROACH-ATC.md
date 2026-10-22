@@ -90,6 +90,19 @@ A35K, B748, MD11).
 - 6.2.5 **VFR services** (flight following, transitions, the pattern) see and
   avoid: against them only 500 ft vertical, or 1 NM, counts.
 
+**Drag and vector (IFATC 6.3):**
+
+- 6.3.1 Dragging a heading shows the heading, the distance, the time at the
+  aircraft's speed, the nearest fix or navaid within 2 NM, and (with Terrain
+  on) the highest terrain between the aircraft and the point. Dropping it on
+  a fix gives the direct-to prompt.
+- 6.3.2 / 6.3.3 It also shows the **minimum**: that terrain rounded up to the
+  next 1,000 ft, plus 1,000 ft (10,800 ft → 12,000 ft). It turns red when the
+  aircraft's assigned altitude is below it. In the altitude ladder that
+  follows, rungs below it are red, and picking one gets a warning.
+- The MVA sectors are drawn by the same rule under Infinite Flight rules:
+  each one's highest terrain rounded up to the next 1,000 ft, plus 1,000 ft.
+
 ## Approaches
 
 - **Approach gate** is 1 NM outside the final approach fix. The game puts

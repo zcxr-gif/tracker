@@ -313,7 +313,7 @@ function areaOf(mva, d, b) {
     return r === 0 ? 0 : 1 + (r - 1) * mva.wedges + Math.floor(b / WEDGE) % mva.wedges;
 }
 
-export function buildMva(dem, floor, scopeNm = 40) {
+export function buildMva(dem, floor, scopeNm = 40, ifatc = false) {
     const rings = Math.ceil(scopeNm / RING_NM), wedges = 360 / WEDGE;
     const mva = { rings, wedges, scopeNm, vals: new Int32Array(1 + (rings - 1) * wedges) };
     const hi = new Float32Array(mva.vals.length), lo = new Float32Array(mva.vals.length).fill(Infinity);
@@ -338,7 +338,8 @@ export function buildMva(dem, floor, scopeNm = 40) {
     }
     for (let a = 0; a < mva.vals.length; a++) {
         const clearance = hi[a] - lo[a] > 2000 ? 2000 : 1000;
-        mva.vals[a] = Math.max(floor, Math.ceil((hi[a] + clearance) / 500) * 500);
+        // IFATC 6.3.2: the highest terrain rounded up to the next 1,000 ft, then 1,000 ft more.
+        mva.vals[a] = Math.max(floor, ifatc ? Math.ceil(hi[a] / 1000) * 1000 + 1000 : Math.ceil((hi[a] + clearance) / 500) * 500);
     }
     mva.labels = areaLabels(mva);
     return mva;

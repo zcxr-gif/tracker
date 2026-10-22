@@ -4572,13 +4572,15 @@ function draw() {
         c.strokeStyle = SEL_PURPLE; c.lineWidth = 2;
         c.beginPath(); c.moveTo(ax, ay); c.lineTo(drag.px, drag.py); c.stroke();
         c.beginPath(); c.arc(drag.px, drag.py, 9, 0, Math.PI * 2); c.stroke();
-        const l1 = `${hdg3(drag.hdg)}°  ${String(Math.round(nm)).padStart(3, '0')}NM`, l2 = `${Math.max(1, Math.round(min))}mn`;
+        // IFATC 6.3.1: heading, distance, time, the highest terrain on the way (and the minimum it allows), a navaid nearby.
+        const l1 = `${hdg3(drag.hdg)}°  ${String(Math.round(nm)).padStart(3, '0')}NM`, l2 = `${Math.max(1, Math.round(min))}mn${drag.near ? '  ' + drag.near.name : ''}`;
+        const lines = [l1, l2, ...(drag.scan ? [`TERR ${drag.scan.hi.toLocaleString('en-US')}`, `MIN ${drag.scan.min.toLocaleString('en-US')}`] : [])];
         c.font = '700 13px "JetBrains Mono", monospace';
-        const w = Math.max(c.measureText(l1).width, c.measureText(l2).width) + 14;
-        const lx = clamp((ax + drag.px) / 2 - w / 2, 4, view.w - w - 4), ly = clamp((ay + drag.py) / 2 - 20, 4, view.h - 44);
-        c.fillStyle = 'rgba(6,11,15,0.85)'; c.fillRect(lx, ly, w, 38);
-        c.fillStyle = '#fff'; c.textBaseline = 'middle';
-        c.fillText(l1, lx + 7, ly + 11); c.fillText(l2, lx + 7, ly + 27);
+        const w = Math.max(...lines.map(l => c.measureText(l).width)) + 14, h = lines.length * 16 + 6;
+        const lx = clamp((ax + drag.px) / 2 - w / 2, 4, view.w - w - 4), ly = clamp((ay + drag.py) / 2 - 20, 4, view.h - h - 6);
+        c.fillStyle = 'rgba(6,11,15,0.85)'; c.fillRect(lx, ly, w, h);
+        c.textBaseline = 'middle';
+        lines.forEach((l, i) => { c.fillStyle = i === 3 && drag.ac.tAlt < drag.scan.min ? '#ff8a98' : '#fff'; c.fillText(l, lx + 7, ly + 11 + i * 16); });
         c.restore(); c.textBaseline = 'alphabetic';
     }
 
@@ -4904,6 +4906,25 @@ function airTarget(ac, sx, sy) {
     return null;
 }
 
+/**
+ * The drag and vector scan (IFATC 6.3.1, 6.3.2): the highest terrain from the aircraft to the point, and the lowest
+ * altitude it allows, that height rounded up to the next 1,000 ft plus 1,000 ft. Null without terrain.
+ */
+function vectorScan(ac, wx, wy) {
+    if (!G.opts.terrain || !G.dem) return null;
+    const d = Math.hypot(wx - ac.x, wy - ac.y), n = Math.max(1, Math.ceil(d / 0.25));
+    let hi = 0;
+    for (let i = 0; i <= n; i++) hi = Math.max(hi, terrainAt(G.dem, ac.x + (wx - ac.x) * i / n, ac.y + (wy - ac.y) * i / n));
+    hi = Math.round(hi / 100) * 100;
+    return { hi, min: Math.max(G.world.minAlt, Math.ceil(hi / 1000) * 1000 + 1000) };
+}
+/** A named fix or navaid near the drag point, as the drag and vector readout names it. */
+function fixNear(wx, wy) {
+    let best = null, bd = 2;
+    for (const f of G.world.fixes) { const d = Math.hypot(f.x - wx, f.y - wy); if (d < bd && f.name) { bd = d; best = f; } }
+    return best;
+}
+
 /** A departure at the runway with no taxi map: onto the runway lines it up, and lined up, clears it for takeoff. */
 function towerTarget(ac, sx, sy) {
     const e = runwayAt(sx, sy);
@@ -5090,6 +5111,8 @@ function bindScope() {
             const [ax, ay] = toS(drag.ac.x, drag.ac.y);
             drag.hdg = Math.round(brg(sx - ax, -(sy - ay)) / 5) * 5 || 360;
             drag.air = airTarget(drag.ac, sx, sy);
+            const [wx, wy] = toW(sx, sy);
+            drag.scan = vectorScan(drag.ac, wx, wy); drag.near = fixNear(wx, wy);
         } else if (drag.mode === 'twr' && drag.moved) {
             drag.air = towerTarget(drag.ac, sx, sy);
         }
@@ -5110,7 +5133,7 @@ function bindScope() {
             renderCard(true);
         } else if (d.mode === 'ac' && d.moved && d.hdg != null) {
             // As in Infinite Flight: the heading, then pick the altitude (or keep it) from the ladder.
-            if (mine(d.ac)) altitudeLadder(d.ac, d.hdg); else issue(d.ac, { hdg: d.hdg });
+            if (mine(d.ac)) altitudeLadder(d.ac, d.hdg, d.scan); else issue(d.ac, { hdg: d.hdg });
         } else if (d.mode === 'pan' && !d.moved) {
             const f = hitFix(d.sx, d.sy);
             if (f && G.selected && G.selected.state !== 'roll') { issue(G.selected, { direct: f }); }
@@ -5551,14 +5574,19 @@ function openLadder(ac, title, values, current, pickFn, keep) {
 let ladderPick = null;
 function closeLadder() { const el = $('#ladder'); if (el) el.hidden = true; ladderPick = null; }
 
-function altitudeLadder(ac, hdg) {
+function altitudeLadder(ac, hdg, scan) {
     const lo = Math.max(1000, Math.ceil((G.world.elev + 1000) / 500) * 500), vals = [];
     // The altitude it's at now is green, so you can see where it is before picking where it goes.
     const now = Math.round(ac.alt / 500) * 500;
-    for (let a = 24000; a >= lo; a -= 500) vals.push({ v: a, label: a.toLocaleString('en-US') + 'ft', now: a === now, warn: terrainOn() && a < mvaHere({ x: ac.x, y: ac.y }) });
+    // Red below the MVA here, and below the minimum along a dragged vector (IFATC 6.3.2).
+    const min = Math.max(terrainOn() ? mvaHere({ x: ac.x, y: ac.y }) : 0, scan?.min || 0);
+    for (let a = 24000; a >= lo; a -= 500) vals.push({ v: a, label: a.toLocaleString('en-US') + 'ft', now: a === now, warn: a < min });
     const cur = Math.round(ac.tAlt / 500) * 500;
-    openLadder(ac, hdg != null ? `HDG ${hdg3(hdg)} · ALT` : 'ALTITUDE', vals, cur,
-        v => { issue(ac, v === 'keep' ? { hdg } : { ...(hdg != null ? { hdg } : {}), alt: Number(v) }); renderCard(true); },
+    openLadder(ac, hdg != null ? `HDG ${hdg3(hdg)} · ALT${scan ? ` · MIN ${scan.min.toLocaleString('en-US')}` : ''}` : 'ALTITUDE', vals, cur,
+        v => {
+            if (scan && v !== 'keep' && Number(v) < scan.min) sys(`${Number(v).toLocaleString('en-US')} ft is below the ${scan.min.toLocaleString('en-US')} ft minimum along that vector: highest terrain ${scan.hi.toLocaleString('en-US')} ft, rounded up to the next 1,000 plus 1,000 (IFATC 6.3.2).`, 'bad');
+            issue(ac, v === 'keep' ? { hdg } : { ...(hdg != null ? { hdg } : {}), alt: Number(v) }); renderCard(true);
+        },
         hdg != null ? `Maintain ${ac.tAlt.toLocaleString('en-US')}ft` : null);
 }
 
@@ -6163,7 +6191,7 @@ async function startGame(airport, level) {
         if (G !== game) return;
         if (d) {
             game.dem = d;
-            game.mva = buildMva(d, game.world.minAlt);
+            game.mva = buildMva(d, game.world.minAlt, undefined, game.rules.id === 'ifatc');
             // Each gate's exit altitude clears the highest MVA within 10 miles of it.
             for (const f of game.world.fixes.filter(f => f.kind === 'dep')) {
                 let hi = 0;
@@ -6366,7 +6394,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings };
+    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt };
 }
 
 init();
