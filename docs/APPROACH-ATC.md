@@ -292,8 +292,12 @@ B, K, hold short of runway 13L/31R"*.
     can't be joined into a network to taxi on, they're still drawn on the
     scope (Ground is then unavailable).
   - OpenFreeMap's tiles carry taxiways but not the **taxilanes** between
-    the terminals, so OpenStreetMap is always asked too, and the fuller
-    network (normally OpenStreetMap's) is used.
+    the terminals, so OpenStreetMap is always asked too. Overpass can take
+    a minute at a big field (the live map simply waits), so the shift starts
+    on OpenFreeMap's network and OpenStreetMap's replaces it when it
+    arrives, if fuller ("Taxilanes in" in the log). OpenStreetMap's layout
+    is then kept on the device for two weeks, so the next shift at that
+    airport has it at once.
   - Each stand gets a lead-in to the closest point on a taxiway or taxilane
     within ~550 m that doesn't pass through a building (the edge is split
     there), instead of a line to the nearest junction.

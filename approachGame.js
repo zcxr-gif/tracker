@@ -1985,6 +1985,7 @@ function tick(dt) {
     if (G.selected && G.selected.gone) select(null);
     separation();
     terrainCheck();
+    if (G.pendingGround && !G.aircraft.some(a => a.state === 'rollout')) swapGround(G.pendingGround);
     if (G.ground) surfaceCheck();
     G.aircraft = G.aircraft.filter(a => !a.gone);
     if (G.selected && G.selected.gone) select(null);
@@ -3517,7 +3518,8 @@ async function loadSurface(world, say = () => {}) {
 
     const tiles = tryIt('OpenFreeMap', within(25000, aerowayFromOpenFreeMap(box)));
     const gates = tryIt('InFlight gates', within(15000, gatesFromBackend(world.icao)));
-    const osm = tryIt('OpenStreetMap', within(25000, overpassLayout(world, box)));
+    // Overpass can take half a minute or more at a big field (the live map simply waits for it), so give it 90 s.
+    const osm = tryIt('OpenStreetMap', within(90000, overpassLayout(world, box)));
 
     const options = [];
     let map = null;
@@ -3542,8 +3544,20 @@ async function loadSurface(world, say = () => {}) {
         build([...t, ...(g || [])], `OpenFreeMap taxiways${g ? ' + InFlight gates' : ''}`);
     }
     // OpenFreeMap's tiles carry the taxiways but not the taxilanes between the terminals:
-    // OpenStreetMap has those, and whichever network comes out fuller (it usually will) wins.
-    say(t ? 'adding the apron taxilanes from OpenStreetMap…' : 'trying OpenStreetMap…');
+    // OpenStreetMap has those. With a network already in hand, the shift starts on it and
+    // OpenStreetMap's replaces it when it arrives, if it's fuller (it usually is).
+    if (options.length) {
+        const first = options[0];
+        const later = Promise.all([gates, osm]).then(async ([g, o]) => {
+            if (!o) return null;
+            await paint();
+            build([...o.features, ...(g || [])], `OpenStreetMap${g ? ' + InFlight gates' : ''}`);
+            const best = options.sort((a, b) => b.score - a.score)[0];
+            return best === first ? null : { ground: best.ground, source: best.source };
+        });
+        return { ground: first.ground, source: first.source, later };
+    }
+    say('waiting for OpenStreetMap (big airports can take a minute)…');
     const [g, o] = await Promise.all([gates, osm]);
     if (o) {
         say('building the taxi network from OpenStreetMap…');
@@ -3555,8 +3569,45 @@ async function loadSurface(world, say = () => {}) {
     return { ground: options[0].ground, source: options[0].source };
 }
 
-/** OpenStreetMap through Overpass: three servers at once, plus the live map's own airport request. */
+/**
+ * A fuller taxi network arrived mid-shift (OpenStreetMap, with the taxilanes):
+ * use it from now on. Taxiing aircraft finish the route they have (it's
+ * coordinates, not nodes); parked ones move to the same stand in the new map.
+ */
+function swapGround(up) {
+    const gr = up.ground;
+    G.pendingGround = null;
+    for (const a of G.aircraft) {
+        if (!a.stand) continue;
+        const same = gr.gates.find(g => g.ref === a.stand.ref && Math.hypot(g.x - a.stand.x, g.y - a.stand.y) < 0.1)
+            || gr.gates.reduce((b, g) => { const d = Math.hypot(g.x - a.stand.x, g.y - a.stand.y); return d < 0.05 && (!b || d < b.d) ? { g, d } : b; }, null)?.g;
+        if (same) a.stand = same;
+    }
+    G.ground = G.surfaceMap = gr;
+    G.surfaceStatus = `${up.source} ✓`;
+    sys(`Taxilanes in: the taxi map is now ${up.source} (${gr.summary}).`, 'good');
+    renderHud();
+}
+
+/** OpenStreetMap through Overpass: three servers at once, plus the live map's own airport request. Kept on the device per airport. */
 function overpassLayout(world, box) {
+    const key = 'inflight.approach.osm.' + world.icao;
+    try {
+        const c = JSON.parse(localStorage.getItem(key) || 'null');
+        if (c && Date.now() - c.t < 14 * 864e5 && c.features?.length) return Promise.resolve({ type: 'FeatureCollection', features: c.features });
+    } catch { /* nothing kept */ }
+    return overpassFetch(world, box).then(layout => {
+        // Only what the taxi map uses, to 1 m: a big field is then a few hundred KB.
+        const keep = ['taxiway', 'taxilane', 'apron', 'gate', 'parking_position', 'terminal', 'hangar'];
+        const r5 = c => Array.isArray(c[0]) ? c.map(r5) : [Math.round(c[0] * 1e5) / 1e5, Math.round(c[1] * 1e5) / 1e5];
+        const features = layout.features.filter(f => keep.includes(f.properties?.aeroway) && f.geometry)
+            .map(f => ({ type: 'Feature', properties: { aeroway: f.properties.aeroway, ref: f.properties.ref || f.properties.name || '' }, geometry: { type: f.geometry.type, coordinates: r5(f.geometry.coordinates) } }));
+        try { const txt = JSON.stringify({ t: Date.now(), features }); if (txt.length < 2.5e6) localStorage.setItem(key, txt); } catch { /* full or private */ }
+        return { type: 'FeatureCollection', features };
+    });
+}
+
+function overpassFetch(world, box) {
     const bbox = `${box.s.toFixed(5)},${box.w.toFixed(5)},${box.n.toFixed(5)},${box.e.toFixed(5)}`;
     const q = `[out:json][timeout:40];(way["aeroway"~"taxiway|taxilane|apron|terminal|hangar"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
     const servers = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
@@ -3598,7 +3649,10 @@ async function startGame(airport, level) {
     game.ground = surface.ground || null;
     game.surfaceMap = surface.ground || surface.map || null;
     // On the scope too, so it's visible without reading the log.
-    game.surfaceStatus = surface.ground ? `${surface.source} ✓`
+    if (surface.later) {
+        surface.later.then(up => { if (G === game && up) game.pendingGround = up; else if (G === game) { game.surfaceStatus = game.surfaceStatus.replace(' · fetching taxilanes…', ''); renderHud(); } });
+    }
+    game.surfaceStatus = surface.ground ? `${surface.source} ✓${surface.later ? ' · fetching taxilanes…' : ''}`
         : surface.map ? `drawn only (${surface.map.lines.length} lines), no taxi network: ${surface.error}` : `none: ${surface.error}`;
     renderHud();
     if (surface.ground) sys(`Surface (${surface.source}): ${surface.ground.summary}.`);
