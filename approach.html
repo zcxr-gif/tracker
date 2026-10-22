@@ -298,6 +298,7 @@
         .cm-h small, .cm-h span { color: var(--muted); }
         .cm-num { text-align: right; font: .72rem/1.4 var(--mono); color: #cfd6de; }
         .cm-x { width: 28px; height: 28px; border-radius: 6px; color: #fff; background: rgba(255,255,255,.08); flex: none; }
+        .cm-fpl { padding: 6px 10px 0; font: 600 .7rem var(--mono); color: #d6dee8; letter-spacing: .02em; }
         .cm-st { padding: 6px 10px; font-size: .72rem; color: #aeb7c2; border-bottom: 1px solid rgba(255,255,255,.06); }
         .cm-list { display: flex; flex-direction: column; gap: 4px; padding: 6px; }
         .cm-i {
@@ -322,7 +323,9 @@
         .ld-i { display: block; width: 100%; padding: 11px 12px; text-align: left; font: .82rem var(--mono); color: #fff; border-bottom: 1px solid rgba(255,255,255,.06); }
         .ld-i:hover { background: #1b2129; }
         .ld-i.cur { background: #233042; }
-        .ld-i.keep { color: #7be08a; }
+        .ld-i.keep { color: #9aa4b2; }
+        .ld-i.now { color: #7be08a; font-weight: 700; }
+        .ld-i small { float: right; font-size: .62rem; color: #7be08a; opacity: .8; }
         .ld-i.warn { color: #ff8a98; }
         .ctx { position: absolute; z-index: 8; min-width: 170px; background: rgba(8,10,13,.97); border: 1px solid rgba(255,255,255,.12); }
         .ctx-i { display: block; width: 100%; padding: 11px 14px; text-align: left; font-size: .82rem; color: #fff; border-bottom: 1px solid rgba(255,255,255,.06); }
@@ -558,6 +561,7 @@
                 <button data-level="light">Light</button>
                 <button data-level="normal" class="on">Normal</button>
                 <button data-level="busy">Busy</button>
+                <button data-level="event">Event</button>
             </div>
 
             <h2>Rules</h2>

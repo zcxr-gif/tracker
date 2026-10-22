@@ -41,10 +41,12 @@ const GATE_NM = FAF_NM + 1; // approach gate: 1 NM outside the FAF (7110.65 5-9-
 const LAND_CLR_NM = 0.6;    // no landing clearance by here and the pilot goes around
 const VIOLATION_PTS = 5;
 
+/** Seconds between new aircraft (shrinking over the first ninety minutes), how many at once, and how many departures on the ground or queued. */
 const TRAFFIC = {
-    light:  { gap: 140, max: 6 },
-    normal: { gap: 95,  max: 10 },
-    busy:   { gap: 60,  max: 15 },
+    light:  { gap: 80, max: 8,  gnd: 4,  queue: 2 },
+    normal: { gap: 50, max: 14, gnd: 6,  queue: 3 },
+    busy:   { gap: 32, max: 20, gnd: 9,  queue: 4 },
+    event:  { gap: 20, max: 28, gnd: 12, queue: 6 },
 };
 
 const FEATURED = ['KJFK', 'KLAX', 'KATL', 'KORD', 'KDFW', 'KDEN', 'KSFO', 'KSEA', 'KBOS', 'KMIA', 'KLAS', 'KEWR'];
@@ -332,7 +334,7 @@ function viaStep(ac) {
     if (!leg) {
         ac.via = null;
         if (v.kind === 'IAP') { joinFinal(ac, v.end, 'RNAV'); return; }
-        if (v.kind === 'STAR') pilot(ac, `${ac.radio}, end of the ${v.id} arrival, request vectors.`);
+        if (v.kind === 'STAR' || v.kind === 'FPL') pilot(ac, `${ac.radio}, end of the ${v.kind === 'STAR' ? v.id + ' arrival' : 'filed route'}, request vectors.`);
         else if (ac.gate) ac.direct = ac.gate.x != null ? ac.gate : null;
         return;
     }
@@ -537,6 +539,40 @@ function visualPattern(ac, e) {
     const g = finalGeom(ac, e);
     const kind = g.along > 8 && Math.abs(g.xt) < g.along * Math.tan(25 * D2R) ? 'S' : g.xt > 0 ? 'BR' : 'BL';
     return { end: e, kind, type: 'VIS', pts: patternPoints(ac, kind, e) };
+}
+
+/**
+ * The route an aircraft filed, as fixes:
+ * - an arrival: its STAR (or its entry fix), then its runway's approach fix and the runway;
+ * - a departure: its runway, its SID, then its exit.
+ * text reads like a flight plan.
+ */
+function filedPlan(ac) {
+    const pts = [], add = (name, x, y) => { if (name && x != null && !pts.some(p => p.name === name)) pts.push({ name, x, y }); };
+    if (ac.kind === 'arr') {
+        const e = ac.expect, af = e && G.world.fixes.find(f => f.kind === 'app' && f.end === e);
+        if (ac.starLegs) for (const l of ac.starLegs) add(l.name, l.x, l.y);
+        else if (ac.entry) add(ac.entry.name, ac.entry.x, ac.entry.y);
+        if (af) add(af.name, af.x, af.y);
+        if (e) add('RW' + e.id, e.thr.x, e.thr.y);
+        return { pts, text: [ac.entry?.name, ac.star, af?.name, `${G.world.icao}${e ? '/' + e.id : ''}`].filter(Boolean).join(' ') };
+    }
+    const sid = ac.rwy && sidFor(ac.gate, ac.rwy);
+    if (ac.rwy) add('RW' + ac.rwy.id, ac.rwy.thr.x, ac.rwy.thr.y);
+    if (sid) for (const l of sid.legs) add(l.name, l.x, l.y);
+    if (ac.gate) add(ac.gate.name, ac.gate.x, ac.gate.y);
+    return { pts, text: `${G.world.icao}${ac.rwy ? '/' + ac.rwy.id : ''} ${sid ? sid.id : 'DCT'} ${ac.gate?.name || ''}`.trim() };
+}
+
+/** What's left of the filed route from where the aircraft is now. */
+function filedAhead(ac) {
+    const { pts } = filedPlan(ac);
+    if (!pts.length) return [];
+    let k = 0;
+    pts.forEach((p, i) => { if (Math.hypot(p.x - ac.x, p.y - ac.y) < Math.hypot(pts[k].x - ac.x, pts[k].y - ac.y)) k = i; });
+    // Already past the nearest fix (closer to the next one than it is to that fix): start from the next.
+    if (k < pts.length - 1 && Math.hypot(pts[k + 1].x - ac.x, pts[k + 1].y - ac.y) < Math.hypot(pts[k + 1].x - pts[k].x, pts[k + 1].y - pts[k].y)) k++;
+    return pts.slice(k);
 }
 
 /** The SID a departure from this runway flies to this gate, if any (runway transitions: RW31L, or RW31B for both). */
@@ -939,6 +975,7 @@ function spawnArrival(dist) {
             if (first && first.desc !== '-') { ac.alt = Math.max(ac.alt, first.alt); ac.tAlt = ac.alt; }
             ac.via = { kind: 'STAR', id: st.id, legs: st.legs, i: 0, vert: true };
             ac.star = st.id;
+            ac.starLegs = st.legs;
         }
         G.aircraft.push(ac);
         maybeEmergency(ac);
@@ -1033,7 +1070,7 @@ function spawnDeparture() {
     let rwy = nextDepRunway();
     if (!G.ground && waiting.filter(a => a.rwy === rwy).length >= 3) return false;
     const stand = G.ground ? freeStand() : null;
-    if (G.ground && (!stand || G.aircraft.filter(a => a.kind === 'dep' && a.state !== 'air').length >= 6)) return false;
+    if (G.ground && (!stand || G.aircraft.filter(a => a.kind === 'dep' && a.state !== 'air').length >= TRAFFIC[G.level].gnd)) return false;
     const id = makeCallsign();
     if (!id) return false;
     const gates = G.world.fixes.filter(f => f.kind === 'dep'), recSid = new Set(G.atisCfg.sids);
@@ -1527,6 +1564,11 @@ function issueCall(ac, c) {
         if (!filedRoute(ac)) { sys(`${ac.cs} has no filed route to continue on.`); return false; }
         if (ac.viaSaved) { ac.via = { ...ac.viaSaved, vert: true }; ac.viaSaved = null; }
         else if (!ac.via && ac.kind === 'dep' && ac.gate?.x != null) ac.direct = ac.gate;
+        else if (!ac.via) {
+            // No published arrival to go back to: the fixes it filed, to its runway's approach fix, at the altitude it has.
+            const legs = filedAhead(ac).filter(p => !/^RW/.test(p.name)).map(p => ({ name: p.name, x: p.x, y: p.y, alt: null }));
+            if (legs.length) Object.assign(ac, { via: { kind: 'FPL', id: 'filed route', legs, i: 0, vert: false }, direct: null });
+        }
         Object.assign(ac, { holdAt: null, orbit: null, request: null });
         parts.push('continue as filed'); back.push('continue as filed');
     }
@@ -3113,11 +3155,11 @@ function tick(dt) {
         let ok = false;
         if (live < cfg.max) {
             const waiting = G.aircraft.filter(a => a.state === 'wait').length;
-            const wantDep = waiting < 3 && Math.random() < 0.45;
+            const wantDep = waiting < cfg.queue && Math.random() < 0.45;
             ok = wantDep ? spawnDeparture() || spawnArrival() : spawnArrival() || spawnDeparture();
         }
         const ramp = Math.max(0.55, 1 - (G.t / 5400) * 0.45);
-        G.nextSpawn = G.t + (ok ? cfg.gap * ramp * rand(0.7, 1.3) : 15);
+        G.nextSpawn = G.t + (ok ? cfg.gap * ramp * rand(0.7, 1.3) : 8);
     }
 
     if (G.t >= G.nextWind) shiftWind();
@@ -3809,6 +3851,21 @@ function draw() {
         c.restore(); c.textBaseline = 'alphabetic';
     }
 
+    // The selected aircraft's filed route, from where it is: a dashed line through what's left, the fixes named.
+    if (G.selected && !G.selected.gone && G.selected.state !== 'gate') {
+        const a = G.selected, ahead = filedAhead(a);
+        if (ahead.length) {
+            c.save();
+            c.strokeStyle = 'rgba(214,222,232,0.75)'; c.lineWidth = 1.4; c.setLineDash([6, 5]);
+            c.beginPath(); c.moveTo(...toS(a.x, a.y));
+            for (const p of ahead) c.lineTo(...toS(p.x, p.y));
+            c.stroke(); c.setLineDash([]);
+            c.font = '600 10px "JetBrains Mono", monospace'; c.fillStyle = 'rgba(232,238,245,0.9)';
+            for (const p of ahead) { const [px, py] = toS(p.x, p.y); c.fillRect(px - 2, py - 2, 4, 4); c.fillText(p.name, px + 6, py - 6); }
+            c.restore();
+        }
+    }
+
     // The selected aircraft, Infinite Flight style: a ring, and a line to the panel its commands are in.
     if (G.selected && !G.selected.gone) {
         const [x, y] = toS(G.selected.x, G.selected.y), side = $('.side').getBoundingClientRect(), r = canvas.getBoundingClientRect();
@@ -4383,7 +4440,7 @@ function statusDetail(ac) {
     if (ac.holdAt) lat = `holding at ${ac.holdAt.fix.name}`;
     else if (ac.orbit) lat = `${ac.orbit.dir === 'L' ? 'left' : 'right'} 360`;
     else if (ac.direct) lat = `direct ${ac.direct.name}`;
-    else if (ac.via) { const nx = ac.via.legs.slice(ac.via.i).find(l => l.name); lat = `${ac.via.kind === 'STAR' ? 'descending via' : ac.via.kind === 'IAP' ? 'cleared' : 'climbing via'} ${ac.via.id}${nx ? ' > ' + nx.name : ''}${ac.via.vert ? '' : ' (altitude assigned)'}`; }
+    else if (ac.via) { const nx = ac.via.legs.slice(ac.via.i).find(l => l.name); lat = `${ac.via.kind === 'STAR' ? 'descending via' : ac.via.kind === 'IAP' ? 'cleared' : ac.via.kind === 'FPL' ? 'as filed,' : 'climbing via'} ${ac.via.id}${nx ? ' > ' + nx.name : ''}${ac.via.vert || ac.via.kind === 'FPL' ? '' : ' (altitude assigned)'}`; }
     if (ac.appr) {
         const ap = ac.appr;
         lat = ap.loc ? `on the localizer ${ap.end.id} · ${ap.along.toFixed(1)} nm${ac.landClr ? ' · cleared to land' : ' · needs landing clearance'}` : `cleared ILS ${ap.end.id} · ${Math.abs(ap.xt).toFixed(1)} nm ${ap.xt > 0 ? 'right' : 'left'} of course`;
@@ -4429,7 +4486,7 @@ function endsFor(type, ac) {
 }
 const APP_TYPES = () => ['ILS', ...(G.rules.id === 'ifatc' ? [] : ['LOC']), 'RNAV', 'VIS'];
 /** A filed route to carry on along: the STAR or SID it's flying or was taken off, or a departure's exit. */
-const filedRoute = ac => !!(ac.via || ac.viaSaved || ac.kind === 'dep' && ac.gate);
+const filedRoute = ac => (ac.kind === 'dep' ? !!ac.gate : !!ac.expect);
 /** "Expect approach…": each type, then the runways (requested first); with a filed route, also "…, continue as filed". */
 const expectList = ac => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t, ac).flatMap(e => [
     ...(filedRoute(ac) ? [{ label: `Runway ${e.id}, continue as filed`, cmd: { expectApp: { type: t, end: e }, asFiled: true } }] : []),
@@ -4492,7 +4549,7 @@ function airMenu(ac, add) {
             { label: 'Direct to…', sub: () => nearFixes(ac).map(f => ({ label: f.label, cmd: { direct: f.f } })) },
             { label: 'Hold at…', sub: () => nearFixes(ac).map(f => ({ label: f.label, cmd: { holdFix: f.f } })) },
             { label: 'Left 360', cmd: { orbit: 'L' } }, { label: 'Right 360', cmd: { orbit: 'R' } },
-            ...(ac.viaSaved || ac.via && !ac.via.vert ? [{ label: `${ac.kind === 'arr' ? 'Descend via' : 'Climb via'} the ${(ac.viaSaved || ac.via).id}`, cmd: { via: true } }] : []),
+            ...((ac.viaSaved || ac.via && !ac.via.vert) && (ac.viaSaved || ac.via).kind !== 'FPL' ? [{ label: `${ac.kind === 'arr' ? 'Descend via' : 'Climb via'} the ${(ac.viaSaved || ac.via).id}`, cmd: { via: true } }] : []),
         ] });
         add('Request speed', { sub: () => {
             const lo = Math.ceil(minSpeed(ac) / 10) * 10, hi = ac.alt < 10000 ? 250 : 300, out = [{ label: 'Slowest practical speed', cmd: { slowest: true } }];
@@ -4515,7 +4572,7 @@ function airMenu(ac, add) {
     ] });
     if (ac.kind === 'arr') add('Missed approach instructions', { sub: () => [2000, 3000, 4000].map(h => Math.max(G.world.minAlt, Math.round((G.world.elev + h) / 1000) * 1000))
         .filter((v, i, a) => a.indexOf(v) === i).map(v => ({ label: `Runway heading, climb and maintain ${fmtAlt(v)}`, cmd: { missed: v } })) });
-    if (filedRoute(ac) && (ac.viaSaved || ac.kind === 'dep' && !ac.via && !ac.direct)) add('Continue as filed', { cmd: { asFiled: true } });
+    if (filedRoute(ac) && !ac.appr && !ac.pattern && !(ac.via && ac.via.kind !== 'IAP') && !(ac.kind === 'dep' && ac.direct)) add('Continue as filed', { cmd: { asFiled: true } });
     if (ac.appr) add('Go around', { cmd: { goAround: true } });
 }
 
@@ -4543,6 +4600,7 @@ function renderCard(force) {
     if (force || key !== menuKey) {
         menuKey = key; menuItems = items;
         el.innerHTML = `<div class="cm-h"><div><b>${escapeHtml(ac.cs)}</b><small>${escapeHtml(ac.radio)}</small><span>${escapeHtml(typeTag(ac))}</span></div><div class="cm-num" id="cm-num"></div><button type="button" class="cm-x" data-close aria-label="Close">✕</button></div>
+            <div class="cm-fpl" id="cm-fpl"></div>
             <div class="cm-st" id="cm-st"></div>
             <div class="cm-list">${menuPath.length ? `<button type="button" class="cm-i back" data-back><span>‹</span>${escapeHtml(title)}</button>` : ''}
             ${mine(ac) ? items.map((it, i) => `<button type="button" class="cm-i${it.hl ? ' hl' : ''}${it.cmd === null ? ' note' : ''}" data-i="${i}"><span>${i + 1}</span>${escapeHtml(it.label)}${it.sub ? '<i>›</i>' : ''}</button>`).join('') || '<div class="cm-none">Nothing to say right now.</div>'
@@ -4553,6 +4611,7 @@ function renderCard(force) {
         ? `${Math.round(ac.alt).toLocaleString('en-US')}ft ${hdg3(ac.hdg)}°<br>GS ${Math.round(ac.spd)} · ${ac.freq}`
         : `${ac.state === 'gate' ? 'Gate ' + (ac.stand?.ref || '') : Math.round(ac.spd) + ' kt'}<br>${ac.freq}`;
     $('#cm-st').textContent = statusText(ac);
+    $('#cm-fpl').textContent = 'FPL  ' + filedPlan(ac).text;
 }
 
 /** A menu item chosen: transmit it, open its list, or open its ladder. */
@@ -4596,13 +4655,13 @@ function openLadder(ac, title, values, current, pickFn, keep) {
     const el = $('#ladder');
     const [x, y] = toS(ac.x, ac.y), r = canvas.getBoundingClientRect(), w = $('#scope-wrap').getBoundingClientRect();
     el.innerHTML = `<div class="ld-h">${escapeHtml(title)}</div>${keep ? `<button type="button" class="ld-i keep" data-keep>${escapeHtml(keep)}</button>` : ''}`
-        + values.map(v => `<button type="button" class="ld-i${v.v === current ? ' cur' : ''}${v.warn ? ' warn' : ''}" data-v="${v.v}">${escapeHtml(v.label)}</button>`).join('');
+        + values.map(v => `<button type="button" class="ld-i${v.v === current ? ' cur' : ''}${v.now ? ' now' : ''}${v.warn ? ' warn' : ''}" data-v="${v.v}">${escapeHtml(v.label)}${v.now ? '<small>now</small>' : ''}</button>`).join('');
     el.hidden = false;
     const left = r.left - w.left + x + 26, maxLeft = w.width - el.offsetWidth - 8;
     el.style.left = Math.max(8, left > maxLeft ? r.left - w.left + x - 26 - el.offsetWidth : left) + 'px';
     el.style.top = Math.max(8, r.top - w.top + 8) + 'px';
     el.style.maxHeight = (r.height - 16) + 'px';
-    const cur = el.querySelector('.cur');
+    const cur = el.querySelector('.now') || el.querySelector('.cur');
     if (cur) cur.scrollIntoView({ block: 'center' });
     ladderPick = v => { closeLadder(); pickFn(v); };
 }
@@ -4611,7 +4670,9 @@ function closeLadder() { const el = $('#ladder'); if (el) el.hidden = true; ladd
 
 function altitudeLadder(ac, hdg) {
     const lo = Math.max(1000, Math.ceil((G.world.elev + 1000) / 500) * 500), vals = [];
-    for (let a = 24000; a >= lo; a -= 500) vals.push({ v: a, label: a.toLocaleString('en-US') + 'ft', warn: terrainOn() && a < mvaHere({ x: ac.x, y: ac.y }) });
+    // The altitude it's at now is green, so you can see where it is before picking where it goes.
+    const now = Math.round(ac.alt / 500) * 500;
+    for (let a = 24000; a >= lo; a -= 500) vals.push({ v: a, label: a.toLocaleString('en-US') + 'ft', now: a === now, warn: terrainOn() && a < mvaHere({ x: ac.x, y: ac.y }) });
     const cur = Math.round(ac.tAlt / 500) * 500;
     openLadder(ac, hdg != null ? `HDG ${hdg3(hdg)} · ALT` : 'ALTITUDE', vals, cur,
         v => { issue(ac, v === 'keep' ? { hdg } : { ...(hdg != null ? { hdg } : {}), alt: Number(v) }); renderCard(true); },
@@ -5241,7 +5302,7 @@ async function startGame(airport, level) {
 /* ---- start screen ---- */
 
 let chosen = null;
-let level = store.get('level', 'normal');
+let level = TRAFFIC[store.get('level', 'normal')] ? store.get('level', 'normal') : 'normal';
 
 function apCard(p) {
     const best = store.get('best', {})[p.icao];

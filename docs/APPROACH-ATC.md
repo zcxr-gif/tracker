@@ -393,7 +393,17 @@ B, K, hold short of runway 13L/31R"*.
   Tower), `mg` (contact Ground).
 - **Starting traffic** on the start screen sets how many aircraft are
   already on frequency when the shift opens: none, a random number, or a
-  set count (1 to 20). New traffic keeps coming at the Traffic rate.
+  set count (1 to 20). New traffic keeps coming at the Traffic level:
+
+  | Level | A new aircraft about every | At most at once | Departures on the ground |
+  |---|---|---|---|
+  | Light | 80 s | 8 | 4 |
+  | Normal | 50 s | 14 | 6 |
+  | Busy | 32 s | 20 | 9 |
+  | Event | 20 s | 28 | 12 |
+
+  The gaps shrink by up to 45% over the first ninety minutes. About 45% of
+  new traffic is departures, while the holding-short queue is short.
 - A route that crosses a runway stops at the hold-short line, and the pilot
   asks **Tower** to cross. Crossing clearances are always Tower's.
 - Pilots stop behind traffic ahead (about 85 m). If two aircraft meet nose
@@ -526,6 +536,16 @@ The controls work the way the Infinite Flight ATC client does.
   - **The tile** under the menu is the likely next call: pushback, cleared
     for takeoff, cleared to land, the pilot's request. It's one tap.
   - **✕** goes back to the aircraft list.
+- **Flight plans.** Every aircraft has one, shown as **FPL** at the top of
+  its menu (*"ROBER PARCH4 ZACHS KJFK/31L"*, or *"KJFK/31L DEEZZ6 CANDR"*).
+  When it's selected, the rest of the route is drawn on the scope as a
+  dashed line with its fixes named.
+  - An arrival's plan: its STAR (or its entry fix), then its runway's
+    approach fix.
+  - A departure's plan: its SID, then its exit.
+  - **Continue as filed** puts an aircraft back on that route after
+    vectors. An arrival without a STAR flies the filed fixes at its present
+    altitude.
 - **Hold** a target (long press) for the quick menu:
   - Assign Altitude;
   - Hold;
@@ -540,7 +560,8 @@ The controls work the way the Infinite Flight ATC client does.
 - **Drag** an airborne target:
   - to give a heading. The line shows the heading, the distance and the
     minutes to the end of it. Let go and an altitude ladder opens beside the
-    aircraft: pick the altitude, or keep the one it has. One transmission:
+    aircraft: pick the altitude, or keep the one it has. The altitude it's
+    at now is green. One transmission:
     *"turn left heading 030, descend and maintain 4,000."*;
   - onto a fix for direct to it;
   - onto an arrival runway's final approach course for the ILS (the
