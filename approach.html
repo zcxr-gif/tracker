@@ -200,8 +200,6 @@
         .ia-warn { margin: 0 10px 10px; color: #ffb38a; font-size: .78rem; }
         .ia-text { padding: 12px 14px; background: #1a2230; border-top: 4px solid #0e131a; font-size: .86rem; line-height: 1.5; max-height: 30%; overflow: auto; }
         .scope-wrap .hud { left: calc(var(--rail) + 12px); top: calc(var(--railh) + 12px); }
-        .scope-wrap .info { left: var(--rail); top: var(--railh); }
-        .scope-wrap.info-open .hud { left: calc(var(--rail) + 332px); }
         .hud {
             position: absolute; left: 12px; top: 12px; pointer-events: none;
             font-family: var(--mono); font-size: .76rem; line-height: 1.55; color: #9fc7bd;
@@ -220,7 +218,8 @@
         .start-n.off { opacity: .45; }
         .hud { max-width: min(340px, 60%); }
         .hud .taxi-st.bad, .hud .taxi-st.bad b { color: #ff8a98; }
-        .zoom { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 6px; }
+        .zoom { position: absolute; right: 12px; bottom: 12px; z-index: 5; display: flex; flex-direction: column; gap: 6px; transition: opacity .4s; }
+        .zoom.idle { opacity: 0; pointer-events: none; }
         .zoom button {
             width: 36px; height: 36px; border-radius: 8px; font-size: 1.1rem; font-weight: 700;
             background: rgba(18,22,29,.85); border: 1px solid var(--line); color: var(--ink2);
@@ -246,7 +245,7 @@
 
         /* Settings, from the gear under the centering button. */
         .settings {
-            position: absolute; right: 60px; top: calc(var(--railh, 0px) + 12px); z-index: 7; width: min(310px, calc(100% - 80px)); max-height: calc(100% - 24px); overflow: auto;
+            position: absolute; right: 60px; bottom: 12px; z-index: 7; width: min(310px, calc(100% - 80px)); max-height: calc(100% - 24px); overflow: auto;
             background: rgba(6,9,12,.96); border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 0 12px 12px;
         }
         .srow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; font-size: .84rem; }
@@ -298,27 +297,55 @@
 
         .side .strips { flex: 1 1 auto; overflow: auto; min-height: 90px; padding: 0; }
 
-        /* The selected aircraft: an information panel over the scope, as on the IFATC client. */
-        .info {
-            position: absolute; left: 0; top: 0; bottom: 0; width: 320px; z-index: 3; overflow: auto;
-            background: rgba(0,0,0,.9); border-right: 1px solid rgba(255,255,255,.12); padding: 0 12px 12px;
-            font-family: var(--mono); font-size: .8rem;
+        /* Commands for the selected aircraft, in the side panel as in Infinite Flight: a numbered menu, then the likely next call. */
+        .side .cmdmenu { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0; display: flex; flex-direction: column; background: #101419; }
+        .cm-h { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; background: #0a0d11; border-bottom: 1px solid rgba(255,255,255,.08); font-size: .74rem; }
+        .cm-h > div:first-child { flex: 1; display: flex; flex-direction: column; line-height: 1.35; }
+        .cm-h b { font: 700 .92rem var(--mono); color: #fff; }
+        .cm-h small, .cm-h span { color: var(--muted); }
+        .cm-num { text-align: right; font: .72rem/1.4 var(--mono); color: #cfd6de; }
+        .cm-x { width: 28px; height: 28px; border-radius: 6px; color: #fff; background: rgba(255,255,255,.08); flex: none; }
+        .cm-st { padding: 6px 10px; font-size: .72rem; color: #aeb7c2; border-bottom: 1px solid rgba(255,255,255,.06); }
+        .cm-list { display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+        .cm-i {
+            display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px; text-align: left;
+            background: #1b2129; color: #fff; font-size: .76rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; border-radius: 2px;
         }
-        .info-h {
-            position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px; margin: 0 -12px 10px; padding: 8px 12px;
-            background: #000; border-bottom: 1px solid rgba(255,255,255,.12); font-size: .72rem; letter-spacing: .12em; color: #fff; font-weight: 700;
-        }
+        .cm-i > span { min-width: 12px; color: #5d6773; font: 500 .66rem var(--mono); }
+        .cm-i > i { margin-left: auto; color: #f5a623; font-style: normal; font-size: 1.1rem; }
+        .cm-i:hover { background: #242c36; }
+        .cm-i.hl { color: #7be08a; }
+        .cm-i.back { color: #fff; text-transform: none; }
+        .cm-i.back > span { color: #fff; font-size: 1.2rem; }
+        .cm-i.note { color: var(--muted); cursor: default; text-transform: none; }
+        .cm-none { padding: 12px; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+        .cm-tiles { display: flex; gap: 6px; padding: 6px; border-top: 1px solid rgba(255,255,255,.06); }
+        .cm-tile { width: 96px; min-height: 76px; padding: 8px; background: #1b2129; color: #7be08a; font-size: .7rem; font-weight: 600; text-transform: uppercase; line-height: 1.3; }
+        .cm-tile:hover { background: #242c36; }
+
+        /* Ladders (altitude or heading) beside the aircraft, and the long-press menu. */
+        .ladder { position: absolute; z-index: 8; width: 150px; overflow: auto; background: rgba(8,10,13,.97); border: 1px solid rgba(255,255,255,.14); }
+        .ld-h { position: sticky; top: 0; padding: 8px 10px; background: #0a0d11; font: 700 .68rem var(--mono); letter-spacing: .06em; color: #c97fd6; border-bottom: 1px solid rgba(255,255,255,.1); }
+        .ld-i { display: block; width: 100%; padding: 11px 12px; text-align: left; font: .82rem var(--mono); color: #fff; border-bottom: 1px solid rgba(255,255,255,.06); }
+        .ld-i:hover { background: #1b2129; }
+        .ld-i.cur { background: #233042; }
+        .ld-i.keep { color: #7be08a; }
+        .ld-i.warn { color: #ff8a98; }
+        .ctx { position: absolute; z-index: 8; min-width: 170px; background: rgba(8,10,13,.97); border: 1px solid rgba(255,255,255,.12); }
+        .ctx-i { display: block; width: 100%; padding: 11px 14px; text-align: left; font-size: .82rem; color: #fff; border-bottom: 1px solid rgba(255,255,255,.06); }
+        .ctx-i:hover { background: #1b2129; }
+
+        /* Controlling, not reading: nothing in the game selects, copies or pops a callout under a held finger. */
+        .game, .game * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        .game input { -webkit-user-select: text; user-select: text; }
+        body { -webkit-tap-highlight-color: transparent; }
         .info-x { width: 28px; height: 28px; border-radius: 6px; font-size: 1.05rem; color: #fff; background: rgba(255,255,255,.08); }
         .info-x:hover { background: rgba(255,255,255,.18); }
-        .info .card-head .cs { font-size: 1.05rem; }
-        .info .card-status { color: #d8dee6; }
-        .info .btn { background: #15191f; border-color: rgba(255,255,255,.14); font-family: var(--font, inherit); }
-        .info .btn.primary { background: var(--gold); }
 
         /* What's loading: the InFlight mark breathing, as on the tracker's own splash, and each step in words. */
         .loader {
-            position: absolute; right: 12px; bottom: 12px; z-index: 4; display: flex; align-items: center; gap: 10px;
-            max-width: min(330px, calc(100% - 24px)); padding: 9px 12px 9px 10px; border-radius: 12px;
+            position: absolute; right: 60px; bottom: 12px; z-index: 4; display: flex; align-items: center; gap: 10px;
+            max-width: min(330px, calc(100% - 72px)); padding: 9px 12px 9px 10px; border-radius: 12px;
             background: rgba(10,12,16,.92); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 6px 20px rgba(0,0,0,.4);
             pointer-events: none;
         }
@@ -427,16 +454,12 @@
         @media (max-width: 860px) {
             .game { display: block; height: auto; overflow: visible; }
             .side { overflow: visible; }
-            .info { top: auto; width: 100%; max-height: 62%; border-right: 0; border-top: 1px solid rgba(255,255,255,.18); }
             .scope-wrap { --rail: 0px; --railh: 40px; }
             .freq-rail { right: 0; bottom: auto; width: auto; height: var(--railh); flex-direction: row; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.1); }
             .rail-i { flex: 0 0 auto; min-height: 0; max-height: none; padding: 0 12px; font-size: .7rem; white-space: nowrap; border-bottom: 0; border-right: 1px solid rgba(255,255,255,.06); }
             .rail-i b { top: 2px; right: 2px; min-width: 14px; height: 14px; line-height: 14px; font-size: .58rem; }
             .rail-i.atis { order: -1; }
             .rail-i[data-rail="STATUS"] { order: -2; }
-            .scope-wrap .info { top: auto; }
-            .scope-wrap.info-open .hud { left: 12px; }
-            .zoom { top: 52px; }
             .ia-cols { display: block; overflow: auto; }
             .ia-col { overflow: visible; }
             .ia-rws { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
@@ -469,6 +492,10 @@
             body.in-game .strip { min-height: 38px; font-size: .7rem; }
             body.in-game .log { height: 58px; font-size: .64rem; }
             body.in-game .cmd input, body.in-game .cmd .btn { height: 32px; }
+            /* An aircraft selected: the menu gets the room (no score row or status line, a shorter log). */
+            body.in-game .side:has(#cmdmenu:not([hidden])) > section:first-child, body.in-game .cm-st { display: none; }
+            body.in-game .side:has(#cmdmenu:not([hidden])) .log { height: 44px; }
+            body.in-game .cm-i { min-height: 36px; padding: 6px 10px; }
         }
 
         /* Phones held sideways: the scope beside the list, like the desktop, without the site header. */
@@ -482,13 +509,10 @@
             body.in-game .strip { min-height: 38px; font-size: .68rem; }
             body.in-game .log { height: 74px; font-size: .66rem; }
             body.in-game .cmd input, body.in-game .cmd .btn { height: 30px; }
-            body.in-game .info { top: 0; bottom: 0; width: min(270px, 42vw); max-height: none; border-top: 0; border-right: 1px solid rgba(255,255,255,.12); font-size: .72rem; }
             body.in-game .scope-wrap { --rail: 74px; --railh: 0px; }
             body.in-game .freq-rail { right: auto; bottom: 0; width: var(--rail); height: auto; flex-direction: column; border-right: 1px solid rgba(255,255,255,.1); border-bottom: 0; }
             body.in-game .rail-i.atis, body.in-game .rail-i[data-rail="STATUS"] { order: 0; }
             body.in-game .rail-i { flex: 1 1 0; padding: 4px; font-size: .6rem; white-space: normal; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.06); min-height: 40px; }
-            body.in-game .scope-wrap .info { top: 0; }
-            body.in-game .zoom { top: 12px; }
             body.in-game .ia-top, body.in-game .ia-bar { padding-top: 4px; padding-bottom: 4px; font-size: .7rem; }
             body.in-game .ia-metar { font-size: .64rem; }
             body.in-game .ia-cols { display: grid; grid-template-columns: 150px minmax(0, 1.2fr) minmax(0, 1fr); }
@@ -498,12 +522,10 @@
             body.in-game .ia-t.rw { min-height: 44px; }
             body.in-game .ia-h { padding: 6px 10px; font-size: .7rem; }
             body.in-game .ia-text { font-size: .66rem; padding: 6px 10px; max-height: 22%; }
-            body.in-game .scope-wrap.info-open .hud { left: calc(var(--rail) + min(270px, 42vw) + 10px); }
             body.in-game .hud { font-size: .62rem; padding: 5px 7px; max-width: 46%; }
             body.in-game .zoom { gap: 4px; }
             body.in-game .zoom button { width: 30px; height: 30px; font-size: .95rem; }
             body.in-game .coord { top: auto; bottom: 8px; right: 50px; width: min(340px, 60%); }
-            body.in-game .info .btn { height: 32px; font-size: .74rem; }
             body.in-game .stepper button { height: 28px; min-width: 32px; }
         }
             html.standalone body.in-game .game { height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
@@ -619,13 +641,14 @@
             <canvas id="scope" aria-label="Radar scope"></canvas>
             <div class="hud" id="hud"></div>
             <div class="zoom">
+                <button id="settings-btn" title="Settings: speed, map, voice, layers" aria-label="Settings" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" stroke-dasharray="3.2 2.08"/></svg></button>
                 <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
                 <button id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
                 <button id="zoom-reset" title="Recenter" aria-label="Recenter">⌖</button>
-                <button id="settings-btn" title="Settings: speed, map, voice, layers" aria-label="Settings" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" stroke-dasharray="3.2 2.08"/></svg></button>
                 <button id="zoom-field" title="Zoom to the airport" aria-label="Zoom to the airport">✈</button>
             </div>
-            <section class="info" id="card" hidden aria-label="Selected aircraft"></section>
+            <div class="ladder" id="ladder" hidden role="listbox" aria-label="Pick a value"></div>
+            <div class="ctx" id="ctx" hidden role="menu" aria-label="Aircraft"></div>
             <div class="coord" id="coord" hidden role="dialog" aria-label="Coordination"></div>
             <div class="layers" id="layers" hidden aria-label="Map layers"></div>
             <div class="ifatis" id="atis" hidden aria-label="ATIS"></div>
@@ -657,6 +680,7 @@
                 </div>
             </section>
             <section class="strips" id="strips"></section>
+            <section class="cmdmenu" id="cmdmenu" hidden aria-label="Commands"></section>
             <section class="comms">
                 <div class="log" id="log" aria-live="polite"></div>
                 <form class="cmd" id="cmd-form" autocomplete="off">

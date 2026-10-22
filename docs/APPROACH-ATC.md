@@ -477,12 +477,49 @@ and NASR (waypoints, navaids), via the MIT-licensed `@squawk/procedure-data`,
 
 ## Controls
 
-- **Tap** an aircraft, its strip, or any log line that names it to open its
-  information panel. Every command there is a button: Direct to, Hold at,
-  Other approach, Give way and Follow open as grids of chips, with no dropdowns or
-  typing needed. The command line is still there for keyboard players.
+The controls work the way the Infinite Flight ATC client does.
+
+- **Tap** an aircraft, its strip, or a log line that names it. The aircraft
+  gets a purple ring and a line to the side panel. The aircraft list there
+  turns into its command menu.
+  - **The menu**: numbered items with sub-menus (›) and a back arrow.
+    Airborne, it offers:
+    - the pilot's request first, in green;
+    - Vectoring instructions: fly heading, climb or descend, direct to,
+      hold at, 360s, descend or climb via;
+    - Request speed;
+    - Expect approach (*"expect vectors for the visual approach runway
+      22L"*);
+    - Clear for approach;
+    - Misc. messages;
+    - Go around.
+
+    On the ground and the runway it offers:
+    - pushback and taxi;
+    - Contact Tower or Ground;
+    - hold position and continue;
+    - progressive taxi, give way and follow;
+    - runway crossings;
+    - takeoff, line up and wait, hold short and number for departure.
+  - **The tile** under the menu is the likely next call: pushback, cleared
+    for takeoff, cleared to land, the pilot's request. It's one tap.
+  - **✕** goes back to the aircraft list.
+- **Hold** a target (long press) for the quick menu:
+  - Assign Altitude;
+  - Hold;
+  - Set Reminder (its strip asks for you when it's due);
+  - Show Information;
+  - Assign Color (yellow, red, blue, green);
+  - Tag Placement (right, left, above, below).
+- Nothing in the game can be selected or copied, and a held finger brings no
+  callout, so a long press or a drag never turns into a text selection.
+- The command line is still there for keyboard players. The arrow keys turn
+  the selected aircraft 5° (10° with Shift) or climb and descend it 1,000 ft.
 - **Drag** an airborne target:
-  - to give a heading;
+  - to give a heading. The line shows the heading, the distance and the
+    minutes to the end of it. Let go and an altitude ladder opens beside the
+    aircraft: pick the altitude, or keep the one it has. One transmission:
+    *"turn left heading 030, descend and maintain 4,000."*;
   - onto a fix for direct to it;
   - onto an arrival runway's final approach course for the ILS (the
     intercept heading is worked out, aimed at the point dropped on, no
@@ -491,7 +528,10 @@ and NASR (waypoints, navaids), via the MIT-licensed `@squawk/procedure-data`,
   - onto its runway, once on the localizer, for cleared to land.
 - **Drag** a departure at the runway onto it: line up and wait, then cleared
   for takeoff. On the ground, see Ground below.
-- **Settings** sit behind the gear button under the centering button:
+- **Map buttons**, bottom right as in Infinite Flight: settings (the gear),
+  zoom in, zoom out, recenter, and the airport. They fade after four
+  seconds without a touch and come back on the next one.
+- **Settings** sit behind the gear button:
   - speed (pause, 1×, 2×, 3×, 4×);
   - map (Radar or Chart);
   - traffic as targets or aircraft;

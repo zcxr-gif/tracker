@@ -1504,6 +1504,15 @@ function issueCall(ac, c) {
         }
     }
 
+    // ---- what to expect (IF: "expect vectors for the visual approach runway 2")
+    if (c.expectApp) {
+        if (ac.kind !== 'arr' || onGround) { sys(`${ac.cs} isn't an arrival.`); return false; }
+        const { type, end } = c.expectApp;
+        Object.assign(ac, { expect: end, expectType: type, request: null });
+        parts.push(`expect vectors for the ${appWord(type)} approach runway ${end.id}`);
+        back.push(`expect the ${appWord(type)} ${end.id}`);
+    }
+
     // ---- approach clearance
     if (c.rnavProc) {
         const r = c.rnavProc;
@@ -3486,6 +3495,7 @@ const pointers = new Map();
 let pinch = null;
 
 const PALETTE = {};
+const SEL_PURPLE = '#c97fd6';            // Infinite Flight's selection ring and lines
 PALETTE.radar = {
     bg: '#060b0f',
     outside: 'rgba(6,11,15,0.55)',
@@ -3741,14 +3751,33 @@ function draw() {
     } else
     // Heading drag.
     if (drag && drag.mode === 'ac' && drag.moved && drag.hdg != null) {
-        const [ax, ay] = toS(drag.ac.x, drag.ac.y);
-        c.strokeStyle = COLORS.sel;
-        c.setLineDash([4, 4]);
+        const [ax, ay] = toS(drag.ac.x, drag.ac.y), [wx, wy] = toW(drag.px, drag.py);
+        const nm = Math.hypot(wx - drag.ac.x, wy - drag.ac.y), min = nm / Math.max(drag.ac.spd, 60) * 60;
+        c.save();
+        c.strokeStyle = SEL_PURPLE; c.lineWidth = 2;
         c.beginPath(); c.moveTo(ax, ay); c.lineTo(drag.px, drag.py); c.stroke();
-        c.setLineDash([]);
+        c.beginPath(); c.arc(drag.px, drag.py, 9, 0, Math.PI * 2); c.stroke();
+        const l1 = `${hdg3(drag.hdg)}°  ${String(Math.round(nm)).padStart(3, '0')}NM`, l2 = `${Math.max(1, Math.round(min))}mn`;
         c.font = '700 13px "JetBrains Mono", monospace';
-        c.fillStyle = COLORS.sel;
-        c.fillText(hdg3(drag.hdg), drag.px + 10, drag.py - 10);
+        const w = Math.max(c.measureText(l1).width, c.measureText(l2).width) + 14;
+        const lx = clamp((ax + drag.px) / 2 - w / 2, 4, view.w - w - 4), ly = clamp((ay + drag.py) / 2 - 20, 4, view.h - 44);
+        c.fillStyle = 'rgba(6,11,15,0.85)'; c.fillRect(lx, ly, w, 38);
+        c.fillStyle = '#fff'; c.textBaseline = 'middle';
+        c.fillText(l1, lx + 7, ly + 11); c.fillText(l2, lx + 7, ly + 27);
+        c.restore(); c.textBaseline = 'alphabetic';
+    }
+
+    // The selected aircraft, Infinite Flight style: a ring, and a line to the panel its commands are in.
+    if (G.selected && !G.selected.gone) {
+        const [x, y] = toS(G.selected.x, G.selected.y), side = $('.side').getBoundingClientRect(), r = canvas.getBoundingClientRect();
+        c.save();
+        c.strokeStyle = SEL_PURPLE; c.lineWidth = 1.5;
+        c.beginPath(); c.arc(x, y, 16, 0, Math.PI * 2); c.stroke();
+        c.beginPath();
+        if (side.left >= r.right - 2) { c.moveTo(x + 16, y); c.lineTo(view.w - 1.5, y); c.moveTo(view.w - 1.5, 0); c.lineTo(view.w - 1.5, view.h); }
+        else { c.moveTo(x, y + 16); c.lineTo(x, view.h - 1.5); c.moveTo(0, view.h - 1.5); c.lineTo(view.w, view.h - 1.5); }
+        c.stroke();
+        c.restore();
     }
 
     // Score floaters.
@@ -3901,7 +3930,7 @@ function drawSurfaceAircraft(a) {
     const c = ctx;
     const [x, y] = toS(a.x, a.y);
     const base = a.kind === 'arr' ? COLORS.arr : COLORS.dep;
-    const col = a === G.selected ? COLORS.sel : base;
+    const col = a === G.selected ? COLORS.sel : a.color || base;
     const dim = !mine(a);
     c.globalAlpha = dim ? 0.6 : 1;
     if (!drawIcon(c, a.type, col, x, y, a.hdg, view.scale)) {
@@ -3922,7 +3951,7 @@ function drawAircraft(a) {
     const c = ctx, s = view.scale;
     const [x, y] = toS(a.x, a.y);
     const base = a.kind === 'arr' ? COLORS.arr : COLORS.dep;
-    const col = a.conflict || a.lowAlt || a.emerg ? COLORS.bad : a === G.selected ? COLORS.sel : base;
+    const col = a.conflict || a.lowAlt || a.emerg ? COLORS.bad : a === G.selected ? COLORS.sel : a.color || base;
 
     // History.
     c.fillStyle = base;
@@ -3965,7 +3994,9 @@ function drawAircraft(a) {
     const l3 = `${typeTag(a)} ${a.kind === 'arr' || a.lowAlt || a.wxReq || a.emerg ? intentTag(a) : `${a.gate.name} ${a.alt >= exitAlt(a) - 50 ? '✓' : alt3(exitAlt(a))}`}`;
     c.font = '700 11px "JetBrains Mono", monospace';
     c.fillStyle = col;
-    const bx = x + 12, by = y - 20;
+    // Where the tag sits (long press → Tag Placement): right by default, or left, above, below.
+    const tw = 96, bx = a.tagPos === 'L' ? x - 12 - tw : a.tagPos === 'U' || a.tagPos === 'D' ? x - tw / 2 : x + 12;
+    const by = a.tagPos === 'U' ? y - 46 : a.tagPos === 'D' ? y + 26 : y - 20;
     c.fillText(a.cs, bx, by);
     c.font = '11px "JetBrains Mono", monospace';
     c.fillText(l2, bx, by + 13);
@@ -4189,12 +4220,15 @@ function bindScope() {
             drag = null;
             return;
         }
+        closeLadder(); closeContext();
         const ac = G && hitAircraft(sx, sy);
         if (ac) select(ac);
         const gnd = ac && G.ground && ac.state !== 'air' && ac.state !== 'roll';
         // Headings only for aircraft in the air; on the ground it's taxiing (or, with no taxi map, the runway).
         const twr = ac && !G.ground && (ac.state === 'wait' || ac.state === 'luaw');
         drag = { id: e.pointerId, mode: gnd ? 'gnd' : ac && ac.state === 'air' ? 'ac' : twr ? 'twr' : ac ? 'sel' : 'pan', ac, sx, sy, px: sx, py: sy, moved: false, hdg: null, vx: view.x, vy: view.y };
+        // Hold on a target for Infinite Flight's quick menu.
+        if (ac) { const d = drag; d.lpTimer = setTimeout(() => { if (drag === d && !d.moved) { d.lp = true; openContext(ac, sx, sy); } }, 550); }
     });
     canvas.addEventListener('pointermove', e => {
         const r = canvas.getBoundingClientRect();
@@ -4208,7 +4242,7 @@ function bindScope() {
             return;
         }
         if (!drag || drag.id !== e.pointerId) return;
-        if (Math.hypot(sx - drag.sx, sy - drag.sy) > 8) drag.moved = true;
+        if (Math.hypot(sx - drag.sx, sy - drag.sy) > 8 && !drag.lp) { drag.moved = true; clearTimeout(drag.lpTimer); }
         drag.px = sx; drag.py = sy;
         if (drag.mode === 'pan' && drag.moved) {
             view.x = drag.vx - (sx - drag.sx) / view.scale;
@@ -4230,19 +4264,20 @@ function bindScope() {
         if (!drag || drag.id !== e.pointerId) return;
         const d = drag;
         drag = null;
-        if (e.type === 'pointercancel') return;
+        clearTimeout(d.lpTimer);
+        if (e.type === 'pointercancel' || d.lp) return;
         if (d.mode === 'gnd' && d.moved) {
             dropGround(d.ac, d.tgt);
             renderCard(true);
         } else if ((d.mode === 'ac' || d.mode === 'twr') && d.moved && d.air) {
             if (!d.air.err) issue(d.ac, d.air.cmd); else sys(`${d.ac.cs}: ${d.air.label}.`);
-            syncPending(true); renderCard(true);
+            renderCard(true);
         } else if (d.mode === 'ac' && d.moved && d.hdg != null) {
-            issue(d.ac, { hdg: d.hdg });
-            syncPending(true);
+            // As in Infinite Flight: the heading, then pick the altitude (or keep it) from the ladder.
+            if (mine(d.ac)) altitudeLadder(d.ac, d.hdg); else issue(d.ac, { hdg: d.hdg });
         } else if (d.mode === 'pan' && !d.moved) {
             const f = hitFix(d.sx, d.sy);
-            if (f && G.selected && G.selected.state !== 'roll') { issue(G.selected, { direct: f }); syncPending(true); }
+            if (f && G.selected && G.selected.state !== 'roll') { issue(G.selected, { direct: f }); }
             else select(null);
         }
     };
@@ -4263,24 +4298,21 @@ function bindScope() {
 /* Side panel                                                          */
 /* ------------------------------------------------------------------ */
 
-const pending = { hdg: null, alt: null, spd: null, dirty: { hdg: false, alt: false, spd: false } };
-let cardKey = '';
 
 function select(ac) {
+    if (G.selected !== ac) menuPath = [];
     G.selected = ac;
-    syncPending(true);
+    if (ac) ac.reminded = false;
+    closeLadder(); closeContext();
     renderCard(true);
     renderStrips();
 }
 
-function syncPending(force) {
-    const ac = G.selected;
-    if (!ac) return;
-    for (const k of ['hdg', 'alt', 'spd']) {
-        if (force || !pending.dirty[k]) {
-            pending[k] = k === 'hdg' ? Math.round(ac.tHdg) : k === 'alt' ? ac.tAlt : Math.round(ac.tSpd);
-            pending.dirty[k] = false;
-        }
+/** Reminders set from the long-press menu: the strip asks for you when one is due. */
+function reminders() {
+    for (const a of G.aircraft) if (a.remindAt && G.t >= a.remindAt) {
+        a.remindAt = null; a.reminded = true;
+        sys(`Reminder: ${a.cs}.`); toast(`Reminder: ${a.cs}`);
     }
 }
 
@@ -4318,210 +4350,254 @@ function statusDetail(ac) {
     return `${alt} · ${Math.round(ac.spd)} kt · ${lat}${tail}`;
 }
 
-function renderCard(force) {
-    const el = $('#card');
-    const ac = G && G.selected;
-    el.hidden = !ac;
-    $('#scope-wrap').classList.toggle('info-open', !!ac);
-    if (!ac) { cardKey = 'none'; el.innerHTML = ''; return; }
-    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}|${!!ac.toTower}|${!!ac.toGround}|${ac.purpose}|${!!ac.prog}|${ac.preClr}|${!!ac.via}|${!!ac.viaSaved}|${ac.pattern?.kind}${ac.pattern?.end.id}|${ac.route?.crossings.filter(x => x.cleared).length}`;
-    if (!force && key === cardKey) { updateCard(); return; }
-    cardKey = key;
-    const ground = ac.state !== 'air';
-    const surface = ['gate', 'push', 'pushed', 'taxi', 'clear', 'rollout', 'lineup'].includes(ac.state) || ac.state === 'wait' && ac.freq === 'GND';
-    const yours = mine(ac);
-    const twr = G.positions.has('TWR');
-    const groundBtns = [
-        ac.state === 'gate' && ac.kind === 'dep' && ac.called ? `<button class="btn primary" data-act="push">Pushback approved</button>` : '',
-        ac.state === 'pushed' ? `<button class="btn primary" data-act="taxi">Taxi to runway ${ac.rwy.id}</button>` : '',
-        ac.state === 'clear' && ac.freq === 'GND' ? `<button class="btn primary" data-act="taxi">Taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'a gate'}</button>` : '',
-        ac.kind === 'dep' && ac.freq === 'GND' && (ac.state === 'wait' || ac.state === 'taxi' && ac.purpose === 'runway' && !ac.toTower)
-            ? `<button class="btn${ac.state === 'wait' ? ' primary' : ''}" data-act="tower">Contact Tower${ac.state === 'wait' ? '' : ' when ready'}</button>` : '',
-        ac.kind === 'arr' && ac.freq === 'TWR' && (ac.state === 'clear' || !ac.toGround && (ac.state === 'rollout' || ac.state === 'taxi'))
-            ? `<button class="btn${ac.state === 'clear' ? ' primary' : ''}" data-act="ground">Contact Ground</button>` : '',
-        (ac.state === 'taxi' || ac.state === 'push') && !ac.holdPos ? `<button class="btn" data-act="holdPos">Hold position</button>` : '',
-        ac.holdPos ? `<button class="btn primary" data-act="cont">Continue taxi</button>` : '',
-    ].join('');
+/* ---- Commands as Infinite Flight lays them out: a numbered menu in the side panel, sub-menus, the likely next call as a tile ---- */
+
+let menuPath = [], menuKey = '', menuItems = [], menuTile = null;
+
+/**
+ * What can be said to this aircraft now, as menu items: { label, cmd } transmits,
+ * { label, sub: () => items } opens a list, { label, run } opens a ladder.
+ * hl marks what the pilot is asking for or the obvious next call.
+ */
+function menuFor(ac) {
+    if (!mine(ac)) return [];
+    const items = [], add = (label, x, hl) => items.push({ label, ...x, hl: !!hl });
+    const air = ac.state === 'air';
+    if (ac.request) {
+        const r = ac.request;
+        add(`Respond to ${r.kind === 'VIS' ? 'visual approach' : APP_NAME.RNAV + ' approach'} request`, { sub: () => [
+            { label: `Cleared ${r.say} approach runway ${r.end.id}`, cmd: r.kind === 'VIS' ? { visual: r.end } : { ils: r.end, appType: 'RNAV' } },
+            { label: `Expect vectors for the ${r.kind === 'VIS' ? 'visual' : APP_NAME.RNAV} approach…`, sub: () => endsFor(r.kind).map(e => ({ label: `Runway ${e.id}`, cmd: { expectApp: { type: r.kind, end: e } } })) },
+            { label: 'Unable at this time', cmd: { unable: true } },
+        ] }, true);
+    }
+    if (ac.wxReq) add(`Approve ${ac.wxReq.deg}° ${ac.wxReq.dir === 'L' ? 'left' : 'right'} for weather`, { cmd: { deviate: true } }, true);
     const nextCross = ac.crossReq || (ac.state === 'taxi' && ac.route?.crossings.find(x => !x.cleared));
-    const crossBtn = nextCross && G.positions.has(crossOwner(ac))
-        ? `<div class="btn-row"><button class="btn${ac.crossReq ? ' primary' : ''}" data-act="cross">Cross runway ${crossName(nextCross)}${ac.crossReq ? '' : ' (ahead)'}</button></div>` : '';
-    // Progressive taxi and give way (IFATC 2.2.1, 2.2.5), for whoever's on Ground and moving or ready to.
-    const gndMoving = G.ground && ac.freq === 'GND' && yours && (['pushed', 'clear'].includes(ac.state) || ac.state === 'taxi' && ac.purpose !== 'exit');
-    const nearby = gndMoving ? G.aircraft.filter(o => o !== ac && isSurface(o) && o.state !== 'gate' && Math.hypot(o.x - ac.x, o.y - ac.y) < 0.8) : [];
-    const progBtns = gndMoving ? `
-        <div class="btn-row">
-            <button class="btn" data-prog="L">↰ Left next</button><button class="btn" data-prog="S">↑ Straight</button><button class="btn" data-prog="R">Right next ↱</button><button class="btn" data-prog="180">180</button>
-        </div>
-        <div class="btn-row">
-            ${ac.prog ? `<button class="btn primary" data-act="discretion">Continue at your discretion</button>` : `<button class="btn" data-act="expectProg">Expect progressive taxi</button>`}
-        </div>
-        ${picker('giveWay', 'Give way to…', nearby.map(o => [String(o.id), o.cs, typeTag(o)]))}
-        ${picker('follow', 'Follow…', nearby.filter(o => o.state === 'taxi').map(o => [String(o.id), o.cs, typeTag(o)]))}` : '';
-    const inbound = noRadar() && ac.kind === 'arr' && !ground && ac.freq === 'TWR' && !ac.appr?.loc;
-    const appFor = e => (hasApproach(e, G.atisCfg.app) ? G.atisCfg.app : 'ILS');
-    const appBtn = (e, t) => t === 'VIS' ? `<button class="btn ils" data-vis="${e.id}">Visual ${e.id}</button>` : `<button class="btn ils" data-ils="${e.id}" data-app="${t}">${t === 'RNAV' ? (G.rules.id === 'ifatc' ? 'GPS' : 'RNAV') : t} ${e.id}</button>`;
-    const reqBtns = yours && ac.request ? `<div class="btn-row"><button class="btn primary" data-act="approveReq">Approve ${ac.request.say} ${ac.request.end.id}</button><button class="btn" data-act="unable">Unable</button></div>` : '';
-    const ilsBtns = ac.kind === 'arr' && !ground
-        ? (inbound || ac.pattern || ac.via?.kind === 'IAP' ? '' : G.active.arr.map(e => appBtn(e, appFor(e))).join(''))
-          + (!inbound && !ac.appr && !ac.pattern && !ac.fieldReported && !ac.reportField && visualWx() ? `<button class="btn" data-act="reportField">Report field in sight</button>` : '')
-          + ((ac.appr?.loc || (noRadar() && ac.pattern)) && !ac.landClr ? `<button class="btn primary" data-act="land">Cleared to land ${(ac.appr || ac.pattern).end.id}</button>` : '')
-          + (ac.appr ? `<button class="btn warn" data-act="ga">Go around</button>` : '')
-        : '';
-    const fixList = G.world.fixes.filter(f => f.kind !== 'app' || G.active.arr.includes(f.end));
-    // Tap-to-pick lists (no dropdowns or typing): a heading, then a grid of chips.
-    const picker = (act, title, items) => items.length ? `<details class="pick"><summary>${title}</summary><div class="chips">${items.map(([v, label, sub]) =>
-        `<button type="button" class="chip-btn" data-pick="${act}" data-v="${escapeHtml(v)}">${escapeHtml(label)}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</button>`).join('')}</div></details>` : '';
-    const fixItems = fixList.slice().sort((a, b) => Math.hypot(a.x - ac.x, a.y - ac.y) - Math.hypot(b.x - ac.x, b.y - ac.y)).slice(0, 24)
-        .map(f => [f.name, f.name, f.kind === 'arr' ? 'entry' : f.kind === 'dep' ? 'exit' : f.kind === 'wp' ? Math.round(Math.hypot(f.x - ac.x, f.y - ac.y)) + ' mi' : 'final ' + f.end.id]);
-    el.innerHTML = `
-        <div class="info-h"><span style="flex:1">INFORMATION</span><button class="info-x" data-act="close" aria-label="Close">✕</button></div>
-        <div class="card-head">
-            <span class="cs">${ac.cs}</span>
-            <span class="badge ${ac.kind}">${ac.kind === 'arr' ? 'Arrival' : 'Departure'}</span>
-            <span class="radio">${ac.radio} · ${typeTag(ac)}</span>
-        </div>
-        <div class="card-status" id="card-status"></div>
-        ${crossBtn}
-        ${yours && inbound ? `<div class="btn-row"><button class="btn" data-act="contInbound">Continue inbound</button><button class="btn" data-act="seqLand">Number ${landingNumber(ac)}</button></div>
-            ${picker('entry', ac.pattern ? `Pattern entry (now ${PATTERN_SAY[ac.pattern.kind]} ${ac.pattern.end.id})…` : 'Pattern entry…', G.active.arr.flatMap(e => Object.keys(PATTERN_SAY).map(k => [k + '|' + e.id, PATTERN_SAY[k], e.id])))}` : ''}
-        ${yours && ac.state === 'taxi' && ac.purpose === 'runway' && ac.freq === 'TWR' ? (ac.preClr ? `<div class="card-empty">${ac.preClr === 'roll' ? 'Cleared for takeoff' : 'Line up and wait'} when it reaches the runway.</div>` : `<div class="btn-row">
-            <button class="btn" data-act="luaw">Line up and wait</button><button class="btn" data-act="immediate">Immediate takeoff</button>
-            <button class="btn primary" data-act="takeoff">Cleared for takeoff ${ac.rwy.id}</button></div>`) : ''}
-        ${yours && (ac.state === 'roll' || (ac.state === 'lineup' && ac.lineupThen === 'roll')) ? `<div class="btn-row"><button class="btn warn" data-act="cancelTO">Cancel takeoff clearance</button></div>` : ''}
-        ${progBtns}
-        ${!yours ? `<div class="card-empty">The system is working ${FREQ_NAME[ac.freq]}. It will reach your frequency when it's handed off.</div>` : surface ? (groundBtns ? `<div class="btn-row">${groundBtns}</div>` : '') : `
-        ${ac.wxReq ? `<div class="btn-row"><button class="btn primary" data-act="dev">Approve ${ac.wxReq.deg}° ${ac.wxReq.dir === 'L' ? 'left' : 'right'} for weather</button></div>` : ''}
-        ${ground ? '' : `<div class="row"><label>Heading</label><div class="stepper">
-            <button data-adj="hdg:-10">−10</button><button data-adj="hdg:-5">−5</button>
-            <span class="val" id="p-hdg"></span>
-            <button data-adj="hdg:5">+5</button><button data-adj="hdg:10">+10</button></div></div>`}
-        <div class="row"><label>Altitude</label><div class="stepper">
-            <button data-adj="alt:-1000">−1000</button>
-            <span class="val" id="p-alt"></span>
-            <button data-adj="alt:1000">+1000</button></div></div>
-        <div class="row"><label>Speed</label><div class="stepper">
-            <button data-adj="spd:-10">−10</button>
-            <span class="val" id="p-spd"></span>
-            <button data-adj="spd:10">+10</button></div></div>
-        ${ground ? '' : `<div class="btn-row"><button class="btn" data-act="slowest">Slowest practical speed</button></div>`}
-        <div class="send-row">
-            <button class="btn primary" data-act="send">Transmit ⏎</button>
-            <button class="btn" data-act="reset">Reset</button>
-        </div>
-        ${ac.kind === 'dep' && ac.state === 'air' && ac.freq === 'TWR' ? `<div class="btn-row"><button class="btn primary" data-act="freqChange">Frequency change approved</button></div>` : ''}
-        ${ac.state === 'wait' ? `<div class="btn-row">
-            <button class="btn" data-act="holdShort">Hold short</button>
-            ${departureNumber(ac) > 1 ? `<button class="btn" data-act="seqNo">Number ${departureNumber(ac)} for departure</button>` : ''}</div>` : ''}
-        ${ac.state === 'wait' || ac.state === 'luaw' || (ac.state === 'taxi' && ac.purpose === 'runway' && ac.freq === 'TWR' && !ac.preClr) ? `<div class="btn-row">
-            ${ac.state !== 'luaw' ? `<button class="btn" data-act="luaw">Line up and wait</button>` : ''}
-            <button class="btn" data-act="immediate">Immediate takeoff</button>
-            <button class="btn primary" data-act="takeoff">Cleared for takeoff ${ac.rwy.id}</button></div>` : ''}
-        ${reqBtns}
-        ${ilsBtns ? `<div class="btn-row">${ilsBtns}</div>` : ''}
-        ${!ground && (ac.viaSaved || (ac.via && !ac.via.vert)) ? `<div class="btn-row"><button class="btn" data-act="via">${ac.kind === 'arr' ? 'Descend via' : 'Climb via'} ${(ac.viaSaved || ac.via).id}</button></div>` : ''}
-        ${!ground ? `
-        ${picker('direct', 'Direct to…', fixItems)}
-        ${ac.kind === 'arr' ? picker('app', 'Other approach…', G.world.ends.flatMap(e => ['ILS', ...(G.rules.id === 'ifatc' ? [] : ['LOC']), 'RNAV', 'VIS'].filter(t => hasApproach(e, t) && !(G.active.arr.includes(e) && t === appFor(e))).map(t => [t + '|' + e.id, (t === 'VIS' ? 'Visual' : t === 'RNAV' && G.rules.id === 'ifatc' ? 'GPS' : t) + ' ' + e.id]))) : ''}
-        ${picker('hold', 'Hold at…', fixItems)}
-        <div class="btn-row">
-            <button class="btn" data-act="orbitL">Left 360</button>
-            <button class="btn" data-act="orbitR">Right 360</button>
-        </div>` : ''}`}`;
-    updateCard();
+    if (nextCross && G.positions.has(crossOwner(ac))) add(`Cross runway ${crossName(nextCross)}${ac.crossReq ? '' : ' (ahead)'}`, { cmd: { cross: true } }, !!ac.crossReq);
+    if (air) airMenu(ac, add); else groundMenu(ac, add);
+    return items;
 }
 
-function updateCard() {
-    const ac = G.selected;
-    if (!ac) return;
-    $('#card-status').textContent = statusText(ac);
-    if (!$('#p-alt')) return;
-    const set = (k, txt) => { const v = $('#p-' + k); if (v) { v.textContent = txt; v.classList.toggle('dirty', pending.dirty[k]); } };
-    set('hdg', hdg3(pending.hdg));
-    set('alt', pending.alt.toLocaleString('en-US'));
-    set('spd', String(pending.spd));
+/** Runway ends that have this kind of approach, landing runways first. */
+const endsFor = type => [...G.active.arr, ...G.world.ends.filter(e => !G.active.arr.includes(e))].filter(e => hasApproach(e, type));
+const APP_TYPES = () => ['ILS', ...(G.rules.id === 'ifatc' ? [] : ['LOC']), 'RNAV', 'VIS'];
+const appWord = t => (t === 'VIS' ? 'visual' : APP_NAME[t]);
+
+function groundMenu(ac, add) {
+    const yours = ac.freq;
+    if (ac.state === 'gate' && ac.kind === 'dep' && ac.called) add('Pushback approved', { cmd: { push: true } }, true);
+    if (ac.state === 'pushed') {
+        add(`Taxi to runway ${ac.rwy.id}`, { cmd: { taxi: true } }, true);
+        if (G.ground) add('Taxi to runway…', { sub: () => G.active.dep.map(e => ({ label: `Runway ${e.id}`, cmd: { taxi: e.id } })) });
+    }
+    if (ac.state === 'clear' && yours === 'GND') add(`Taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'parking'}`, { cmd: { taxi: true } }, true);
+    if (ac.kind === 'dep' && yours === 'GND' && (ac.state === 'wait' || ac.state === 'taxi' && ac.purpose === 'runway' && !ac.toTower))
+        add(`Contact Tower${ac.state === 'wait' ? '' : ' when ready'}`, { cmd: { tower: true } }, ac.state === 'wait');
+    if (ac.kind === 'arr' && yours === 'TWR' && (ac.state === 'clear' || !ac.toGround && (ac.state === 'rollout' || ac.state === 'taxi')))
+        add('Contact Ground', { cmd: { ground: true } }, ac.state === 'clear');
+    if ((ac.state === 'taxi' || ac.state === 'push') && !ac.holdPos) add('Hold position', { cmd: { holdPos: true } });
+    if (ac.holdPos) add('Continue taxi', { cmd: { cont: true } }, true);
+    // Progressive taxi and give way (IFATC 2.2.1, 2.2.5).
+    if (G.ground && yours === 'GND' && (['pushed', 'clear'].includes(ac.state) || ac.state === 'taxi' && ac.purpose !== 'exit')) {
+        add('Progressive taxi', { sub: () => [
+            { label: 'Turn left at the next junction', cmd: { prog: 'L' } }, { label: 'Straight ahead', cmd: { prog: 'S' } },
+            { label: 'Turn right at the next junction', cmd: { prog: 'R' } }, { label: 'Make a 180', cmd: { prog: '180' } },
+            ac.prog ? { label: 'Continue at your discretion', cmd: { discretion: true } } : { label: 'Expect progressive taxi', cmd: { expectProg: true } },
+        ] });
+        const near = G.aircraft.filter(o => o !== ac && isSurface(o) && o.state !== 'gate' && Math.hypot(o.x - ac.x, o.y - ac.y) < 0.8);
+        if (near.length) add('Give way to…', { sub: () => near.map(o => ({ label: `${o.cs} · ${typeTag(o)}`, cmd: { giveWay: o } })) });
+        const moving = near.filter(o => o.state === 'taxi');
+        if (moving.length) add('Follow…', { sub: () => moving.map(o => ({ label: `${o.cs} · ${typeTag(o)}`, cmd: { follow: o } })) });
+    }
+    // Tower: the departure at (or taxiing to) the runway.
+    const onTwr = yours === 'TWR';
+    if (onTwr && ac.state === 'taxi' && ac.purpose === 'runway' && ac.preClr) add(`${ac.preClr === 'roll' ? 'Cleared for takeoff' : 'Line up and wait'} when it reaches the runway`, { cmd: null });
+    if (onTwr && (ac.state === 'wait' || ac.state === 'luaw' || ac.state === 'taxi' && ac.purpose === 'runway' && !ac.preClr)) {
+        add(`Cleared for takeoff runway ${ac.rwy.id}`, { cmd: { takeoff: true } }, true);
+        if (ac.state !== 'luaw') add(`Line up and wait runway ${ac.rwy.id}`, { cmd: { luaw: true } });
+        add('Immediate takeoff', { cmd: { immediate: true } });
+        if (ac.state === 'wait') {
+            add(`Hold short runway ${ac.rwy.id}`, { cmd: { holdShort: true } });
+            if (departureNumber(ac) > 1) add(`Number ${departureNumber(ac)} for departure`, { cmd: { seqNo: true } });
+        }
+    }
+    if (onTwr && (ac.state === 'roll' || ac.state === 'lineup' && ac.lineupThen === 'roll')) add('Cancel takeoff clearance', { cmd: { cancelTO: true } });
 }
 
-/** The card's changed values, plus anything extra, as one transmission. */
-function transmitPending(extra) {
-    const ac = G.selected;
-    if (!ac) return;
-    const c = { ...(extra || {}) };
-    if (pending.dirty.hdg) c.hdg = pending.hdg;
-    if (pending.dirty.alt) c.alt = pending.alt;
-    if (pending.dirty.spd) c.spd = pending.spd;
-    if (Object.keys(c).length) issue(ac, c);
-    syncPending(true);
+function airMenu(ac, add) {
+    const inbound = noRadar() && ac.kind === 'arr' && ac.freq === 'TWR' && !ac.appr?.loc;
+    if (ac.kind === 'dep' && ac.freq === 'TWR') add('Frequency change approved', { cmd: { freqChange: true } }, true);
+    if ((ac.appr?.loc || noRadar() && ac.pattern) && !ac.landClr) add(`Cleared to land runway ${(ac.appr || ac.pattern).end.id}`, { cmd: { land: true } }, ac.freq === 'TWR');
+    if (inbound) {
+        add('Continue inbound', { cmd: { contInbound: true } });
+        add(`Number ${landingNumber(ac)}`, { cmd: { seqLand: true } });
+        add(ac.pattern ? `Pattern entry (now ${PATTERN_SAY[ac.pattern.kind]} ${ac.pattern.end.id})…` : 'Pattern entry…', { sub: () => G.active.arr.flatMap(e => Object.keys(PATTERN_SAY).map(k => ({ label: `${cap(PATTERN_SAY[k])} runway ${e.id}`, cmd: { entry: { kind: k, end: e } } }))) }, !ac.pattern);
+    } else {
+        add('Vectoring instructions', { sub: () => [
+            { label: 'Fly heading…', run: () => headingLadder(ac) },
+            { label: 'Climb or descend…', run: () => altitudeLadder(ac) },
+            { label: 'Direct to…', sub: () => nearFixes(ac).map(f => ({ label: f.label, cmd: { direct: f.f } })) },
+            { label: 'Hold at…', sub: () => nearFixes(ac).map(f => ({ label: f.label, cmd: { holdFix: f.f } })) },
+            { label: 'Left 360', cmd: { orbit: 'L' } }, { label: 'Right 360', cmd: { orbit: 'R' } },
+            ...(ac.viaSaved || ac.via && !ac.via.vert ? [{ label: `${ac.kind === 'arr' ? 'Descend via' : 'Climb via'} the ${(ac.viaSaved || ac.via).id}`, cmd: { via: true } }] : []),
+        ] });
+        add('Request speed', { sub: () => {
+            const lo = Math.ceil(minSpeed(ac) / 10) * 10, hi = ac.alt < 10000 ? 250 : 300, out = [{ label: 'Slowest practical speed', cmd: { slowest: true } }];
+            for (let v = hi; v >= lo; v -= 10) out.push({ label: `Maintain ${v} knots`, cmd: { spd: v } });
+            return out;
+        } });
+    }
+    if (ac.kind === 'arr' && !inbound) {
+        add('Expect approach…', { sub: () => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t).map(e => ({ label: `Runway ${e.id}`, cmd: { expectApp: { type: t, end: e } } })) })) });
+        add('Clear for approach', { sub: () => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t).map(e => ({ label: `Runway ${e.id}`, cmd: t === 'VIS' ? { visual: e } : { ils: e, appType: t } })) })) });
+        add('Misc. messages', { sub: () => [
+            ...(visualWx() && !ac.fieldReported ? [{ label: 'Report the airport in sight', cmd: { reportField: true } }] : []),
+            ...(ac.request ? [{ label: 'Unable', cmd: { unable: true } }] : []),
+        ] });
+    }
+    if (ac.appr) add('Go around', { cmd: { goAround: true } });
+}
+
+/** The fixes nearest an aircraft, for direct-to and holds. */
+function nearFixes(ac) {
+    return G.world.fixes.filter(f => f.kind !== 'app' || G.active.arr.includes(f.end))
+        .map(f => ({ f, d: Math.hypot(f.x - ac.x, f.y - ac.y) })).sort((a, b) => a.d - b.d).slice(0, 24)
+        .map(({ f, d }) => ({ f, label: `${f.name} · ${f.kind === 'arr' ? 'entry' : f.kind === 'dep' ? 'exit' : f.kind === 'app' ? 'final ' + f.end.id : Math.round(d) + ' mi'}` }));
+}
+
+function renderCard(force) {
+    const el = $('#cmdmenu'), ac = G && G.selected;
+    el.hidden = !ac;
+    $('#strips').hidden = !!ac;
+    if (!ac) { menuKey = ''; menuPath = []; el.innerHTML = ''; return; }
+    const top = menuFor(ac);
+    let items = top, title = '';
+    for (const p of menuPath) {
+        const it = items.find(i => i.label === p && i.sub);
+        if (!it) { menuPath = []; items = top; title = ''; break; }
+        items = it.sub(); title = p;
+    }
+    menuTile = top.find(i => i.hl && (i.cmd || i.sub)) || null;
+    const key = `${ac.id}|${mine(ac)}|${menuPath.join('>')}|${items.map(i => i.label + (i.hl ? '*' : '')).join('|')}|${menuTile?.label}`;
+    if (force || key !== menuKey) {
+        menuKey = key; menuItems = items;
+        el.innerHTML = `<div class="cm-h"><div><b>${escapeHtml(ac.cs)}</b><small>${escapeHtml(ac.radio)}</small><span>${escapeHtml(typeTag(ac))}</span></div><div class="cm-num" id="cm-num"></div><button type="button" class="cm-x" data-close aria-label="Close">✕</button></div>
+            <div class="cm-st" id="cm-st"></div>
+            <div class="cm-list">${menuPath.length ? `<button type="button" class="cm-i back" data-back><span>‹</span>${escapeHtml(title)}</button>` : ''}
+            ${mine(ac) ? items.map((it, i) => `<button type="button" class="cm-i${it.hl ? ' hl' : ''}${it.cmd === null ? ' note' : ''}" data-i="${i}"><span>${i + 1}</span>${escapeHtml(it.label)}${it.sub ? '<i>›</i>' : ''}</button>`).join('') || '<div class="cm-none">Nothing to say right now.</div>'
+                : `<div class="cm-none">The system is working ${FREQ_NAME[ac.freq]}. ${ac.cs} reaches your frequency when it's handed off.</div>`}</div>
+            ${menuTile && !menuPath.length ? `<div class="cm-tiles"><button type="button" class="cm-tile" data-tile>${escapeHtml(menuTile.label)}</button></div>` : ''}`;
+    }
+    $('#cm-num').innerHTML = ac.state === 'air'
+        ? `${Math.round(ac.alt).toLocaleString('en-US')}ft ${hdg3(ac.hdg)}°<br>GS ${Math.round(ac.spd)} · ${ac.freq}`
+        : `${ac.state === 'gate' ? 'Gate ' + (ac.stand?.ref || '') : Math.round(ac.spd) + ' kt'}<br>${ac.freq}`;
+    $('#cm-st').textContent = statusText(ac);
+}
+
+/** A menu item chosen: transmit it, open its list, or open its ladder. */
+function menuPick(ac, it) {
+    if (!it || it.cmd === null) return;
+    if (it.sub) { menuPath.push(it.label); renderCard(true); return; }
+    if (it.run) { it.run(); return; }
+    issue(ac, it.cmd);
+    menuPath = [];
     renderCard(true);
 }
 
-function adjust(k, delta) {
-    if (!G.selected) return;
-    if (k === 'hdg' && G.selected.state !== 'air') return;
-    if (k === 'hdg') pending.hdg = norm(pending.hdg + delta) || 360;
-    if (k === 'alt') pending.alt = clamp(pending.alt + delta, G.world.minAlt, 24000);
-    if (k === 'spd') pending.spd = clamp(pending.spd + delta, 160, 320);
-    pending.dirty[k] = true;
-    updateCard();
+function bindCard() {
+    $('#cmdmenu').addEventListener('click', e => {
+        const ac = G && G.selected, b = e.target.closest('button');
+        if (!ac || !b) return;
+        if (b.hasAttribute('data-close')) { select(null); return; }
+        if (b.hasAttribute('data-back')) { menuPath.pop(); renderCard(true); return; }
+        if (b.hasAttribute('data-tile')) { menuPath = []; menuPick(ac, menuTile); return; }
+        if (b.dataset.i != null) menuPick(ac, menuItems[Number(b.dataset.i)]);
+    });
+    $('#ladder').addEventListener('click', e => {
+        const b = e.target.closest('button');
+        if (b && ladderPick) ladderPick(b.hasAttribute('data-keep') ? 'keep' : b.dataset.v);
+    });
+    // Controlling, not reading: no text selection, copy menu or callout on a long press anywhere in the game.
+    const game = $('#game');
+    for (const ev of ['contextmenu', 'selectstart', 'dragstart']) game.addEventListener(ev, e => { if (!e.target.closest('input')) e.preventDefault(); });
+    // The map buttons, bottom right, fade out when the scope is left alone (as in Infinite Flight).
+    const ctrls = $('.zoom');
+    let idleT = 0;
+    const wake = () => { ctrls.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => { if ($('#settings').hidden) ctrls.classList.add('idle'); }, 4000); };
+    for (const ev of ['pointerdown', 'pointermove', 'wheel']) $('#scope-wrap').addEventListener(ev, wake, { passive: true });
+    wake();
 }
 
-function bindCard() {
-    const el = $('#card');
-    el.addEventListener('click', e => {
-        const b = e.target.closest('button');
-        if (!b || !G.selected) return;
-        const ac = G.selected;
-        if (b.dataset.act === 'close') { select(null); return; }
-        if (b.dataset.pick) {
-            const v = b.dataset.v, act = b.dataset.pick;
-            if (act === 'direct' || act === 'hold') issue(ac, { [act === 'direct' ? 'direct' : 'holdFix']: G.world.fixes.find(f => f.name === v) });
-            else if (act === 'app') { const [t, id] = v.split('|'); if (t === 'VIS') issue(ac, { visual: findEnd(id) }); else { transmitPending({ ils: findEnd(id), appType: t }); return; } }
-            else if (act === 'giveWay' || act === 'follow') { const o = G.aircraft.find(a => a.id === Number(v)); if (o) issue(ac, { [act]: o }); }
-            else if (act === 'entry') { const [kind, id] = v.split('|'); issue(ac, { entry: { kind, end: findEnd(id) } }); }
-            syncPending(true); renderCard(true);
-            return;
-        }
-        if (b.dataset.prog) { issue(ac, { prog: b.dataset.prog }); renderCard(true); return; }
-        if (b.dataset.act === 'discretion' || b.dataset.act === 'expectProg') { issue(ac, { [b.dataset.act]: true }); renderCard(true); return; }
-        if (b.dataset.adj) { const [k, v] = b.dataset.adj.split(':'); adjust(k, Number(v)); return; }
-        if (b.dataset.ils) { transmitPending({ ils: findEnd(b.dataset.ils), appType: b.dataset.app || 'ILS' }); return; }
-        if (b.dataset.vis) { issue(ac, { visual: findEnd(b.dataset.vis) }); renderCard(true); return; }
-        if (b.dataset.act === 'approveReq' && ac.request) {
-            const r = ac.request;
-            if (r.kind === 'VIS') issue(ac, { visual: r.end }); else transmitPending({ ils: r.end, appType: 'RNAV' });
-            renderCard(true); return;
-        }
-        if (b.dataset.act === 'unable' || b.dataset.act === 'reportField') { issue(ac, { [b.dataset.act]: true }); renderCard(true); return; }
-        const act = b.dataset.act;
-        if (act === 'send') transmitPending();
-        else if (act === 'reset') { syncPending(true); updateCard(); }
-        else if (act === 'takeoff') transmitPending({ takeoff: true });
-        else if (act === 'luaw') transmitPending({ luaw: true });
-        else if (act === 'dev') { issue(ac, { deviate: true }); renderCard(true); }
-        else if (['push', 'taxi', 'holdPos', 'cont', 'cross', 'tower', 'ground'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
-        else if (act === 'land') { issue(ac, { land: true }); renderCard(true); }
-        else if (act === 'cancelTO') { issue(ac, { cancelTO: true }); renderCard(true); }
-        else if (['freqChange', 'holdShort', 'seqNo', 'contInbound', 'seqLand', 'via'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
-        else if (act === 'immediate') transmitPending({ immediate: true });
-        else if (act === 'slowest') { issue(ac, { slowest: true }); syncPending(true); renderCard(true); }
-        else if (act === 'ga') { issue(ac, { goAround: true }); syncPending(true); renderCard(true); }
-        else if (act === 'orbitL' || act === 'orbitR') { issue(ac, { orbit: act === 'orbitL' ? 'L' : 'R' }); renderCard(true); }
-    });
-    el.addEventListener('change', e => {
-        const s = e.target;
-        if (!G.selected || !s.value) return;
-        if (s.dataset.act === 'direct') issue(G.selected, { direct: G.world.fixes.find(f => f.name === s.value) });
-        if (s.dataset.act === 'hold') issue(G.selected, { holdFix: G.world.fixes.find(f => f.name === s.value) });
-        if (s.dataset.act === 'giveWay' || s.dataset.act === 'follow') {
-            const o = G.aircraft.find(a => a.id === Number(s.value));
-            if (o) issue(G.selected, { [s.dataset.act]: o });
-        }
-        renderCard(true);
-    });
+/* ---- Ladders: pick a heading or an altitude from a list beside the aircraft, as after a drag in Infinite Flight ---- */
+
+/** A scrolling list near the aircraft; first may be a "no change" choice. */
+function openLadder(ac, title, values, current, pickFn, keep) {
+    const el = $('#ladder');
+    const [x, y] = toS(ac.x, ac.y), r = canvas.getBoundingClientRect(), w = $('#scope-wrap').getBoundingClientRect();
+    el.innerHTML = `<div class="ld-h">${escapeHtml(title)}</div>${keep ? `<button type="button" class="ld-i keep" data-keep>${escapeHtml(keep)}</button>` : ''}`
+        + values.map(v => `<button type="button" class="ld-i${v.v === current ? ' cur' : ''}${v.warn ? ' warn' : ''}" data-v="${v.v}">${escapeHtml(v.label)}</button>`).join('');
+    el.hidden = false;
+    const left = r.left - w.left + x + 26, maxLeft = w.width - el.offsetWidth - 8;
+    el.style.left = Math.max(8, left > maxLeft ? r.left - w.left + x - 26 - el.offsetWidth : left) + 'px';
+    el.style.top = Math.max(8, r.top - w.top + 8) + 'px';
+    el.style.maxHeight = (r.height - 16) + 'px';
+    const cur = el.querySelector('.cur');
+    if (cur) cur.scrollIntoView({ block: 'center' });
+    ladderPick = v => { closeLadder(); pickFn(v); };
 }
+let ladderPick = null;
+function closeLadder() { const el = $('#ladder'); if (el) el.hidden = true; ladderPick = null; }
+
+function altitudeLadder(ac, hdg) {
+    const lo = Math.max(1000, Math.ceil((G.world.elev + 1000) / 500) * 500), vals = [];
+    for (let a = 24000; a >= lo; a -= 500) vals.push({ v: a, label: a.toLocaleString('en-US') + 'ft', warn: terrainOn() && a < mvaHere({ x: ac.x, y: ac.y }) });
+    const cur = Math.round(ac.tAlt / 500) * 500;
+    openLadder(ac, hdg != null ? `HDG ${hdg3(hdg)} · ALT` : 'ALTITUDE', vals, cur,
+        v => { issue(ac, v === 'keep' ? { hdg } : { ...(hdg != null ? { hdg } : {}), alt: Number(v) }); renderCard(true); },
+        hdg != null ? `Maintain ${ac.tAlt.toLocaleString('en-US')}ft` : null);
+}
+
+function headingLadder(ac) {
+    const vals = [];
+    for (let h = 5; h <= 360; h += 5) vals.push({ v: h, label: hdg3(h) + '°' });
+    openLadder(ac, 'HEADING', vals, Math.round(ac.tHdg / 5) * 5 || 360, v => { issue(ac, { hdg: Number(v) }); renderCard(true); });
+}
+
+/* ---- Long press on a target: Infinite Flight's quick menu ---- */
+
+const TAG_COLORS = { Yellow: '#ffd84d', Red: '#ff6b6b', Blue: '#5aa9ff', Green: '#5ee08a' };
+function openContext(ac, sx, sy) {
+    const el = $('#ctx');
+    const show = items => {
+        el.innerHTML = items.map((it, i) => `<button type="button" class="ctx-i" data-i="${i}"${it.color ? ` style="color:${it.color}"` : ''}>${escapeHtml(it.label)}</button>`).join('');
+        el.onclick = e => {
+            const b = e.target.closest('[data-i]');
+            if (!b) return;
+            const it = items[Number(b.dataset.i)];
+            if (it.sub) { show(it.sub()); return; }
+            closeContext();
+            it.run();
+        };
+        const r = canvas.getBoundingClientRect(), w = $('#scope-wrap').getBoundingClientRect();
+        el.hidden = false;
+        el.style.left = Math.min(w.width - el.offsetWidth - 8, r.left - w.left + sx + 18) + 'px';
+        el.style.top = Math.max(8, Math.min(w.height - el.offsetHeight - 8, r.top - w.top + sy - 20)) + 'px';
+    };
+    const air = ac.state === 'air' && mine(ac);
+    show([
+        ...(air ? [{ label: 'Assign Altitude', run: () => altitudeLadder(ac) }] : []),
+        ...(air ? [{ label: 'Hold', sub: () => nearFixes(ac).slice(0, 8).map(f => ({ label: f.f.name, run: () => { issue(ac, { holdFix: f.f }); renderCard(true); } })) }] : []),
+        { label: 'Set Reminder', sub: () => [1, 2, 5, 10].map(m => ({ label: `In ${m} minute${m > 1 ? 's' : ''}`, run: () => { ac.remindAt = G.t + m * 60; ac.reminded = false; toast(`Reminder for ${ac.cs} in ${m} min`); } })) },
+        { label: 'Show Information', run: () => select(ac) },
+        { label: 'Assign Color', sub: () => [...Object.entries(TAG_COLORS).map(([n, c]) => ({ label: n, color: c, run: () => { ac.color = c; } })), { label: 'Reset Color', run: () => { ac.color = null; } }] },
+        { label: 'Tag Placement', sub: () => [['R', 'Right'], ['L', 'Left'], ['U', 'Above'], ['D', 'Below']].map(([k, n]) => ({ label: n, run: () => { ac.tagPos = k; } })) },
+    ]);
+}
+function closeContext() { const el = $('#ctx'); if (el) el.hidden = true; }
 
 /** A pilot waiting on you for something: the (1) on the strip's ATC cell. */
 function wantsYou(a) {
-    return !!(a.emerg || a.crossReq || a.wxReq || a.lowAlt
+    return !!(a.emerg || a.crossReq || a.wxReq || a.lowAlt || a.reminded || a.request
         || (a.state === 'gate' && a.kind === 'dep' && a.called) || a.state === 'pushed' || a.state === 'clear'
         || a.state === 'wait' || (a.appr?.loc && !a.landClr && a.freq === 'TWR'));
 }
@@ -4667,7 +4743,6 @@ function runCommand(text) {
     if ('ils' in c && !c.ils) { sys('No such runway.'); return; }
     if ('direct' in c && !c.direct) { sys('No such fix.'); return; }
     if (Object.keys(c).length) issue(ac, c);
-    syncPending(true);
     renderCard(true);
 }
 
@@ -4693,7 +4768,7 @@ function frame(now) {
             renderHud();
             renderStrips();
             renderCard(false);
-            syncPending(false);
+            reminders();
         }
     }
     requestAnimationFrame(frame);
@@ -4823,12 +4898,11 @@ function bindGame() {
             if (!list.length) return;
             const i = list.indexOf(G.selected);
             select(list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length]);
-        } else if (G.selected) {
-            if (k === 'ArrowLeft') { e.preventDefault(); adjust('hdg', e.shiftKey ? -10 : -5); }
-            else if (k === 'ArrowRight') { e.preventDefault(); adjust('hdg', e.shiftKey ? 10 : 5); }
-            else if (k === 'ArrowUp') { e.preventDefault(); adjust('alt', 1000); }
-            else if (k === 'ArrowDown') { e.preventDefault(); adjust('alt', -1000); }
-            else if (k === 'Enter') { e.preventDefault(); transmitPending(); }
+        } else if (G.selected && G.selected.state === 'air' && mine(G.selected)) {
+            // Arrows: a heading 5° (10° with shift) either way, or 1,000 ft up or down, said at once.
+            const ac = G.selected, step = e.shiftKey ? 10 : 5;
+            if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); issue(ac, { hdg: norm(Math.round(ac.tHdg) + (k === 'ArrowLeft' ? -step : step)) || 360 }); }
+            else if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); issue(ac, { alt: clamp(ac.tAlt + (k === 'ArrowUp' ? 1000 : -1000), G.world.minAlt, 24000) }); }
         }
     });
     document.addEventListener('visibilitychange', () => { if (document.hidden && G && G.speed > 0 && !G.over) togglePause(); });
@@ -5030,7 +5104,7 @@ async function startGame(airport, level) {
     const step = (id, text) => { if (G === game) busy(id, text); };
     fitView();
     resetView();
-    cardKey = '';
+    menuKey = '';
     renderCard(true);
     // The map loads for everyone; with Terrain on, the shift waits for it so the MVAs are real from the start.
     step('map', 'Fetching the terrain map');
