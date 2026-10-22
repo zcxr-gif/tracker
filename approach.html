@@ -271,6 +271,9 @@
         .layers .chips { padding: 0; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); }
         .layers .chip-btn.on { background: rgba(242,193,78,.16); border-color: rgba(242,193,78,.6); color: #ffe7a8; }
         .layers .note, .layers .none { color: var(--muted); font-size: .74rem; margin: 10px 0 0; }
+        .layers .atis-now { color: #dfe7ee; font: .74rem/1.45 var(--mono); padding: 8px; background: rgba(255,255,255,.04); border-radius: 6px; margin: 0; }
+        .layers .atis-warn { color: #ffb38a; }
+        .layers .btn-row { margin-top: 12px; }
 
         /* A question from one of the system's controllers. */
         .coord {
@@ -468,7 +471,7 @@
                 <div><b>Departures</b> <span style="color:var(--dep)">Gold</span> strips hold short. Line them up (<code>luaw</code>) or clear them for takeoff (<code>to</code>, with a heading if you want one), then climb them to the exit altitude and send them out through their gate. Wait 2 minutes behind a heavy, 3 behind a super.</div>
                 <div><b>Separation</b> 3 miles or 1,000 feet. More in trail behind heavies, B757s and supers (4–7 miles). 2.5 miles in trail inside 10 miles on the same final; 1.5 miles diagonal on dependent parallel approaches; none needed between independent parallels 4,300 ft apart.</div>
                 <div><b>Speed</b> 250 knots max below 10,000 feet. Minimum 210 knots, or 170 within 20 miles of the field. No speed changes inside the final approach fix. An approach clearance cancels your assigned speed unless you restate it.</div>
-                <div><b>Commands</b> <code>h270</code> <code>l090</code> <code>r180</code> heading · <code>a50</code> <code>fl190</code> altitude · <code>s210</code> speed · <code>i22L</code> ILS · <code>cl</code> land · <code>dct FIX</code> · <code>hold FIX</code> · <code>l360</code> · <code>luaw</code> · <code>to</code> · <code>ga</code>. Or drag from a target to point it at a heading.</div>
+                <div><b>Commands</b> <code>h270</code> <code>l090</code> <code>r180</code> heading · <code>a50</code> <code>fl190</code> altitude · <code>s210</code> speed · <code>i22L</code> ILS · <code>loc22L</code> <code>rnav22L</code> · <code>va22L</code> visual · <code>rfs</code> report field · <code>un</code> unable · <code>cl</code> land · <code>dct FIX</code> · <code>hold FIX</code> · <code>l360</code> · <code>luaw</code> · <code>to</code> · <code>ga</code>. Or drag from a target to point it at a heading.</div>
                 <div class="keys"><b>Keys</b> <code>Space</code> pause · <code>Tab</code> next aircraft · <code>←/→</code> heading · <code>↑/↓</code> altitude · <code>Enter</code> transmit · <code>/</code> command line · <code>Esc</code> deselect.</div>
                 <div><b>The rulebook</b> The separation, approach, speed and runway rules come from FAA JO 7110.65, the controllers' handbook. Breaking one costs points, and the log names the rule.</div>
             </div>
@@ -488,6 +491,7 @@
             <section class="info" id="card" hidden aria-label="Selected aircraft"></section>
             <div class="coord" id="coord" hidden role="dialog" aria-label="Coordination"></div>
             <div class="layers" id="layers" hidden aria-label="Map layers"></div>
+            <div class="layers" id="atis" hidden aria-label="ATIS"></div>
             <div class="toast" id="toast"></div>
             <div class="loader" id="loader" hidden role="status" aria-live="polite">
                 <img src="/Images/inflight-mark.png" alt="" width="34" height="34">
@@ -513,6 +517,7 @@
                     <button data-speed="4">4×</button>
                 </div>
                 <span class="spacer"></span>
+                <button class="chip" id="atis-btn" title="Runways, approach in use, recommended procedures: edit and broadcast the ATIS">ATIS</button>
                 <button class="chip" id="layers-btn" title="Waypoints and published procedures on the scope">Layers</button>
                 <button class="chip" id="icons" title="Radar targets or aircraft icons">Targets</button>
                 <button class="chip" id="style" title="Switch between the dark radar and a light chart">Radar</button>

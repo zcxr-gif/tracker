@@ -68,6 +68,82 @@ A35K, B748, MD11).
 - **Go around / missed approach**: runway heading, 3,000 ft above the
   field, 210 kt.
 
+### Approach types
+
+The information panel offers the approach the ATIS names for each landing
+runway (below). **Other approach…** lists every other one the field
+publishes. Where there is no real data (outside the US), every runway is
+assumed to have all of them.
+
+- **ILS** and **localizer (LOC)**: vectors to final as above. The localizer is
+  Real-life rules only, since Infinite Flight has no localizer-only approach.
+- **RNAV (GPS)** (called GPS under Infinite Flight rules). If no heading is
+  given and the aircraft is within 25 NM of one of the approach's
+  initial or intermediate fixes, it flies the published procedure:
+  - The transition and common route take it to the final approach fix,
+    keeping the published altitudes.
+  - It then joins final and calls Tower.
+  - Phrase: *"cross REPRE at or above 3,000, cleared RNAV Y runway 04R
+    approach."*
+
+  Otherwise (or with a heading) it is vectored onto the final like an ILS:
+  *"maintain 3,000 until established on the final approach course, cleared
+  RNAV (GPS) runway 04R approach."* RNP approaches are used only where
+  there is no plain RNAV one.
+- **Visual** (7110.65 7-4). It needs:
+  - weather of ceiling 1,000 ft and visibility 3 SM or better;
+  - the field in sight: within 20 NM, below 10,000 ft above it and roughly
+    facing it.
+
+  Without it the clearance becomes *"report the airport in sight"*, and the
+  pilot calls when it is. Once cleared, the aircraft flies its own way in:
+  - straight in when it is lined up;
+  - otherwise a base from its side.
+
+  It hands itself to Tower once established. In instrument weather the
+  clearance is refused.
+- **Pilot requests**: on Approach, within 18 NM, about one pilot in three who
+  has the field asks for the visual, and now and then one asks for the
+  RNAV. The request shows as **REQ** in the data block, with **Approve** and
+  **Unable** buttons on the panel. The system's Approach approves a visual
+  in good weather and turns down the rest.
+- **Report field in sight** is a button of its own, or `rfs`.
+- Typed: `i22L` ILS, `loc22L` localizer, `rnav22L` or `gps22L` RNAV,
+  `va22L` visual, `rfs` report the field in sight, `un` unable (a request).
+
+## ATIS
+
+The **ATIS** chip opens an editor for the information. Nothing changes until
+**Broadcast information X**:
+- the letter advances;
+- the full ATIS goes in the log;
+- a runway change moves everyone, as a wind-driven change does.
+
+What it sets:
+- **Runways.** *By the wind* (as before) or *Myself*: pick the landing and
+  departing runways, each shown with its headwind or tailwind.
+  - Picked runways stay when the wind shifts. A tailwind over 10 kt is
+    flagged, both in the editor and when the wind turns (IFATC 2.1.2).
+- **Approach in use**: ILS, LOC, RNAV/GPS or visual.
+  - Arrivals are told to *"expect RNAV (GPS) approach runway 04R"* on
+    check-in.
+  - The system's Approach clears that type, falling back to the ILS on a
+    runway without it.
+- **Recommended arrivals and departures.** These list only the published
+  STARs and SIDs the game's traffic can fly here: a STAR has to enter the
+  scope at least 14 NM out.
+  - Arrivals file a recommended STAR three times in four.
+  - Departures are sent to an exit the recommended SID serves, and fly that
+    SID when it serves their exit.
+- **Straight-out departures**: runway heading to 1,000, 3,000 or 5,000 ft
+  above the field before the SID or a turn on course.
+  - The Infinite Flight ATIS remark *"Straight Out Dept."* sets this.
+  - Under Real-life rules it is also part of the clearance: *"fly runway
+    heading until 3,000, then the DEEZZ6 departure, cleared for takeoff."*
+
+The approach type, recommended procedures and straight-out setting are
+remembered per airport. Runways always start by the wind.
+
 ## Speed
 
 - 250 kt maximum below 10,000 ft (14 CFR 91.117).
@@ -363,7 +439,7 @@ and NASR (waypoints, navaids), via the MIT-licensed `@squawk/procedure-data`,
 
 - **Tap** an aircraft, its strip, or any log line that names it to open its
   information panel. Every command there is a button: Direct to, Hold at,
-  Other ILS, Give way and Follow open as grids of chips, with no dropdowns or
+  Other approach, Give way and Follow open as grids of chips, with no dropdowns or
   typing needed. The command line is still there for keyboard players.
 - **Drag** an airborne target:
   - to give a heading;
