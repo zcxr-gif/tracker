@@ -192,8 +192,13 @@ What it sets:
   dept OK exclude each other.
   - **No intersection departures** is enforced: dragging a departure to an
     intersection is refused.
+  - **Rolling dpt**: cleared for takeoff, departures line up and roll without
+    stopping. Line up and wait still works.
+  - **Gate hold**: departures at the gate wait to call for pushback.
+  - **No light aircraft**: no new C172, SR22 or PA28 pattern work,
+    transitions or VFR inbounds.
   - The rest are read out for pilots: pattern work, flow control, long taxi,
-    gate hold, rolling departures, FPL required, no light aircraft.
+    FPL required.
 - **NOTAMs**: event, size restrictions, severe weather, low visibility. These
   are read out only.
 - **Approaches**: any mix of ILS, LOC, RNAV/GPS and visual (at least one),
@@ -219,6 +224,41 @@ What it sets:
 
 The approaches, recommended procedures, remarks and NOTAMs are remembered
 per airport. Runways always start by the wind.
+
+**Under Infinite Flight rules the ATIS is yours (IFATC 4.1):**
+
+- 4.1.2 **Keep it current.** A wind or weather change doesn't bring a new
+  letter by itself. The ATIS goes **OUT OF DATE** (shown on its page, with
+  why) and the runways stay as published until you publish again.
+  - Not published within 3 minutes: a violation.
+  - At least once an hour: a reminder at 55 minutes, a violation at 60.
+  - **Broadcast it**: after publishing, "Notify ATIS update" (or "Check
+    ATIS") within 2 minutes on your frequencies, or it's a violation. The
+    system's controllers are told in the coordination log and tell their own
+    traffic.
+- 4.1.2 **Pilots report the letter they have.** Aircraft already on your
+  frequencies keep the old letter until your broadcast, and about one pilot
+  in twelve checks in with the previous one. "Check ATIS" from Misc. messages
+  fixes it (+1 when the letter was wrong); after that it's the pilot's job.
+- 4.1.3 Letters go in order and start at Alpha.
+- 4.1.4 Picking runways by hand, the page warns when any runway in the flow
+  only lands, only departs or isn't used.
+- 4.1.5 With radar open the ATIS always names the approach type ("Expect ILS
+  approaches"), and an advertised GPS that no landing runway publishes is
+  flagged.
+- **Remarks and NOTAMs** (the 4.1 table), shown as warnings on the page:
+  - below VMC, No pattern work **must** be on it: publishing without it is a
+    violation;
+  - No intersection dept. only when one blocks the only way to full length;
+  - Gate hold: favour "hold position", and 10 minutes at most (a violation
+    after that);
+  - No light aircraft not at GA airports (taken as the smaller fields);
+  - FPL required only below VMC or when SID/STAR use is required;
+  - Event for Infinite Flight sponsored events only;
+  - Low visibility exactly when visibility is under 1/4 SM.
+
+Not modelled: multiple frequencies (4.1.6), Check Forum, Mult. Freq. In
+Use, Size restrictions' effect.
 
 ## Speed
 

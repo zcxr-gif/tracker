@@ -637,6 +637,53 @@ const NOTAMS = [
 ];
 const STRAIGHT_STEPS = [0, 1000, 3000, 5000];
 const hasRemark = k => !!G?.atisCfg.remarks.includes(k);
+/** Light aircraft as Infinite Flight defines them, for "No light aircraft" (IFATC 4.1). */
+const LIGHT = new Set(['C172', 'SR22', 'XCUB', 'PA28', 'SPIT', 'P38']);
+
+/** The ATIS letter a pilot reports (IFATC 4.1.2): what was current when it tuned in, now and then the one before. */
+function infoOf(ac) {
+    if (ac.atisL == null) ac.atisL = G.atisPrev != null && Math.random() < 0.08 ? G.atisPrev : G.atis;
+    return PHONETIC[ac.atisL];
+}
+/** A new letter (always the next one, IFATC 4.1.3); pilots keep the one they have until they're told to check it. */
+function nextAtisLetter() {
+    G.atisPrev = G.atis;
+    G.atis = (G.atis + 1) % 26;
+    G.atisAt = G.t;
+}
+
+/**
+ * Under Infinite Flight rules the ATIS is yours (IFATC 4.1.2): the weather changing doesn't bring a new
+ * letter on its own. It goes out of date until you publish one, without delay, and at least once an hour;
+ * then a broadcast on your frequencies tells pilots to check it.
+ */
+const ATIS_LATE_S = 180, ATIS_NOTIFY_S = 120, GATE_HOLD_MAX_S = 600;
+function atisStale(why) {
+    if (!G.atisStale) G.atisStale = { since: G.t, why };
+    else G.atisStale.why = why;
+    sys(`${why}: the ATIS no longer matches. Publish a new information without delay (IFATC 4.1.2).`, 'bad');
+    renderAtis();
+}
+const FIELD = { x: 0, y: 0 };
+function atisCheck() {
+    if (G.rules.id !== 'ifatc') return;
+    const st = G.atisStale;
+    if (st && !st.flagged && G.t - st.since > ATIS_LATE_S) { st.flagged = true; violation(FIELD, 'IFATC 4.1.2', `The ATIS still doesn't match the current situation (${st.why})`); }
+    const age = G.t - (G.atisAt ?? 0);
+    if (age > 3300 && G.atisRemind !== G.atisAt) { G.atisRemind = G.atisAt; sys(`Information ${PHONETIC[G.atis]} is 55 minutes old: the ATIS must be updated at least once an hour (IFATC 4.1.2).`); }
+    if (age > 3600 && G.atisHourly !== G.atisAt) { G.atisHourly = G.atisAt; violation(FIELD, 'IFATC 4.1.2', `Information ${PHONETIC[G.atis]} is over an hour old`); }
+    const nf = G.atisNotify;
+    if (nf && !nf.flagged && G.t > nf.due) { nf.flagged = true; violation(FIELD, 'IFATC 4.1.2', `No broadcast on your frequency that information ${PHONETIC[G.atis]} is current`); }
+    if (G.gateHoldSince != null && G.t - G.gateHoldSince > GATE_HOLD_MAX_S && !G.gateHoldFlagged) {
+        G.gateHoldFlagged = true;
+        violation(FIELD, 'IFATC 4.1', 'Gate hold has been on the ATIS for more than 10 minutes');
+    }
+}
+/** "Notify ATIS update" (or "Check ATIS") to everyone on your frequencies: they all have the new letter now. */
+function atisNotified() {
+    for (const a of G.aircraft) if (G.positions.has(a.freq)) a.atisL = G.atis;
+    G.atisNotify = null;
+}
 
 /** The weather as a METAR line, as the top of Infinite Flight's ATIS page shows it. */
 function metarText() {
@@ -660,7 +707,7 @@ function atisText(cfg = G.atisCfg, letter = G.atis, act = G.active) {
         return `${apt} airport, ATIS information ${L.toUpperCase()}, time ${zuluText().slice(0, 4)} ZULU, Wind ${hdg3(G.wind.dir)} at ${G.wind.spd}${G.met.gust ? ' gusting ' + G.met.gust : ''}, Visibility ${VIS[G.met.vis] || G.met.vis}, Temperature ${G.temp}, Dew Point ${G.dew}, Altimeter ${G.altim}.`
             + (remarks.length ? ` Remarks, ${remarks.join(', ')}.` : '')
             + ` Landing Runways ${list(act.arr.map(e => e.id))}, Departing Runways ${list(act.dep.map(e => e.id))}.`
-            + (onlyIls ? '' : ` Expect ${list(apps)} approaches.`) + procs
+            + (onlyIls && noRadar() ? '' : ` Expect ${list(apps)} approaches.`) + procs
             + (notams.length ? ` Notams, ${notams.join(', ')}.` : '')
             + ` Advise on initial contact, you have information ${L.toUpperCase()}.`;
     }
@@ -679,6 +726,29 @@ function atisWarnings(cfg) {
     for (const e of new Set([...act.arr, ...act.dep])) if (headwind(e) < -10) out.push(`Runway ${e.id} has a ${-headwind(e)} kt tailwind.`);
     for (const e of act.arr) if (!cfg.apps.some(t => hasApproach(e, t))) out.push(`Runway ${e.id} has none of these approaches (ILS instead).`);
     if (cfg.apps.includes('VIS') && !visualWx()) out.push(`The weather is below visual minimums (${metText(G.met)}).`);
+    if (G.rules.id === 'ifatc') out.push(...ifatcAtisWarnings(cfg, act));
+    return out;
+}
+
+/** What IFATC section 4.1 says about this ATIS: runways, the approach advertised, and when each remark or NOTAM is used. */
+function ifatcAtisWarnings(cfg, act) {
+    const out = [], has = k => cfg.remarks.includes(k) || cfg.notams.includes(k);
+    // 4.1.4: all runways, not one for departures and another for arrivals.
+    const all = computeActive(G.world, G.wind, true);
+    const idle = all.arr.filter(e => !act.arr.includes(e) || !act.dep.includes(e));
+    if (cfg.mode === 'manual' && idle.length) out.push(`IFATC 4.1.4: use ALL runways where you can (${idle.map(e => `${e.id} ${act.arr.includes(e) ? 'lands only' : act.dep.includes(e) ? 'departs only' : 'unused'}`).join(', ')}). Terrain, layout or weather can be the exception.`);
+    // 4.1.5: the approach advertised must be published for the landing runways.
+    for (const t of cfg.apps) if (t !== 'VIS' && !act.arr.some(e => hasApproach(e, t))) out.push(`IFATC 4.1.5: no landing runway publishes a ${APP_NAME[t]} approach, so it can't be advertised.`);
+    // The remarks and NOTAMs table.
+    if (!visualWx() && !has('noPattern')) out.push('Below VMC: No pattern work must be on the ATIS.');
+    if (has('noInter')) out.push('No intersection dept.: intersection departures must be allowed unless one blocks the only way to full length and slows the flow.');
+    if (has('gateHold')) out.push('Gate hold: favour "hold position"; 10 minutes at most.');
+    if (has('noLight') && (G.airport.s || 0) <= 1) out.push('No light aircraft: not at a GA airport, and accept light aircraft wherever they are accepted in real life.');
+    if (has('fpl') && visualWx() && !has('sidReq')) out.push('FPL required: only below VMC, or when SID/STAR use is mandated.');
+    if (has('event')) out.push('Event: for Infinite Flight sponsored events only.');
+    const lowVis = G.met && G.met.vis < 0.25;
+    if (lowVis && !has('lowVis')) out.push('Visibility is under 1/4 SM: add Low visibility.');
+    if (!lowVis && has('lowVis')) out.push('Low visibility is for visibility under 1/4 SM.');
     return out;
 }
 
@@ -688,9 +758,21 @@ function broadcastAtis(cfg) {
     store.set('atis.' + G.world.icao, Object.fromEntries(ATIS_KEEP.map(k => [k, cfg[k]])));
     const prev = G.active.key;
     G.active = (cfg.mode === 'manual' && activeFrom(cfg)) || computeActive(G.world, G.wind);
-    G.atis = (G.atis + 1) % 26;
-    G.atisAt = G.t;
+    nextAtisLetter();
     sys(atisText(), 'good');
+    if (G.rules.id === 'ifatc') {
+        G.atisStale = null;
+        // Broadcast it on your frequencies (IFATC 4.1.2); the system's controllers tell theirs, coordinated in real time.
+        if (!G.aiActing) G.atisNotify = { due: G.t + ATIS_NOTIFY_S };
+        const mineAt = ['APP', 'TWR', 'GND'].find(f => G.positions.has(f));
+        for (const f of ['APP', 'TWR', 'GND']) if (!G.positions.has(f) && mineAt) coordSay(mineAt, f, `Information ${PHONETIC[G.atis]} is current.`);
+        for (const a of G.aircraft) if (!G.positions.has(a.freq)) a.atisL = G.atis;
+        // The remarks that "must" be used (IFATC 4.1): No pattern work below VMC.
+        if (!visualWx() && !cfg.remarks.includes('noPattern')) violation(FIELD, 'IFATC 4.1', `Below VMC (${metText(G.met)}), the ATIS must carry No pattern work`);
+        const gh = cfg.remarks.includes('gateHold');
+        if (gh && G.gateHoldSince == null) { G.gateHoldSince = G.t; G.gateHoldFlagged = false; }
+        if (!gh) G.gateHoldSince = null;
+    }
     if (G.active.key !== prev) runwayChange();
     renderLayers(); renderAtis();
 }
@@ -721,7 +803,7 @@ function renderAtis() {
     const ago = Math.round((G.t - (G.atisAt ?? 0)) / 60);
     const next = (G.atis + 1) % 26;
     el.innerHTML = `
-        <div class="ia-top"><span class="ia-metar">${escapeHtml(metarText())}</span><span>Updated ${ago < 1 ? 'just now' : ago === 1 ? 'a minute ago' : ago + ' minutes ago'} - Current Time: ${zuluText()}</span></div>
+        <div class="ia-top"><span class="ia-metar">${escapeHtml(metarText())}</span><span>Updated ${ago < 1 ? 'just now' : ago === 1 ? 'a minute ago' : ago + ' minutes ago'}${G.atisStale ? ` - <b class="ia-stale">OUT OF DATE: ${escapeHtml(G.atisStale.why)}</b>` : ''} - Current Time: ${zuluText()}</span></div>
         <div class="ia-bar"><span>WIND: ${hdg3(G.wind.dir)}°(M) at ${G.wind.spd}${G.met.gust ? ' gusting ' + G.met.gust : ''}</span><span class="sp"></span>
             <span class="ia-lbl">ATIS INFORMATION</span><span class="ia-letter">${PHONETIC[next].toUpperCase()}</span>
             <button type="button" class="ia-pub" data-atis-go ${act ? '' : 'disabled'}>PUBLISH</button><button type="button" class="ia-x" data-close aria-label="Close">✕</button></div>
@@ -917,7 +999,7 @@ function newGame(airport, level, opts, nav) {
         conf: new Map(),
         occupied: new Map(),       // physical runway index -> sim time it is clear again
         depWake: new Map(),        // physical runway index -> last Super/Heavy takeoff { t, cs, wake }
-        atis: Math.floor(rand(0, 26)),
+        atis: opts.rules === 'ifatc' ? 0 : Math.floor(rand(0, 26)),          // IFATC 4.1.3: a new controller starts at Alpha
         altim: Math.round(rand(2972, 3024)),
         nextSpawn: 45,
         nextWind: rand(900, 1500),
@@ -941,6 +1023,8 @@ function agl(a) { return a.alt - G.world.elev; }
 
 /** A US civil registration for a light aircraft: N543AB, "November five four three alpha bravo". */
 function makeGACallsign(types) {
+    if (hasRemark('noLight')) types = types.filter(t => !LIGHT.has(t));
+    if (!types.length) return null;
     const used = new Set(G.aircraft.map(a => a.cs)), L = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
     for (let i = 0; i < 30; i++) {
         const num = String(Math.floor(rand(100, 999))), suf = L[Math.floor(Math.random() * L.length)] + L[Math.floor(Math.random() * L.length)];
@@ -1014,13 +1098,13 @@ function spawnArrival(dist) {
             if (onIls) ac.expect = onIls;
             Object.assign(ac, { freq: 'TWR', tAlt: Math.max(G.world.minAlt, Math.round((G.world.elev + 4000) / 1000) * 1000), tSpd: 230, tHdg: brg(-x, -y) });
             const dir = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'][Math.round(norm(brg(x, y)) / 45) % 8];
-            pilot(ac, `${facName('TWR')}, ${ac.radio}, ${fmtAlt(alt)}, ${onIls ? `inbound on the ILS runway ${onIls.id}` : `inbound for landing, ${Math.round(r)} miles ${dir}`}, information ${PHONETIC[G.atis]}.`);
+            pilot(ac, `${facName('TWR')}, ${ac.radio}, ${fmtAlt(alt)}, ${onIls ? `inbound on the ILS runway ${onIls.id}` : `inbound for landing, ${Math.round(r)} miles ${dir}`}, information ${infoOf(ac)}.`);
             return true;
         }
         // As in Infinite Flight: it checks in asking for an approach, from its flight plan, and you answer.
         const type = appFor(ac.expect);
         ac.request = { kind: type, end: ac.expect, say: `the ${appWord(type)}`, tag: APP_TAG[type], checkin: true };
-        pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${PHONETIC[G.atis]}, requesting ${ac.via ? '' : 'radar vectors for '}the ${appWord(type)} approach runway ${ac.expect.id}.`);
+        pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${infoOf(ac)}, requesting ${ac.via ? '' : 'radar vectors for '}the ${appWord(type)} approach runway ${ac.expect.id}.`);
         return true;
     }
     return false;
@@ -1129,7 +1213,7 @@ function spawnDeparture(patternWork) {
     }
     G.aircraft.push(ac);
     maybeEmergency(ac);
-    pilot(ac, `${facName('TWR')}, ${ac.radio}, holding short runway ${rwy.id}, information ${PHONETIC[G.atis]}, ready for departure${ac.patternWork ? ', remaining in the pattern' : ''}.`);
+    pilot(ac, `${facName('TWR')}, ${ac.radio}, holding short runway ${rwy.id}, information ${infoOf(ac)}, ready for departure${ac.patternWork ? ', remaining in the pattern' : ''}.`);
     return true;
 }
 
@@ -2091,7 +2175,7 @@ const radarVectorsOk = ac => G.rules.id === 'ifatc' && visualWx() && ac.state ==
 function towerCheckInVfr(ac) {
     const d = Math.hypot(ac.x, ac.y);
     Object.assign(ac, { request: null, holdAt: null, via: null, viaSaved: null, noEntryFlagged: false });
-    pilot(ac, `${facName('TWR')}, ${ac.radio}, ${Math.max(1, Math.round(d))} miles ${compass(brg(ac.x, ac.y))}, ${fmtAlt(Math.round(ac.alt / 100) * 100)}, inbound for landing with you on ${HANDOFF_SAY[ac.handoff]}, information ${PHONETIC[G.atis]}.`);
+    pilot(ac, `${facName('TWR')}, ${ac.radio}, ${Math.max(1, Math.round(d))} miles ${compass(brg(ac.x, ac.y))}, ${fmtAlt(Math.round(ac.alt / 100) * 100)}, inbound for landing with you on ${HANDOFF_SAY[ac.handoff]}, information ${infoOf(ac)}.`);
 }
 
 /** A VFR light aircraft inbound to land, with radar (IFATC 3.6.3): it asks Approach for radar vectors or flight following, and Radar hands it to Tower. */
@@ -2104,7 +2188,7 @@ function spawnVfrInbound() {
     const ac = { id: nextId++, ...id, kind: 'arr', state: 'air', perf: perf(id.type), x, y, alt, hdg, spd: 120, tHdg: hdg, tAlt: alt, tSpd: 120, turn: null,
         trail: [], trailT: 0, born: G.t, freq: 'APP', expect: pick(G.active.arr), vfrIn, asked: true };
     G.aircraft.push(ac);
-    pilot(ac, `${facName('APP')}, ${ac.radio}, ${Math.round(r)} miles ${compass(brg(x, y))}, ${fmtAlt(alt)}, VFR inbound for landing, information ${PHONETIC[G.atis]}, ${vfrIn === 'RV' ? 'request vectors to the field' : 'request flight following'}.`);
+    pilot(ac, `${facName('APP')}, ${ac.radio}, ${Math.round(r)} miles ${compass(brg(x, y))}, ${fmtAlt(alt)}, VFR inbound for landing, information ${infoOf(ac)}, ${vfrIn === 'RV' ? 'request vectors to the field' : 'request flight following'}.`);
     return true;
 }
 const patternAlt = () => Math.max(G.world.minAlt, Math.round((G.world.elev + 2000) / 100) * 100);
@@ -2198,6 +2282,11 @@ function sayMessage(ac, m) {
     const [k, , text, fx] = m;
     atc(`${ac.radio}, ${text}`, G.aiActing);
     if (fx === 'expedite') ac.expediteUntil = G.t + 90;
+    if (k === 'atis') {
+        // IFATC 4.1.2: checked in with an old letter, told to recheck; from here it's the pilot's to keep up with.
+        if (ac.atisL != null && ac.atisL !== G.atis && !G.aiActing) award(ac, 1, 'ATIS');
+        ac.atisL = G.atis;
+    }
     if (fx === 'divert') {
         if (ac.state === 'air') {
             // Turns away and climbs out; leaves without counting against you.
@@ -2545,8 +2634,11 @@ function weather(dt) {
     if (G.metBelowUntil && G.t >= G.metBelowUntil) {
         G.metBelowUntil = 0;
         G.met = { ...G.met, ceil: Math.round(rand(3, 8)) * 100, vis: pick([1, 2, 3]) };
-        G.atis = (G.atis + 1) % 26;
-        sys(`Information ${PHONETIC[G.atis]}: ${metText(G.met)}, ceiling back above minimums.`, 'good');
+        if (G.rules.id === 'ifatc') atisStale(`${metText(G.met)}, ceiling back above minimums`);
+        else {
+            nextAtisLetter();
+            sys(`Information ${PHONETIC[G.atis]}: ${metText(G.met)}, ceiling back above minimums.`, 'good');
+        }
     }
     // Pilots look ahead every couple of seconds.
     if ((G.wxT = (G.wxT || 0) + dt) < 2) return;
@@ -2666,9 +2758,9 @@ function groundStep(ac, dt) {
     const gr = G.ground;
     switch (ac.state) {
     case 'gate':
-        if (ac.kind === 'dep' && !ac.called && G.t >= ac.readyAt) {
+        if (ac.kind === 'dep' && !ac.called && G.t >= ac.readyAt && !hasRemark('gateHold')) {
             ac.called = true;
-            pilot(ac, `${facName('GND')}, ${ac.radio}, gate ${ac.stand.ref}, information ${PHONETIC[G.atis]}, ready to push${ac.patternWork ? ', VFR pattern work' : ''}.`);
+            pilot(ac, `${facName('GND')}, ${ac.radio}, gate ${ac.stand.ref}, information ${infoOf(ac)}, ready to push${ac.patternWork ? ', VFR pattern work' : ''}.`);
         }
         if (ac.kind === 'arr' && G.t >= ac.parkedUntil) ac.gone = true;
         return true;
@@ -2694,9 +2786,11 @@ function groundStep(ac, dt) {
     case 'pushed':
         return true;
     case 'lineup': {
-        const t = ac.lineupAt, d = Math.hypot(t.x - ac.x, t.y - ac.y), stepNm = (ac.immediate ? 14 : 8) / 3600 * dt;
+        // Rolling departures on the ATIS: cleared for takeoff, they line up and roll without stopping (IFATC 4.1).
+        const rolling = ac.lineupThen === 'roll' && hasRemark('rolling');
+        const t = ac.lineupAt, d = Math.hypot(t.x - ac.x, t.y - ac.y), stepNm = (ac.immediate ? 14 : rolling ? 12 : 8) / 3600 * dt;
         if (d <= stepNm) {
-            Object.assign(ac, { x: t.x, y: t.y, hdg: ac.rwy.course, state: ac.lineupThen, spd: 0 });
+            Object.assign(ac, { x: t.x, y: t.y, hdg: ac.rwy.course, state: ac.lineupThen, spd: rolling ? 12 : 0 });
             if (ac.state === 'roll') rollStarted(ac);
         } else {
             ac.hdg = brg(t.x - ac.x, t.y - ac.y);
@@ -3003,6 +3097,7 @@ function aiControl() {
     if (G.opts.emerg) emergencyCheck();
     pilotRequests();
     if (G.rules.id === 'ifatc') towerDepartures();
+    atisCheck();
     coordinate();
     if (!G.positions.has('APP')) { aiConflicts(); aiTerrainNet(); }
     for (const ac of G.aircraft) {
@@ -3695,10 +3790,17 @@ function shiftWind() {
     G.nextWind = G.t + rand(900, 1500);
     G.wind = { dir: norm(G.wind.dir + Math.round(rand(-7, 7)) * 10) || 360, spd: Math.round(rand(4, 20)) };
     const prev = G.active.key;
-    if (G.atisCfg.mode === 'auto') G.active = computeActive(G.world, G.wind);
-    G.atis = (G.atis + 1) % 26;
     G.altim = clamp(G.altim + Math.round(rand(-3, 3)), 2950, 3050);
     G.met = makeMet();
+    if (G.rules.id === 'ifatc') {
+        // Yours to publish (IFATC 4.1.2): the runways and the letter change when you do.
+        const want = G.atisCfg.mode === 'auto' && computeActive(G.world, G.wind).key !== prev;
+        const tail = G.active.arr.find(e => headwind(e) < -10);
+        atisStale(`Wind now ${hdg3(G.wind.dir)} at ${G.wind.spd}, altimeter ${G.altim}${G.opts.weather ? ', ' + metText(G.met) : ''}${want ? ', favouring other runways' : ''}${tail ? `, ${-headwind(tail)} kt tailwind on ${tail.id}` : ''}`);
+        return;
+    }
+    if (G.atisCfg.mode === 'auto') G.active = computeActive(G.world, G.wind);
+    nextAtisLetter();
     renderAtis();
     const tail = G.atisCfg.mode === 'manual' && G.active.arr.find(e => headwind(e) < -10);
     if (tail) sys(`Runway ${tail.id} now has a ${-headwind(tail)} kt tailwind: time to change runways (ATIS).`, 'bad');
@@ -5312,7 +5414,9 @@ function bindCard() {
         if (b && broadcastOpen && !ac) {
             if (b.dataset.bc != null) {
                 const pos = ['TWR', 'GND', 'APP'].filter(f => G.positions.has(f)).map(f => FREQ_NAME[f]).join('/');
-                atc(`Attention all aircraft, ${BROADCASTS[Number(b.dataset.bc)][2](pos)}.`);
+                const bc = BROADCASTS[Number(b.dataset.bc)];
+                atc(`Attention all aircraft, ${bc[2](pos)}.`);
+                if (bc[0] === 'atis' || bc[0] === 'checkAtis') atisNotified();
             }
             broadcastOpen = false; menuKey = ''; renderCard(true); renderRail();
             return;
@@ -6173,7 +6277,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound };
+    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings };
 }
 
 init();
