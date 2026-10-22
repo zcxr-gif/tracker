@@ -574,7 +574,7 @@ function finalGeom(ac, e) {
 
 /** The physical runway an aircraft is on right now, or -1. */
 function onRunwayPhys(a) {
-    if (a.state === 'roll' || a.state === 'luaw' || a.state === 'lineup') return a.rwy.phys;
+    if (a.state === 'roll' || a.state === 'rto' || a.state === 'luaw' || a.state === 'lineup') return a.rwy.phys;
     if (a.state === 'rollout') return a.landEnd.phys;
     if (a.state === 'taxi' && a.route) {
         if (a.purpose === 'exit') return a.landEnd.phys;
@@ -592,9 +592,50 @@ function runwayBusyUntil(phys) {
 /** Why a departure may not start its takeoff roll yet (7110.65 3-9-6), or null. */
 function runwayBlocker(ac) {
     const phys = ac.rwy.phys;
-    const other = G.aircraft.find(a => a !== ac && onRunwayPhys(a) === phys);
+    const other = G.aircraft.find(a => a !== ac && onRunwayPhys(a) === phys
+        // IFATC 3.1.2: a takeoff clearance may anticipate the departure ahead still rolling (checked again when this one rolls).
+        && !(G.rules.id === 'ifatc' && !G.aiActing && a.state === 'roll'));
     if (other) return `${other.cs} is on the runway`;
     if ((G.occupied.get(phys) || 0) > G.t) return 'the previous aircraft has not cleared it';
+    const x = crossingTraffic(ac.rwy);
+    if (x) return x;
+    return null;
+}
+
+/** Where each pair of runways crosses, by physical runway: [{ phys, at: {x, y} }]. */
+function intersections(phys) {
+    G.world.xing = G.world.xing || new Map();
+    if (G.world.xing.has(phys)) return G.world.xing.get(phys);
+    const mine = G.world.ends.find(e => e.phys === phys), out = [];
+    for (const o of G.world.ends) {
+        if (o.phys === phys || out.some(x => x.phys === o.phys)) continue;
+        const t = crossAtSeg(mine.thr, mine.far, o.thr, o.far);
+        if (t >= 0) out.push({ phys: o.phys, at: { x: mine.thr.x + (mine.far.x - mine.thr.x) * t, y: mine.thr.y + (mine.far.y - mine.thr.y) * t } });
+    }
+    G.world.xing.set(phys, out);
+    return out;
+}
+function crossAtSeg(p1, p2, q1, q2) {
+    const rx = p2.x - p1.x, ry = p2.y - p1.y, sx = q2.x - q1.x, sy = q2.y - q1.y, den = rx * sy - ry * sx;
+    if (Math.abs(den) < 1e-12) return -1;
+    const t = ((q1.x - p1.x) * sy - (q1.y - p1.y) * sx) / den, u = ((q1.x - p1.x) * ry - (q1.y - p1.y) * rx) / den;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : -1;
+}
+
+/**
+ * Traffic on a runway that crosses this one, not yet beyond the intersection
+ * (IFATC 3.1.1 "Intersecting", 7110.65 3-9-8 / 3-10-4): rolling, rolling out,
+ * or about to land. Returns why, or null.
+ */
+function crossingTraffic(end) {
+    for (const x of intersections(end.phys)) {
+        for (const o of G.aircraft) {
+            const e = o.state === 'roll' || o.state === 'rto' ? o.rwy : o.state === 'rollout' ? o.landEnd : o.appr?.loc && o.appr.along < 1.5 && o.appr.end.phys === x.phys ? o.appr.end : null;
+            if (!e || e.phys !== x.phys) continue;
+            const c = e.course * D2R, along = p => (p.x - e.thr.x) * Math.sin(c) + (p.y - e.thr.y) * Math.cos(c);
+            if (along(o) < along(x.at) + 0.05) return `${o.cs} on the crossing runway ${e.id} isn't past the intersection`;
+        }
+    }
     return null;
 }
 
@@ -877,6 +918,11 @@ function issueCall(ac, c) {
     // ---- speed (an approach clearance cancels assigned speeds unless restated: 7110.65 5-7-1)
     if (c.slowest) {
         if (onGround) { sys(`${ac.cs} is on the ground.`); return false; }
+        if (G.rules.id === 'ifatc' && !G.aiActing && ac.appr && ac.appr.along < 4) {
+            sys(`IFATC 3.1.4: not within 4 miles of touchdown, ${ac.cs} is already at final approach speed. A go-around may be the only option left.`);
+            pilot(ac, `Unable, already at final approach speed, ${ac.radio}.`);
+            return false;
+        }
         const sp = Math.max(minSpeed(ac), ac.alt < 10000 ? Math.min(210, ac.perf.vapp + 40) : 250);
         if (ac.appr) ac.appr.spd = sp; else ac.tSpd = sp;
         parts.push('maintain slowest practical speed'); back.push('slowest practical');
@@ -899,6 +945,21 @@ function issueCall(ac, c) {
     }
 
     // ---- runway
+    if (c.cancelTO) {
+        if (ac.state === 'lineup' && ac.lineupThen === 'roll') {
+            ac.lineupThen = 'luaw';
+            atc(`${ac.radio}, cancel takeoff clearance, line up and wait runway ${ac.rwy.id}.`, G.aiActing);
+            pilot(ac, `Cancel takeoff clearance, line up and wait, ${ac.radio}.`);
+            return true;
+        }
+        if (ac.state !== 'roll') { sys(`${ac.cs} isn't on its takeoff roll.`); return false; }
+        atc(`${ac.radio}, cancel takeoff clearance.`, G.aiActing);
+        // Too late above 100 kt (IFATC 3.1.3): it's going.
+        if (ac.spd >= 100) { pilot(ac, `Unable, ${ac.radio}, too fast to stop.`); return false; }
+        ac.state = 'rto';
+        pilot(ac, `Rejecting takeoff, ${ac.radio}.`);
+        return true;
+    }
     if (c.luaw) {
         startLineup(ac, 'luaw');
         parts.push(`runway ${ac.rwy.id}, line up and wait`);
@@ -907,7 +968,7 @@ function issueCall(ac, c) {
     if (c.takeoff) {
         const w = departureWake(ac);
         if (w) violation(ac, '7110.65 3-9-6', `${ac.cs} rolled ${Math.round(w.since)} seconds after ${w.lead} (${WAKE_NAME[w.wake]}); the wake turbulence interval is ${w.need / 60} minutes`);
-        if (ac.state === 'luaw') { ac.state = 'roll'; ac.hdg = ac.rwy.course; }
+        if (ac.state === 'luaw') { ac.state = 'roll'; ac.hdg = ac.rwy.course; rollStarted(ac); }
         else startLineup(ac, 'roll');
         if (mine(ac)) award(ac, 3);
         const runwayHdg = Math.abs(diff(ac.tHdg, ac.rwy.course)) < 3;
@@ -1042,11 +1103,23 @@ function startTaxi(ac, r, purpose) {
 }
 
 /** Onto the runway from the holding point, then line up and wait or roll. */
+/**
+ * A takeoff roll begins: IFATC 3.1.1 (in Infinite Flight mode) — the departure
+ * ahead must be airborne, and an arrival ahead clear of the runway edge.
+ * Anticipated clearances (3.1.2) are fine as long as this holds when it rolls.
+ */
+function rollStarted(ac) {
+    if (G.rules.id !== 'ifatc' || !mine(ac)) return;
+    const ahead = G.aircraft.find(o => o !== ac && onRunwayPhys(o) === ac.rwy.phys && o.state !== 'luaw' && o.state !== 'lineup');
+    if (ahead) violation(ac, 'IFATC 3.1.1', ahead.state === 'roll' ? `${ac.cs} started its roll before ${ahead.cs} was airborne` : `${ac.cs} started its roll with ${ahead.cs} still on the runway`);
+}
+
 function startLineup(ac, then) {
     ac.lineupThen = then;
     if (!G.ground || !G.ground.holds.get(ac.rwy)) {
         Object.assign(ac, { x: ac.rwy.thr.x, y: ac.rwy.thr.y, hdg: ac.rwy.course });
         ac.state = then;
+        if (then === 'roll') rollStarted(ac);
         return;
     }
     const hold = G.ground.holds.get(ac.rwy), c = ac.rwy.course * D2R;
@@ -1264,7 +1337,7 @@ function terrainCheck() {
 /* ------------------------------------------------------------------ */
 
 const TAXI_KT = 18, TURN_KT = 9, SPACING_NM = 0.045;   // ~85 m nose to tail
-const isSurface = a => ['gate', 'push', 'pushed', 'taxi', 'wait', 'lineup', 'luaw', 'clear', 'rollout'].includes(a.state);
+const isSurface = a => ['gate', 'push', 'pushed', 'taxi', 'wait', 'lineup', 'luaw', 'clear', 'rollout', 'rto'].includes(a.state);
 
 /** The aircraft this one would run into if it kept going, if any. */
 function trafficAhead(ac) {
@@ -1316,6 +1389,7 @@ function groundStep(ac, dt) {
         const t = ac.lineupAt, d = Math.hypot(t.x - ac.x, t.y - ac.y), stepNm = 8 / 3600 * dt;
         if (d <= stepNm) {
             Object.assign(ac, { x: t.x, y: t.y, hdg: ac.rwy.course, state: ac.lineupThen, spd: 0 });
+            if (ac.state === 'roll') rollStarted(ac);
         } else {
             ac.hdg = brg(t.x - ac.x, t.y - ac.y);
             ac.x += (t.x - ac.x) / d * stepNm; ac.y += (t.y - ac.y) / d * stepNm;
@@ -2240,6 +2314,19 @@ function step(ac, dt) {
         }
         return;
     }
+    if (ac.state === 'rto') {
+        // Rejected takeoff: brake to a stop, then back to the holding point to go again.
+        ac.spd = Math.max(0, ac.spd - 6 * dt);
+        move(ac, dt);
+        if (ac.spd <= 0) {
+            const hold = G.ground && G.ground.holds.get(ac.rwy);
+            const plan = hold && planTaxi(Object.assign(ac, { state: 'wait' }), { kind: 'rwy', end: ac.rwy });
+            if (plan && !plan.err) { startTaxi(ac, plan.r, 'runway'); ac.toTower = true; }
+            else Object.assign(ac, { state: 'wait', x: ac.rwy.thr.x, y: ac.rwy.thr.y, hdg: ac.rwy.course, remindAt: G.t + 120 });
+            pilot(ac, `${ac.radio}, clear of the runway after the rejected takeoff, we'd like to try again.`);
+        }
+        return;
+    }
     if (ac.state === 'roll') {
         ac.spd += 3.5 * dt;
         move(ac, dt);
@@ -2393,6 +2480,7 @@ function approachLateral(ac) {
     if (g.along <= 0.15) {
         if (ac.alt - elev > 300 || Math.abs(g.xt) > 0.3) { goAround(ac, 'not stabilized'); return false; }
         if (runwayBusyUntil(e.phys) > G.t) { goAround(ac, 'runway occupied'); return false; }
+        if (crossingTraffic(e)) { goAround(ac, 'traffic on the crossing runway'); return false; }
         land(ac, e);
         return false;
     }
@@ -2888,7 +2976,7 @@ function drawWeather() {
 }
 
 let iconMode = store.get('icons', false);
-const SURFACE_STATES = new Set(['gate', 'push', 'pushed', 'taxi', 'wait', 'lineup', 'luaw', 'clear', 'rollout']);
+const SURFACE_STATES = new Set(['gate', 'push', 'pushed', 'taxi', 'wait', 'lineup', 'luaw', 'clear', 'rollout', 'rto']);
 function visible(a) {
     if (!SURFACE_STATES.has(a.state)) return true;
     if (!G.ground) return a.state !== 'wait';
@@ -3429,6 +3517,7 @@ function renderCard(force) {
         </div>
         <div class="card-status" id="card-status"></div>
         ${crossBtn}
+        ${yours && (ac.state === 'roll' || (ac.state === 'lineup' && ac.lineupThen === 'roll')) ? `<div class="btn-row"><button class="btn warn" data-act="cancelTO">Cancel takeoff clearance</button></div>` : ''}
         ${progBtns}
         ${!yours ? `<div class="card-empty">The system is working ${FREQ_NAME[ac.freq]}. It will reach your frequency when it's handed off.</div>` : surface ? (groundBtns ? `<div class="btn-row">${groundBtns}</div>` : '') : `
         ${ac.wxReq ? `<div class="btn-row"><button class="btn primary" data-act="dev">Approve ${ac.wxReq.deg}° ${ac.wxReq.dir === 'L' ? 'left' : 'right'} for weather</button></div>` : ''}
@@ -3525,6 +3614,7 @@ function bindCard() {
         else if (act === 'dev') { issue(ac, { deviate: true }); renderCard(true); }
         else if (['push', 'taxi', 'holdPos', 'cont', 'cross', 'tower', 'ground'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
         else if (act === 'land') { issue(ac, { land: true }); renderCard(true); }
+        else if (act === 'cancelTO') { issue(ac, { cancelTO: true }); renderCard(true); }
         else if (act === 'slowest') { issue(ac, { slowest: true }); syncPending(true); renderCard(true); }
         else if (act === 'ga') { issue(ac, { goAround: true }); syncPending(true); renderCard(true); }
         else if (act === 'orbitL' || act === 'orbitR') { issue(ac, { orbit: act === 'orbitL' ? 'L' : 'R' }); renderCard(true); }
@@ -3647,6 +3737,7 @@ function runCommand(text) {
         else if (t === 'SP' || t === 'SLOW' || t === 'SLOWEST') c.slowest = true;
         else if (t === 'TL' || t === 'TR' || t === 'SA' || t === '180' || t === 'M180') c.prog = t === 'TL' ? 'L' : t === 'TR' ? 'R' : t === 'SA' ? 'S' : '180';
         else if (t === 'CYD' || t === 'DISC') c.discretion = true;
+        else if (t === 'CXTO' || t === 'CANCEL' || t === 'RTO') c.cancelTO = true;
         else if (t === 'EPT' || t === 'PROG') c.expectProg = true;
         else if (t === 'GW' || t === 'FOL' || t === 'FOLLOW') {
             const o = G.aircraft.find(a => a.cs === toks[i + 1] || (a.cs.endsWith(toks[i + 1] || '#') && /^\d+$/.test(toks[i + 1] || '')));

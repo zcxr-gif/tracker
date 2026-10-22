@@ -394,8 +394,34 @@ line per switch).
 - 2.3.3 Anticipated crossings: "Cross runway" works before the aircraft
   reaches the hold-short line.
 
-The rest of the manual (Tower, radar) wasn't available while this was
-built (the site
+**Tower, from the IFATC manual (section 3.1):**
+
+- 3.1.1 Separation, on the same runway, applied when a takeoff roll starts
+  and when an arrival reaches the threshold:
+  - **Departure/Departure**: the first must be airborne before the second
+    rolls. A second roll too early is a violation.
+  - **Arrival/Arrival** and **Departure/Arrival**: the runway must be clear
+    of the first (airborne, or clear of the runway edge) before the second
+    crosses the threshold; otherwise it goes around.
+  - **Arrival/Departure**: the arrival must be clear of the runway edge
+    before the departure rolls.
+  - **Intersecting runways**: traffic rolling, rolling out or within 1.5
+    miles of landing on a crossing runway must be beyond the intersection
+    before a departure is cleared or an arrival lands (this applies in Real
+    life mode too, 7110.65 3-9-8 / 3-10-4). Crossing extended centerlines
+    aren't checked yet.
+- 3.1.2 **Anticipated takeoff clearances**: you can clear the next departure
+  while the one ahead is still rolling; 3.1.1 is checked when it actually
+  rolls. The system's own Tower doesn't anticipate.
+- 3.1.2 / 3.1.3 **Cancel takeoff clearance** (`cxto`, or the button while
+  rolling or lining up to roll): lining up, it becomes line up and wait;
+  rolling below 100 kt, a rejected takeoff, after which it taxis back to
+  hold short; above 100 kt, "unable".
+- 3.1.4 **Maintain slowest practical speed** is refused within 4 miles of
+  touchdown: it's already at final approach speed, and a go-around may be
+  the only option left.
+
+The radar part of the manual wasn't available while this was built (the site
 wasn't reachable), so these follow Infinite Flight's features and community
 guidance. Where the manual says otherwise, change that line in `RULESETS`.
 
