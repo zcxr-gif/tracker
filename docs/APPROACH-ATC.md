@@ -1,5 +1,32 @@
 # Approach — the ATC rules the game follows
 
+> Approach is an independent, fan-made practice tool from InFlight. It
+> isn't affiliated with, endorsed by or connected to Infinite Flight or
+> IFATC. Their names are used only to say what it helps you practise. It
+> doesn't set out to copy anyone's product. The aim is a familiar
+> experience, so IFATC controllers can practise and Infinite Flight pilots
+> can learn how ATC works. Not for real-world navigation.
+
+## The start screen
+
+It is laid out like Infinite Flight's Control screen:
+- **The map** (left) draws the chosen airport's runways. A search box and
+  the featured airports sit on top of it.
+- **The panel** (right) has:
+  - the airport (name, ICAO, runways);
+  - its real frequencies (ATIS, Ground, Tower, Approach and Departure).
+    Tap Ground, Tower or Approach to work that position; green is yours;
+  - Traffic (Light, Normal, Busy, Event) and how many aircraft there are
+    at the start;
+  - Rules (Real life or Infinite Flight);
+  - Options (terrain, weather, emergencies);
+  - How to play;
+  - the disclaimer above.
+- **MODE ATC and CONTROL** at the bottom start the shift.
+
+While an aircraft is selected in a shift, the log shows only its radio:
+its calls and yours to it.
+
 `approach.html` / `approachGame.js` model a US terminal radar (TRACON)
 controller who is also working the tower. Where the game models a rule, it
 follows FAA Order JO 7110.65 (*Air Traffic Control*). This file lists each
@@ -200,11 +227,30 @@ per airport. Runways always start by the wind.
 - No speed adjustments inside the final approach fix or 5 NM from the
   runway (5-7-1).
 - An approach clearance cancels assigned speeds unless they are restated
-  (5-7-1). Restated speeds are held to the 5-mile final. Otherwise the crew
+  (5-7-1). A restated speed is held to the 5-mile final, or to the mile
+  final you name: *"maintain 180 knots until 8 mile final"* (Request speed
+  → Maintain speed until a mile final). Said before the approach
+  clearance, it carries over instead of being cancelled. Otherwise the crew
   flies its own profile: 210, then 180 inside 15 NM, 160 inside 8 NM, and
   Vapp inside the FAF.
 - Holding speeds: 200 kt to 6,000 ft, 230 kt to 14,000 ft, 265 kt above
   (AIM 5-3-8 maximum holding speeds).
+
+## How the aircraft fly
+
+The aircraft fly with airliner performance:
+- **Turns**: standard rate (3°/s) when slow, but never more than 25° of
+  bank. At 250 kt that's about 2°/s, so a 90° turn takes about 45 s. The
+  rate builds over a few seconds as the aircraft rolls in, and eases off
+  as the heading comes up, so turns start and finish smoothly. Localizer
+  intercepts lead the turn by the radius and the roll-in time.
+- **Speed**: about 1.3 kt/s faster (0.9 climbing), and about 0.8 kt/s
+  slower in level flight, 0.5 kt/s while descending ("descend or slow
+  down") and 1 kt/s on final with the flaps coming out.
+- **Climbs and descents**: up to 2,000–2,600 fpm climbing out, 2,000 fpm
+  down, and 2,200 fpm on the glideslope. The vertical speed builds and
+  eases at about 500 fpm per second and levels off smoothly at the
+  assigned altitude.
 
 ## Departures
 

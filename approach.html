@@ -91,56 +91,79 @@
         .mast-link:hover { color: #fff; background: rgba(255,255,255,.08); }
 
         /* ---------------- Start screen ---------------- */
-        .start { flex: 1; overflow: auto; padding: 28px 16px 48px; }
-        .start-inner { max-width: 980px; margin: 0 auto; }
-        .start h1 { margin: 0; font-size: clamp(1.9rem, 5vw, 2.8rem); font-weight: 900; letter-spacing: -.02em; }
-        .start h1 span { color: var(--gold); }
-        .lede { margin: 8px 0 26px; color: var(--ink2); max-width: 640px; line-height: 1.5; }
-        .start h2 { margin: 26px 0 10px; font-size: .74rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
-        .featured { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-        .ap-card {
-            text-align: left; padding: 12px 14px; border-radius: 12px;
-            background: var(--panel); border: 1px solid var(--line);
-            display: flex; flex-direction: column; gap: 3px; min-width: 0;
-        }
-        .ap-card:hover { border-color: rgba(255,255,255,.22); }
-        .ap-card.on { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
-        .ap-card .icao { font-family: var(--mono); font-weight: 700; font-size: 1.05rem; }
-        .ap-card .nm { font-size: .8rem; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .ap-card .best { font-size: .72rem; color: var(--muted); }
-        .search-row { display: flex; gap: 10px; flex-wrap: wrap; }
-        .search-row input {
-            flex: 1 1 280px; min-width: 0; height: 42px; padding: 0 14px; border-radius: 10px;
-            background: var(--panel); border: 1px solid var(--line);
-        }
-        .search-row input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
-        .results { margin-top: 10px; }
+        /* ---------------- Start: like Infinite Flight's Control screen, the airport on a map and a panel to set up ---------------- */
+        .start { flex: none; min-height: 0; height: calc(100vh - 54px); height: calc(100dvh - 54px); display: grid; grid-template-columns: minmax(0, 1fr) 400px; background: #060b0f; }
+        .ctl-map { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #0a0f14; }
+        #ctl-map { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .ctl-find { position: absolute; left: 16px; top: 16px; z-index: 2; width: min(380px, calc(100% - 32px)); }
+        .ctl-find input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 14px; border-radius: 10px; background: rgba(12,16,22,.94); border: 1px solid rgba(255,255,255,.14); color: #fff; font-size: .92rem; }
+        .ctl-find input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+        .results { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; }
+        .ctl-featured { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 2; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+        .ap-card { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 132px; max-width: 220px; padding: 9px 12px; text-align: left; border-radius: 8px; background: rgba(12,16,22,.94); border: 1px solid rgba(255,255,255,.12); color: var(--ink); }
+        .results .ap-card { max-width: none; width: 100%; }
+        .ap-card:hover { border-color: rgba(255,255,255,.28); }
+        .ap-card.on { border-color: #f5a623; box-shadow: inset 0 0 0 1px #f5a623; }
+        .ap-card .icao { font-family: var(--mono); font-weight: 700; font-size: 1rem; }
+        .ap-card .nm { max-width: 100%; font-size: .76rem; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ap-card .best { font-size: .68rem; color: var(--muted); }
         .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
         .seg button { padding: 8px 16px; border-radius: 7px; font-size: .86rem; font-weight: 600; color: var(--ink2); }
         .seg button.on { background: var(--panel2); color: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.12); }
-        .pos { display: inline-flex; gap: 8px; flex-wrap: wrap; }
-        .pos button {
-            display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 10px;
-            background: var(--panel); border: 1px solid var(--line); color: var(--ink2); font-weight: 600; font-size: .9rem;
-        }
-        .pos .box { width: 18px; height: 18px; border-radius: 5px; border: 2px solid var(--muted); display: grid; place-items: center; font-size: .75rem; line-height: 1; }
-        .pos button.on { color: #fff; border-color: var(--gold); background: rgba(242,193,78,.08); }
-        .pos button.on .box { background: var(--gold); border-color: var(--gold); color: #1a1408; }
-        .pos button.on .box::after { content: '✓'; font-weight: 900; }
+        .ctl-panel { display: flex; flex-direction: column; min-height: 0; background: #101419; border-left: 1px solid rgba(255,255,255,.1); }
+        .ctl-scroll { flex: 1; min-height: 0; overflow: auto; }
+        .ctl-h { padding: 14px 18px 12px; background: #0b0e12; border-bottom: 1px solid rgba(255,255,255,.08); }
+        .ctl-h small { display: block; color: var(--muted); font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ctl-h b { display: block; font: 800 2.2rem/1.15 var(--mono); letter-spacing: .02em; color: #fff; }
+        .ctl-h span { color: var(--ink2); font-size: .8rem; }
+        .ctl-sec { padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,.06); }
+        .ctl-sec h3 { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 8px; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+        .ctl-sec h3.sub { margin-top: 12px; }
+        .ctl-sec h3 small { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: .72rem; }
+        .ctl-sec .seg button { padding: 6px 11px; font-size: .78rem; }
+        .pos { display: flex; flex-direction: column; gap: 2px; }
+        .fq-row { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; width: 100%; padding: 5px 0; text-align: left; color: var(--ink2); }
+        .fq-row .lbl { font-size: .86rem; font-weight: 600; }
+        .fq-row .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+        .fq { min-width: 66px; padding: 8px 10px; text-align: center; font: 600 .78rem var(--mono); background: #1b222c; color: #cfd6de; border-radius: 3px; }
+        button.fq-row:not(.on):hover .fq { background: #242c36; }
+        .fq-row.on .lbl { color: #fff; }
+        .fq-row.on .fq { background: #2f8f46; color: #fff; }
+        .opt-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+        .opt-row + .opt-row { margin-top: 8px; }
+        .opt-row > span { font-size: .86rem; color: var(--ink2); }
+        .opt-note { margin: 8px 0 0; color: var(--muted); font-size: .76rem; line-height: 1.45; }
         .opt-note b { color: var(--ink); }
-        .opt-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-        .opt-note { margin: 0; flex: 1 1 320px; color: var(--ink2); font-size: .86rem; line-height: 1.5; max-width: 640px; }
-        .go-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 28px; }
-        .go {
-            height: 48px; padding: 0 28px; border-radius: 12px; font-weight: 800; font-size: 1rem;
-            background: var(--gold); color: #1a1408;
-        }
-        .go-note { color: var(--ink2); font-size: .9rem; }
-        .howto { margin-top: 34px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
-        .howto div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: .86rem; line-height: 1.5; color: var(--ink2); }
-        .howto b { color: var(--ink); display: block; margin-bottom: 4px; font-size: .9rem; }
-        .howto code, .keys code { font-family: var(--mono); font-size: .78rem; background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+        .howto summary { cursor: pointer; list-style: none; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+        .howto summary::after { content: ' ▸'; }
+        .howto[open] summary::after { content: ' ▾'; }
+        .howto div { margin-top: 10px; font-size: .8rem; line-height: 1.5; color: var(--ink2); }
+        .howto b { color: var(--ink); }
+        .howto code, .keys code { font-family: var(--mono); font-size: .76rem; background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+        .disclaimer { margin: 0; padding: 12px 18px 16px; font-size: .7rem; line-height: 1.5; color: #6f7986; }
+        .go-note { padding: 6px 18px; font-size: .74rem; color: var(--ink2); border-top: 1px solid rgba(255,255,255,.06); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ctl-go { display: grid; grid-template-columns: 110px 1fr; gap: 2px; background: #0b0e12; }
+        .ctl-go .mode { padding: 9px 14px; background: #1b222c; }
+        .ctl-go .mode small { display: block; color: var(--muted); font-size: .64rem; letter-spacing: .12em; }
+        .ctl-go .mode b { font-size: 1rem; letter-spacing: .06em; }
+        .go { height: 58px; background: #f5a623; color: #111; font-size: 1.25rem; font-weight: 800; letter-spacing: .14em; }
+        .go:hover:not(:disabled) { background: #ffb53d; }
+        .go:disabled { background: #2b3138; color: #7d8590; }
         .loading { color: var(--muted); padding: 10px 0; }
+        @media (max-width: 860px) {
+            .start { display: block; height: auto; overflow: visible; }
+            .ctl-map { height: 40vh; height: 40dvh; }
+            .ctl-panel { border-left: 0; border-top: 1px solid rgba(255,255,255,.1); }
+            .ctl-scroll { overflow: visible; }
+            .ctl-go { position: sticky; bottom: 0; }
+        }
+        @media (max-height: 540px) and (orientation: landscape) {
+            .start { display: grid; grid-template-columns: minmax(0, 1fr) 330px; overflow: hidden; height: calc(100vh - 54px); height: calc(100dvh - 54px); }
+            .ctl-map { height: auto; }
+            .ctl-scroll { overflow: auto; }
+            .ctl-h b { font-size: 1.6rem; }
+            .go { height: 48px; }
+        }
 
         /* ---------------- Game ---------------- */
         .game { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: minmax(0, 1fr); min-height: 0; height: calc(100vh - 54px); height: calc(100dvh - 54px); overflow: hidden; }
@@ -272,7 +295,9 @@
         html.standalone .mast { display: none; }
         /* Only the status bar is kept clear of; the game runs to every other edge and pads its own edges (rail, side panel, start page). */
         html.standalone body { box-sizing: border-box; padding: env(safe-area-inset-top) 0 0; }
-        html.standalone .start { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); padding-bottom: max(48px, env(safe-area-inset-bottom)); }
+        html.standalone .ctl-find, html.standalone .ctl-featured { left: max(16px, env(safe-area-inset-left)); }
+        html.standalone .start { height: calc(100vh - env(safe-area-inset-top)); height: calc(100dvh - env(safe-area-inset-top)); }
+        html.standalone .ctl-panel { padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
         html.standalone .side { padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
         html.standalone .freq-rail { padding-left: env(safe-area-inset-left); }
 
@@ -543,96 +568,96 @@
     </header>
 
     <main class="start" id="start">
-        <div class="start-inner">
-            <h1>Approach<span>.</span></h1>
-            <p class="lede">An endless radar shift at a real airport. Vector arrivals onto the ILS, clear departures for takeoff and climb them out through their exit gates, and keep everyone three miles or a thousand feet apart. The traffic never stops — it only gets busier.</p>
-
-            <h2>Pick an airport</h2>
-            <div class="featured" id="featured"><div class="loading">Loading airports…</div></div>
-
-            <h2>Or any airport in the world</h2>
-            <div class="search-row">
-                <input id="ap-search" type="search" placeholder="ICAO, IATA or name — KSAN, PDX, Heathrow…" autocomplete="off" spellcheck="false">
+        <!-- Laid out like Infinite Flight's Control screen: the airport on a map, and a panel to set the session up. -->
+        <section class="ctl-map">
+            <canvas id="ctl-map" aria-hidden="true"></canvas>
+            <div class="ctl-find">
+                <input id="ap-search" type="search" placeholder="Search any airport: ICAO, IATA or name" autocomplete="off" spellcheck="false" aria-label="Search airports">
+                <div class="results" id="results"></div>
             </div>
-            <div class="results featured" id="results"></div>
-
-            <h2>Traffic</h2>
-            <div class="seg" id="traffic">
-                <button data-level="light">Light</button>
-                <button data-level="normal" class="on">Normal</button>
-                <button data-level="busy">Busy</button>
-                <button data-level="event">Event</button>
-            </div>
-
-            <h2>Rules</h2>
-            <div class="opt-row">
-                <div class="seg" id="opt-rules"><button data-v="faa" class="on">Real life</button><button data-v="ifatc">Infinite Flight</button></div>
-                <p class="opt-note" id="rules-note"></p>
-            </div>
-
-            <h2 id="radar-h">Approach (radar)</h2>
-            <div class="opt-row" id="radar-row">
-                <div class="seg" id="opt-radar"><button data-v="system" class="on">System</button><button data-v="none">Closed</button></div>
-                <p class="opt-note">Closed: no radar controller, so arrivals call you on Tower directly and you give each one a pattern entry (straight in, downwind or base), a sequence number if you like, and a landing clearance (IFATC 3.3).</p>
-            </div>
-
-            <h2>Starting traffic</h2>
-            <div class="opt-row">
-                <div class="start-opts" id="start-opts">
-                    <div class="seg" id="opt-start">
-                        <button data-v="none">None</button><button data-v="random">Random</button><button data-v="set">Set</button>
+            <div class="ctl-featured" id="featured"><div class="loading">Loading airports…</div></div>
+        </section>
+        <aside class="ctl-panel" aria-label="Session">
+            <header class="ctl-h">
+                <small id="ctl-name">Pick an airport on the left</small>
+                <b id="ctl-icao">----</b>
+                <span id="ctl-sub">Approach · an endless ATC practice shift</span>
+            </header>
+            <div class="ctl-scroll">
+                <div class="ctl-sec">
+                    <h3>Frequencies <small>tap the ones you'll work</small></h3>
+                    <div class="pos" id="opt-pos" role="group" aria-label="Frequencies you work">
+                        <div class="fq-row info"><span class="lbl">ATIS</span><span class="chips"><span class="fq" id="fq-ATIS">—</span></span></div>
+                        <button type="button" class="fq-row" data-pos="GND" aria-pressed="false"><span class="lbl">Ground</span><span class="chips"><span class="fq" id="fq-GND">—</span></span></button>
+                        <button type="button" class="fq-row" data-pos="TWR" aria-pressed="false"><span class="lbl">Tower</span><span class="chips"><span class="fq" id="fq-TWR">—</span></span></button>
+                        <button type="button" class="fq-row" data-pos="APP" aria-pressed="false"><span class="lbl">Approach</span><span class="chips"><span class="fq" id="fq-APP">—</span><span class="fq" id="fq-DEP" hidden>—</span></span></button>
                     </div>
-                    <div class="start-n" id="start-n-row" aria-label="Aircraft at the start">
-                        <button type="button" data-n="-1" aria-label="Fewer">−</button><b id="start-n">6</b><button type="button" data-n="1" aria-label="More">+</button><span>aircraft</span>
+                    <p class="opt-note"><b id="pos-summary"></b> The system works the rest and hands aircraft to you.</p>
+                </div>
+
+                <div class="ctl-sec">
+                    <h3>Traffic</h3>
+                    <div class="opt-row">
+                        <div class="seg" id="traffic">
+                            <button data-level="light">Light</button>
+                            <button data-level="normal" class="on">Normal</button>
+                            <button data-level="busy">Busy</button>
+                            <button data-level="event">Event</button>
+                        </div>
+                    </div>
+                    <div class="opt-row">
+                        <span>At the start</span>
+                        <div class="start-opts" id="start-opts">
+                            <div class="seg" id="opt-start">
+                                <button data-v="none">None</button><button data-v="random">Random</button><button data-v="set">Set</button>
+                            </div>
+                            <div class="start-n" id="start-n-row" aria-label="Aircraft at the start">
+                                <button type="button" data-n="-1" aria-label="Fewer">−</button><b id="start-n">6</b><button type="button" data-n="1" aria-label="More">+</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <p class="opt-note">How many aircraft are already in your airspace when you open the frequency: none, a random number, or as many as you set. More keep arriving through the shift at the Traffic rate.</p>
-            </div>
 
-            <h2>Your positions</h2>
-            <div class="opt-row">
-                <div class="pos" id="opt-pos" role="group" aria-label="Positions you work">
-                    <button data-pos="APP" aria-pressed="false"><span class="box"></span>Approach</button>
-                    <button data-pos="TWR" aria-pressed="false"><span class="box"></span>Tower</button>
-                    <button data-pos="GND" aria-pressed="false"><span class="box"></span>Ground</button>
+                <div class="ctl-sec">
+                    <h3>Rules</h3>
+                    <div class="opt-row"><div class="seg" id="opt-rules"><button data-v="faa" class="on">Real life</button><button data-v="ifatc">Infinite Flight</button></div></div>
+                    <p class="opt-note" id="rules-note"></p>
+                    <h3 id="radar-h" class="sub">Approach radar</h3>
+                    <div id="radar-row">
+                        <div class="opt-row"><div class="seg" id="opt-radar"><button data-v="system" class="on">System</button><button data-v="none">Closed</button></div></div>
+                        <p class="opt-note">Closed: arrivals call Tower directly, and you give each a pattern entry, a number and a landing clearance (IFATC 3.3).</p>
+                    </div>
                 </div>
-                <p class="opt-note"><b id="pos-summary"></b><br>Tap a position to turn it on or off. Work one, two or all three. Approach vectors arrivals to the ILS and departures out. Tower runs the runways: landings, takeoffs, line up and wait, crossings. Ground handles pushback and taxi on the real taxiways. The system works whatever you don't, and hands aircraft to you when they reach your frequency.</p>
-            </div>
 
-            <h2>Terrain</h2>
-            <div class="opt-row">
-                <div class="seg" id="opt-terrain"><button data-v="off" class="on">Off</button><button data-v="on">On</button></div>
-                <p class="opt-note">On: minimum vectoring altitudes come from the real terrain, sector by sector. Below one sets off a low altitude alert; below the ground, you lose the aircraft. Off: one safe altitude everywhere. The map shows the land either way.</p>
-            </div>
+                <div class="ctl-sec">
+                    <h3>Options</h3>
+                    <div class="opt-row"><span title="Minimum vectoring altitudes from the real ground; below the ground, the aircraft is lost.">Terrain</span><div class="seg" id="opt-terrain"><button data-v="off" class="on">Off</button><button data-v="on">On</button></div></div>
+                    <div class="opt-row"><span title="Storm cells, deviation requests, low ceilings and gusts.">Weather</span><div class="seg" id="opt-weather"><button data-v="off" class="on">Off</button><button data-v="on">On</button></div></div>
+                    <div class="opt-row" id="emerg-row"><span id="emerg-h" title="Now and then a mayday or pan-pan: priority, and the runway closes for two minutes after.">Emergencies</span><div class="seg" id="opt-emerg"><button data-v="off">Off</button><button data-v="on" class="on">Rare</button></div></div>
+                </div>
 
-            <h2>Weather</h2>
-            <div class="opt-row">
-                <div class="seg" id="opt-weather"><button data-v="off" class="on">Off</button><button data-v="on">On</button></div>
-                <p class="opt-note">On: storm cells drift across the scope and pilots ask to deviate around them. Low ceilings and gusts in the ATIS, and below ILS minimums an aircraft goes around at decision height.</p>
-            </div>
+                <details class="ctl-sec howto">
+                    <summary>How to play</summary>
+                    <div><b>Tap</b> an aircraft (or its strip) for its commands, laid out as in the Infinite Flight ATC client: a numbered menu, with the pilot's request in green and the likely next call as a tile. The log shows only that aircraft's radio while it's selected.</div>
+                    <div><b>Drag</b> an airborne target to vector it: let go and pick an altitude from the ladder (its present one is green). Drag onto a fix for direct, onto a final for the approach, onto its runway to clear it to land. On the ground, drag to a runway, taxiway or gate.</div>
+                    <div><b>Hold</b> a target for the quick menu: altitude, hold, reminder, colour, tag placement.</div>
+                    <div><b>Arrivals</b> check in asking for an approach. Answer (expect, continue as filed, vectors), get them down and onto the final at 30° or less, outside the gate and below the glideslope, then hand them to Tower.</div>
+                    <div><b>Departures</b> push, taxi, hold short. Line them up or clear them for takeoff, then climb them out through their exit.</div>
+                    <div><b>Separation</b> 3 miles or 1,000 feet, more behind heavies and supers. 250 knots below 10,000 feet.</div>
+                    <div><b>ATIS</b> from the frequency list: runways, approaches, remarks, NOTAMs, then publish.</div>
+                    <div><b>Commands</b> <code>h270</code> <code>l090</code> heading · <code>a50</code> altitude · <code>s210</code> speed · <code>i22L</code> ILS · <code>rnav22L</code> · <code>va22L</code> visual · <code>cl</code> land · <code>dct FIX</code> · <code>luaw</code> · <code>to</code> · <code>ga</code>.</div>
+                    <div class="keys"><b>Keys</b> <code>Space</code> pause · <code>Tab</code> next aircraft · <code>←/→</code> heading · <code>↑/↓</code> altitude · <code>/</code> command line · <code>Esc</code> deselect.</div>
+                    <div><b>The rulebook</b> Real-life rules follow FAA JO 7110.65; Infinite Flight rules follow the IFATC manual. Breaking one costs points and the log names the rule.</div>
+                </details>
 
-            <h2 id="emerg-h">Emergencies</h2>
-            <div class="opt-row" id="emerg-row">
-                <div class="seg" id="opt-emerg"><button data-v="off">Off</button><button data-v="on" class="on">Rare</button></div>
-                <p class="opt-note">Rare: now and then (a few flights in a hundred) a pilot declares a mayday or pan-pan: an engine failure, a medical, low fuel. Give it priority, get it on the ground, and the runway closes for two minutes while the fire crews check it.</p>
+                <p class="disclaimer">Approach is an independent, fan-made practice tool from InFlight. It isn't affiliated with, endorsed by or connected to Infinite Flight or IFATC, whose names belong to their owners and are used here only to say what it helps you practise. We don't set out to copy anyone's product: the aim is a familiar experience, so IFATC controllers have somewhere to practise and Infinite Flight pilots can learn how ATC works, with aircraft that fly the way they're told. Procedures and frequencies come from public FAA and OurAirports data. Not for real-world navigation.</p>
             </div>
-
-            <div class="go-row">
-                <button class="go" id="go" disabled>Open the frequency</button>
-                <span class="go-note" id="go-note">Choose an airport to start.</span>
-            </div>
-
-            <div class="howto">
-                <div><b>Arrivals</b> <span style="color:var(--arr)">Blue</span> targets check in from Center. Descend them, vector them to join the localizer at 30° or less, at least 2 miles outside the approach gate (8 miles out), and below the glideslope. Then: <code>l190 a30 i22L</code> — "turn left heading 190, maintain 3,000 until established on the localizer, cleared ILS runway 22L approach."</div>
-                <div><b>Landing</b> When they call the tower on final, clear them to land (<code>cl</code>). No landing clearance by short final and they go around. Only one aircraft on a runway at a time.</div>
-                <div><b>Departures</b> <span style="color:var(--dep)">Gold</span> strips hold short. Line them up (<code>luaw</code>) or clear them for takeoff (<code>to</code>, with a heading if you want one), then climb them to the exit altitude and send them out through their gate. Wait 2 minutes behind a heavy, 3 behind a super.</div>
-                <div><b>Separation</b> 3 miles or 1,000 feet. More in trail behind heavies, B757s and supers (4–7 miles). 2.5 miles in trail inside 10 miles on the same final; 1.5 miles diagonal on dependent parallel approaches; none needed between independent parallels 4,300 ft apart.</div>
-                <div><b>Speed</b> 250 knots max below 10,000 feet. Minimum 210 knots, or 170 within 20 miles of the field. No speed changes inside the final approach fix. An approach clearance cancels your assigned speed unless you restate it.</div>
-                <div><b>Commands</b> <code>h270</code> <code>l090</code> <code>r180</code> heading · <code>a50</code> <code>fl190</code> altitude · <code>s210</code> speed · <code>i22L</code> ILS · <code>loc22L</code> <code>rnav22L</code> · <code>va22L</code> visual · <code>rfs</code> report field · <code>un</code> unable · <code>cl</code> land · <code>dct FIX</code> · <code>hold FIX</code> · <code>l360</code> · <code>luaw</code> · <code>to</code> · <code>ga</code>. Or drag from a target to point it at a heading.</div>
-                <div class="keys"><b>Keys</b> <code>Space</code> pause · <code>Tab</code> next aircraft · <code>←/→</code> heading · <code>↑/↓</code> altitude · <code>Enter</code> transmit · <code>/</code> command line · <code>Esc</code> deselect.</div>
-                <div><b>The rulebook</b> The separation, approach, speed and runway rules come from FAA JO 7110.65, the controllers' handbook. Breaking one costs points, and the log names the rule.</div>
-            </div>
-        </div>
+            <span class="go-note" id="go-note">Choose an airport to start.</span>
+            <footer class="ctl-go">
+                <div class="mode"><small>MODE</small><b>ATC</b></div>
+                <button class="go" id="go" disabled>CONTROL</button>
+            </footer>
+        </aside>
     </main>
 
     <div class="game" id="game" hidden>

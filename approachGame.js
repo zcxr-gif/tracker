@@ -34,6 +34,8 @@ const SEP_NM = 3;
 const SEP_FT = 1000;
 const TICK = 0.25;          // simulation step, seconds
 const TURN_RATE = 3;        // deg/s, standard rate
+const MAX_BANK = 25;        // deg: airliners turn at standard rate or 25° of bank, whichever is less
+const ROLL_ACCEL = 1.2;     // deg/s per second: how fast a turn rate builds or eases (5-10 s to roll in)
 const GS_FT_PER_NM = 318;   // 3° glideslope
 const MIN_LANDING_RWY_FT = 4500;
 const FAF_NM = 5;           // nominal final approach fix
@@ -530,7 +532,8 @@ function rnavRoute(ac, e) {
 /** Onto the final approach course from wherever the aircraft is, as a pattern or a procedure ends there. */
 function joinFinal(ac, e, type) {
     const g = finalGeom(ac, e);
-    ac.appr = { end: e, type, loc: false, gs: false, est: false, along: g.along, xt: g.xt, spd: null };
+    ac.appr = { end: e, type, loc: false, gs: false, est: false, along: g.along, xt: g.xt, spd: ac.spdHold?.sp ?? null, spdUntil: ac.spdHold?.until };
+    ac.spdHold = null;
     ac.tHdg = norm(e.course - Math.sign(g.xt || 1) * Math.min(30, Math.max(10, Math.abs(g.xt) * 60)));
 }
 
@@ -1611,7 +1614,8 @@ function issueCall(ac, c) {
     }
     if (c.ils) {
         const e = c.ils;
-        ac.appr = { end: e, type: appType, loc: false, gs: false, est: false, along: 99, xt: 0, spd: null };
+        ac.appr = { end: e, type: appType, loc: false, gs: false, est: false, along: 99, xt: 0, spd: ac.spdHold?.sp ?? null, spdUntil: ac.spdHold?.until };
+        ac.spdHold = null;
         ac.holdAt = null; ac.direct = null; ac.orbit = null; ac.turn = null; ac.landClr = false; ac.request = null;
         parts.push(`cleared ${APP_NAME[appType]} runway ${e.id} approach`);
         back.push(`cleared ${APP_TAG[appType]} ${e.id}`);
@@ -1644,10 +1648,16 @@ function issueCall(ac, c) {
         if (sp < min) { sys(`Minimum assignable speed for ${ac.cs} here is ${min} knots (7110.65 5-7-3).`); sp = min; }
         if (ac.alt < 10000 && sp > 250) { sys('250 knots maximum below 10,000 feet (14 CFR 91.117).'); sp = 250; }
         const verb = sp < ac.spd - 3 ? 'reduce speed to' : sp > ac.spd + 3 ? 'increase speed to' : 'maintain';
+        const until = c.spdUntil || FAF_NM;
         if (ac.appr) {
-            ac.appr.spd = sp;
-            parts.push(`maintain ${sp} knots until ${FAF_NM} mile final`);
-            back.push(`${sp} to ${FAF_NM} mile final`);
+            Object.assign(ac.appr, { spd: sp, spdUntil: until });
+            parts.push(`maintain ${sp} knots until ${until} mile final`);
+            back.push(`${sp} to ${until} mile final`);
+        } else if (c.spdUntil) {
+            // Before the approach clearance: kept when it's cleared, not cancelled by it.
+            ac.tSpd = sp; ac.spdHold = { sp, until };
+            parts.push(`maintain ${sp} knots until ${until} mile final`);
+            back.push(`${sp} to ${until} mile final`);
         } else {
             ac.tSpd = sp;
             parts.push(`${verb} ${sp}${verb === 'maintain' ? ' knots' : ''}`);
@@ -3279,19 +3289,24 @@ function step(ac, dt) {
     } else if (ac.via && !(ac.kind === 'dep' && agl(ac) < Math.max(400, ac.straightOut || 0))) {
         viaStep(ac);
     }
+    const maxRate = turnRate(ac);
     if (ac.orbit) {
-        const turn = TURN_RATE * dt;
-        ac.hdg = norm(ac.hdg + (ac.orbit.dir === 'L' ? -1 : 1) * turn);
-        if ((ac.orbit.rem -= turn) <= 0) ac.orbit = null;
+        const dir = ac.orbit.dir === 'L' ? -1 : 1;
+        ac.rr = (ac.rr || 0) + clamp(dir * maxRate - (ac.rr || 0), -ROLL_ACCEL * dt, ROLL_ACCEL * dt);
+        ac.hdg = norm(ac.hdg + ac.rr * dt);
+        if ((ac.orbit.rem -= Math.abs(ac.rr * dt)) <= 0) ac.orbit = null;
     } else {
         // Departures fly runway heading until 400 ft (or the ATIS straight-out height).
         const target = ac.kind === 'dep' && agl(ac) < Math.max(400, ac.straightOut || 0) ? ac.rwy.course : ac.tHdg;
         let d = diff(ac.hdg, target);
+        if (Math.abs(d) < 15 && target === ac.tHdg) ac.turn = null;     // a turn direction only matters until the heading is nearly there
         if (ac.turn === 'L' && d > 0) d -= 360;
         if (ac.turn === 'R' && d < 0) d += 360;
-        const maxTurn = TURN_RATE * dt;
-        if (Math.abs(d) <= maxTurn) { ac.hdg = norm(target); if (target === ac.tHdg) ac.turn = null; }
-        else ac.hdg = norm(ac.hdg + Math.sign(d) * maxTurn);
+        // Rolling in and out: the turn rate builds and eases at the roll rate, and comes off as the heading comes up.
+        const want = Math.sign(d) * Math.min(maxRate, Math.abs(d) * 0.6);
+        ac.rr = (ac.rr || 0) + clamp(want - (ac.rr || 0), -ROLL_ACCEL * dt, ROLL_ACCEL * dt);
+        if (Math.abs(d) < 0.3 && Math.abs(ac.rr) < 0.4) { ac.hdg = norm(target); ac.rr = 0; }
+        else ac.hdg = norm(ac.hdg + ac.rr * dt);
     }
 
     // ---- vertical
@@ -3311,17 +3326,24 @@ function step(ac, dt) {
         // The approach clearance cancelled assigned speeds; the crew flies its own profile unless one was restated.
         const al = ac.appr.along;
         if (al < FAF_NM) tSpd = p.vapp;
-        else if (ac.appr.spd != null) tSpd = ac.appr.spd;
         else tSpd = al > 15 ? Math.min(ac.tSpd, 210) : al > 8 ? 180 : 160;
+        // A speed to hold until a given mile final (a restated one, 7110.65 5-7-1), then its own profile.
+        if (ac.appr.spd != null && al >= (ac.appr.spdUntil ?? FAF_NM)) tSpd = ac.appr.spd;
     }
     if (ac.holdAt) tSpd = Math.min(tSpd, ac.alt <= 6000 ? 200 : ac.alt <= 14000 ? 230 : 265);  // holding speeds
-    const maxClimb = rate / 60 * dt;
-    ac.alt += clamp(tAlt - ac.alt, -maxClimb, maxClimb);
+    // The vertical speed builds and eases (about 500 fpm each second) and levels off smoothly, rather than jumping.
+    const dAlt = tAlt - ac.alt;
+    const wantVs = Math.sign(dAlt) * Math.min(rate, Math.abs(dAlt) * 4);
+    ac.vs = (ac.vs || 0) + clamp(wantVs - (ac.vs || 0), -500 * dt, 500 * dt);
+    if (Math.abs(dAlt) < 15 && Math.abs(ac.vs) < 150) { ac.alt = tAlt; ac.vs = 0; }
+    else ac.alt += ac.vs / 60 * dt;
 
     // ---- speed: 250 below 10,000 (14 CFR 91.117)
     if (ac.alt < 10000 && tSpd > 250) tSpd = 250;
-    const ds = tSpd - ac.spd;
-    ac.spd += clamp(ds, -1.5 * dt, 2 * dt);
+    // Jets speed up about 1.3 kt/s (less climbing), and slow about 0.8 kt/s level, 0.5 kt/s coming down; flaps out on final help.
+    const ds = tSpd - ac.spd, descending = ac.vs < -300;
+    const decel = ac.appr?.loc ? 1.0 : descending ? 0.5 : 0.8, accel = ac.vs > 300 ? 0.9 : 1.3;
+    ac.spd += clamp(ds, -decel * dt, accel * dt);
 
     move(ac, dt);
 
@@ -3335,6 +3357,16 @@ function step(ac, dt) {
     // ---- leaving the scope
     const r = Math.hypot(ac.x, ac.y);
     if (r > SCOPE_NM) exitScope(ac);
+}
+
+/**
+ * How fast an aircraft can turn: standard rate (3°/s) when slow, limited by
+ * 25° of bank at speed. Rate = 1091 · tan(bank) / TAS, about 2°/s at
+ * 250 knots indicated low down.
+ */
+function turnRate(ac) {
+    const tas = ac.spd * (1 + ac.alt / 1000 * 0.02);
+    return Math.min(TURN_RATE, 1091 * Math.tan(MAX_BANK * D2R) / Math.max(tas, 100));
 }
 
 /** A standard right-hand hold: direct to the fix, outbound one minute (1½ above 14,000), back inbound. */
@@ -3373,8 +3405,9 @@ function approachLateral(ac) {
         const ia = diff(c, ac.hdg);
         const closing = g.xt * Math.sin(ia * D2R) < 0;
         const tas = ac.spd * (1 + ac.alt / 1000 * 0.02);
-        const radius = tas / 3600 / (TURN_RATE * D2R);
-        const lead = radius * (1 - Math.cos(Math.min(Math.abs(ia), 90) * D2R)) + 0.1;
+        const radius = tas / 3600 / (turnRate(ac) * D2R);
+        // Turn anticipation, plus the couple of seconds it takes to roll into the turn.
+        const lead = radius * (1 - Math.cos(Math.min(Math.abs(ia), 90) * D2R)) + tas / 3600 * 2 * Math.abs(Math.sin(ia * D2R)) + 0.1;
         if (Math.abs(g.xt) < 0.15 || (closing && Math.abs(g.xt) <= lead)) {
             ap.loc = true;
         } else if (g.along < FAF_NM) {
@@ -4405,6 +4438,16 @@ function select(ac) {
     closeLadder(); closeContext();
     renderCard(true);
     renderStrips();
+    filterLog();
+}
+
+/** With an aircraft selected, the log shows only its radio: its calls and yours to it. */
+function filterLog() {
+    let st = $('#log-filter');
+    if (!st) { st = document.createElement('style'); st.id = 'log-filter'; document.head.appendChild(st); }
+    st.textContent = G && G.selected ? `#log > :not([data-id="${G.selected.id}"]) { display: none; }` : '';
+    const log = $('#log');
+    if (log) log.scrollTop = log.scrollHeight;
 }
 
 /** Reminders set from the long-press menu: the strip asks for you when one is due. */
@@ -4554,6 +4597,11 @@ function airMenu(ac, add) {
         add('Request speed', { sub: () => {
             const lo = Math.ceil(minSpeed(ac) / 10) * 10, hi = ac.alt < 10000 ? 250 : 300, out = [{ label: 'Slowest practical speed', cmd: { slowest: true } }];
             for (let v = hi; v >= lo; v -= 10) out.push({ label: `Maintain ${v} knots`, cmd: { spd: v } });
+            if (ac.kind === 'arr') out.splice(1, 0, { label: 'Maintain speed until a mile final…', sub: () => {
+                const list = [];
+                for (let v = Math.min(hi, 230); v >= Math.max(lo, 160); v -= 10) list.push({ label: `${v} knots until…`, sub: () => [10, 8, 6, 5, 4].map(nm => ({ label: `${v} knots until ${nm} mile final`, cmd: { spd: v, spdUntil: nm } })) });
+                return list;
+            } });
             return out;
         } });
     }
@@ -5341,10 +5389,58 @@ function renderStart() {
         b.setAttribute('aria-pressed', String(on));
     });
     const names = list => list.map(f => FREQ_NAME[f]).join(' and ');
-    const yours = ['APP', 'TWR', 'GND'].filter(f => opts.positions.includes(f)), theirs = ['APP', 'TWR', 'GND'].filter(f => !opts.positions.includes(f));
-    $('#pos-summary').textContent = `You'll work ${names(yours)}.` + (theirs.length ? ` The system works ${names(theirs)}.` : ' The whole airport is yours.');
+    const yours = ['APP', 'TWR', 'GND'].filter(f => opts.positions.includes(f));
+    $('#pos-summary').textContent = `You'll work ${names(yours)}.`;
     $('#go').disabled = !chosen;
-    $('#go-note').textContent = chosen ? `${chosen.icao} — ${chosen.name}` : 'Choose an airport to start.';
+    $('#go-note').textContent = chosen ? `${chosen.icao} · ${TRAFFIC_NAME[level]} traffic · ${opts.rules === 'ifatc' ? 'Infinite Flight' : 'Real-life'} rules` : 'Choose an airport to start.';
+    // The panel's header and frequencies, as on Infinite Flight's Control screen.
+    $('#ctl-icao').textContent = chosen ? chosen.icao : '----';
+    $('#ctl-name').textContent = chosen ? chosen.name : 'Pick an airport on the left';
+    $('#ctl-sub').textContent = chosen ? `${chosen.iata ? chosen.iata + ' · ' : ''}${chosen.runways.length} runway${chosen.runways.length > 1 ? 's' : ''}${chosen.country ? ' · ' + chosen.country : ''}` : 'Approach · an endless ATC practice shift';
+    const fill = f => { for (const k of ['ATIS', 'GND', 'TWR', 'APP', 'DEP']) { const el = $('#fq-' + k); el.textContent = f[k] ? mhz(f[k][0]) : '—'; if (k === 'DEP') el.hidden = !f.DEP; } };
+    fill({});
+    if (chosen) { const want = chosen; loadFreqs(chosen.icao).then(f => { if (chosen === want) fill(f); }); }
+    drawStartMap();
+}
+
+const TRAFFIC_NAME = { light: 'Light', normal: 'Normal', busy: 'Busy', event: 'Event' };
+
+/** The start screen's map: the chosen airport's runways on a dark chart, range rings round it. */
+function drawStartMap() {
+    const cv = $('#ctl-map');
+    if (!cv || $('#start').hidden) return;
+    const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    if (!r.width || !r.height) return;
+    cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+    const c = cv.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.fillStyle = '#0a0f14'; c.fillRect(0, 0, r.width, r.height);
+    const cx = r.width / 2, cy = r.height / 2;
+    c.strokeStyle = 'rgba(255,255,255,0.05)'; c.lineWidth = 1;
+    for (let x = 0; x < r.width; x += 48) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, r.height); c.stroke(); }
+    for (let y = 0; y < r.height; y += 48) { c.beginPath(); c.moveTo(0, y); c.lineTo(r.width, y); c.stroke(); }
+    if (!chosen) {
+        c.fillStyle = '#5d6773'; c.font = '600 14px Inter, system-ui, sans-serif'; c.textAlign = 'center';
+        c.fillText('Pick an airport: search, or tap one below', cx, cy);
+        return;
+    }
+    const p = chosen, cos = Math.cos(p.lat * D2R);
+    const pts = p.runways.map(w => [[(w.le_longitude_deg - p.lon) * 60 * cos, (w.le_latitude_deg - p.lat) * 60], [(w.he_longitude_deg - p.lon) * 60 * cos, (w.he_latitude_deg - p.lat) * 60], w]);
+    const span = Math.max(1.2, ...pts.flatMap(([a, b]) => [Math.abs(a[0]), Math.abs(a[1]), Math.abs(b[0]), Math.abs(b[1])]));
+    const k = Math.min(r.width, r.height) * 0.32 / span, S = ([x, y]) => [cx + x * k, cy - y * k];
+    c.strokeStyle = 'rgba(120,200,180,0.18)';
+    for (const nm of [span * 1.5, span * 2.6]) { c.beginPath(); c.arc(cx, cy, nm * k, 0, Math.PI * 2); c.stroke(); }
+    c.lineCap = 'round';
+    for (const [a, b, w] of pts) {
+        const [ax, ay] = S(a), [bx, by] = S(b);
+        c.strokeStyle = '#c9d1db'; c.lineWidth = Math.max(3, (w.width_ft || 150) / 6076 * k);
+        c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx, by); c.stroke();
+        c.fillStyle = '#e8eef5'; c.font = '600 11px "JetBrains Mono", monospace'; c.textAlign = 'center';
+        const ux = (ax - bx), uy = (ay - by), L = Math.hypot(ux, uy) || 1;
+        c.fillText(String(w.le_ident), ax + ux / L * 14, ay + uy / L * 14 + 4);
+        c.fillText(String(w.he_ident), bx - ux / L * 14, by - uy / L * 14 + 4);
+    }
+    c.fillStyle = '#4fd1ff'; c.beginPath(); c.arc(cx, cy, 4, 0, Math.PI * 2); c.fill();
 }
 
 function renderResults() {
@@ -5413,6 +5509,7 @@ async function init() {
         });
     }
     $('#go').onclick = () => { if (chosen) startGame(chosen, level); };
+    new ResizeObserver(drawStartMap).observe($('#ctl-map'));
 
     try {
         await loadData();
