@@ -355,6 +355,12 @@
                 <button data-level="busy">Busy</button>
             </div>
 
+            <h2>Rules</h2>
+            <div class="opt-row">
+                <div class="seg" id="opt-rules"><button data-v="faa" class="on">Real life</button><button data-v="ifatc">Infinite Flight</button></div>
+                <p class="opt-note" id="rules-note"></p>
+            </div>
+
             <h2>Starting traffic</h2>
             <div class="opt-row">
                 <div class="start-opts" id="start-opts">
@@ -390,8 +396,8 @@
                 <p class="opt-note">On: storm cells drift across the scope and pilots ask to deviate around them. Low ceilings and gusts in the ATIS, and below ILS minimums an aircraft goes around at decision height.</p>
             </div>
 
-            <h2>Emergencies</h2>
-            <div class="opt-row">
+            <h2 id="emerg-h">Emergencies</h2>
+            <div class="opt-row" id="emerg-row">
                 <div class="seg" id="opt-emerg"><button data-v="off">Off</button><button data-v="on" class="on">Rare</button></div>
                 <p class="opt-note">Rare: now and then (a few flights in a hundred) a pilot declares a mayday or pan-pan: an engine failure, a medical, low fuel. Give it priority, get it on the ground, and the runway closes for two minutes while the fire crews check it.</p>
             </div>

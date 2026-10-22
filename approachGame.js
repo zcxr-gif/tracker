@@ -94,7 +94,27 @@ const WAKE_NM = {
     S: { H: 6, B757: 7, L: 7 },
     H: { H: 4, B757: 5, L: 5 },
 };
-const wakeNm = (lead, follow) => (WAKE_NM[lead.perf.wake] || {})[follow.perf.wake] || 0;
+const wakeNm = (lead, follow) => (G && !G.rules.wake ? 0 : (WAKE_NM[lead.perf.wake] || {})[follow.perf.wake] || 0);
+
+/*
+ * Rule sets. "Real life" is FAA JO 7110.65 as modelled throughout. "Infinite
+ * Flight" plays it the way IFATC controls on the Expert Server, and leaves
+ * out what Infinite Flight doesn't have:
+ *   - no wake turbulence (the sim doesn't model it), so no wake minima on
+ *     final and no 2/3-minute departure intervals behind heavies;
+ *   - 3 NM / 1,000 ft radar separation throughout, without the 2.5 NM
+ *     reduced in-trail minimum;
+ *   - no emergencies, no storm cells or deviation requests, and no forced
+ *     go-arounds below ILS minimums (pilots decide in IF);
+ *   - taxi clearances by runway or parking ("taxi to runway 27L"), not
+ *     read-out routes: the route is the one dragged on the map.
+ * Each switch is one line here, so a rule found to differ from the IFATC
+ * manual is a one-line change.
+ */
+const RULESETS = {
+    faa: { id: 'faa', name: 'Real life (FAA)', wake: true, reducedTrail: true, emergencies: true, storms: true, minimums: true, taxiVia: true },
+    ifatc: { id: 'ifatc', name: 'Infinite Flight (IFATC)', wake: false, reducedTrail: false, emergencies: false, storms: false, minimums: false, taxiVia: false },
+};
 const WAKE_NAME = { S: 'super', H: 'heavy', B757: 'B757', L: 'large' };
 
 /* ------------------------------------------------------------------ */
@@ -285,7 +305,7 @@ function newGame(airport, level, opts) {
     const world = buildWorld(airport);
     const wind = { dir: Math.round(rand(0, 36)) * 10 || 360, spd: Math.round(rand(5, opts.weather ? 22 : 18)) };
     G = {
-        world, wind, level, opts, airport,
+        world, wind, level, opts, airport, rules: RULESETS[opts.rules] || RULESETS.faa,
         positions: new Set(opts.positions),
         ground: null, surfaceMap: null, aiT: 0, aiSlots: {}, lastDepAt: new Map(), groundConf: new Set(),
         dem: null, mva: null, relief: {},
@@ -311,7 +331,7 @@ function newGame(airport, level, opts) {
         over: false,
     };
     G.met = makeMet();
-    if (opts.weather) for (let i = 0; i < 4; i++) spawnCell(true);
+    if (opts.weather && G.rules.storms) for (let i = 0; i < 4; i++) spawnCell(true);
 }
 
 function airborne(a) { return a.state === 'air'; }
@@ -393,7 +413,7 @@ const EMERGENCIES = [
 ];
 
 function maybeEmergency(ac) {
-    if (G.opts.emerg && Math.random() < EMERG_RATE) ac.emergPending = pick(EMERGENCIES);
+    if (G.opts.emerg && G.rules.emergencies && Math.random() < EMERG_RATE) ac.emergPending = pick(EMERGENCIES);
 }
 
 /** Declares when the moment is right: an arrival well out, a departure climbing out. */
@@ -493,7 +513,11 @@ function logLine(kind, text) {
     log.scrollTop = log.scrollHeight;
 }
 function atc(text, ai) { logLine(ai ? 'ai' : 'atc', text); }
-function sys(text, tone) { logLine(tone || 'sys', text); }
+function sys(text, tone) {
+    // In Infinite Flight mode the FAA paragraph numbers mean nothing: drop them.
+    if (G && G.rules.id === 'ifatc') text = text.replace(/\s*\((?:7110\.65|14 CFR)[^)]*\)/g, '');
+    logLine(tone || 'sys', text);
+}
 function pilot(ac, text) {
     logLine('pilot', text);
     if (!voiceOn || !('speechSynthesis' in window)) return;
@@ -589,7 +613,7 @@ function violation(ac, rule, text) {
     if (G.aiActing) return;
     G.stats.violations++;
     award(ac, -VIOLATION_PTS);
-    sys(`${text} — ${rule}.`, 'bad');
+    sys(`${text} — ${G.rules.id === 'ifatc' ? 'IFATC procedure' : rule}.`, 'bad');
 }
 
 function zuluAt(t) {
@@ -794,6 +818,12 @@ function issueCall(ac, c) {
     }
 
     // ---- speed (an approach clearance cancels assigned speeds unless restated: 7110.65 5-7-1)
+    if (c.slowest) {
+        if (onGround) { sys(`${ac.cs} is on the ground.`); return false; }
+        const sp = Math.max(minSpeed(ac), ac.alt < 10000 ? Math.min(210, ac.perf.vapp + 40) : 250);
+        if (ac.appr) ac.appr.spd = sp; else ac.tSpd = sp;
+        parts.push('maintain slowest practical speed'); back.push('slowest practical');
+    }
     if (c.spd != null) {
         let sp = clamp(Math.round(c.spd / 10) * 10, 130, 340);
         const min = minSpeed(ac);
@@ -915,7 +945,12 @@ function taxiClearance(ac, want, parts, back) {
     ac.toTower = purpose === 'runway' && wasTower;
     const via = r.names.join(', ') || 'the taxiway';
     const hs = r.crossings.length ? `, hold short of runway ${r.crossings[0].label}` : '';
-    if (purpose === 'runway') {
+    if (!G.rules.taxiVia) {
+        // Infinite Flight: by runway or parking; the route is the one on the map.
+        const where = purpose === 'runway' ? `runway ${ac.rwy.id}` : purpose === 'gate' ? 'parking' : null;
+        parts.push(where ? `taxi to ${where}${hs}` : `taxi as shown, ${hold}${hs}`);
+        back.push(where ? `taxi to ${where}${hs}` : `${hold}${hs}`);
+    } else if (purpose === 'runway') {
         parts.push(`runway ${ac.rwy.id}, taxi via ${via}${hs}`);
         back.push(`runway ${ac.rwy.id}, via ${via}${hs}`);
     } else if (purpose === 'gate') {
@@ -963,6 +998,7 @@ function startLineup(ac, then) {
 
 /** A Super or Heavy left this runway (or a close parallel) too recently: 2 minutes, 3 behind a Super. */
 function departureWake(ac) {
+    if (!G.rules.wake) return null;
     for (const e of G.world.ends) {
         if (!sameRunwayish(e, ac.rwy) && e.phys !== ac.rwy.phys) continue;
         const w = G.depWake.get(e.phys);
@@ -1062,7 +1098,7 @@ function weather(dt) {
     G.wx = G.wx.filter(c => c.age < c.life && Math.hypot(c.x, c.y) < SCOPE_NM + 12);
     if (G.t >= G.nextCell) {
         G.nextCell = G.t + rand(300, 700);
-        if (G.wx.length < 6) spawnCell(false);
+        if (G.wx.length < 6 && G.rules.storms) spawnCell(false);
     }
     // A spell below minimums never lasts long.
     if (below(G.met) && !G.metBelowUntil) G.metBelowUntil = G.t + rand(300, 480);
@@ -2185,7 +2221,7 @@ function approachLateral(ac) {
     }
     if (g.along <= LAND_CLR_NM && !ac.landClr) { goAround(ac, 'no landing clearance'); return false; }
     // Decision height, about 200 ft: no runway in sight below CAT I minimums.
-    if (g.along <= 0.65 && below(G.met)) { goAround(ac, 'minimums, no runway in sight', true); return false; }
+    if (g.along <= 0.65 && below(G.met) && G.rules.minimums) { goAround(ac, 'minimums, no runway in sight', true); return false; }
     if (g.along <= 0.15) {
         if (ac.alt - elev > 300 || Math.abs(g.xt) > 0.3) { goAround(ac, 'not stabilized'); return false; }
         if (runwayBusyUntil(e.phys) > G.t) { goAround(ac, 'runway occupied'); return false; }
@@ -2292,7 +2328,7 @@ function requiredSep(a, b) {
 
     let nm = SEP_NM, why = 'radar separation';
     // 7110.65 5-5-4: 2.5 miles in trail on the same final inside 10 miles.
-    if (ea && eb && sameRunwayish(ea, eb) && a.appr.along < 10 && b.appr.along < 10) { nm = 2.5; why = 'in trail on final'; }
+    if (G.rules.reducedTrail && ea && eb && sameRunwayish(ea, eb) && a.appr.along < 10 && b.appr.along < 10) { nm = 2.5; why = 'in trail on final'; }
     if (wake > nm) { nm = wake; why = `wake turbulence behind a ${WAKE_NAME[trail[0].perf.wake]}`; }
     return { nm, why };
 }
@@ -3145,6 +3181,7 @@ function renderCard(force) {
             <button data-adj="spd:-10">−10</button>
             <span class="val" id="p-spd"></span>
             <button data-adj="spd:10">+10</button></div></div>
+        ${ground ? '' : `<div class="btn-row"><button class="btn" data-act="slowest">Slowest practical speed</button></div>`}
         <div class="send-row">
             <button class="btn primary" data-act="send">Transmit ⏎</button>
             <button class="btn" data-act="reset">Reset</button>
@@ -3216,6 +3253,7 @@ function bindCard() {
         else if (act === 'dev') { issue(ac, { deviate: true }); renderCard(true); }
         else if (['push', 'taxi', 'holdPos', 'cont', 'cross', 'tower', 'ground'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
         else if (act === 'land') { issue(ac, { land: true }); renderCard(true); }
+        else if (act === 'slowest') { issue(ac, { slowest: true }); syncPending(true); renderCard(true); }
         else if (act === 'ga') { issue(ac, { goAround: true }); syncPending(true); renderCard(true); }
         else if (act === 'orbitL' || act === 'orbitR') { issue(ac, { orbit: act === 'orbitL' ? 'L' : 'R' }); renderCard(true); }
     });
@@ -3288,7 +3326,8 @@ function renderHud() {
         + `EXIT <b>${terrainOn() ? 'by gate' : alt3(G.world.exitAlt) + '+'}</b> · MVA <b>${terrainOn() ? 'by sector' : alt3(G.world.minAlt)}</b>`
         + (G.surfaceStatus ? `<br><span class="taxi-st${G.ground ? '' : ' bad'}">TAXI MAP <b>${escapeHtml(G.surfaceStatus)}</b></span>` : '')
         + (G.opts.terrain && !G.mva ? '<br>loading terrain…' : '')
-        + (below(G.met) ? '<br><b style="color:#ff8a98">BELOW MINIMUMS</b>' : '');
+        + `<br>RULES <b>${G.rules.id === 'ifatc' ? 'INFINITE FLIGHT' : 'REAL LIFE (FAA)'}</b>`
+        + (below(G.met) && G.rules.minimums ? '<br><b style="color:#ff8a98">BELOW MINIMUMS</b>' : '');
 }
 
 /* ------------------------------------------------------------------ */
@@ -3329,6 +3368,7 @@ function runCommand(text) {
             const nx = toks[i + 1];
             if (nx && (findEnd(nx) || G.ground?.gates.some(g => g.ref.toUpperCase() === nx))) { c.taxi = nx; i++; } else c.taxi = true;
         }
+        else if (t === 'SP' || t === 'SLOW' || t === 'SLOWEST') c.slowest = true;
         else if (t === 'MT' || t === 'TWR' || t === 'TOWER') c.tower = true;
         else if (t === 'MG' || t === 'GND' || t === 'GROUND') c.ground = true;
         else if (t === 'HP') c.holdPos = true;
@@ -3494,7 +3534,7 @@ function bindGame() {
 
 let hudMin = store.get('hudMin', false);
 let opts = { terrain: store.get('terrain', false), weather: store.get('weather', false), positions: store.get('positions', ['APP', 'TWR']),
-    start: store.get('start', 'random'), startN: store.get('startN', 6), emerg: store.get('emerg', true) };
+    start: store.get('start', 'random'), startN: store.get('startN', 6), emerg: store.get('emerg', true), rules: store.get('rules', 'faa') };
 
 /* What's loading, shown with the InFlight mark in the bottom-right of the scope. */
 const loading = new Map();      // id -> text, in the order they started
@@ -3506,6 +3546,11 @@ function busy(id, text) {
     $('#scope-wrap').classList.toggle('loading', loading.size > 0);
     $('#loader-steps').innerHTML = [...loading.values()].map(t => `<div>${escapeHtml(t)}</div>`).join('');
 }
+
+const RULES_NOTE = {
+    faa: 'Real-world US procedures (FAA JO 7110.65): wake turbulence minima, 2.5 NM in trail on final, departure wake intervals, read-out taxi routes, emergencies and storm deviations.',
+    ifatc: 'The way IFATC controls on the Expert Server, with only what Infinite Flight has: 3 NM / 1,000 ft separation, no wake turbulence (the sim doesn\'t model it), "taxi to runway" with the route dragged on the map, "contact Tower when ready", speed control including slowest practical speed, and no emergencies or storm cells.',
+};
 
 function toastStart(text) { $('#pos-summary').textContent = text; setTimeout(renderStart, 1600); }
 
@@ -3660,6 +3705,7 @@ async function startGame(airport, level) {
     store.set('start', opts.start);
     store.set('startN', opts.startN);
     store.set('emerg', opts.emerg);
+    store.set('rules', opts.rules);
     $('#start').hidden = true;
     $('#game').hidden = false;
     window.scrollTo(0, 0);
@@ -3772,6 +3818,10 @@ function renderStart() {
     document.querySelectorAll('#traffic button').forEach(b => b.classList.toggle('on', b.dataset.level === level));
     document.querySelectorAll('#opt-terrain button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.terrain));
     document.querySelectorAll('#opt-weather button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.weather));
+    document.querySelectorAll('#opt-rules button').forEach(b => b.classList.toggle('on', b.dataset.v === opts.rules));
+    $('#rules-note').innerHTML = opts.rules === 'ifatc' ? RULES_NOTE.ifatc : RULES_NOTE.faa;
+    // Infinite Flight has no emergencies: the option goes away with that rule set.
+    $('#emerg-row').hidden = $('#emerg-h').hidden = opts.rules === 'ifatc';
     document.querySelectorAll('#opt-emerg button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.emerg));
     document.querySelectorAll('#opt-start [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === opts.start));
     $('#start-n').textContent = opts.startN;
@@ -3829,6 +3879,10 @@ async function init() {
         if (has && opts.positions.length === 1) { toastStart('You need at least one position.'); return; }
         opts.positions = has ? opts.positions.filter(x => x !== p) : [...opts.positions, p];
         renderStart();
+    });
+    $('#opt-rules').addEventListener('click', e => {
+        const b = e.target.closest('button');
+        if (b) { opts.rules = b.dataset.v; renderStart(); }
     });
     $('#start-opts').addEventListener('click', e => {
         const b = e.target.closest('button');

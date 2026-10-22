@@ -323,6 +323,33 @@ Scoring by position:
 | Tower or Approach | Landing | +10 |
 | Approach | Departure out through its gate | +10 |
 
+## Rules: Real life or Infinite Flight
+
+The start screen picks the rule set (`RULESETS` in `approachGame.js`, one
+line per switch).
+
+- **Real life (FAA)**: everything in this document.
+- **Infinite Flight (IFATC)**: plays the way IFATC controls on the Expert
+  Server, and leaves out what Infinite Flight doesn't have.
+  - No wake turbulence (the sim doesn't model it), so there are no wake
+    minima on final and no 2/3-minute departure intervals behind heavies.
+  - 3 NM / 1,000 ft radar separation throughout, without the 2.5 NM in-trail
+    reduction.
+  - Taxi clearances by runway or parking ("taxi to runway 27L"), with the
+    route dragged on the map as IF's drag-and-taxi does. "Contact Tower when
+    ready" stays.
+  - Speed control, including "maintain slowest practical speed" (also
+    available in Real life mode).
+  - No emergencies, no storm cells or deviation requests, and no forced
+    go-arounds below ILS minimums. The ATIS still carries the wind and
+    visibility.
+  - Messages drop the FAA paragraph numbers, and violations are labelled
+    "IFATC procedure".
+
+The official IFATC manual couldn't be read while this was built (the site
+wasn't reachable), so these follow Infinite Flight's features and community
+guidance. Where the manual says otherwise, change that line in `RULESETS`.
+
 ## Emergencies (option)
 
 On by default ("Rare"); the start screen turns them off. About one flight in
