@@ -495,6 +495,16 @@ on Approach and the system on Tower:
   approach clearance unless restated ("maintain 180 knots until 5 mile
   final").
 
+**Direct-to (IFATC 6.16):** under Infinite Flight rules, direct-to is only to
+a fix still ahead on the aircraft's flight plan (its STAR, SID or filed
+fixes):
+
+- **Direct to…** lists just those. An aircraft with no flight plan has none:
+  vector it.
+- Dragging shows the direct-to prompt only over one of them (6.3.1).
+  Elsewhere the drag stays a heading.
+- Sending one to any other fix is refused, with the fixes it does have.
+
 **Holding (IFATC 6.7):** under Infinite Flight rules:
 
 - 6.7.2 **Hold at…** lists **Present position** and the fixes still ahead on

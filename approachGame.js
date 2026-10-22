@@ -1690,6 +1690,11 @@ function issueCall(ac, c) {
             back.push(`${side}heading ${hdg3(h)}`);
         }
     }
+    // IFATC 6.16.3: direct only to a fix on the aircraft's flight plan, within your airspace.
+    if (c.direct && G.rules.id === 'ifatc' && !G.aiActing && !onPlan(ac, c.direct)) {
+        sys(`IFATC 6.16.3: ${c.direct.name} isn't on ${ac.cs}'s flight plan. Direct-to is only to a fix on it${filedRoute(ac) ? ` (${filedAhead(ac).filter(p => !/^RW/.test(p.name)).map(p => p.name).join(', ') || 'none left'})` : ''}; vector it otherwise.`);
+        return false;
+    }
     if (c.direct) {
         ac.direct = c.direct; ac.holdAt = null; ac.orbit = null; ac.turn = null;
         if (ac.appr) cancelApproach(ac);
@@ -5262,7 +5267,8 @@ function runwayAt(sx, sy) {
  */
 function airTarget(ac, sx, sy) {
     const f = hitFix(sx, sy);
-    if (f) return { label: `Direct ${f.name}`, cmd: { direct: f }, x: f.x, y: f.y };
+    // IFATC 6.3.1 / 6.16.1: the direct-to prompt comes up over a fix on the aircraft's flight plan.
+    if (f && (G.rules.id !== 'ifatc' || onPlan(ac, f))) return { label: `Direct ${f.name}`, cmd: { direct: f }, x: f.x, y: f.y };
     if (ac.kind !== 'arr') return null;
     const e = runwayAt(sx, sy);
     if (e && ac.appr?.loc && e.phys === ac.appr.end.phys) return ac.landClr ? { err: true, label: 'Already cleared to land', x: e.thr.x, y: e.thr.y } : { label: `Cleared to land ${ac.appr.end.id}`, cmd: { land: true }, x: e.thr.x, y: e.thr.y };
@@ -5795,7 +5801,7 @@ function airMenu(ac, add) {
         add('Vectoring instructions', { sub: () => [
             { label: 'Fly heading…', run: () => headingLadder(ac) },
             { label: 'Climb or descend…', run: () => altitudeLadder(ac) },
-            { label: 'Direct to…', sub: () => nearFixes(ac).map(f => ({ label: f.label, cmd: { direct: f.f } })) },
+            ...(directFixes(ac).length ? [{ label: 'Direct to…', sub: () => directFixes(ac).map(f => ({ label: f.label, cmd: { direct: f.f } })) }] : []),
             { label: 'Hold at…', sub: holdMenu(ac) },
             ...(ac.holdAt ? [{ label: 'Exit hold', cmd: { exitHold: true } }] : []),
             { label: 'Left 360', cmd: { orbit: 'L' } }, { label: 'Right 360', cmd: { orbit: 'R' } },
@@ -5861,6 +5867,15 @@ const speedMenu = ac => () => {
 };
 
 /** The fixes nearest an aircraft, for direct-to and holds. */
+/** A fix still ahead on the aircraft's flight plan (IFATC 6.16.3), by name. */
+const onPlan = (ac, f) => filedRoute(ac) && filedAhead(ac).some(p => p.name === f.name && !/^RW/.test(p.name));
+/** Fixes it can be sent direct to: Infinite Flight, those ahead on its flight plan (IFATC 6.16); otherwise any nearby. */
+function directFixes(ac) {
+    if (G.rules.id !== 'ifatc') return nearFixes(ac);
+    if (!filedRoute(ac)) return [];
+    return filedAhead(ac).filter(p => !/^RW/.test(p.name)).map(p => ({ f: G.world.fixes.find(x => x.name === p.name) || { name: p.name, x: p.x, y: p.y, kind: 'wp' }, label: `${p.name} · on its plan` }));
+}
+
 /** Where it can be told to hold: Infinite Flight (IFATC 6.7.2), a fix on its flight plan or present position; otherwise any fix nearby. */
 function holdFixes(ac) {
     if (G.rules.id !== 'ifatc') return nearFixes(ac);
