@@ -1747,6 +1747,26 @@ function issueCall(ac, c) {
         Object.assign(ac, { holdAt: null, orbit: null, request: null });
         parts.push('continue as filed'); back.push('continue as filed');
     }
+    // ---- IFATC 6.4.4: Check In, and handing the plan back once there's no conflict
+    if (c.radarContact) {
+        if (!ac.checkInPending) { sys(`${ac.cs} isn't checking in.`); return false; }
+        atc(`${ac.radio}, ${facName('DEP')}, radar contact.`, G.aiActing);
+        radarContact(ac);
+        return true;
+    }
+    if (c.altDisc) {
+        if (ac.state !== 'air') { sys(`${ac.cs} is on the ground.`); return false; }
+        if (ac.kind === 'dep') { ac.tAlt = Math.max(ac.tAlt, exitAlt(ac)); if (ac.via) Object.assign(ac.via, { vert: true, top: Math.max(ac.via.top || 0, exitAlt(ac)) }); }
+        else if (ac.via) ac.via.vert = true;
+        parts.push('altitude at your discretion'); back.push('altitude at our discretion');
+    }
+    if (c.ownNav) {
+        if (ac.state !== 'air') { sys(`${ac.cs} is on the ground.`); return false; }
+        Object.assign(ac, { holdAt: null, orbit: null, turn: null });
+        if (ac.kind === 'dep' && ac.gate?.x != null) ac.direct = ac.gate;
+        else { ac.direct = null; ac.tHdg = brg(-ac.x, -ac.y); }
+        parts.push('resume own navigation'); back.push('own navigation');
+    }
     if (c.toTwr) {
         // IFATC 3.6.3: besides an approach, Radar can hand over an arrival on radar vectors or flight following, close in and in VMC, for a pattern entry.
         const vectors = !(ac.appr || ac.pattern) && radarVectorsOk(ac);
@@ -2073,6 +2093,14 @@ function issueCall(ac, c) {
         back.push(`cleared to land ${le.id}`);
     }
 
+    // Vectors or an altitude after the plan was accepted: hand them back when the conflict's gone (IFATC 6.4.4).
+    if (ac.fplAccepted && !G.aiActing) {
+        if (c.hdg != null || c.orbit || c.holdFix) ac.offHdg = true;
+        if (c.alt != null) ac.offAlt = true;
+        if (c.asFiled || c.ownNav) ac.offHdg = false;
+        if (c.altDisc) ac.offAlt = false;
+        if (!ac.offHdg && !ac.offAlt) ac.askedBack = false;
+    }
     if (!parts.length) return false;
     atc(`${ac.radio}, ${parts.join(', ')}.`, G.aiActing);
     pilot(ac, `${cap(back.join(', '))}, ${ac.radio}.`);
@@ -2501,7 +2529,40 @@ function departureCheckIn(ac) {
     ac.freq = 'APP';
     if (noRadar()) return;                         // no Departure on: it's on its own navigation
     pilot(ac, `${facName('DEP')}, ${ac.radio}, ${fmtAlt(Math.round(Math.max(ac.alt, G.world.elev + 500) / 100) * 100)} climbing ${fmtAlt(ac.tAlt)}.`);
+    // IFATC 6.4.4: your Departure answers every Check In with "Radar contact" itself.
+    if (G.rules.id === 'ifatc' && G.positions.has('APP')) { Object.assign(ac, { checkInPending: true, checkInAt: G.t, checkInRepeated: false }); return; }
     atc(`${ac.radio}, ${facName('DEP')}, radar contact.`, !G.positions.has('APP'));
+    if (G.rules.id === 'ifatc') radarContact(ac);
+}
+
+/**
+ * "Radar contact" (IFATC 6.4.4): two-way contact, the filed flight plan accepted and the climb to the initial
+ * cruising altitude cleared. From here it flies its SID (or its filed route) and climbs to its exit on its own,
+ * unless you've already given it a heading or an altitude.
+ */
+function radarContact(ac) {
+    Object.assign(ac, { checkInPending: false, fplAccepted: true });
+    if (ac.hdgAssigned && !ac.via) ac.offHdg = true;
+    if (!ac.offAlt) {
+        ac.tAlt = Math.max(ac.tAlt, exitAlt(ac));
+        if (ac.via) ac.via.top = Math.max(ac.via.top || 0, exitAlt(ac));
+    }
+    if (!ac.via && !ac.offHdg && !ac.direct && ac.gate?.x != null) ac.direct = ac.gate;
+}
+
+/** Check Ins waiting on your Departure: asked again after 45 s, a violation at 90 s (IFATC 6.4.4). */
+function checkIns() {
+    for (const ac of G.aircraft) {
+        if (ac.checkInPending && ac.freq === 'APP' && mine(ac)) {
+            if (!ac.checkInRepeated && G.t - ac.checkInAt > 45) { ac.checkInRepeated = true; pilot(ac, `${facName('DEP')}, ${ac.radio}, checking in, ${fmtAlt(Math.round(ac.alt / 100) * 100)}.`); }
+            if (!ac.checkInFlagged && G.t - ac.checkInAt > 90) { ac.checkInFlagged = true; violation(ac, 'IFATC 6.4.4', `${ac.cs}'s Check In wasn't answered with "Radar contact"`); }
+        }
+        // Off its plan near the edge, it asks to have it back (IFATC 6.4.4).
+        if ((ac.offHdg || ac.offAlt) && ac.state === 'air' && mine(ac) && !ac.askedBack && Math.hypot(ac.x, ac.y) > SCOPE_NM - 10 && !ac.conflict) {
+            ac.askedBack = true;
+            pilot(ac, `${ac.radio}, request ${[ac.offHdg && 'continue as filed', ac.offAlt && 'altitude at our discretion'].filter(Boolean).join(' and ')}.`);
+        }
+    }
 }
 
 /** How far past the departure end of its runway an airborne departure is, in NM (negative: still over it). */
@@ -3141,6 +3202,7 @@ function aiControl() {
     pilotRequests();
     if (G.rules.id === 'ifatc') towerDepartures();
     atisCheck();
+    checkIns();
     coordinate();
     if (!G.positions.has('APP')) { aiConflicts(); aiTerrainNet(); }
     for (const ac of G.aircraft) {
@@ -4136,6 +4198,10 @@ function exitScope(ac) {
         const b = brg(ac.x, ac.y);
         const onGate = Math.abs(diff(b, ac.gate.bearing)) <= 20;
         G.stats.departed++;
+        if (ac.offHdg || ac.offAlt) {
+            award(ac, -3, 'plan');
+            sys(`${ac.cs} left still ${[ac.offHdg && 'on vectors', ac.offAlt && 'on an assigned altitude'].filter(Boolean).join(' and ')}: send "${[ac.offHdg && 'Continue as filed', ac.offAlt && 'Altitude at your discretion'].filter(Boolean).join('" and "')}" once the conflict is gone (IFATC 6.4.4).`, 'bad');
+        }
         if (onGate && ac.alt >= exitAlt(ac) - 50) {
             award(ac, 10);
             atc(`${ac.radio}, contact Center, good day.`);
@@ -5436,7 +5502,12 @@ function airMenu(ac, add) {
     ] });
     if (ac.kind === 'arr') add('Missed approach instructions', { sub: () => [2000, 3000, 4000].map(h => Math.max(G.world.minAlt, Math.round((G.world.elev + h) / 1000) * 1000))
         .filter((v, i, a) => a.indexOf(v) === i).map(v => ({ label: `Runway heading, climb and maintain ${fmtAlt(v)}`, cmd: { missed: v } })) });
-    if (filedRoute(ac) && !ac.appr && !ac.pattern && !(ac.via && ac.via.kind !== 'IAP') && !(ac.kind === 'dep' && ac.direct)) add('Continue as filed', { cmd: { asFiled: true } });
+    if (ac.checkInPending && ac.freq === 'APP') add('Radar contact', { cmd: { radarContact: true } }, true);
+    if (filedRoute(ac) && !ac.appr && !ac.pattern && !(ac.via && ac.via.kind !== 'IAP') && !(ac.kind === 'dep' && ac.direct)) add('Continue as filed', { cmd: { asFiled: true } }, !!ac.offHdg && ac.askedBack);
+    if (G.rules.id === 'ifatc' && ac.freq === 'APP' && !ac.appr && !ac.pattern) {
+        if (ac.offAlt || ac.kind === 'dep' && ac.tAlt < exitAlt(ac)) add('Altitude at your discretion', { cmd: { altDisc: true } }, !!ac.offAlt && ac.askedBack);
+        add('Resume own navigation', { cmd: { ownNav: true } });
+    }
     if (ac.appr) add(ac.freq === 'TWR' ? 'Go around…' : 'Go around', ac.freq === 'TWR' ? { sub: () => [{ label: 'Go around', cmd: { goAround: true } }, { label: `Go around, make left traffic runway ${ac.appr.end.id}`, cmd: { goAround: true, traffic: 'L' } }, { label: `Go around, make right traffic runway ${ac.appr.end.id}`, cmd: { goAround: true, traffic: 'R' } }] } : { cmd: { goAround: true } });
     if (ac.kind === 'arr' && ac.freq === 'TWR' && !ac.landClr) add('Deny entry', { sub: () => DENY_ENTRY.map(m => ({ label: m[1], cmd: { msg: m } })) });
     if (ac.freq === 'TWR' && ac.kind !== 'arr') add('Misc. messages', { sub: miscMenu(ac) });
@@ -5633,7 +5704,7 @@ function wantsYou(a) {
     if (a.divert || a.standbyUntil > G.t) return false;
     if (a.transit) return a.transit.asked && a.transit.ok === null;
     if (a.circuit && a.circuit.leg === 'down' && !a.landClr) return true;
-    return !!(a.emerg || a.crossReq || a.wxReq || a.lowAlt || a.reminded || a.request
+    return !!(a.emerg || a.crossReq || a.wxReq || a.lowAlt || a.reminded || a.request || a.checkInPending
         || (a.state === 'gate' && a.kind === 'dep' && a.called) || a.state === 'pushed' || a.state === 'clear'
         || a.state === 'wait' || (a.appr?.loc && !a.landClr && a.freq === 'TWR'));
 }
@@ -5750,6 +5821,9 @@ function runCommand(text) {
         else if (t === 'HS' || t === 'HOLDSHORT') c.holdShort = true;
         else if (t === 'CI') c.contInbound = true;
         else if (t === 'RP') c.radarPattern = true;
+        else if (t === 'RC' || t === 'RADAR') c.radarContact = true;
+        else if (t === 'AD' || t === 'ATYD') c.altDisc = true;
+        else if (t === 'RON' || t === 'OWN') c.ownNav = true;
         else if (t === 'DV' || t === 'CV' || t === 'VIA') c.via = true;
         else if (t === 'NO' || t === 'NUMBER') c.seqLand = true;
         else if (t === 'ENT' || t === 'ENTER') {

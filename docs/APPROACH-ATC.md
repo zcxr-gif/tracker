@@ -358,6 +358,21 @@ The aircraft fly with airliner performance:
   their gate. Leaving at another gate, or below the exit altitude, costs
   points.
 
+**Under Infinite Flight rules (IFATC 6.4):**
+
+- 6.4.4 **Check In**: with you on Departure, a departure checks in and waits
+  for you. **Radar contact** (highlighted on its card, or `rc`) accepts its
+  flight plan and clears it to its initial cruising (exit) altitude. From
+  then on it flies its SID (or its filed route) and climbs on its own: no
+  vectors or altitudes are needed (6.4.3). Not answered: it calls again at
+  45 s, and at 90 s it's a violation. The system's Departure answers its own.
+- After a heading or an altitude, hand the plan back once the conflict is
+  gone: **Continue as filed**, **Altitude at your discretion** (`ad`), or
+  **Resume own navigation** (`ron`) when it won't rejoin its plan.
+  - A departure that took off on a heading from Tower starts out on vectors.
+  - Still on vectors or an assigned altitude 10 NM from the edge of the scope,
+    the pilot asks for them. Leaving that way costs 3.
+
 ## Radio
 
 - Arrivals check in with the ATIS letter. Approach replies with the
