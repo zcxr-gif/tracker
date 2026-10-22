@@ -3549,11 +3549,19 @@ async function loadSurface(world, say = () => {}) {
     if (options.length) {
         const first = options[0];
         const later = Promise.all([gates, osm]).then(async ([g, o]) => {
-            if (!o) return null;
+            if (!o) return { error: failures.filter(f => f.startsWith('OpenStreetMap')).join('; ') || 'OpenStreetMap: no answer' };
             await paint();
+            const n = options.length;
             build([...o.features, ...(g || [])], `OpenStreetMap${g ? ' + InFlight gates' : ''}`);
-            const best = options.sort((a, b) => b.score - a.score)[0];
-            return best === first ? null : { ground: best.ground, source: best.source };
+            const full = options.length > n ? options[options.length - 1] : null;
+            // OpenStreetMap's own network, unless it's clearly thinner than the tiles' (a partial answer):
+            // then the tiles' taxiways with OpenStreetMap's taxilanes added.
+            if (full && full.score >= first.score * 0.8) return { ground: full.ground, source: full.source };
+            const lanes = o.features.filter(f => f.properties?.aeroway === 'taxilane' || f.properties?.aeroway === 'terminal' || f.properties?.aeroway === 'hangar');
+            if (!lanes.length) return { error: 'OpenStreetMap has no taxilanes mapped here' };
+            const before = options.length;
+            build([...t, ...lanes, ...(g || [])], `OpenFreeMap taxiways + OpenStreetMap taxilanes${g ? ' + InFlight gates' : ''}`);
+            return options.length > before ? { ground: options[options.length - 1].ground, source: options[options.length - 1].source } : { error: 'the taxilanes could not be joined to the taxiways' };
         });
         return { ground: first.ground, source: first.source, later };
     }
@@ -3591,7 +3599,7 @@ function swapGround(up) {
 
 /** OpenStreetMap through Overpass: three servers at once, plus the live map's own airport request. Kept on the device per airport. */
 function overpassLayout(world, box) {
-    const key = 'inflight.approach.osm.' + world.icao;
+    const key = 'inflight.approach.osm2.' + world.icao;
     try {
         const c = JSON.parse(localStorage.getItem(key) || 'null');
         if (c && Date.now() - c.t < 14 * 864e5 && c.features?.length) return Promise.resolve({ type: 'FeatureCollection', features: c.features });
@@ -3602,20 +3610,31 @@ function overpassLayout(world, box) {
         const r5 = c => Array.isArray(c[0]) ? c.map(r5) : [Math.round(c[0] * 1e5) / 1e5, Math.round(c[1] * 1e5) / 1e5];
         const features = layout.features.filter(f => keep.includes(f.properties?.aeroway) && f.geometry)
             .map(f => ({ type: 'Feature', properties: { aeroway: f.properties.aeroway, ref: f.properties.ref || f.properties.name || '' }, geometry: { type: f.geometry.type, coordinates: r5(f.geometry.coordinates) } }));
-        try { const txt = JSON.stringify({ t: Date.now(), features }); if (txt.length < 2.5e6) localStorage.setItem(key, txt); } catch { /* full or private */ }
+        // Not the live map's smaller-box answer: that one isn't the whole field.
+        try { const txt = JSON.stringify({ t: Date.now(), features }); if (!layout.partial && txt.length < 2.5e6) localStorage.setItem(key, txt); } catch { /* full or private */ }
         return { type: 'FeatureCollection', features };
     });
 }
 
 function overpassFetch(world, box) {
     const bbox = `${box.s.toFixed(5)},${box.w.toFixed(5)},${box.n.toFixed(5)},${box.e.toFixed(5)}`;
-    const q = `[out:json][timeout:40];(way["aeroway"~"taxiway|taxilane|apron|terminal|hangar"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
-    const servers = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
-    const ask = url => fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
-        .then(r => r.ok ? r.json() : Promise.reject(new Error(`${new URL(url).host} ${r.status}`)))
-        .then(d => (d.elements && d.elements.length ? AirportLayoutManager.processOsmData(d.elements) : Promise.reject(new Error('no data'))));
-    const live = AirportLayoutManager.getLayout(world.icao, world.lat, world.lon).then(l => l || Promise.reject(new Error('no data')));
-    return Promise.any([...servers.map(ask), live]).catch(() => Promise.reject(new Error('no server answered')));
+    const q = `[out:json][timeout:60];(way["aeroway"~"taxiway|taxilane|apron|terminal|hangar"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
+    const errs = [];
+    const take = (host, p) => p
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status}`)))
+        .then(d => (d.elements && d.elements.length ? AirportLayoutManager.processOsmData(d.elements) : Promise.reject(new Error('empty'))))
+        .catch(err => { errs.push(`${host} ${err.message === 'Failed to fetch' ? 'unreachable' : err.message}`); throw err; });
+    // The live map asks overpass-api.de with a GET; the mirrors take a POST.
+    const get = () => take('overpass-api.de', fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q)));
+    const post = url => take(new URL(url).host, fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }));
+    const mirrors = ['https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter',
+        'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.osm.jp/api/interpreter'];
+    return Promise.any([get(), ...mirrors.map(post)])
+        // All of them refused (often a rate limit after a few quick reloads): one more go in 15 s.
+        .catch(() => new Promise(res => setTimeout(res, 15000)).then(get))
+        // Last resort: the live map's own airport request (a smaller box round the field).
+        .catch(() => AirportLayoutManager.getLayout(world.icao, world.lat, world.lon).then(l => (l ? { ...l, partial: true } : Promise.reject(new Error('empty')))))
+        .catch(() => Promise.reject(new Error([...new Set(errs)].join(', ') || 'no server answered')));
 }
 async function startGame(airport, level) {
     store.set('last', airport.icao);
@@ -3650,7 +3669,13 @@ async function startGame(airport, level) {
     game.surfaceMap = surface.ground || surface.map || null;
     // On the scope too, so it's visible without reading the log.
     if (surface.later) {
-        surface.later.then(up => { if (G === game && up) game.pendingGround = up; else if (G === game) { game.surfaceStatus = game.surfaceStatus.replace(' · fetching taxilanes…', ''); renderHud(); } });
+        surface.later.then(up => {
+            if (G !== game) return;
+            if (up.ground) { game.pendingGround = up; return; }
+            game.surfaceStatus = game.surfaceStatus.replace(' · fetching taxilanes…', ` · no taxilanes (${up.error})`);
+            sys(`No taxilanes between the terminals: ${up.error}. Stands are joined straight to the nearest taxiway.`, 'bad');
+            renderHud();
+        });
     }
     game.surfaceStatus = surface.ground ? `${surface.source} ✓${surface.later ? ' · fetching taxilanes…' : ''}`
         : surface.map ? `drawn only (${surface.map.lines.length} lines), no taxi network: ${surface.error}` : `none: ${surface.error}`;
