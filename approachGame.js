@@ -357,6 +357,122 @@ function viaStep(ac) {
     else if (target != null || floor) ac.tAlt = Math.max(target ?? floor, floor, G.world.minAlt);
 }
 
+/* ---- Map layers: waypoints on/dim/off, and which procedures are plotted ---- */
+
+let layers = { wp: 'on', bright: 0.5, ...store.get('layers', {}) };
+
+/** Every procedure at the airport as drawable paths: { key, type, id, label, rwy, paths: [[{ name, x, y, alt, desc }]] }. */
+function procCatalog() {
+    const W = G.world;
+    if (W.procs) return W.procs;
+    const nav = W.nav;
+    W.procs = [];
+    if (!nav) return W.procs;
+    const pt = id => { const f = id && nav.fix[id]; return f ? W.proj(f[0], f[1]) : null; };
+    const pathOf = legs => legs.map(l => { const q = pt(l[0]); return q && { name: l[0], ...q, alt: l[1], desc: l[2] }; }).filter(Boolean);
+    const add = (type, p, label, rwy) => W.procs.push({ key: type + ':' + p.id, type, id: p.id, label, rwy, paths: p.routes.map(r => pathOf(r.legs)).filter(x => x.length > 1) });
+    for (const p of nav.star) add('STAR', p, p.id, '');
+    for (const p of nav.sid) add('SID', p, p.id, p.routes.filter(r => /^RW/.test(r.t)).map(r => r.t.slice(2)).join(' '));
+    for (const p of nav.iap) add('IAP', p, p.name.replace(/\s*\([^)]*\)/g, '').replace(' RWY ', ' '), p.rwy);
+    return W.procs;
+}
+
+/** The procedures that matter right now: STARs, SIDs off the departure runways, ILS/LOC for the landing ones. */
+function autoProcs() {
+    const dep = G.active.dep, arr = G.active.arr;
+    const onDep = p => !p.rwy || dep.some(e => p.rwy.split(' ').some(r => r === e.id || r === e.id.replace(/[LRC]$/, '') + 'B' || r === e.id.replace(/[LRC]$/, '')));
+    return new Set(procCatalog().filter(p => p.type === 'STAR' || (p.type === 'SID' && onDep(p)) || (p.type === 'IAP' && /^(ILS|LOC)/.test(p.label) && arr.some(e => e.id === p.rwy))).map(p => p.key));
+}
+
+const procSel = () => G.procSel || (G.procSel = { mode: 'auto', ids: [], ...store.get('procs.' + G.world.icao, {}) });
+function procShown() {
+    const sel = procSel();
+    return sel.mode === 'auto' ? autoProcs() : new Set(sel.ids);
+}
+
+function drawProcedures() {
+    const shown = procShown();
+    if (!shown.size) return;
+    const c = ctx, col = { STAR: COLORS.fixArr, SID: COLORS.fixDep, IAP: COLORS.fixApp };
+    c.save();
+    c.globalAlpha = layers.bright;
+    c.font = '9px "JetBrains Mono", monospace';
+    const labelled = new Set();
+    for (const p of procCatalog()) {
+        if (!shown.has(p.key)) continue;
+        c.strokeStyle = c.fillStyle = col[p.type];
+        c.lineWidth = p.type === 'IAP' ? 1.2 : 1;
+        c.setLineDash(p.type === 'IAP' ? [] : [4, 4]);
+        for (const path of p.paths) {
+            c.beginPath();
+            path.forEach((q, i) => { const [x, y] = toS(q.x, q.y); if (i) c.lineTo(x, y); else c.moveTo(x, y); });
+            c.stroke();
+        }
+        c.setLineDash([]);
+        // The procedure's name at its start, and each fix's altitude constraint once zoomed in.
+        const start = p.paths[0]?.[0];
+        if (start) { const [x, y] = toS(start.x, start.y); c.font = '700 10px "JetBrains Mono", monospace'; c.fillText(p.label, x + 6, y - 6); c.font = '9px "JetBrains Mono", monospace'; }
+        if (view.scale < 10) continue;
+        for (const path of p.paths) for (const q of path) {
+            const k = p.key + q.name;
+            if (labelled.has(k) || /^RW/.test(q.name)) continue;
+            labelled.add(k);
+            const [x, y] = toS(q.x, q.y);
+            c.beginPath(); c.arc(x, y, 1.8, 0, Math.PI * 2); c.fill();
+            if (layers.wp === 'off') c.fillText(q.name, x + 5, y + 3);
+            if (q.alt != null) c.fillText(`${q.alt}${q.desc === '+' ? '+' : q.desc === '-' ? '-' : ''}`, x + 5, y + 13);
+        }
+    }
+    c.restore();
+}
+
+function renderLayers() {
+    const el = $('#layers');
+    if (!el || el.hidden || !G) return;
+    const cat = procCatalog(), shown = procShown(), sel = procSel();
+    const chips = type => cat.filter(p => p.type === type).map(p => `<button type="button" class="chip-btn${shown.has(p.key) ? ' on' : ''}" data-proc="${escapeHtml(p.key)}">${escapeHtml(p.label)}${p.rwy && p.type === 'SID' ? `<small>${escapeHtml(p.rwy)}</small>` : ''}</button>`).join('');
+    const seg = (key, opts, val) => `<div class="seg" data-layer="${key}">${opts.map(([v, l]) => `<button type="button" data-v="${v}" class="${v === val ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    el.innerHTML = `
+        <div class="layers-h"><span>MAP LAYERS</span><button type="button" class="info-x" data-close aria-label="Close">✕</button></div>
+        <div class="lrow"><span>Waypoints</span>${seg('wp', [['on', 'On'], ['dim', 'Dim'], ['off', 'Off']], layers.wp)}</div>
+        ${cat.length ? `
+        <div class="lrow"><span>Procedures</span><input type="range" id="l-bright" min="10" max="100" value="${Math.round(layers.bright * 100)}" aria-label="Procedure brightness"></div>
+        <div class="lrow">${seg('pmode', [['auto', 'Runways in use'], ['all', 'All'], ['none', 'None']], sel.mode === 'auto' ? 'auto' : sel.ids.length === cat.length ? 'all' : sel.ids.length ? '' : 'none')}</div>
+        <h4>Arrivals (STAR)</h4><div class="chips">${chips('STAR') || '<span class="none">None published</span>'}</div>
+        <h4>Departures (SID)</h4><div class="chips">${chips('SID') || '<span class="none">None published</span>'}</div>
+        <h4>Approaches</h4><div class="chips">${chips('IAP')}</div>
+        <p class="note">FAA data, cycle ${escapeHtml(G.world.nav.cycle || '')}. Tap a procedure to plot it.</p>`
+        : `<p class="note">Real procedures are plotted at US airports. Here the fixes are the game's own.</p>`}`;
+}
+
+function bindLayers() {
+    const el = $('#layers');
+    $('#layers-btn').onclick = () => { el.hidden = !el.hidden; $('#layers-btn').classList.toggle('on', !el.hidden); renderLayers(); };
+    el.addEventListener('click', e => {
+        if (!G) return;
+        if (e.target.closest('[data-close]')) { el.hidden = true; $('#layers-btn').classList.remove('on'); return; }
+        const b = e.target.closest('button');
+        if (!b) return;
+        const sel = procSel(), seg = b.closest('[data-layer]');
+        if (seg && seg.dataset.layer === 'wp') { layers.wp = b.dataset.v; store.set('layers', layers); }
+        else if (seg && seg.dataset.layer === 'pmode') {
+            const all = procCatalog().map(p => p.key);
+            Object.assign(sel, b.dataset.v === 'auto' ? { mode: 'auto', ids: [] } : { mode: 'pick', ids: b.dataset.v === 'all' ? all : [] });
+        } else if (b.dataset.proc) {
+            const ids = new Set(procShown());
+            if (ids.has(b.dataset.proc)) ids.delete(b.dataset.proc); else ids.add(b.dataset.proc);
+            Object.assign(sel, { mode: 'pick', ids: [...ids] });
+        } else return;
+        store.set('procs.' + G.world.icao, { mode: sel.mode, ids: sel.ids });
+        renderLayers();
+    });
+    el.addEventListener('input', e => {
+        if (e.target.id !== 'l-bright') return;
+        layers.bright = Number(e.target.value) / 100;
+        store.set('layers', layers);
+    });
+}
+
 /** The SID a departure from this runway flies to this gate, if any (runway transitions: RW31L, or RW31B for both). */
 function sidFor(gate, rwy) {
     const list = gate?.sids || [];
@@ -3140,22 +3256,7 @@ function draw() {
         c.textAlign = 'left'; c.textBaseline = 'alphabetic';
     }
 
-    // Published procedures (real data): STARs in from their entry fixes, SIDs off the departure runways, faint.
-    if (G.world.nav) {
-        c.save();
-        c.lineWidth = 1; c.setLineDash([3, 5]);
-        const line = (legs, col) => {
-            c.strokeStyle = col; c.beginPath(); let on = false;
-            for (const l of legs) { if (l.x == null) continue; const [lx, ly] = toS(l.x, l.y); if (on) c.lineTo(lx, ly); else { c.moveTo(lx, ly); on = true; } }
-            c.stroke();
-        };
-        c.globalAlpha = 0.35;
-        for (const f of G.world.fixes) {
-            if (f.kind === 'arr') for (const st of f.stars || []) line(st.legs, COLORS.fixArr);
-            if (f.kind === 'dep') for (const sd of f.sids || []) if (G.active.dep.some(e => sidFor(f, e) === sd)) line(sd.legs, COLORS.fixDep);
-        }
-        c.restore();
-    }
+    drawProcedures();
 
     // Fixes.
     c.font = '10px "JetBrains Mono", monospace';
@@ -3163,10 +3264,11 @@ function draw() {
         if (f.kind === 'app' && !G.active.arr.includes(f.end)) continue;
         const [fx, fy] = toS(f.x, f.y);
         if (f.kind === 'wp') {
-            // A procedure waypoint: a small triangle, named once zoomed in a little.
-            c.strokeStyle = c.fillStyle = COLORS.fixApp; c.globalAlpha = 0.55;
+            // A procedure waypoint: a small triangle, named once zoomed in a little (Layers: on, dim or off).
+            if (layers.wp === 'off') continue;
+            c.strokeStyle = c.fillStyle = COLORS.fixApp; c.globalAlpha = layers.wp === 'dim' ? 0.22 : 0.55;
             c.beginPath(); c.moveTo(fx, fy - 3); c.lineTo(fx + 3, fy + 2.5); c.lineTo(fx - 3, fy + 2.5); c.closePath(); c.stroke();
-            if (view.scale > 14) c.fillText(f.name, fx + 5, fy + 3);
+            if (view.scale > (layers.wp === 'dim' ? 40 : 14)) c.fillText(f.name, fx + 5, fy + 3);
             c.globalAlpha = 1;
             continue;
         }
@@ -3662,6 +3764,7 @@ function hitAircraft(sx, sy) {
 function hitFix(sx, sy) {
     for (const f of G.world.fixes) {
         if (f.kind === 'app' && !G.active.arr.includes(f.end)) continue;
+        if (f.kind === 'wp' && layers.wp === 'off') continue;
         const [x, y] = toS(f.x, f.y);
         if (Math.hypot(sx - x, sy - y) < 12) return f;
     }
@@ -4226,6 +4329,7 @@ function endShift() {
 function bindGame() {
     bindScope();
     bindCard();
+    bindLayers();
     $('#coord').addEventListener('click', e => { const b = e.target.closest('[data-ans]'); if (b && G) answer(Number(b.dataset.ans)); });
     // The airport info box folds away to one line. On pointerdown: the box is redrawn several times a second.
     $('#hud').addEventListener('pointerdown', e => {
@@ -4487,6 +4591,7 @@ async function startGame(airport, level) {
     const nav = await loadNav(airport.icao);
     newGame(airport, level, { ...opts }, nav);
     const game = G;
+    renderLayers();
     renderAsk();
     loading.clear(); busy('', null);
     // Only this shift's loading reaches the badge.

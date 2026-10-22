@@ -258,6 +258,20 @@
         .log .tap { cursor: pointer; }
         .log .tap:hover { background: rgba(255,255,255,.04); }
 
+        /* Map layers: waypoints and which published procedures are plotted. */
+        .layers {
+            position: absolute; right: 60px; top: 12px; z-index: 4; width: min(330px, calc(100% - 80px)); max-height: calc(100% - 24px); overflow: auto;
+            background: rgba(6,9,12,.95); border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 0 12px 12px;
+        }
+        .layers-h { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; margin: 0 -12px 8px; padding: 8px 12px; background: rgba(6,9,12,.98); font: 700 .7rem var(--mono); letter-spacing: .12em; border-bottom: 1px solid rgba(255,255,255,.1); }
+        .lrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; font-size: .84rem; }
+        .lrow .seg button { padding: 5px 9px; font-size: .74rem; }
+        .lrow input[type=range] { flex: 1; max-width: 170px; accent-color: var(--gold); }
+        .layers h4 { margin: 12px 0 6px; font-size: .64rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+        .layers .chips { padding: 0; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); }
+        .layers .chip-btn.on { background: rgba(242,193,78,.16); border-color: rgba(242,193,78,.6); color: #ffe7a8; }
+        .layers .note, .layers .none { color: var(--muted); font-size: .74rem; margin: 10px 0 0; }
+
         /* A question from one of the system's controllers. */
         .coord {
             position: absolute; right: 60px; bottom: 14px; z-index: 4; width: min(360px, calc(100% - 80px));
@@ -473,6 +487,7 @@
             </div>
             <section class="info" id="card" hidden aria-label="Selected aircraft"></section>
             <div class="coord" id="coord" hidden role="dialog" aria-label="Coordination"></div>
+            <div class="layers" id="layers" hidden aria-label="Map layers"></div>
             <div class="toast" id="toast"></div>
             <div class="loader" id="loader" hidden role="status" aria-live="polite">
                 <img src="/Images/inflight-mark.png" alt="" width="34" height="34">
@@ -498,6 +513,7 @@
                     <button data-speed="4">4×</button>
                 </div>
                 <span class="spacer"></span>
+                <button class="chip" id="layers-btn" title="Waypoints and published procedures on the scope">Layers</button>
                 <button class="chip" id="icons" title="Radar targets or aircraft icons">Targets</button>
                 <button class="chip" id="style" title="Switch between the dark radar and a light chart">Radar</button>
                 <button class="chip" id="voice" title="Read pilot transmissions aloud">Voice</button>

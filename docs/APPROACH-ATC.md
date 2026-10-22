@@ -347,7 +347,16 @@ and NASR (waypoints, navaids), via the MIT-licensed `@squawk/procedure-data`,
   22L at JFK), and the other fixes the procedures use are drawn as small
   waypoints, for direct-to and holds (the Direct to list shows the 24
   nearest).
-- STAR and SID tracks for the runways in use are drawn faintly on the scope.
+- **Layers** (the button by Targets) sets what's drawn:
+  - waypoints on, dim or off (off also hides them from tapping);
+  - a brightness slider for the plotted procedures;
+  - "Runways in use" (the STARs, the SIDs off the departure runways and the
+    ILS/LOC for the landing ones, updated when the runways change), All, or
+    None;
+  - every STAR, SID and approach at the field as a button, to plot or hide
+    it. Plotted procedures show their route, their name, and each fix's
+    altitude constraint once zoomed in.
+  Choices are kept on the device, per airport.
 - Outside the US, and at airports without data, the fixes stay invented.
 
 ## Controls
