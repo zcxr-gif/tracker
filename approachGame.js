@@ -1591,6 +1591,8 @@ function issueCall(ac, c) {
         delete c.spd;
     }
 
+    // IFATC 6.12.1: an aircraft on radar vectors isn't cleared for an approach; Tower gives it an entry.
+    if ((c.ils || c.visual) && G.rules.id === 'ifatc' && ac.vfrIn === 'RV' && !G.aiActing) { sys(`IFATC 6.12.1: ${ac.cs} is on radar vectors: vector it (toward the localizer if you like) and hand it to Tower for a pattern entry, without an approach clearance.`); return false; }
     // ---- approach type (ILS unless said otherwise), and the published RNAV procedure from a nearby fix
     const appType = c.ils ? (c.appType || 'ILS') : null;
     if (c.ils && !hasApproach(c.ils, appType)) { sys(`Runway ${c.ils.id} has no ${APP_NAME[appType]} approach.`); return false; }
@@ -1732,11 +1734,13 @@ function issueCall(ac, c) {
 
     // ---- vertical
     if (c.alt != null || c.ils) {
-        const a = clamp(Math.round((c.alt != null ? c.alt : ac.tAlt) / 1000) * 1000, G.world.minAlt, 24000);
+        // VFR and radar-vectors traffic can go down to pattern altitude (IFATC 6.12.1); everything else in whole thousands, at or above the minimum.
+        const low = (ac.vfrIn || ac.overfly) && c.alt != null && c.alt < G.world.minAlt;
+        const a = low ? Math.max(circuitAlt(ac), Math.round(c.alt / 100) * 100) : clamp(Math.round((c.alt != null ? c.alt : ac.tAlt) / 1000) * 1000, G.world.minAlt, 24000);
         const ref = onGround ? elev : ac.alt;
         ac.tAlt = a;
         const mva = onGround ? 0 : mvaHere(ac);
-        if (mva && a < mva) violation(ac, 'minimum vectoring altitude', `${fmtAlt(a)} is below the MVA where ${ac.cs} is (${fmtAlt(mva)})`);
+        if (mva && a < mva && !(low && Math.hypot(ac.x, ac.y) < 12)) violation(ac, 'minimum vectoring altitude', `${fmtAlt(a)} is below the MVA where ${ac.cs} is (${fmtAlt(mva)})`);
         if (c.ils) {
             // 7110.65 5-9-4: "maintain <altitude> until established on the localizer".
             parts.push(`maintain ${fmtAlt(a)} until established on the ${appType === 'ILS' || appType === 'LOC' ? 'localizer' : 'final approach course'}`);
@@ -1850,9 +1854,15 @@ function issueCall(ac, c) {
         // IFATC 3.6.3: besides an approach, Radar can hand over an arrival on radar vectors or flight following, close in and in VMC, for a pattern entry.
         const vectors = !(ac.appr || ac.pattern) && radarVectorsOk(ac);
         if (ac.kind !== 'arr' || ac.freq !== 'APP' || !(ac.appr || ac.pattern || vectors)) {
-            sys(G.rules.id === 'ifatc' && !visualWx() ? `${ac.cs} goes to Tower once it's cleared for an approach (no pattern entries below VMC).`
+            sys(G.rules.id === 'ifatc' && !visualWx() ? `${ac.cs} goes to Tower once it's cleared for an approach, or (IFATC 6.12.3) vectored toward an instrument final, inside 20 miles and below the glideslope.`
                 : G.rules.id === 'ifatc' ? `${ac.cs} goes to Tower once it's cleared for an approach, or on vectors within 15 miles.` : `${ac.cs} goes to Tower once it's cleared for an approach.`);
             return false;
+        }
+        // IFATC 6.12.1 / 6.12.2: on radar vectors, put on a recognizable leg and down to pattern altitude first (in VMC).
+        if (vectors && !G.aiActing && visualWx() && ac.vfrIn !== 'FF') {
+            const pa = circuitAlt(ac), d = Math.hypot(ac.x, ac.y);
+            if (Math.abs(ac.alt - pa) > 300 && Math.abs(ac.tAlt - pa) > 300) sys(`IFATC 6.12.1: descend ${ac.cs} to pattern altitude (${fmtAlt(pa)}, ${isProp(ac) ? '1,000' : '1,500'} ft above the field) before handing it to Tower.`, 'bad');
+            if (d > 10) sys(`IFATC 6.12.1: put ${ac.cs} on a recognizable leg (downwind, base) before the handover; it's ${Math.round(d)} miles out.`, 'bad');
         }
         atc(`${ac.radio}, contact ${facName('TWR')}${G.freqs?.TWR ? ' on ' + mhz(G.freqs.TWR[0]) : ''}.`, G.aiActing);
         pilot(ac, `Over to Tower, ${ac.radio}.`);
@@ -1975,6 +1985,7 @@ function issueCall(ac, c) {
         }
         if (!(towerInbound(ac) || ac.circuit || visualSeq) || ac.kind !== 'arr' || ac.state !== 'air' || ac.freq !== 'TWR' || ac.appr?.loc && c.entry) { sys(`${ac.cs} isn't an inbound for you to sequence.`); return false; }
         if (c.contInbound) { ac.contInbound = true; parts.push('continue inbound'); back.push('continuing inbound'); }
+        if (c.entry && c.entry.kind !== 'S' && !visualWx()) { sys(`Below VMC (${metText(G.met)}) there's no traffic pattern: a straight in only.`); return false; }
         if (c.entry) {
             const { kind, end } = c.entry;
             ac.via = null;
@@ -2327,7 +2338,15 @@ const towerInbound = ac => ac.kind === 'arr' && ac.freq === 'TWR' && !ac.appr?.l
 const instrumentHandoff = ac => !noRadar() && !ac.circuit && !!ac.appr && ac.appr.type !== 'VIS' && !['VIS', 'RV', 'FF'].includes(ac.handoff);
 const HANDOFF_SAY = { RV: 'radar vectors', FF: 'flight following' };
 /** Radar can hand an arrival not on an approach to Tower (IFATC 3.6.3): Infinite Flight rules, VMC, within 15 miles. */
-const radarVectorsOk = ac => G.rules.id === 'ifatc' && visualWx() && ac.state === 'air' && !ac.circuit && Math.hypot(ac.x, ac.y) < 15;
+const radarVectorsOk = ac => G.rules.id === 'ifatc' && ac.state === 'air' && !ac.circuit && Math.hypot(ac.x, ac.y) < 15 && (visualWx() || imcVectorsOk(ac));
+/** Below VMC (IFATC 6.12.3): vectored toward an instrument final, placed to set itself up for it: in the cone 5–20 NM out, within 45° of the course, below the glideslope. */
+function imcVectorsOk(ac) {
+    return G.active.arr.some(e => {
+        if (!hasApproach(e, 'ILS') && !hasApproach(e, 'RNAV')) return false;
+        const g = finalGeom(ac, e);
+        return g.along > 5 && g.along < 20 && Math.abs(g.xt) < g.along * Math.tan(20 * D2R) && Math.abs(diff(ac.hdg, e.course)) <= 45 && ac.alt <= G.world.elev + g.along * GS_FT_PER_NM + 100;
+    });
+}
 
 /** On Tower's frequency after a radar vectors or flight following handover: where it is, and what it's with you on. */
 function towerCheckInVfr(ac) {
@@ -3776,14 +3795,21 @@ function aiApproach(ac) {
     if (ac.vfrIn && !ac.appr && !ac.pattern) {
         if (!visualWx()) { ac.vfrIn = null; }
         else {
+            // IFATC 6.12.1: radar vectors to a recognizable leg (a base entry point), down to pattern altitude, then to Tower.
+            const e = G.active.arr.includes(ac.expect) ? ac.expect : G.active.arr[0], side = finalGeom(ac, e).xt > 0 ? 1 : -1;
+            const P = ptOnFinal(e, 7, 3 * side), toP = Math.hypot(P.x - ac.x, P.y - ac.y), d = Math.hypot(ac.x, ac.y);
             if (!ac.radarContact) {
                 ac.radarContact = true;
-                const h = brg(-ac.x, -ac.y);
+                const h = Math.round(brg(P.x - ac.x, P.y - ac.y) / 5) * 5 || 360;
                 if (ac.vfrIn === 'RV') ac.tHdg = h;
-                atc(`${ac.radio}, ${facName('APP')}, radar contact${ac.vfrIn === 'RV' ? `, fly heading ${hdg3(h)}, vectors to the field` : ', maintain VFR'}.`, true);
+                atc(`${ac.radio}, ${facName('APP')}, radar contact${ac.vfrIn === 'RV' ? `, fly heading ${hdg3(h)}, vectors for ${side > 0 ? 'right' : 'left'} base runway ${e.id}` : ', maintain VFR'}.`, true);
                 pilot(ac, `${ac.vfrIn === 'RV' ? `Heading ${hdg3(h)}` : 'Maintain VFR'}, ${ac.radio}.`);
             }
-            if (Math.hypot(ac.x, ac.y) < 12) ai(ac, { toTwr: true });
+            if (ac.vfrIn === 'RV') {
+                if (!ac.rvTurned && toP > 2) { const h = Math.round(brg(P.x - ac.x, P.y - ac.y) / 5) * 5 || 360; if (Math.abs(diff(ac.tHdg, h)) > 15) ac.tHdg = h; }
+                if (!ac.rvDescended && d < 16) { ac.rvDescended = true; const sc = vectorScan(ac, P.x, P.y); ai(ac, { alt: Math.max(circuitAlt(ac), sc ? Math.ceil((sc.hi + 1000) / 100) * 100 : 0) }); }   // 6.12.2: the terrain too
+                if (toP < 2.5 || d < 6) { ac.rvTurned = true; ai(ac, { toTwr: true }); }
+            } else if (d < 12) ai(ac, { toTwr: true });
             return;
         }
     }

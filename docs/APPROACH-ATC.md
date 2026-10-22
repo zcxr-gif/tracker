@@ -434,6 +434,25 @@ Not modelled: Center itself, cruise, Mach, active/away, Resume Flight
 - 6.11.8 The system's Approach brings parallel finals in level, 1,000 ft
   apart, and turns them in line abreast.
 
+**Radar vectors (IFATC 6.12):** under Infinite Flight rules:
+
+- 6.12.1 An aircraft on radar vectors is put on a recognizable leg and
+  brought down to pattern altitude (props 1,000 ft, jets 1,500 ft above the
+  field) before **Contact Tower (radar vectors)**. Handing one over more than
+  10 NM out, or not at or descending to pattern altitude, gets a note. VFR
+  and radar-vectors traffic can be given pattern altitude (other traffic
+  stays in whole thousands above the minimum).
+- It is **not cleared for an approach**: an ILS, GPS or visual clearance to a
+  VFR inbound asking for vectors is refused. Vector it toward the localizer
+  if you like; Tower gives the entry, sequence and clearance (3.6.3).
+- 6.12.2 The system's Approach vectors them for a base entry point 7 NM out,
+  3 NM abeam, and descends them to pattern altitude, or higher where the
+  terrain on the way needs it. It hands them over near that point.
+- 6.12.3 **Below VMC** a radar-vectors handover is only for an aircraft
+  pointed at an instrument final: in the cone 5–20 NM out, within 45° of the
+  course and below the glideslope. Tower then has a straight in only (no
+  pattern below VMC).
+
 **Holding (IFATC 6.7):** under Infinite Flight rules:
 
 - 6.7.2 **Hold at…** lists **Present position** and the fixes still ahead on
