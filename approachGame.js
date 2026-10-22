@@ -552,8 +552,15 @@ function sidFor(gate, rwy) {
 
 /* ---- ATIS: the runways, the approach in use, recommended procedures and remarks, broadcast as a lettered information ---- */
 
-const ATIS_KEEP = ['app', 'stars', 'sids', 'straight', 'remarks', 'notams'];
-const atisDefault = icao => ({ mode: 'auto', arr: [], dep: [], app: 'ILS', stars: [], sids: [], straight: 0, remarks: [], notams: [], ...Object.fromEntries(Object.entries(store.get('atis.' + icao, {})).filter(([k]) => ATIS_KEEP.includes(k))) });
+const ATIS_KEEP = ['apps', 'stars', 'sids', 'straight', 'remarks', 'notams'];
+function atisDefault(icao) {
+    const saved = store.get('atis.' + icao, {});
+    if (typeof saved.app === 'string' && !saved.apps) saved.apps = [saved.app];          // from when the ATIS named one approach
+    return { mode: 'auto', arr: [], dep: [], apps: ['ILS'], stars: [], sids: [], straight: 0, remarks: [], notams: [], ...Object.fromEntries(Object.entries(saved).filter(([k]) => ATIS_KEEP.includes(k))) };
+}
+/** The approach a runway gets under the ATIS: the first instrument approach it has of those in use, else the visual if that's in use, else the ILS. */
+const appFor = (e, cfg = G.atisCfg) => cfg.apps.find(t => t !== 'VIS' && hasApproach(e, t)) || (cfg.apps.includes('VIS') ? 'VIS' : 'ILS');
+const appWord = t => (t === 'VIS' ? 'visual' : APP_NAME[t]);
 /** Wind along a runway: positive headwind, negative tailwind. */
 const headwind = e => Math.round(G.wind.spd * Math.cos(diff(e.course, G.wind.dir) * D2R));
 const zuluText = () => { const z = new Date(G.zulu0 + G.t * 1000); return String(z.getUTCHours()).padStart(2, '0') + String(z.getUTCMinutes()).padStart(2, '0') + 'Z'; };
@@ -575,6 +582,7 @@ const REMARKS = [
     ['gateHold', 'Gate hold', 'gate hold procedures in effect'],
     ['rolling', 'Rolling dpt', 'rolling departures'],
     ['fpl', 'FPL required', 'flight plan required'],
+    ['noLight', 'No light aircraft', 'no light aircraft'],
 ];
 const NOTAMS = [
     ['event', 'Event', 'event in progress, expect delays'],
@@ -597,7 +605,7 @@ function metarText() {
 function atisText(cfg = G.atisCfg, letter = G.atis, act = G.active) {
     const list = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a[0];
     const L = PHONETIC[letter], ifr = G.rules.id === 'ifatc';
-    const app = act.arr.map(e => hasApproach(e, cfg.app) ? cfg.app : 'ILS')[0] || 'ILS';
+    const apps = cfg.apps.map(appWord), onlyIls = cfg.apps.length === 1 && cfg.apps[0] === 'ILS';
     const remarks = [...REMARKS.filter(r => cfg.remarks.includes(r[0])).map(r => r[2]), ...(cfg.straight ? [`straight out departures${ifr ? '' : ` to ${cfg.straight} feet`}`] : [])];
     const notams = NOTAMS.filter(n => cfg.notams.includes(n[0])).map(n => n[2]);
     const procs = (cfg.stars.length ? ` Arrivals expect the ${list(cfg.stars)} arrival.` : '') + (cfg.sids.length ? ` Departures expect the ${list(cfg.sids)} departure.` : '');
@@ -607,12 +615,12 @@ function atisText(cfg = G.atisCfg, letter = G.atis, act = G.active) {
         return `${apt} airport, ATIS information ${L.toUpperCase()}, time ${zuluText().slice(0, 4)} ZULU, Wind ${hdg3(G.wind.dir)} at ${G.wind.spd}${G.met.gust ? ' gusting ' + G.met.gust : ''}, Visibility ${VIS[G.met.vis] || G.met.vis}, Temperature ${G.temp}, Dew Point ${G.dew}, Altimeter ${G.altim}.`
             + (remarks.length ? ` Remarks, ${remarks.join(', ')}.` : '')
             + ` Landing Runways ${list(act.arr.map(e => e.id))}, Departing Runways ${list(act.dep.map(e => e.id))}.`
-            + (app !== 'ILS' ? ` Expect ${APP_NAME[app]} approaches.` : '') + procs
+            + (onlyIls ? '' : ` Expect ${list(apps)} approaches.`) + procs
             + (notams.length ? ` Notams, ${notams.join(', ')}.` : '')
             + ` Advise on initial contact, you have information ${L.toUpperCase()}.`;
     }
     return `${G.world.icao} information ${L}, ${zuluText()}. Wind ${hdg3(G.wind.dir)} at ${G.wind.spd}${G.met.gust ? ' gusting ' + G.met.gust : ''}${G.opts.weather ? ', ' + metText(G.met) : ''}, temperature ${G.temp}, dew point ${G.dew}, altimeter ${G.altim}. `
-        + `${APP_NAME[app].replace(/^./, c => c.toUpperCase())} approach${act.arr.length > 1 ? 'es' : ''} in use, landing runway ${list(act.arr.map(e => e.id))}, departing runway ${list(act.dep.map(e => e.id))}.`
+        + `${cap(list(apps))} approach${apps.length > 1 || act.arr.length > 1 ? 'es' : ''} in use, landing runway ${list(act.arr.map(e => e.id))}, departing runway ${list(act.dep.map(e => e.id))}.`
         + procs
         + (remarks.length ? ` Remarks: ${remarks.join(', ')}.` : '')
         + (notams.length ? ` NOTAMs: ${notams.join(', ')}.` : '')
@@ -624,8 +632,8 @@ function atisWarnings(cfg) {
     const act = cfg.mode === 'manual' ? activeFrom(cfg) : computeActive(G.world, G.wind), out = [];
     if (!act) return ['Pick at least one landing and one departure runway.'];
     for (const e of new Set([...act.arr, ...act.dep])) if (headwind(e) < -10) out.push(`Runway ${e.id} has a ${-headwind(e)} kt tailwind.`);
-    for (const e of act.arr) if (!hasApproach(e, cfg.app)) out.push(`Runway ${e.id} has no ${APP_NAME[cfg.app]} approach (ILS instead).`);
-    if (cfg.app === 'VIS' && !visualWx()) out.push(`The weather is below visual minimums (${metText(G.met)}).`);
+    for (const e of act.arr) if (!cfg.apps.some(t => hasApproach(e, t))) out.push(`Runway ${e.id} has none of these approaches (ILS instead).`);
+    if (cfg.apps.includes('VIS') && !visualWx()) out.push(`The weather is below visual minimums (${metText(G.met)}).`);
     return out;
 }
 
@@ -658,7 +666,7 @@ function renderAtis() {
     const rem = REMARKS.map(([k, l]) => tile(`data-rm="${k}"`, escapeHtml(l.toUpperCase()), d.remarks.includes(k))).join('')
         + tile('data-straight', 'STRAIGHT OUT DEPT', d.straight > 0, d.straight ? `to ${d.straight.toLocaleString('en-US')} ft` : '');
     const notams = NOTAMS.map(([k, l]) => tile(`data-nt="${k}"`, escapeHtml(l.toUpperCase()), d.notams.includes(k))).join('');
-    const apps = [['ILS', 'ILS'], ...(ifr ? [] : [['LOC', 'LOC']]), ['RNAV', ifr ? 'GPS' : 'RNAV'], ['VIS', 'VISUAL']].map(([v, l]) => tile(`data-app="${v}"`, l, d.app === v, '', 'sm')).join('');
+    const apps = [['ILS', 'ILS'], ...(ifr ? [] : [['LOC', 'LOC']]), ['RNAV', ifr ? 'GPS' : 'RNAV'], ['VIS', 'VISUAL']].map(([v, l]) => tile(`data-app="${v}"`, l, d.apps.includes(v), '', 'sm')).join('');
     // Only procedures traffic here can fly: arrivals that enter the scope far enough out, departures that reach an exit.
     const flown = (kind, key) => [...new Set(G.world.fixes.filter(f => f.kind === kind).flatMap(f => (f[key] || []).map(p => p.id)))].sort();
     const via = (kind, key, id) => G.world.fixes.filter(f => f.kind === kind && f[key]?.some(p => p.id === id)).map(f => f.name).join(' ');
@@ -677,7 +685,7 @@ function renderAtis() {
             <section class="ia-col"><div class="ia-h">REMARKS</div><div class="ia-grid">${rem}</div>
                 ${warn.length ? `<p class="ia-warn">${warn.map(escapeHtml).join('<br>')}</p>` : ''}</section>
             <section class="ia-col"><div class="ia-h">NOTAMS</div><div class="ia-grid">${notams}</div>
-                <div class="ia-h">APPROACH</div><div class="ia-grid">${apps}</div>
+                <div class="ia-h">APPROACHES</div><div class="ia-grid">${apps}</div>
                 ${stars ? `<div class="ia-h">ARRIVALS</div><div class="ia-grid">${stars}</div>` : ''}
                 ${sids ? `<div class="ia-h">DEPARTURES</div><div class="ia-grid">${sids}</div>` : ''}</section>
         </div>
@@ -687,6 +695,7 @@ function renderAtis() {
 function openAtis(open) {
     const el = $('#atis');
     el.hidden = !open;
+    $('#game').classList.toggle('atis-open', open);
     atisDraft = null;
     if (open) railView = 'ATIS'; else if (railView === 'ATIS') railView = null;
     renderAtis(); renderRail();
@@ -712,7 +721,7 @@ function bindAtis() {
             if (other) d.remarks = d.remarks.filter(x => x !== other);
         } else if (b.hasAttribute('data-straight')) d.straight = STRAIGHT_STEPS[(STRAIGHT_STEPS.indexOf(d.straight) + 1) % STRAIGHT_STEPS.length];
         else if (b.dataset.nt) toggle('notams', b.dataset.nt);
-        else if (b.dataset.app) d.app = b.dataset.app;
+        else if (b.dataset.app) { if (!(d.apps.length === 1 && d.apps[0] === b.dataset.app)) toggle('apps', b.dataset.app); }   // any number, never none
         else if (b.dataset.proc) toggle(b.dataset.proc, b.dataset.v);
         else return;
         renderAtis();
@@ -772,7 +781,7 @@ function bindRail() {
         const k = b.dataset.rail;
         if (k === 'ATIS') { openAtis(railView !== 'ATIS'); return; }
         if (k === 'STATUS') { hudMin = !hudMin; store.set('hudMin', hudMin); renderHud(); renderRail(); return; }
-        if (railView === 'ATIS') $('#atis').hidden = true;
+        if (railView === 'ATIS') { $('#atis').hidden = true; $('#game').classList.remove('atis-open'); }
         railView = railView === k ? null : k;
         renderStrips(); renderRail();
     });
@@ -942,9 +951,10 @@ function spawnArrival(dist) {
             pilot(ac, `${facName('TWR')}, ${ac.radio}, ${fmtAlt(alt)}, ${onIls ? `inbound on the ILS runway ${onIls.id}` : `inbound for landing, ${Math.round(r)} miles ${dir}`}, information ${PHONETIC[G.atis]}.`);
             return true;
         }
-        pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${PHONETIC[G.atis]}.`);
-        const expectType = hasApproach(ac.expect, G.atisCfg.app) ? G.atisCfg.app : 'ILS';
-        atc(`${ac.radio}, ${facName('APP')}, altimeter ${G.altim}, expect ${expectType === 'VIS' ? 'visual' : APP_NAME[expectType]} approach runway ${ac.expect.id}.`);
+        // As in Infinite Flight: it checks in asking for an approach, from its flight plan, and you answer.
+        const type = appFor(ac.expect);
+        ac.request = { kind: type, end: ac.expect, say: `the ${appWord(type)}`, tag: APP_TAG[type], checkin: true };
+        pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${PHONETIC[G.atis]}, requesting ${ac.via ? '' : 'radar vectors for '}the ${appWord(type)} approach runway ${ac.expect.id}.`);
         return true;
     }
     return false;
@@ -1399,7 +1409,7 @@ function issueCall(ac, c) {
     }
     if (c.unable) {
         if (!ac.request) { sys(`${ac.cs} hasn't asked for anything.`); return false; }
-        atc(`${ac.radio}, unable ${ac.request.say}, expect ${APP_NAME[G.atisCfg.app] || 'ILS'} runway ${ac.expect.id}.`, G.aiActing);
+        atc(`${ac.radio}, unable ${ac.request.say}, expect ${appWord(appFor(ac.expect))} runway ${ac.expect.id}.`, G.aiActing);
         pilot(ac, `Roger, ${ac.radio}.`);
         ac.request = null;
         return true;
@@ -1504,13 +1514,43 @@ function issueCall(ac, c) {
         }
     }
 
-    // ---- what to expect (IF: "expect vectors for the visual approach runway 2")
+    // ---- what to expect (IF: "expect vectors for the visual approach runway 2", or "expect …, continue as filed")
     if (c.expectApp) {
         if (ac.kind !== 'arr' || onGround) { sys(`${ac.cs} isn't an arrival.`); return false; }
         const { type, end } = c.expectApp;
         Object.assign(ac, { expect: end, expectType: type, request: null });
-        parts.push(`expect vectors for the ${appWord(type)} approach runway ${end.id}`);
+        parts.push(c.asFiled ? `expect the ${appWord(type)} approach runway ${end.id}` : `expect vectors for the ${appWord(type)} approach runway ${end.id}`);
         back.push(`expect the ${appWord(type)} ${end.id}`);
+    }
+    if (c.asFiled) {
+        // Back onto (or carry on along) the route it filed: its STAR or SID, or out to its exit.
+        if (!filedRoute(ac)) { sys(`${ac.cs} has no filed route to continue on.`); return false; }
+        if (ac.viaSaved) { ac.via = { ...ac.viaSaved, vert: true }; ac.viaSaved = null; }
+        else if (!ac.via && ac.kind === 'dep' && ac.gate?.x != null) ac.direct = ac.gate;
+        Object.assign(ac, { holdAt: null, orbit: null, request: null });
+        parts.push('continue as filed'); back.push('continue as filed');
+    }
+    if (c.toTwr) {
+        if (ac.kind !== 'arr' || ac.freq !== 'APP' || !(ac.appr || ac.pattern)) { sys(`${ac.cs} goes to Tower once it's cleared for an approach.`); return false; }
+        atc(`${ac.radio}, contact ${facName('TWR')}${G.freqs?.TWR ? ' on ' + mhz(G.freqs.TWR[0]) : ''}.`, G.aiActing);
+        pilot(ac, `Over to Tower, ${ac.radio}.`);
+        ac.freq = 'TWR';
+        if (ac.appr) ac.appr.est = true;
+        return true;
+    }
+    if (c.intentions) {
+        atc(`${ac.radio}, say intentions.`, G.aiActing);
+        const r = ac.request;
+        pilot(ac, r ? `${ac.radio}, we'd like ${r.say} approach runway ${r.end.id}.`
+            : ac.kind === 'arr' ? `${ac.radio}, ${appWord(ac.expectType || appFor(ac.expect))} approach runway ${ac.expect.id}, full stop.`
+            : `${ac.radio}, on course ${ac.gate.name}${ac.sid ? `, the ${ac.sid} departure` : ''}.`);
+        return true;
+    }
+    if (c.missed != null) {
+        if (ac.kind !== 'arr' || onGround) { sys(`${ac.cs} isn't an arrival.`); return false; }
+        ac.missedAlt = c.missed;
+        parts.push(`in case of missed approach, fly runway heading, climb and maintain ${fmtAlt(c.missed)}`);
+        back.push(`missed approach runway heading, ${fmtAlt(c.missed)}`);
     }
 
     // ---- approach clearance
@@ -1927,7 +1967,7 @@ function goAround(ac, reason, notYourFault) {
     if (e) ac.tHdg = e.course;
     // Missed approach: runway heading, climbing clear of the terrain along it, back to Approach for another go.
     const ahead = e ? { x: ac.x + Math.sin(e.course * D2R) * 15, y: ac.y + Math.cos(e.course * D2R) * 15 } : ac;
-    ac.tAlt = Math.max(G.world.minAlt, Math.ceil((G.world.elev + 3000) / 1000) * 1000, mvaCeilingWithin(4), terrainOn() ? Math.ceil(maxMvaAlong(ac, ahead) / 1000) * 1000 : 0);
+    ac.tAlt = Math.max(G.world.minAlt, ac.missedAlt || Math.ceil((G.world.elev + 3000) / 1000) * 1000, mvaCeilingWithin(4), terrainOn() ? Math.ceil(maxMvaAlong(ac, ahead) / 1000) * 1000 : 0);
     // No radar: it stays with Tower and needs a new pattern entry (IFATC 3.3).
     if (noRadar()) Object.assign(ac, { pattern: null, noEntryFlagged: false });
     else if (ac.freq === 'TWR') ac.freq = 'APP';
@@ -2451,11 +2491,11 @@ function pilotRequests() {
         if (ac.request || ac.asked || ac.freq !== 'APP' || Math.hypot(ac.x, ac.y) > 18) continue;
         ac.asked = true;
         const e = G.active.arr.includes(ac.expect) ? ac.expect : G.active.arr[0];
-        const want = G.atisCfg.app;
-        if (want !== 'VIS' && fieldInSight(ac) && Math.random() < 0.3) {
+        const ok = t => G.atisCfg.apps.includes(t), was = ac.expectType || appFor(e);
+        if (was !== 'VIS' && fieldInSight(ac) && Math.random() < (ok('VIS') ? 0.4 : 0.15)) {
             ac.request = { kind: 'VIS', end: e, say: 'the visual', tag: 'VIS' };
             pilot(ac, `${ac.radio}, field in sight, request the visual runway ${e.id}.`);
-        } else if (want !== 'RNAV' && hasApproach(e, 'RNAV') && G.world.nav && Math.random() < 0.12) {
+        } else if (was !== 'RNAV' && hasApproach(e, 'RNAV') && G.world.nav && Math.random() < (ok('RNAV') ? 0.2 : 0.06)) {
             ac.request = { kind: 'RNAV', end: e, say: 'the ' + APP_NAME.RNAV, tag: 'RNV' };
             pilot(ac, `${ac.radio}, request the ${APP_NAME.RNAV} runway ${e.id} approach.`);
         }
@@ -2815,9 +2855,11 @@ function holdFor(ac) {
 function aiApproach(ac) {
     if (ac.state !== 'air' || ac.pattern || ac.via?.kind === 'IAP') return;
     if (ac.request) {
-        // The system's Approach says yes to a visual in good weather once the aircraft is lined up with the flow, else no.
-        if (ac.request.kind === 'VIS' && visualWx() && Math.hypot(ac.x, ac.y) < 18) { ai(ac, { visual: ac.request.end }); if (ac.aiPlan) ac.aiPlan.phase = 'final'; return; }
-        ai(ac, { unable: true });
+        const r = ac.request;
+        // A check-in: what to expect (continue as filed when it has a route). Then a visual in good weather close in; anything else, unable.
+        if (r.checkin) ai(ac, { expectApp: { type: r.kind, end: r.end }, asFiled: !!ac.via });
+        else if (r.kind === 'VIS' && visualWx() && Math.hypot(ac.x, ac.y) < 18) { ai(ac, { visual: r.end }); if (ac.aiPlan) ac.aiPlan.phase = 'final'; return; }
+        else ai(ac, { unable: true });
     }
     if (ac.wxReq) {
         // Approve, with an altitude that clears the terrain on the new heading for the next five minutes.
@@ -2918,8 +2960,8 @@ function aiApproach(ac) {
 /** Turn onto the final: 30° intercept, maintain the join altitude until established, cleared ILS. */
 function turnIn(ac, plan) {
     const hdg = Math.round(norm(plan.e.course - 30 * plan.side));
-    const type = hasApproach(plan.e, G.atisCfg.app) && G.atisCfg.app !== 'VIS' ? G.atisCfg.app : 'ILS';
-    if (G.atisCfg.app === 'VIS' && visualWx() && fieldInSight(ac) && ai(ac, { visual: plan.e })) { plan.phase = 'final'; return; }
+    const pref = appFor(plan.e), type = pref === 'VIS' ? 'ILS' : pref;
+    if (G.atisCfg.apps.includes('VIS') && visualWx() && fieldInSight(ac) && ai(ac, { visual: plan.e })) { plan.phase = 'final'; return; }
     if (ai(ac, { hdg, ils: plan.e, appType: type, alt: plan.f.joinAlt, spd: 180 })) plan.phase = 'final';
     else plan.phase = 'new';
 }
@@ -4364,10 +4406,12 @@ function menuFor(ac) {
     const items = [], add = (label, x, hl) => items.push({ label, ...x, hl: !!hl });
     const air = ac.state === 'air';
     if (ac.request) {
-        const r = ac.request;
-        add(`Respond to ${r.kind === 'VIS' ? 'visual approach' : APP_NAME.RNAV + ' approach'} request`, { sub: () => [
-            { label: `Cleared ${r.say} approach runway ${r.end.id}`, cmd: r.kind === 'VIS' ? { visual: r.end } : { ils: r.end, appType: 'RNAV' } },
-            { label: `Expect vectors for the ${r.kind === 'VIS' ? 'visual' : APP_NAME.RNAV} approach…`, sub: () => endsFor(r.kind).map(e => ({ label: `Runway ${e.id}`, cmd: { expectApp: { type: r.kind, end: e } } })) },
+        const r = ac.request, filed = filedRoute(ac);
+        add(`Respond to ${appWord(r.kind)} approach request`, { sub: () => [
+            ...(filed ? [{ label: `Expect the ${appWord(r.kind)} runway ${r.end.id}, continue as filed`, cmd: { expectApp: { type: r.kind, end: r.end }, asFiled: true } }] : []),
+            { label: `Expect vectors for the ${appWord(r.kind)} runway ${r.end.id}`, cmd: { expectApp: { type: r.kind, end: r.end } } },
+            { label: 'Expect another approach…', sub: () => expectList(ac) },
+            { label: `Cleared ${appWord(r.kind)} approach runway ${r.end.id}`, cmd: r.kind === 'VIS' ? { visual: r.end } : { ils: r.end, appType: r.kind } },
             { label: 'Unable at this time', cmd: { unable: true } },
         ] }, true);
     }
@@ -4378,10 +4422,19 @@ function menuFor(ac) {
     return items;
 }
 
-/** Runway ends that have this kind of approach, landing runways first. */
-const endsFor = type => [...G.active.arr, ...G.world.ends.filter(e => !G.active.arr.includes(e))].filter(e => hasApproach(e, type));
+/** Runway ends with this kind of approach: the one the pilot asked for (or expects) first, then the landing runways, then the rest. */
+function endsFor(type, ac) {
+    const first = [ac?.request?.end, ac?.expect].filter(Boolean);
+    return [...new Set([...first, ...G.active.arr, ...G.world.ends])].filter(e => hasApproach(e, type));
+}
 const APP_TYPES = () => ['ILS', ...(G.rules.id === 'ifatc' ? [] : ['LOC']), 'RNAV', 'VIS'];
-const appWord = t => (t === 'VIS' ? 'visual' : APP_NAME[t]);
+/** A filed route to carry on along: the STAR or SID it's flying or was taken off, or a departure's exit. */
+const filedRoute = ac => !!(ac.via || ac.viaSaved || ac.kind === 'dep' && ac.gate);
+/** "Expect approach…": each type, then the runways (requested first); with a filed route, also "…, continue as filed". */
+const expectList = ac => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t, ac).flatMap(e => [
+    ...(filedRoute(ac) ? [{ label: `Runway ${e.id}, continue as filed`, cmd: { expectApp: { type: t, end: e }, asFiled: true } }] : []),
+    { label: `Runway ${e.id}`, cmd: { expectApp: { type: t, end: e } } },
+]) }));
 
 function groundMenu(ac, add) {
     const yours = ac.freq;
@@ -4447,14 +4500,22 @@ function airMenu(ac, add) {
             return out;
         } });
     }
-    if (ac.kind === 'arr' && !inbound) {
-        add('Expect approach…', { sub: () => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t).map(e => ({ label: `Runway ${e.id}`, cmd: { expectApp: { type: t, end: e } } })) })) });
-        add('Clear for approach', { sub: () => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t).map(e => ({ label: `Runway ${e.id}`, cmd: t === 'VIS' ? { visual: e } : { ils: e, appType: t } })) })) });
-        add('Misc. messages', { sub: () => [
-            ...(visualWx() && !ac.fieldReported ? [{ label: 'Report the airport in sight', cmd: { reportField: true } }] : []),
-            ...(ac.request ? [{ label: 'Unable', cmd: { unable: true } }] : []),
-        ] });
-    }
+    if (ac.kind === 'arr' && !inbound) add('Expect approach…', { sub: () => expectList(ac) });
+    const other = [
+        ...(ac.kind === 'arr' && ac.freq === 'APP' && (ac.appr || ac.pattern) ? [{ label: `Contact ${freqLabel('TWR')}`, cmd: { toTwr: true } }] : []),
+        ...(ac.kind === 'dep' && ac.freq === 'TWR' ? [{ label: 'Frequency change approved', cmd: { freqChange: true } }] : []),
+    ];
+    if (other.length) add('Contact other frequency', { sub: () => other });
+    if (ac.kind === 'arr' && !inbound) add('Clear for approach', { sub: () => APP_TYPES().map(t => ({ label: `${cap(appWord(t))} approach`, sub: () => endsFor(t, ac).map(e => ({ label: `Runway ${e.id}`, cmd: t === 'VIS' ? { visual: e } : { ils: e, appType: t } })) })) });
+    add('Ask for intentions', { cmd: { intentions: true } });
+    if (ac.kind === 'arr') add('Misc. messages', { sub: () => [
+        ...(visualWx() && !ac.fieldReported ? [{ label: 'Report the airport in sight', cmd: { reportField: true } }] : []),
+        ...(ac.request ? [{ label: 'Unable', cmd: { unable: true } }] : []),
+        { label: 'Say intentions', cmd: { intentions: true } },
+    ] });
+    if (ac.kind === 'arr') add('Missed approach instructions', { sub: () => [2000, 3000, 4000].map(h => Math.max(G.world.minAlt, Math.round((G.world.elev + h) / 1000) * 1000))
+        .filter((v, i, a) => a.indexOf(v) === i).map(v => ({ label: `Runway heading, climb and maintain ${fmtAlt(v)}`, cmd: { missed: v } })) });
+    if (filedRoute(ac) && (ac.viaSaved || ac.kind === 'dep' && !ac.via && !ac.direct)) add('Continue as filed', { cmd: { asFiled: true } });
     if (ac.appr) add('Go around', { cmd: { goAround: true } });
 }
 
@@ -4656,7 +4717,7 @@ function renderHud() {
     $('#hud').innerHTML = `${tog}<b>${G.world.icao}</b> ${zulu} · YOU <b>${['APP', 'TWR', 'GND'].filter(f => G.positions.has(f)).join(' ')}</b><br>`
         + `ATIS <b>${PHONETIC[G.atis].toUpperCase()}</b> · A<b>${G.altim}</b><br>`
         + `WIND <b>${hdg3(G.wind.dir)}/${String(G.wind.spd).padStart(2, '0')}${G.met.gust ? 'G' + G.met.gust : ''}</b>${G.opts.weather ? ` · <b>${metText(G.met)}</b>` : ''}<br>`
-        + `ARR <b>${G.active.arr.map(e => e.id).join(' ')}</b> · <b>${APP_TAG[G.atisCfg.app]}</b>${G.atisCfg.mode === 'manual' ? ' (set)' : ''}<br>`
+        + `ARR <b>${G.active.arr.map(e => e.id).join(' ')}</b> · <b>${G.atisCfg.apps.map(t => APP_TAG[t]).join('/')}</b>${G.atisCfg.mode === 'manual' ? ' (set)' : ''}<br>`
         + `DEP <b>${G.active.dep.map(e => e.id).join(' ')}</b><br>`
         + `EXIT <b>${terrainOn() ? 'by gate' : alt3(G.world.exitAlt) + '+'}</b> · MVA <b>${terrainOn() ? 'by sector' : alt3(G.world.minAlt)}</b>`
         + (G.surfaceStatus ? `<br><span class="taxi-st${G.ground ? '' : ' bad'}">TAXI MAP <b>${escapeHtml(G.surfaceStatus.length > 80 ? G.surfaceStatus.slice(0, 78) + '… (see log)' : G.surfaceStatus)}</b></span>` : '')

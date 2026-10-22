@@ -270,23 +270,16 @@
         /* Launched from the home screen: the site header goes, and nothing sits under the notch or the home bar. */
         html.standalone, html.standalone body { overscroll-behavior: none; background: #060b0f; }
         html.standalone .mast { display: none; }
-        html.standalone body { box-sizing: border-box; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+        /* Only the status bar is kept clear of; the game runs to every other edge and pads its own edges (rail, side panel, start page). */
+        html.standalone body { box-sizing: border-box; padding: env(safe-area-inset-top) 0 0; }
+        html.standalone .start { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); padding-bottom: max(48px, env(safe-area-inset-bottom)); }
+        html.standalone .side { padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
+        html.standalone .freq-rail { padding-left: env(safe-area-inset-left); }
+
+        /* The ATIS page takes the whole game: no list, log or score beside it. */
+        .game.atis-open { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) !important; }
+        .game.atis-open .side { display: none !important; }
         html.standalone body.in-game { height: 100vh; height: 100dvh; overflow: hidden; }
-        .card-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-        .card-head .cs { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; }
-        .card-head .radio { color: var(--ink2); font-size: .82rem; }
-        .badge { font-size: .62rem; font-weight: 800; letter-spacing: .1em; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; }
-        .badge.arr { background: rgba(79,209,255,.15); color: var(--arr); }
-        .badge.dep { background: rgba(242,193,78,.15); color: var(--dep); }
-        .card-status { margin: 4px 0 10px; font-family: var(--mono); font-size: .76rem; color: var(--ink2); line-height: 1.5; }
-        .row { display: grid; grid-template-columns: 62px 1fr; align-items: center; gap: 8px; margin-bottom: 6px; }
-        .row > label { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
-        .stepper { display: flex; align-items: center; gap: 4px; }
-        .stepper button { height: 32px; min-width: 38px; padding: 0 6px; border-radius: 7px; background: var(--panel2); border: 1px solid var(--line); font-family: var(--mono); font-size: .78rem; color: var(--ink2); }
-        .stepper button:hover { color: #fff; }
-        .stepper .val { flex: 1; text-align: center; font-family: var(--mono); font-weight: 700; font-size: 1rem; padding: 4px 0; border-radius: 7px; }
-        .stepper .val.dirty { color: var(--gold); background: rgba(242,193,78,.08); }
-        .send-row { display: flex; gap: 6px; margin: 8px 0 10px; }
         .btn { height: 36px; padding: 0 12px; border-radius: 8px; font-weight: 700; font-size: .84rem; background: var(--panel2); border: 1px solid var(--line); }
         .btn:hover { border-color: rgba(255,255,255,.25); }
         .btn.primary { background: var(--gold); color: #1a1408; border-color: transparent; flex: 1; }
@@ -357,11 +350,6 @@
         @media (min-width: 861px) { .scope-wrap.loading .coord { bottom: 84px; } }
 
         /* Tap-to-pick lists in the aircraft panel. */
-        .pick { margin: 0 0 6px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: #0f1318; }
-        .pick summary { cursor: pointer; padding: 9px 12px; font-weight: 700; font-size: .84rem; list-style: none; }
-        .pick summary::-webkit-details-marker { display: none; }
-        .pick summary::after { content: '▸'; float: right; color: var(--muted); }
-        .pick[open] summary::after { content: '▾'; }
         .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 5px; padding: 0 8px 8px; }
         .chip-btn { min-height: 38px; padding: 4px 6px; border-radius: 7px; background: #171c23; border: 1px solid rgba(255,255,255,.12); font-family: var(--mono); font-size: .76rem; font-weight: 700; color: #e6e9ee; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
         .chip-btn small { font-size: .6rem; font-weight: 500; color: var(--muted); }
@@ -513,6 +501,11 @@
             body.in-game .freq-rail { right: auto; bottom: 0; width: var(--rail); height: auto; flex-direction: column; border-right: 1px solid rgba(255,255,255,.1); border-bottom: 0; }
             body.in-game .rail-i.atis, body.in-game .rail-i[data-rail="STATUS"] { order: 0; }
             body.in-game .rail-i { flex: 1 1 0; padding: 4px; font-size: .6rem; white-space: normal; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.06); min-height: 40px; }
+            body.in-game .ifatis { position: absolute; inset: 0 0 0 var(--rail); }
+            body.in-game .ia-bar { flex-wrap: nowrap; }
+            body.in-game .ia-bar > span:first-child { flex-basis: auto; }
+            body.in-game .ia-bar .sp { display: block; }
+            body.in-game .ia-pub { flex: none; }
             body.in-game .ia-top, body.in-game .ia-bar { padding-top: 4px; padding-bottom: 4px; font-size: .7rem; }
             body.in-game .ia-metar { font-size: .64rem; }
             body.in-game .ia-cols { display: grid; grid-template-columns: 150px minmax(0, 1.2fr) minmax(0, 1fr); }
@@ -526,10 +519,13 @@
             body.in-game .zoom { gap: 4px; }
             body.in-game .zoom button { width: 30px; height: 30px; font-size: .95rem; }
             body.in-game .coord { top: auto; bottom: 8px; right: 50px; width: min(340px, 60%); }
-            body.in-game .stepper button { height: 28px; min-width: 32px; }
         }
-            html.standalone body.in-game .game { height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
-        html.standalone .ifatis { padding-top: 0; }
+        html.standalone body.in-game .game { height: calc(100vh - env(safe-area-inset-top)); height: calc(100dvh - env(safe-area-inset-top)); }
+        html.standalone .ifatis { padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
+        @media (max-height: 540px) and (orientation: landscape) {
+            /* Sideways: the rail runs under the notch side and its labels stay clear of it. */
+            html.standalone body.in-game .scope-wrap { --rail: calc(74px + env(safe-area-inset-left)); }
+        }
     </style>
 </head>
 <body>

@@ -137,6 +137,9 @@ The ATIS page is laid out like Infinite Flight's:
 - columns of Runways, Remarks and NOTAMs;
 - the text as it will be read.
 
+While it's open it takes the whole game beside the frequency list: the
+aircraft list, log and score step aside until it closes.
+
 Nothing changes until **PUBLISH**:
 - the letter advances;
 - the full ATIS goes in the log;
@@ -160,14 +163,17 @@ What it sets:
   - **No intersection departures** is enforced: dragging a departure to an
     intersection is refused.
   - The rest are read out for pilots: pattern work, flow control, long taxi,
-    gate hold, rolling departures, FPL required.
+    gate hold, rolling departures, FPL required, no light aircraft.
 - **NOTAMs**: event, size restrictions, severe weather, low visibility. These
   are read out only.
-- **Approach in use**: ILS, LOC, RNAV/GPS or visual.
-  - Arrivals are told to *"expect RNAV (GPS) approach runway 04R"* on
-    check-in.
-  - The system's Approach clears that type, falling back to the ILS on a
-    runway without it.
+- **Approaches**: any mix of ILS, LOC, RNAV/GPS and visual (at least one),
+  read out as *"RNAV (GPS), ILS and visual approaches in use"*.
+  - An arrival checks in asking for the first of them its runway has, e.g.
+    *"…requesting the RNAV (GPS) approach runway 04L"*.
+  - Pilots ask for an accepted visual or RNAV more often than for one that
+    isn't.
+  - The system's Approach clears the same way, falling back to the ILS on
+    a runway with none of them.
 - **Recommended arrivals and departures.** These list only the published
   STARs and SIDs the game's traffic can fly here: a STAR has to enter the
   scope at least 14 NM out.
@@ -181,7 +187,7 @@ What it sets:
   - Under Real-life rules it is also part of the clearance: *"fly runway
     heading until 3,000, then the DEEZZ6 departure, cleared for takeoff."*
 
-The approach type, recommended procedures, remarks and NOTAMs are remembered
+The approaches, recommended procedures, remarks and NOTAMs are remembered
 per airport. Runways always start by the wind.
 
 ## Speed
@@ -484,14 +490,30 @@ The controls work the way the Infinite Flight ATC client does.
   turns into its command menu.
   - **The menu**: numbered items with sub-menus (›) and a back arrow.
     Airborne, it offers:
-    - the pilot's request first, in green;
+    - the pilot's request first, in green. Arrivals check in asking for
+      an approach and runway (*"requesting the ILS approach runway 31L"*, or
+      *"radar vectors for…"* without a filed STAR). The answers:
+      - *"expect the ILS approach runway 31L, continue as filed"* (only with
+        a filed route);
+      - *"expect vectors for…"*;
+      - another approach;
+      - clear it now;
+      - unable.
     - Vectoring instructions: fly heading, climb or descend, direct to,
       hold at, 360s, descend or climb via;
     - Request speed;
-    - Expect approach (*"expect vectors for the visual approach runway
-      22L"*);
+    - Expect approach: each type, then the runways, the one the pilot asked
+      for first. With a filed route each runway also comes as *"…, continue
+      as filed"*;
+    - Contact other frequency: Tower once it's cleared for an approach, or
+      frequency change for a departure;
     - Clear for approach;
+    - Ask for intentions (the pilot says what it wants);
     - Misc. messages;
+    - Missed approach instructions: runway heading and an altitude. A go
+      around then climbs to it;
+    - Continue as filed: back onto its STAR (or SID, or exit) after
+      vectors;
     - Go around.
 
     On the ground and the runway it offers:
