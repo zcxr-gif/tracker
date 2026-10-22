@@ -792,8 +792,10 @@ function issueCall(ac, c) {
     if (c.hdg != null && onGround && !G.aiActing) { sys(`${ac.cs} is on the ground: headings are for airborne aircraft.`); delete c.hdg; delete c.turn; }
     if ((c.holdFix || c.orbit) && ac.emerg && !G.aiActing) { pilot(ac, `Unable, ${ac.radio}, we need to land as soon as possible.`); return false; }
     if ((c.luaw || c.takeoff) && ac.freq === 'GND') { sys(`${ac.cs} is still on Ground: have it contact Tower first.`); return false; }
-    if (c.luaw && ac.state !== 'wait') { sys(`${ac.cs} is not holding short.`); return false; }
-    if (c.takeoff && ac.state !== 'wait' && ac.state !== 'luaw') { sys(`${ac.cs} is not at the runway.`); return false; }
+    // IFATC 3.2.6: jets are ready at the runway, so Tower may clear one still taxiing up to it.
+    const early = ac.state === 'taxi' && ac.purpose === 'runway' && ac.freq === 'TWR';
+    if (c.luaw && ac.state !== 'wait' && !early) { sys(`${ac.cs} is not holding short.`); return false; }
+    if (c.takeoff && ac.state !== 'wait' && ac.state !== 'luaw' && !early) { sys(`${ac.cs} is not at the runway.`); return false; }
     if (c.luaw && G.aircraft.some(a => a !== ac && a.state === 'luaw' && a.rwy.phys === ac.rwy.phys)) {
         sys(`Someone is already lined up on ${ac.rwy.id}.`); return false;
     }
@@ -944,6 +946,36 @@ function issueCall(ac, c) {
         }
     }
 
+    // ---- Tower: departures (IFATC 3.2)
+    if (c.freqChange) {
+        if (ac.kind !== 'dep' || ac.state !== 'air' || ac.freq !== 'TWR') { sys(`${ac.cs} isn't a departure still with you.`); return false; }
+        if (!G.aiActing && pastRunwayEnd(ac) < 0.5) violation(ac, 'IFATC 3.2.11', `${ac.cs} was switched before half a mile past the runway end, a critical phase of flight`);
+        atc(`${ac.radio}, frequency change approved.`, G.aiActing);
+        pilot(ac, `Frequency change approved, good day, ${ac.radio}.`);
+        departureCheckIn(ac);
+        return true;
+    }
+    if (c.holdShort || c.seqNo) {
+        if (ac.state !== 'wait') { sys(`${ac.cs} isn't holding short.`); return false; }
+        const n = departureNumber(ac);
+        ac.acked = true; ac.remindAt = G.t + 240;
+        if (c.seqNo && n > 1) {
+            atc(`${ac.radio}, number ${n} for departure.`, G.aiActing);
+            pilot(ac, `Number ${n}, ${ac.radio}.`);
+        } else {
+            if (c.seqNo) sys('IFATC 3.2.2: number 1 for departure gets "hold short".');
+            atc(`${ac.radio}, hold short runway ${ac.rwy.id}.`, G.aiActing);
+            pilot(ac, `Holding short ${ac.rwy.id}, ${ac.radio}.`);
+        }
+        return true;
+    }
+    if (c.immediate) {
+        c.takeoff = true;
+        const close = G.aircraft.some(a => a.appr?.loc && a.appr.end.phys === ac.rwy.phys && a.appr.along <= 3);
+        if (G.rules.id === 'ifatc' && !G.aiActing && !close) violation(ac, 'IFATC 3.2.7', `"Immediate take-off" is for an arrival close in on final; there's none for ${ac.rwy.id}`);
+        ac.immediate = true;
+    }
+
     // ---- runway
     if (c.cancelTO) {
         if (ac.state === 'lineup' && ac.lineupThen === 'roll') {
@@ -961,7 +993,7 @@ function issueCall(ac, c) {
         return true;
     }
     if (c.luaw) {
-        startLineup(ac, 'luaw');
+        if (ac.state === 'taxi') ac.preClr = 'luaw'; else startLineup(ac, 'luaw');
         parts.push(`runway ${ac.rwy.id}, line up and wait`);
         back.push(`line up and wait ${ac.rwy.id}`);
     }
@@ -969,12 +1001,14 @@ function issueCall(ac, c) {
         const w = departureWake(ac);
         if (w) violation(ac, '7110.65 3-9-6', `${ac.cs} rolled ${Math.round(w.since)} seconds after ${w.lead} (${WAKE_NAME[w.wake]}); the wake turbulence interval is ${w.need / 60} minutes`);
         if (ac.state === 'luaw') { ac.state = 'roll'; ac.hdg = ac.rwy.course; rollStarted(ac); }
+        else if (ac.state === 'taxi') ac.preClr = 'roll';
         else startLineup(ac, 'roll');
         if (mine(ac)) award(ac, 3);
         const runwayHdg = Math.abs(diff(ac.tHdg, ac.rwy.course)) < 3;
         const hdgPart = runwayHdg ? 'fly runway heading' : `fly heading ${hdg3(ac.tHdg)}`;
-        parts.push(`${wind}, runway ${ac.rwy.id}, ${hdgPart}, cleared for takeoff`);
-        back.push(`${runwayHdg ? 'runway heading' : 'heading ' + hdg3(ac.tHdg)}, cleared for takeoff ${ac.rwy.id}`);
+        const imm = ac.immediate ? 'immediate ' : '';
+        parts.push(`${wind}, runway ${ac.rwy.id}, ${hdgPart}, cleared for ${imm}takeoff`);
+        back.push(`${runwayHdg ? 'runway heading' : 'heading ' + hdg3(ac.tHdg)}, cleared for ${imm}takeoff ${ac.rwy.id}`);
     }
     if (c.land) {
         ac.landClr = true;
@@ -1020,8 +1054,8 @@ function planTaxi(ac, tgt) {
     if (tgt.kind === 'rwy') {
         if (!dep) return { err: 'landed: taxi it to a gate' };
         const hold = gr.holds.get(tgt.end);
-        if (!hold) return { err: `no holding point for ${tgt.end.id}` };
-        goal = hold.node; purpose = 'runway';
+        if (!hold && !tgt.inter) return { err: `no holding point for ${tgt.end.id}` };
+        goal = tgt.inter ? tgt.inter.node : hold.node; purpose = 'runway';
     } else if (tgt.kind === 'gate') {
         if (dep) return { err: 'departing: taxi it to a runway' };
         if (G.aircraft.some(a => a !== ac && a.stand === tgt.gate)) return { err: `gate ${tgt.gate.ref} is taken` };
@@ -1051,7 +1085,7 @@ function taxiClearance(ac, want, parts, back) {
     const plan = planTaxi(ac, tgt);
     if (plan.err) { sys(`${ac.cs}: ${plan.err}.`); return false; }
     const { r, purpose, hold } = plan;
-    if (purpose === 'runway') ac.rwy = tgt.end;
+    if (purpose === 'runway') { ac.rwy = tgt.end; ac.inter = tgt.inter || null; }
     if (purpose === 'gate') ac.stand = tgt.gate;
     ac.heldAt = hold;
     const wasTower = ac.toTower;
@@ -1067,7 +1101,7 @@ function taxiClearance(ac, want, parts, back) {
     const hs = r.crossings.length ? `, hold short of runway ${crossName(r.crossings[0])}` : '';
     if (!G.rules.taxiVia) {
         // Infinite Flight: by runway or parking; the route is the one on the map.
-        const where = purpose === 'runway' ? `runway ${ac.rwy.id}` : purpose === 'gate' ? 'parking' : null;
+        const where = purpose === 'runway' ? `runway ${ac.rwy.id}${ac.inter ? ' at ' + ac.inter.name : ''}` : purpose === 'gate' ? 'parking' : null;
         parts.push(where ? `taxi to ${where}${hs}${purpose === 'runway' ? ', contact tower when ready' : ''}` : `taxi as shown, ${hold}${hs}`);
         back.push(where ? `taxi to ${where}${hs}` : `${hold}${hs}`);
     } else if (purpose === 'runway') {
@@ -1085,7 +1119,7 @@ function taxiClearance(ac, want, parts, back) {
 
 /** A departure at its holding point goes over to Tower and calls ready. */
 function toTower(ac) {
-    Object.assign(ac, { freq: 'TWR', toTower: false, remindAt: G.t + 240 });
+    Object.assign(ac, { freq: 'TWR', toTower: false, remindAt: G.t + (G.rules.id === 'ifatc' ? 60 : 240), waitSince: ac.waitSince || G.t, acked: false });
     if (G.positions.has('GND')) award(ac, 3);
     pilot(ac, `${G.world.icao} Tower, ${ac.radio}, holding short runway ${ac.rwy.id}, ready for departure.`);
 }
@@ -1103,6 +1137,44 @@ function startTaxi(ac, r, purpose) {
 }
 
 /** Onto the runway from the holding point, then line up and wait or roll. */
+/** A departure checks in with Departure (Approach). */
+function departureCheckIn(ac) {
+    ac.freq = 'APP';
+    pilot(ac, `${G.world.icao} Departure, ${ac.radio}, ${fmtAlt(Math.round(Math.max(ac.alt, G.world.elev + 500) / 100) * 100)} climbing ${fmtAlt(ac.tAlt)}.`);
+    atc(`${ac.radio}, ${G.world.icao} Departure, radar contact.`, !G.positions.has('APP'));
+}
+
+/** How far past the departure end of its runway an airborne departure is, in NM (negative: still over it). */
+function pastRunwayEnd(ac) {
+    const e = ac.rwy, c = e.course * D2R;
+    return (ac.x - e.thr.x) * Math.sin(c) + (ac.y - e.thr.y) * Math.cos(c) - e.len;
+}
+
+/**
+ * Departures still with Tower (Infinite Flight mode): the system's Tower hands
+ * them off half a mile past the end; the player's has until 3 miles.
+ */
+function towerDepartures() {
+    for (const ac of G.aircraft) {
+        if (ac.kind !== 'dep' || ac.state !== 'air' || ac.freq !== 'TWR') continue;
+        const past = pastRunwayEnd(ac);
+        if (!G.positions.has('TWR')) { if (past >= 0.5) ai(ac, { freqChange: true }); }
+        else if (past >= 3) {
+            G.score -= 2;
+            sys(`IFATC 3.2.11: ${ac.cs} should have been handed to Departure half a mile past the runway end.`, 'bad');
+            atc(`${ac.radio}, frequency change approved.`, true);
+            departureCheckIn(ac);
+        }
+    }
+}
+
+/** Departures holding short of a runway, in the order they got there (IFATC 3.2.2): a lined-up one counts as number 1. */
+function departureNumber(ac) {
+    const q = G.aircraft.filter(a => a.kind === 'dep' && a.state === 'wait' && a.freq === 'TWR' && a.rwy === ac.rwy).sort((a, b) => (a.waitSince || 0) - (b.waitSince || 0));
+    const lined = G.aircraft.some(a => a !== ac && (a.state === 'luaw' || (a.state === 'lineup' && a.lineupThen === 'luaw')) && a.rwy.phys === ac.rwy.phys);
+    return q.indexOf(ac) + 1 + (lined ? 1 : 0);
+}
+
 /**
  * A takeoff roll begins: IFATC 3.1.1 (in Infinite Flight mode) — the departure
  * ahead must be airborne, and an arrival ahead clear of the runway edge.
@@ -1122,10 +1194,10 @@ function startLineup(ac, then) {
         if (then === 'roll') rollStarted(ac);
         return;
     }
-    const hold = G.ground.holds.get(ac.rwy), c = ac.rwy.course * D2R;
-    ac.lineupAt = { x: ac.rwy.thr.x + Math.sin(c) * hold.along, y: ac.rwy.thr.y + Math.cos(c) * hold.along };
+    const hold = G.ground.holds.get(ac.rwy), c = ac.rwy.course * D2R, along = ac.inter ? ac.inter.along : hold.along;
+    ac.lineupAt = { x: ac.rwy.thr.x + Math.sin(c) * along, y: ac.rwy.thr.y + Math.cos(c) * along };
     ac.state = 'lineup';
-    ac.spd = 8;
+    ac.spd = ac.immediate ? 14 : 8;
 }
 
 /** A Super or Heavy left this runway (or a close parallel) too recently: 2 minutes, 3 behind a Super. */
@@ -1386,7 +1458,7 @@ function groundStep(ac, dt) {
     case 'pushed':
         return true;
     case 'lineup': {
-        const t = ac.lineupAt, d = Math.hypot(t.x - ac.x, t.y - ac.y), stepNm = 8 / 3600 * dt;
+        const t = ac.lineupAt, d = Math.hypot(t.x - ac.x, t.y - ac.y), stepNm = (ac.immediate ? 14 : 8) / 3600 * dt;
         if (d <= stepNm) {
             Object.assign(ac, { x: t.x, y: t.y, hdg: ac.rwy.course, state: ac.lineupThen, spd: 0 });
             if (ac.state === 'roll') rollStarted(ac);
@@ -1456,6 +1528,11 @@ function taxiStep(ac, dt) {
     if (cx && !cx.asked && ac.s >= cx.stopS - 0.004) {
         cx.asked = true; ac.crossReq = cx;
         pilot(ac, `${G.world.icao} ${FREQ_NAME[crossOwner(ac)]}, ${ac.radio}, holding short of runway ${crossName(cx)}, request to cross.`);
+    }
+    if (G.rules.id === 'ifatc' && ac.purpose === 'runway' && ac.toTower && ac.freq === 'GND' && end - ac.s < 0.15 && !ac.crossReq) {
+        ac.freq = 'TWR'; ac.toTower = false; ac.waitSince = G.t; ac.remindAt = G.t + 60;
+        if (G.positions.has('GND')) award(ac, 3);
+        pilot(ac, `${G.world.icao} Tower, ${ac.radio}, approaching runway ${ac.rwy.id}, ready for departure.`);
     }
     if (ac.s >= end - 0.0005) arrive(ac);
 }
@@ -1569,7 +1646,8 @@ function progressive(ac, c, parts, back) {
 function arrive(ac) {
     ac.spd = 0; ac.route = null;
     if (ac.purpose === 'runway') {
-        Object.assign(ac, { state: 'wait', hdg: brg(ac.rwy.thr.x - ac.x, ac.rwy.thr.y - ac.y) });
+        Object.assign(ac, { state: 'wait', hdg: brg(ac.rwy.thr.x - ac.x, ac.rwy.thr.y - ac.y), waitSince: ac.waitSince || G.t });
+        if (ac.preClr) { const then = ac.preClr; ac.preClr = null; startLineup(ac, then); return; }
         // Told to contact Tower when ready (or the system works Ground): over it goes. Otherwise it waits on Ground.
         if (ac.freq !== 'GND' || ac.toTower || !G.positions.has('GND')) toTower(ac);
         else {
@@ -1658,6 +1736,7 @@ function aiTerrainNet() {
 
 function aiControl() {
     if (G.opts.emerg) emergencyCheck();
+    if (G.rules.id === 'ifatc') towerDepartures();
     coordinate();
     if (!G.positions.has('APP')) { aiConflicts(); aiTerrainNet(); }
     for (const ac of G.aircraft) {
@@ -2328,7 +2407,7 @@ function step(ac, dt) {
         return;
     }
     if (ac.state === 'roll') {
-        ac.spd += 3.5 * dt;
+        ac.spd += (ac.immediate ? 4.2 : 3.5) * dt;
         move(ac, dt);
         if (ac.spd >= p.vr) {
             ac.state = 'air';
@@ -2336,10 +2415,10 @@ function step(ac, dt) {
             // Clear of the runway once airborne and past ~6,000 ft (7110.65 3-9-6).
             G.occupied.set(ac.rwy.phys, G.t + 5);
             G.lastDepAt.set(ac.rwy.phys, G.t);
-            ac.freq = 'APP';
             if (p.wake === 'S' || p.wake === 'H') G.depWake.set(ac.rwy.phys, { t: G.t, cs: ac.cs, wake: p.wake });
-            pilot(ac, `${G.world.icao} Departure, ${ac.radio}, ${fmtAlt(Math.round((elev + 500) / 100) * 100)} climbing ${fmtAlt(ac.tAlt)}.`);
-            atc(`${ac.radio}, ${G.world.icao} Departure, radar contact.`);
+            // IFATC 3.2.11: Tower keeps it until half a mile past the departure end, not right after rotation.
+            if (G.rules.id === 'ifatc') ac.freq = 'TWR';
+            else departureCheckIn(ac);
         }
         return;
     }
@@ -3136,7 +3215,7 @@ function intentTag(a) {
     if (a.emerg) return (a.emerg.mayday ? 'MAYDAY ' : 'PAN ') + (a.appr ? a.appr.end.id : '');
     if (a.lowAlt) return 'LA ' + alt3(mvaHere(a));
     if (a.wxReq) return 'WX ' + a.wxReq.deg + a.wxReq.dir;
-    if (a.appr) return (a.appr.loc ? 'LOC ' : 'ILS ') + a.appr.end.id + (a.landClr ? ' CL' : '');
+    if (a.appr) return (a.appr.loc ? 'LOC ' : 'ILS ') + a.appr.end.id + (a.landClr ? ' CL' : '') + (a.appr.loc ? ' ' + a.appr.along.toFixed(1) : '');
     if (a.holdAt) return 'HLD ' + a.holdAt.fix.name;
     if (a.orbit) return '360' + a.orbit.dir;
     if (a.direct) return '>' + a.direct.name;
@@ -3213,7 +3292,16 @@ function groundTarget(sx, sy) {
         // Dropped toward one end: depart from that end.
         const end = G.world.ends.filter(e => e.phys === rw.phys)
             .sort((a, b) => Math.hypot(a.thr.x - wx, a.thr.y - wy) - Math.hypot(b.thr.x - wx, b.thr.y - wy))[0];
-        if (end) return { kind: 'rwy', end, x: end.thr.x, y: end.thr.y, key: 'r' + end.id };
+        if (end) {
+            // Dropped on a taxiway that meets the runway part way along: an intersection departure (IFATC 3.2.5).
+            const ex = (gr.exits.get(end) || []).map(x => ({ ...x, n: gr.nodes[x.node] })).filter(x => x.along > 0.5 && x.along < end.len * 0.6)
+                .sort((a, b) => Math.hypot(a.n.x - wx, a.n.y - wy) - Math.hypot(b.n.x - wx, b.n.y - wy))[0];
+            if (ex && Math.hypot(ex.n.x - wx, ex.n.y - wy) < 22 * px) {
+                const name = ex.n.edges.find(e => e.name)?.name || 'the intersection';
+                return { kind: 'rwy', end, inter: { node: ex.node, along: ex.along, name, left: Math.round((end.len - ex.along) * 6076 / 100) * 100 }, x: ex.n.x, y: ex.n.y, key: 'r' + end.id + '@' + ex.node };
+            }
+            return { kind: 'rwy', end, x: end.thr.x, y: end.thr.y, key: 'r' + end.id };
+        }
     }
     let node = null, nd = 22 * px;
     for (const n of gr.main) { const d = Math.hypot(n.x - wx, n.y - wy); if (d < nd && !gr.onRunway(n)) { nd = d; node = n; } }
@@ -3236,7 +3324,8 @@ function dropPlan(ac, tgt) {
     const plan = planTaxi(ac, tgt);
     if (plan.err) return { err: true, label: cap(plan.err) };
     const via = plan.r.names.length ? ' via ' + plan.r.names.join(' ') : '';
-    const label = tgt.kind === 'rwy' ? `Runway ${tgt.end.id}${via}` : tgt.kind === 'gate' ? `Gate ${tgt.gate.ref}${via}` : `${via.trim() || 'Taxi'}, ${plan.hold}`;
+    if (tgt.kind === 'rwy' && tgt.inter && tgt.inter.left < 6000) return { err: true, label: `Only ${tgt.inter.left.toLocaleString('en-US')} ft left from ${tgt.inter.name}: too short` };
+    const label = tgt.kind === 'rwy' ? `Runway ${tgt.end.id}${tgt.inter ? ` at ${tgt.inter.name} (${tgt.inter.left.toLocaleString('en-US')} ft)` : ''}${via}` : tgt.kind === 'gate' ? `Gate ${tgt.gate.ref}${via}` : `${via.trim() || 'Taxi'}, ${plan.hold}`;
     return { label: cap(label) + (plan.r.crossings.length ? ` · hold short ${plan.r.crossings[0].label}` : ''), cmd: { taxi: tgt }, r: plan.r };
 }
 
@@ -3464,7 +3553,7 @@ function renderCard(force) {
     el.hidden = !ac;
     $('#scope-wrap').classList.toggle('info-open', !!ac);
     if (!ac) { cardKey = 'none'; el.innerHTML = ''; return; }
-    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}|${!!ac.toTower}|${!!ac.toGround}|${ac.purpose}|${!!ac.prog}|${ac.route?.crossings.filter(x => x.cleared).length}`;
+    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}|${!!ac.toTower}|${!!ac.toGround}|${ac.purpose}|${!!ac.prog}|${ac.preClr}|${ac.route?.crossings.filter(x => x.cleared).length}`;
     if (!force && key === cardKey) { updateCard(); return; }
     cardKey = key;
     const ground = ac.state !== 'air';
@@ -3517,6 +3606,9 @@ function renderCard(force) {
         </div>
         <div class="card-status" id="card-status"></div>
         ${crossBtn}
+        ${yours && ac.state === 'taxi' && ac.purpose === 'runway' && ac.freq === 'TWR' ? (ac.preClr ? `<div class="card-empty">${ac.preClr === 'roll' ? 'Cleared for takeoff' : 'Line up and wait'} when it reaches the runway.</div>` : `<div class="btn-row">
+            <button class="btn" data-act="luaw">Line up and wait</button><button class="btn" data-act="immediate">Immediate takeoff</button>
+            <button class="btn primary" data-act="takeoff">Cleared for takeoff ${ac.rwy.id}</button></div>`) : ''}
         ${yours && (ac.state === 'roll' || (ac.state === 'lineup' && ac.lineupThen === 'roll')) ? `<div class="btn-row"><button class="btn warn" data-act="cancelTO">Cancel takeoff clearance</button></div>` : ''}
         ${progBtns}
         ${!yours ? `<div class="card-empty">The system is working ${FREQ_NAME[ac.freq]}. It will reach your frequency when it's handed off.</div>` : surface ? (groundBtns ? `<div class="btn-row">${groundBtns}</div>` : '') : `
@@ -3538,8 +3630,13 @@ function renderCard(force) {
             <button class="btn primary" data-act="send">Transmit ⏎</button>
             <button class="btn" data-act="reset">Reset</button>
         </div>
-        ${ac.state === 'wait' || ac.state === 'luaw' ? `<div class="btn-row">
-            ${ac.state === 'wait' ? `<button class="btn" data-act="luaw">Line up and wait</button>` : ''}
+        ${ac.kind === 'dep' && ac.state === 'air' && ac.freq === 'TWR' ? `<div class="btn-row"><button class="btn primary" data-act="freqChange">Frequency change approved</button></div>` : ''}
+        ${ac.state === 'wait' ? `<div class="btn-row">
+            <button class="btn" data-act="holdShort">Hold short</button>
+            ${departureNumber(ac) > 1 ? `<button class="btn" data-act="seqNo">Number ${departureNumber(ac)} for departure</button>` : ''}</div>` : ''}
+        ${ac.state === 'wait' || ac.state === 'luaw' || (ac.state === 'taxi' && ac.purpose === 'runway' && ac.freq === 'TWR' && !ac.preClr) ? `<div class="btn-row">
+            ${ac.state !== 'luaw' ? `<button class="btn" data-act="luaw">Line up and wait</button>` : ''}
+            <button class="btn" data-act="immediate">Immediate takeoff</button>
             <button class="btn primary" data-act="takeoff">Cleared for takeoff ${ac.rwy.id}</button></div>` : ''}
         ${ilsBtns ? `<div class="btn-row">${ilsBtns}</div>` : ''}
         ${!ground ? `
@@ -3615,6 +3712,8 @@ function bindCard() {
         else if (['push', 'taxi', 'holdPos', 'cont', 'cross', 'tower', 'ground'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
         else if (act === 'land') { issue(ac, { land: true }); renderCard(true); }
         else if (act === 'cancelTO') { issue(ac, { cancelTO: true }); renderCard(true); }
+        else if (['freqChange', 'holdShort', 'seqNo'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
+        else if (act === 'immediate') transmitPending({ immediate: true });
         else if (act === 'slowest') { issue(ac, { slowest: true }); syncPending(true); renderCard(true); }
         else if (act === 'ga') { issue(ac, { goAround: true }); syncPending(true); renderCard(true); }
         else if (act === 'orbitL' || act === 'orbitR') { issue(ac, { orbit: act === 'orbitL' ? 'L' : 'R' }); renderCard(true); }
@@ -3738,6 +3837,10 @@ function runCommand(text) {
         else if (t === 'TL' || t === 'TR' || t === 'SA' || t === '180' || t === 'M180') c.prog = t === 'TL' ? 'L' : t === 'TR' ? 'R' : t === 'SA' ? 'S' : '180';
         else if (t === 'CYD' || t === 'DISC') c.discretion = true;
         else if (t === 'CXTO' || t === 'CANCEL' || t === 'RTO') c.cancelTO = true;
+        else if (t === 'HS' || t === 'HOLDSHORT') c.holdShort = true;
+        else if (t === 'SEQ' || t === 'NUM') c.seqNo = true;
+        else if (t === 'ITO' || t === 'IMM') c.immediate = true;
+        else if (t === 'FC' || t === 'FREQ') c.freqChange = true;
         else if (t === 'EPT' || t === 'PROG') c.expectProg = true;
         else if (t === 'GW' || t === 'FOL' || t === 'FOLLOW') {
             const o = G.aircraft.find(a => a.cs === toks[i + 1] || (a.cs.endsWith(toks[i + 1] || '#') && /^\d+$/.test(toks[i + 1] || '')));

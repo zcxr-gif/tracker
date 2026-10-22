@@ -421,6 +421,33 @@ line per switch).
   touchdown: it's already at final approach speed, and a go-around may be
   the only option left.
 
+**Departures, from the IFATC manual (section 3.2):**
+
+- 3.2.1 **Hold short** (`hs`) answers a departure that can't be cleared or
+  lined up yet. Unanswered, it calls again after a minute.
+- 3.2.2 **Departure sequence**: "number N for departure" (`seq`) by the order
+  they reached the runway. A lined-up aircraft counts as number 1. Number 1
+  always gets "hold short".
+- 3.2.5 **Intersection departures**: drag a departure onto its runway at a
+  taxiway that meets it part way along. The label shows the runway left
+  ("Runway 31L at K (8,400 ft)"); under 6,000 ft is refused.
+- 3.2.6 Jets are ready at the runway. Ground hands them to Tower as they
+  approach it, and Tower can line them up or clear them before they stop
+  (the clearance applies when they reach the runway).
+- 3.2.7 **Immediate take-off** (`ito`) lines up and rolls faster. It's for
+  an arrival close in on final (within 3 miles on the same runway); used
+  otherwise, it's a violation.
+- 3.2.8 Arrivals on the localizer show their distance from the threshold in
+  the data block (e.g. `LOC 22L 3.4`).
+- 3.2.11 Departures stay with Tower after takeoff. **Frequency change
+  approved** (`fc`, or the button) hands them to Departure: before half a
+  mile past the runway end it's a violation (critical phase), and not done
+  by 3 miles past, it happens anyway for −2. The system's Tower does it at
+  half a mile.
+
+Not modelled: back-taxi (3.2.4), multiple aircraft lined up at once (3.2.3),
+and "Straight Out Dept." in the ATIS (3.2.9–3.2.10).
+
 The radar part of the manual wasn't available while this was built (the site
 wasn't reachable), so these follow Infinite Flight's features and community
 guidance. Where the manual says otherwise, change that line in `RULESETS`.
