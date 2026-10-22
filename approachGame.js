@@ -448,7 +448,7 @@ function renderLayers() {
 
 function bindLayers() {
     const el = $('#layers');
-    $('#layers-btn').onclick = () => { el.hidden = !el.hidden; $('#layers-btn').classList.toggle('on', !el.hidden); renderLayers(); };
+    $('#layers-btn').onclick = () => { el.hidden = !el.hidden; $('#layers-btn').classList.toggle('on', !el.hidden); if (!el.hidden) { $('#settings').hidden = true; $('#settings-btn').classList.remove('on'); } renderLayers(); };
     el.addEventListener('click', e => {
         if (!G) return;
         if (e.target.closest('[data-close]')) { el.hidden = true; $('#layers-btn').classList.remove('on'); return; }
@@ -4701,6 +4701,7 @@ function frame(now) {
 
 function setSpeed(s) {
     G.speed = s;
+    if (s > 0) lastSpeed = s;             // tapping PAUSED resumes at this speed
     document.querySelectorAll('#speed button').forEach(b => b.classList.toggle('on', Number(b.dataset.speed) === s));
     $('#paused-tag').hidden = s !== 0;
 }
@@ -4760,29 +4761,38 @@ function bindGame() {
         renderHud(); renderRail();
     });
     $('#speed').addEventListener('click', e => { const b = e.target.closest('button'); if (b && G) setSpeed(Number(b.dataset.speed)); });
+    // Settings (the gear under the centering button): two-way switches as segmented buttons.
+    const segOn = (el, v) => el.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === String(v)));
+    const settings = $('#settings'), gear = $('#settings-btn');
+    const showSettings = open => { settings.hidden = !open; gear.classList.toggle('on', open); gear.setAttribute('aria-expanded', String(open)); };
+    gear.onclick = () => showSettings(settings.hidden);
+    settings.addEventListener('click', e => { if (e.target.closest('[data-close]')) showSettings(false); });
+    $('#paused-tag').onclick = () => { if (G && G.speed === 0) setSpeed(lastSpeed || 1); };
     const voice = $('#voice');
-    voice.classList.toggle('on', voiceOn);
-    if (!('speechSynthesis' in window)) voice.hidden = true;
-    voice.onclick = () => {
-        voiceOn = !voiceOn;
+    segOn(voice, voiceOn ? 1 : 0);
+    if (!('speechSynthesis' in window)) voice.closest('.srow').hidden = true;
+    voice.onclick = e => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        voiceOn = b.dataset.v === '1';
         store.set('voice', voiceOn);
-        voice.classList.toggle('on', voiceOn);
+        segOn(voice, voiceOn ? 1 : 0);
         if (!voiceOn) try { speechSynthesis.cancel(); } catch { /* none */ }
     };
     $('#end').onclick = () => { if (G && !G.over) endShift(); };
     const icons = $('#icons');
-    const showIcons = () => { icons.textContent = iconMode ? 'Aircraft' : 'Targets'; icons.classList.toggle('on', iconMode); };
-    showIcons();
-    icons.onclick = () => { iconMode = !iconMode; store.set('icons', iconMode); showIcons(); };
+    segOn(icons, iconMode ? 1 : 0);
+    icons.onclick = e => { const b = e.target.closest('button'); if (!b) return; iconMode = b.dataset.v === '1'; store.set('icons', iconMode); segOn(icons, iconMode ? 1 : 0); };
     $('#zoom-field').onclick = () => { if (!G) return; view.x = 0; view.y = 0; view.scale = Math.min(view.w, view.h) / 2 / fieldRadius(); };
     const style = $('#style');
-    const showStyle = () => { style.textContent = mapStyle === 'chart' ? 'Chart' : 'Radar'; style.classList.toggle('on', mapStyle === 'chart'); };
-    showStyle();
-    style.onclick = () => {
-        mapStyle = mapStyle === 'chart' ? 'radar' : 'chart';
+    segOn(style, mapStyle);
+    style.onclick = e => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        mapStyle = b.dataset.v;
         COLORS = PALETTE[mapStyle];
         store.set('style', mapStyle);
-        showStyle();
+        segOn(style, mapStyle);
     };
     $('#log').addEventListener('click', e => {
         const d = e.target.closest('[data-id]');

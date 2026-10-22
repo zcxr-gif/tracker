@@ -9,6 +9,17 @@
     <link rel="canonical" href="https://inflight.info/approach">
     <meta name="theme-color" content="#16181d">
     <link rel="icon" href="/Images/inflight.png">
+    <!-- Add to Home Screen: full screen, no Safari bars, our own icon. -->
+    <link rel="manifest" href="/approach.webmanifest">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Approach">
+    <link rel="apple-touch-icon" href="/Images/approach-icon-180.png">
+    <script>
+        // Launched from the home screen: no site header, and the layout keeps clear of the notch and home bar.
+        if (navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches)) document.documentElement.classList.add('standalone');
+    </script>
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="InFlight">
     <meta property="og:title" content="Approach — endless radar ATC by InFlight">
@@ -227,8 +238,23 @@
         .paused-tag {
             position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
             font-family: var(--mono); font-weight: 700; letter-spacing: .3em; color: var(--gold);
-            background: rgba(6,11,15,.8); padding: 6px 14px; border-radius: 8px; pointer-events: none;
+            background: rgba(6,11,15,.85); padding: 7px 16px; border-radius: 8px; z-index: 4; cursor: pointer;
+            border: 1px solid rgba(242,193,78,.4); display: flex; flex-direction: column; align-items: center; gap: 2px;
         }
+        .paused-tag small { font: 500 .6rem var(--font, inherit); letter-spacing: .08em; color: var(--muted); }
+        .paused-tag:hover { background: rgba(20,26,34,.95); }
+
+        /* Settings, from the gear under the centering button. */
+        .settings {
+            position: absolute; right: 60px; top: calc(var(--railh, 0px) + 12px); z-index: 7; width: min(310px, calc(100% - 80px)); max-height: calc(100% - 24px); overflow: auto;
+            background: rgba(6,9,12,.96); border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 0 12px 12px;
+        }
+        .srow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; font-size: .84rem; }
+        .srow .seg button { padding: 6px 10px; font-size: .76rem; font-family: var(--mono); }
+        .srow.btns { margin-top: 14px; }
+        .srow.btns .btn { flex: 1; }
+        #settings-btn.on { color: var(--gold); border-color: rgba(242,193,78,.6); }
+        .zoom button { display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; }
 
         .side { display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--panel); border-left: 1px solid var(--line); }
         .side section { border-bottom: 1px solid var(--line); padding: 10px 12px; flex: 0 0 auto; }
@@ -236,14 +262,17 @@
         .stat .v { font-family: var(--mono); font-weight: 700; font-size: 1.05rem; }
         .stat .k { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
         .stat.score .v { color: var(--gold); }
-        .ctrls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-        .ctrls .seg button { padding: 5px 10px; font-size: .78rem; font-family: var(--mono); }
         .chip { padding: 6px 10px; border-radius: 8px; font-size: .78rem; font-weight: 600; background: var(--panel2); border: 1px solid var(--line); color: var(--ink2); }
         .chip:hover { color: #fff; }
         .chip.on { color: var(--gold); border-color: rgba(242,193,78,.5); }
-        .ctrls .spacer { flex: 1; }
 
         .card-empty { color: var(--muted); font-size: .84rem; line-height: 1.5; }
+
+        /* Launched from the home screen: the site header goes, and nothing sits under the notch or the home bar. */
+        html.standalone, html.standalone body { overscroll-behavior: none; background: #060b0f; }
+        html.standalone .mast { display: none; }
+        html.standalone body { box-sizing: border-box; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+        html.standalone body.in-game { height: 100vh; height: 100dvh; overflow: hidden; }
         .card-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
         .card-head .cs { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; }
         .card-head .radio { color: var(--ink2); font-size: .82rem; }
@@ -315,7 +344,7 @@
 
         /* Map layers: waypoints and which published procedures are plotted. */
         .layers {
-            position: absolute; right: 60px; top: 12px; z-index: 4; width: min(330px, calc(100% - 80px)); max-height: calc(100% - 24px); overflow: auto;
+            position: absolute; right: 60px; top: calc(var(--railh, 0px) + 12px); z-index: 4; width: min(330px, calc(100% - 80px)); max-height: calc(100% - 24px); overflow: auto;
             background: rgba(6,9,12,.95); border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 0 12px 12px;
         }
         .layers-h { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; margin: 0 -12px 8px; padding: 8px 12px; background: rgba(6,9,12,.98); font: 700 .7rem var(--mono); letter-spacing: .12em; border-bottom: 1px solid rgba(255,255,255,.1); }
@@ -427,6 +456,21 @@
             .mast-link.wide { display: none; }
         }
 
+        /* Phones held upright: everything on one screen, the scope above and the list and log below. */
+        @media (max-width: 860px) and (orientation: portrait) {
+            body.in-game { overflow: hidden; height: 100vh; height: 100dvh; }
+            body.in-game .game { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 60fr) minmax(0, 40fr); height: calc(100vh - 54px); height: calc(100dvh - 54px); overflow: hidden; }
+            body.in-game .scope-wrap { height: auto; }
+            body.in-game .side { overflow: hidden; border-top: 1px solid var(--line); }
+            body.in-game .side section { padding: 5px 10px; }
+            body.in-game .stats .v { font-size: .86rem; }
+            body.in-game .stat .k { font-size: .54rem; }
+            body.in-game .side .strips { min-height: 0; padding: 0; }
+            body.in-game .strip { min-height: 38px; font-size: .7rem; }
+            body.in-game .log { height: 58px; font-size: .64rem; }
+            body.in-game .cmd input, body.in-game .cmd .btn { height: 32px; }
+        }
+
         /* Phones held sideways: the scope beside the list, like the desktop, without the site header. */
         @media (max-height: 540px) and (orientation: landscape) {
             body.in-game .mast { display: none; }
@@ -435,7 +479,6 @@
             body.in-game .side { overflow: auto; border-left: 1px solid var(--line); }
             body.in-game .side section { padding: 6px 8px; }
             body.in-game .stats .v { font-size: .9rem; }
-            body.in-game .ctrls .chip, body.in-game .ctrls .seg button { padding: 4px 7px; font-size: .7rem; }
             body.in-game .strip { min-height: 38px; font-size: .68rem; }
             body.in-game .log { height: 74px; font-size: .66rem; }
             body.in-game .cmd input, body.in-game .cmd .btn { height: 30px; }
@@ -463,6 +506,8 @@
             body.in-game .info .btn { height: 32px; font-size: .74rem; }
             body.in-game .stepper button { height: 28px; min-width: 32px; }
         }
+            html.standalone body.in-game .game { height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+        html.standalone .ifatis { padding-top: 0; }
     </style>
 </head>
 <body>
@@ -577,18 +622,29 @@
                 <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
                 <button id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
                 <button id="zoom-reset" title="Recenter" aria-label="Recenter">⌖</button>
+                <button id="settings-btn" title="Settings: speed, map, voice, layers" aria-label="Settings" aria-expanded="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" stroke-dasharray="3.2 2.08"/></svg></button>
                 <button id="zoom-field" title="Zoom to the airport" aria-label="Zoom to the airport">✈</button>
             </div>
             <section class="info" id="card" hidden aria-label="Selected aircraft"></section>
             <div class="coord" id="coord" hidden role="dialog" aria-label="Coordination"></div>
             <div class="layers" id="layers" hidden aria-label="Map layers"></div>
             <div class="ifatis" id="atis" hidden aria-label="ATIS"></div>
+            <div class="settings" id="settings" hidden role="dialog" aria-label="Settings">
+                <div class="layers-h"><span>SETTINGS</span><button type="button" class="info-x" data-close aria-label="Close">✕</button></div>
+                <div class="srow"><span>Speed</span><div class="seg" id="speed">
+                    <button type="button" data-speed="0" title="Pause (Space)">❚❚</button><button type="button" data-speed="1" class="on">1×</button><button type="button" data-speed="2">2×</button><button type="button" data-speed="3">3×</button><button type="button" data-speed="4">4×</button>
+                </div></div>
+                <div class="srow"><span>Map</span><div class="seg" id="style"><button type="button" data-v="radar">Radar</button><button type="button" data-v="chart">Chart</button></div></div>
+                <div class="srow"><span>Traffic</span><div class="seg" id="icons"><button type="button" data-v="0">Targets</button><button type="button" data-v="1">Aircraft</button></div></div>
+                <div class="srow"><span>Voice</span><div class="seg" id="voice"><button type="button" data-v="0">Off</button><button type="button" data-v="1">On</button></div></div>
+                <div class="srow btns"><button type="button" class="btn" id="layers-btn">Map layers…</button><button type="button" class="btn warn" id="end">End shift</button></div>
+            </div>
             <div class="toast" id="toast"></div>
             <div class="loader" id="loader" hidden role="status" aria-live="polite">
                 <img src="/Images/inflight-mark.png" alt="" width="34" height="34">
                 <div><b>Loading</b><div id="loader-steps"></div></div>
             </div>
-            <div class="paused-tag" id="paused-tag" hidden>PAUSED</div>
+            <button type="button" class="paused-tag" id="paused-tag" hidden aria-label="Paused: tap to resume">PAUSED<small>tap to resume</small></button>
             <div class="summary" id="summary" hidden></div>
         </div>
         <aside class="side">
@@ -599,20 +655,6 @@
                     <div class="stat"><div class="v" id="s-departed">0</div><div class="k">Departed</div></div>
                     <div class="stat"><div class="v" id="s-incidents">0</div><div class="k">Losses</div></div>
                 </div>
-            </section>
-            <section class="ctrls">
-                <div class="seg" id="speed">
-                    <button data-speed="0" title="Pause (Space)">❚❚</button>
-                    <button data-speed="1" class="on">1×</button>
-                    <button data-speed="2">2×</button>
-                    <button data-speed="4">4×</button>
-                </div>
-                <span class="spacer"></span>
-                <button class="chip" id="layers-btn" title="Waypoints and published procedures on the scope">Layers</button>
-                <button class="chip" id="icons" title="Radar targets or aircraft icons">Targets</button>
-                <button class="chip" id="style" title="Switch between the dark radar and a light chart">Radar</button>
-                <button class="chip" id="voice" title="Read pilot transmissions aloud">Voice</button>
-                <button class="chip" id="end">End shift</button>
             </section>
             <section class="strips" id="strips"></section>
             <section class="comms">

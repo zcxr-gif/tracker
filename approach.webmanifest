@@ -1,0 +1,16 @@
+{
+    "name": "InFlight Approach",
+    "short_name": "Approach",
+    "description": "An endless radar ATC game at real airports.",
+    "start_url": "/approach",
+    "scope": "/approach",
+    "display": "standalone",
+    "orientation": "any",
+    "background_color": "#060b0f",
+    "theme_color": "#0c0f14",
+    "icons": [
+        { "src": "/Images/approach-icon-192.png", "sizes": "192x192", "type": "image/png" },
+        { "src": "/Images/approach-icon-512.png", "sizes": "512x512", "type": "image/png" },
+        { "src": "/Images/approach-icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    ]
+}

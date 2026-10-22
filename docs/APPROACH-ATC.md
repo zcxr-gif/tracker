@@ -491,9 +491,23 @@ and NASR (waypoints, navaids), via the MIT-licensed `@squawk/procedure-data`,
   - onto its runway, once on the localizer, for cleared to land.
 - **Drag** a departure at the runway onto it: line up and wait, then cleared
   for takeoff. On the ground, see Ground below.
+- **Settings** sit behind the gear button under the centering button:
+  - speed (pause, 1×, 2×, 3×, 4×);
+  - map (Radar or Chart);
+  - traffic as targets or aircraft;
+  - voice, map layers and End shift.
+- **Paused**: tap the PAUSED tag to resume at the speed you were on.
 - **Sideways phones**: the scope sits beside the aircraft list as on a
   desktop, the site header hides during a shift, and the info box starts
   folded.
+- **Upright phones**: the whole game fits on one screen with no page
+  scrolling. The scope is on top; the aircraft list and log are below, each
+  scrolling on its own.
+- **Add to Home Screen** (iOS Safari: Share → Add to Home Screen) installs it
+  as an app called Approach, with its own icon (`approach.webmanifest`). It
+  opens full screen:
+  - no Safari bars and no site header;
+  - kept clear of the notch, the status bar and the home bar.
 
 ## Rules: Real life or Infinite Flight
 
