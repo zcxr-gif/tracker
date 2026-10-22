@@ -1675,15 +1675,31 @@ function issueCall(ac, c) {
         back.push(`direct ${c.direct.name}`);
     }
     if (c.holdFix) {
-        const f = c.holdFix;
-        // No published holds here, so every hold is standard: right turns, inbound toward the field.
-        const inbound = c.holdInbound != null ? c.holdInbound : f.kind === 'app' ? f.end.course : brg(-f.x, -f.y);
-        ac.holdAt = { fix: f, inbound, phase: 'to', timer: 0 };
+        const f = c.holdFix, ifr = G.rules.id === 'ifatc', dir = c.holdDir || 'R';
+        // Real life: no published holds here, so a standard hold, inbound toward the field. Infinite Flight (IFATC 6.7.3):
+        // over the fix from the aircraft's own inbound track to it (its heading, at its present position), turns as given.
+        const inbound = c.holdInbound != null ? c.holdInbound : ifr ? (f.ppos ? ac.hdg : brg(f.x - ac.x, f.y - ac.y)) : f.kind === 'app' ? f.end.course : brg(-f.x, -f.y);
+        ac.holdAt = { fix: f, inbound, dir, phase: 'to', timer: 0 };
         ac.direct = null; ac.orbit = null; ac.turn = null;
         if (ac.appr) cancelApproach(ac);
-        const efc = zuluAt(G.t + 600);
-        parts.push(`hold ${cardinal(inbound + 180)} of ${f.name}, inbound course ${hdg3(inbound)}, right turns, expect further clearance ${efc}`);
-        back.push(`hold ${cardinal(inbound + 180)} of ${f.name}, right turns, ${efc}`);
+        // IFATC 6.7.3: the speed goes with the altitude: 200 kt to 6,000 ft, 230 to 14,000, 265 above.
+        if (ifr) { const a = c.alt ?? ac.tAlt; ac.tSpd = Math.min(ac.tSpd, ac.perf.prop ? 175 : a <= 6000 ? 200 : a <= 14000 ? 230 : 265); }
+        const efc = zuluAt(G.t + 600), turns = dir === 'L' ? 'left turns' : 'right turns';
+        if (ifr) {
+            parts.push(`hold ${f.ppos ? 'at present position' : 'at ' + f.name}, ${turns}`); back.push(`hold ${f.ppos ? 'present position' : f.name}, ${turns}`);
+        } else {
+            parts.push(`hold ${cardinal(inbound + 180)} of ${f.name}, inbound course ${hdg3(inbound)}, ${turns}, expect further clearance ${efc}`);
+            back.push(`hold ${cardinal(inbound + 180)} of ${f.name}, ${turns}, ${efc}`);
+        }
+    }
+    if (c.exitHold) {
+        // IFATC 6.7.3: on the next inbound leg it carries on along its flight plan, speed its own again (6.15.9).
+        if (!ac.holdAt) { sys(`${ac.cs} isn't holding.`); return false; }
+        ac.holdAt = null;
+        if (ac.viaSaved) { ac.via = { ...ac.viaSaved }; ac.viaSaved = null; }
+        else if (filedRoute(ac)) { const next = filedAhead(ac).find(p => !/^RW/.test(p.name)); if (next) ac.direct = { name: next.name, x: next.x, y: next.y, kind: 'wp' }; }
+        ac.tSpd = ac.alt < 10000 ? 250 : 280;
+        parts.push('exit hold'); back.push('exiting hold');
     }
     if (c.orbit) {
         ac.orbit = { dir: c.orbit, rem: 360 }; ac.holdAt = null;
@@ -4181,19 +4197,37 @@ function turnRate(ac) {
     return Math.min(TURN_RATE, 1091 * Math.tan(MAX_BANK * D2R) / Math.max(tas, 100));
 }
 
-/** A standard right-hand hold: direct to the fix, outbound one minute (1½ above 14,000), back inbound. */
+/**
+ * A hold: direct to the fix, outbound one minute (1½ above 14,000), back inbound, turns as given (right unless
+ * told left). The first time over the fix it enters the way a pilot would, from its heading against the inbound
+ * course (IFATC 6.7.5): direct (180° sector), parallel (the 110° on the non-holding side) or teardrop (the 70° beside it).
+ */
 function holdingPattern(ac, dt) {
-    const h = ac.holdAt, f = h.fix;
+    const h = ac.holdAt, f = h.fix, s = h.dir === 'L' ? -1 : 1, turn = h.dir === 'L' ? 'L' : 'R', away = h.dir === 'L' ? 'R' : 'L';
     const leg = ac.alt <= 14000 ? 60 : 90;
     const out = norm(h.inbound + 180);
     if (h.phase === 'to' || h.phase === 'in') {
         ac.tHdg = brg(f.x - ac.x, f.y - ac.y); ac.turn = null;
-        if (Math.hypot(f.x - ac.x, f.y - ac.y) < 0.6) { h.phase = 'turnOut'; ac.tHdg = out; ac.turn = 'R'; }
+        if (Math.hypot(f.x - ac.x, f.y - ac.y) < 0.6) {
+            const rel = diff(h.inbound, ac.hdg) * s;
+            h.entry = h.entry || (h.phase === 'in' ? 'none' : rel < -70 ? 'parallel' : rel > 110 ? 'teardrop' : 'direct');
+            if (h.phase === 'to' && h.entry === 'parallel') { h.phase = 'parOut'; h.timer = leg; ac.tHdg = out; ac.turn = away; }
+            else if (h.phase === 'to' && h.entry === 'teardrop') { h.phase = 'tearOut'; h.timer = leg; ac.tHdg = norm(out + 30 * s); ac.turn = null; }
+            else { h.phase = 'turnOut'; ac.tHdg = out; ac.turn = turn; }
+        }
+    } else if (h.phase === 'parOut') {
+        // Parallel: outbound on the non-holding side, then turn back through the holding side to the fix.
+        if ((h.timer -= dt) <= 0) { h.phase = 'parBack'; ac.tHdg = norm(h.inbound + 45 * s); ac.turn = turn; }
+    } else if (h.phase === 'parBack') {
+        if (Math.abs(diff(ac.hdg, norm(h.inbound + 45 * s))) < 2) h.phase = 'in';
+    } else if (h.phase === 'tearOut') {
+        // Teardrop: 30° off the outbound into the holding side, then turn in onto the inbound course.
+        if ((h.timer -= dt) <= 0) { h.phase = 'turnIn'; ac.tHdg = h.inbound; ac.turn = turn; }
     } else if (h.phase === 'turnOut') {
         if (Math.abs(diff(ac.hdg, out)) < 1) { h.phase = 'out'; h.timer = leg; }
     } else if (h.phase === 'out') {
         ac.tHdg = out; ac.turn = null;
-        if ((h.timer -= dt) <= 0) { h.phase = 'turnIn'; ac.tHdg = h.inbound; ac.turn = 'R'; }
+        if ((h.timer -= dt) <= 0) { h.phase = 'turnIn'; ac.tHdg = h.inbound; ac.turn = turn; }
     } else if (h.phase === 'turnIn') {
         if (Math.abs(diff(ac.hdg, h.inbound)) < 1) h.phase = 'in';
     }
@@ -5578,7 +5612,8 @@ function airMenu(ac, add) {
             { label: 'Fly heading…', run: () => headingLadder(ac) },
             { label: 'Climb or descend…', run: () => altitudeLadder(ac) },
             { label: 'Direct to…', sub: () => nearFixes(ac).map(f => ({ label: f.label, cmd: { direct: f.f } })) },
-            { label: 'Hold at…', sub: () => nearFixes(ac).map(f => ({ label: f.label, cmd: { holdFix: f.f } })) },
+            { label: 'Hold at…', sub: holdMenu(ac) },
+            ...(ac.holdAt ? [{ label: 'Exit hold', cmd: { exitHold: true } }] : []),
             { label: 'Left 360', cmd: { orbit: 'L' } }, { label: 'Right 360', cmd: { orbit: 'R' } },
             ...((ac.viaSaved || ac.via && !ac.via.vert) && (ac.viaSaved || ac.via).kind !== 'FPL' ? [{ label: `${ac.kind === 'arr' ? 'Descend via' : 'Climb via'} the ${(ac.viaSaved || ac.via).id}`, cmd: { via: true } }] : []),
         ] });
@@ -5635,6 +5670,23 @@ const speedMenu = ac => () => {
 };
 
 /** The fixes nearest an aircraft, for direct-to and holds. */
+/** Where it can be told to hold: Infinite Flight (IFATC 6.7.2), a fix on its flight plan or present position; otherwise any fix nearby. */
+function holdFixes(ac) {
+    if (G.rules.id !== 'ifatc') return nearFixes(ac);
+    const plan = filedRoute(ac) ? filedAhead(ac).filter(p => !/^RW/.test(p.name)).map(p => ({ f: G.world.fixes.find(x => x.name === p.name) || { name: p.name, x: p.x, y: p.y, kind: 'wp' }, label: `${p.name} · on its plan` })) : [];
+    return [{ f: { name: 'present position', x: ac.x, y: ac.y, kind: 'wp', ppos: true }, label: 'Present position' }, ...plan];
+}
+/** Hold at a fix: the direction of turns, then the altitude (the speed goes with it, IFATC 6.7.3). */
+const holdMenu = ac => () => holdFixes(ac).map(h => ({ label: h.label, sub: () => ['R', 'L'].map(dir => ({ label: dir === 'L' ? 'Left turns' : 'Right turns',
+    ...(G.rules.id === 'ifatc' && mine(ac) ? { run: () => holdLadder(ac, h.f, dir) } : { cmd: { holdFix: h.f, holdDir: dir } }) })) }));
+function holdLadder(ac, f, dir) {
+    if (f.ppos) Object.assign(f, { x: ac.x, y: ac.y });
+    const lo = Math.max(1000, Math.ceil((G.world.elev + 1000) / 500) * 500), min = terrainOn() ? mvaHere({ x: f.x, y: f.y }) : 0, vals = [];
+    for (let a = 24000; a >= lo; a -= 500) vals.push({ v: a, label: a.toLocaleString('en-US') + 'ft', warn: a < min, now: a === Math.round(ac.alt / 500) * 500 });
+    openLadder(ac, `HOLD ${f.ppos ? 'PPOS' : f.name} ${dir === 'L' ? 'LEFT' : 'RIGHT'} · ALT`, vals, Math.round(ac.tAlt / 500) * 500,
+        v => { issue(ac, { holdFix: f, holdDir: dir, ...(v === 'keep' ? {} : { alt: Number(v) }) }); renderCard(true); }, `Maintain ${ac.tAlt.toLocaleString('en-US')}ft`);
+}
+
 function nearFixes(ac) {
     return G.world.fixes.filter(f => f.kind !== 'app' || G.active.arr.includes(f.end))
         .map(f => ({ f, d: Math.hypot(f.x - ac.x, f.y - ac.y) })).sort((a, b) => a.d - b.d).slice(0, 24)
@@ -5792,7 +5844,9 @@ function openContext(ac, sx, sy) {
     const air = ac.state === 'air' && mine(ac);
     show([
         ...(air ? [{ label: 'Assign Altitude', run: () => altitudeLadder(ac) }] : []),
-        ...(air ? [{ label: 'Hold', sub: () => nearFixes(ac).slice(0, 8).map(f => ({ label: f.f.name, run: () => { issue(ac, { holdFix: f.f }); renderCard(true); } })) }] : []),
+        ...(air ? [{ label: 'Hold', sub: () => holdFixes(ac).slice(0, 8).map(h => ({ label: h.f.ppos ? 'Present position' : h.f.name, sub: () => ['R', 'L'].map(dir => ({ label: dir === 'L' ? 'Left turns' : 'Right turns',
+            run: () => { if (G.rules.id === 'ifatc') holdLadder(ac, h.f, dir); else { issue(ac, { holdFix: h.f, holdDir: dir }); renderCard(true); } } })) })) }] : []),
+        ...(air && ac.holdAt ? [{ label: 'Exit hold', run: () => { issue(ac, { exitHold: true }); renderCard(true); } }] : []),
         { label: 'Set Reminder', sub: () => [1, 2, 5, 10].map(m => ({ label: `In ${m} minute${m > 1 ? 's' : ''}`, run: () => { ac.remindAt = G.t + m * 60; ac.reminded = false; toast(`Reminder for ${ac.cs} in ${m} min`); } })) },
         { label: 'Show Information', run: () => select(ac) },
         { label: 'Assign Color', sub: () => [...Object.entries(TAG_COLORS).map(([n, c]) => ({ label: n, color: c, run: () => { ac.color = c; } })), { label: 'Reset Color', run: () => { ac.color = null; } }] },
@@ -5927,6 +5981,7 @@ function runCommand(text) {
         else if (t === 'AD' || t === 'ATYD') c.altDisc = true;
         else if (t === 'RON' || t === 'OWN') c.ownNav = true;
         else if (t === 'UFF') c.unableFF = true;
+        else if (t === 'XH' || t === 'EXIT') c.exitHold = true;
         else if (t === 'DV' || t === 'CV' || t === 'VIA') c.via = true;
         else if (t === 'NO' || t === 'NUMBER') c.seqLand = true;
         else if (t === 'ENT' || t === 'ENTER') {

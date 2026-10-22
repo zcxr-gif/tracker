@@ -391,6 +391,25 @@ position, so Approach does the STAR work Center would.
 Not modelled: Center itself, cruise, Mach, active/away, Resume Flight
 (6.6.1–6.6.7, 6.6.14).
 
+**Holding (IFATC 6.7):** under Infinite Flight rules:
+
+- 6.7.2 **Hold at…** lists **Present position** and the fixes still ahead on
+  the aircraft's flight plan (its STAR, SID or filed fixes). Real-life mode
+  keeps any fix nearby.
+- 6.7.3 Then **Left turns** or **Right turns**, then the altitude. The speed
+  goes with the altitude: 200 kt up to 6,000 ft, 230 up to 14,000, 265 above
+  (props 175). The hold sits on the aircraft's inbound track to the fix (its
+  heading, at present position). *"…hold at BDEGA, left turns, descend and
+  maintain 9,000."*
+- 6.7.5 It enters the way a pilot would, from its heading against the inbound
+  course: **direct** (the 180° sector), **parallel** (the 110° on the
+  non-holding side: outbound on that side, then back through the holding
+  side to the fix) or **teardrop** (the 70° beside it: 30° off the outbound,
+  then turn in).
+- **Exit hold** (`xh`): it carries on along its flight plan (its STAR again,
+  or the next fix), and the speed is its own again (6.15.9).
+- The long-press quick menu has Hold (fix, then turns) and Exit hold too.
+
 **Flight following (IFATC 6.5):** with you on Approach under Infinite Flight
 rules, VFR light aircraft cross the scope at VFR levels (odd thousands plus
 500 heading 000–179, even plus 500 heading 180–359) and ask for flight
