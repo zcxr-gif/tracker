@@ -260,6 +260,22 @@ per airport. Runways always start by the wind.
 Not modelled: multiple frequencies (4.1.6), Check Forum, Mult. Freq. In
 Use, Size restrictions' effect.
 
+**Preferred SIDs and STARs (IFATC 4.2.2):**
+
+- They're Radar's to pick. With the system on Approach it picks them, one
+  STAR into every entry and one SID out to every exit, and the ATIS page shows
+  them as "Picked by Radar" (tapping one is refused). Your own picks stay
+  saved for when you work Approach. With no radar, Tower may pick them, with a
+  note that it isn't encouraged.
+- Picking them yourself, the page lists any entry or exit left without a
+  preferred procedure: a variety from ALL directions.
+- Under Infinite Flight rules traffic comes from every direction whatever is
+  preferred. An arrival files the preferred STAR at its entry about 60% of the
+  time, 85% with **SID/STAR use rcmd** on the ATIS and 95% with **SID/STAR use
+  req**. (Real life: the recommended STARs draw the traffic, as before.)
+- The two remarks exclude each other, and are flagged where nothing is
+  published, req in light traffic, and rcmd in busy traffic.
+
 ## Speed
 
 - 250 kt maximum below 10,000 ft (14 CFR 91.117).

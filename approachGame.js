@@ -628,6 +628,8 @@ const REMARKS = [
     ['rolling', 'Rolling dpt', 'rolling departures'],
     ['fpl', 'FPL required', 'flight plan required'],
     ['noLight', 'No light aircraft', 'no light aircraft'],
+    ['sidRcmd', 'SID/STAR use rcmd', 'SID and STAR use recommended'],
+    ['sidReq', 'SID/STAR use req', 'SID and STAR use required'],
 ];
 const NOTAMS = [
     ['event', 'Event', 'event in progress, expect delays'],
@@ -730,6 +732,22 @@ function atisWarnings(cfg) {
     return out;
 }
 
+/**
+ * Preferred SIDs and STARs are Radar's to pick (IFATC 4.2.2), with a variety that covers every direction.
+ * With the system on Approach it picks them: one STAR into each entry, one SID out to each exit.
+ */
+const radarPicksProcs = () => G.rules.id === 'ifatc' && !noRadar() && !G.positions.has('APP') && !!G.world.nav;
+function systemProcs() {
+    const firstOf = kind => [...new Set(G.world.fixes.filter(f => f.kind === kind && f.stars?.length).map(f => f.stars[0].id))];
+    const sids = [...new Set(G.world.fixes.filter(f => f.kind === 'dep' && f.sids?.length).map(f => (f.sids.find(s => G.active.dep.some(e => !s.rwy || s.rwy === e.id || s.rwy.startsWith(e.id.replace(/[LRC]$/, '')))) || f.sids[0]).id))];
+    return { stars: firstOf('arr'), sids };
+}
+/** Directions the preferred procedures leave out: entry fixes with STARs but none preferred, exits likewise. */
+function procGaps(cfg) {
+    const miss = (kind, key, sel) => sel.length ? G.world.fixes.filter(f => f.kind === kind && f[key]?.length && !f[key].some(p => sel.includes(p.id))).map(f => `${f.name} (${cardinal(f.bearing)})`) : [];
+    return { stars: miss('arr', 'stars', cfg.stars), sids: miss('dep', 'sids', cfg.sids) };
+}
+
 /** What IFATC section 4.1 says about this ATIS: runways, the approach advertised, and when each remark or NOTAM is used. */
 function ifatcAtisWarnings(cfg, act) {
     const out = [], has = k => cfg.remarks.includes(k) || cfg.notams.includes(k);
@@ -738,7 +756,7 @@ function ifatcAtisWarnings(cfg, act) {
     const idle = all.arr.filter(e => !act.arr.includes(e) || !act.dep.includes(e));
     if (cfg.mode === 'manual' && idle.length) out.push(`IFATC 4.1.4: use ALL runways where you can (${idle.map(e => `${e.id} ${act.arr.includes(e) ? 'lands only' : act.dep.includes(e) ? 'departs only' : 'unused'}`).join(', ')}). Terrain, layout or weather can be the exception.`);
     // 4.1.5: the approach advertised must be published for the landing runways.
-    for (const t of cfg.apps) if (t !== 'VIS' && !act.arr.some(e => hasApproach(e, t))) out.push(`IFATC 4.1.5: no landing runway publishes a ${APP_NAME[t]} approach, so it can't be advertised.`);
+    for (const t of cfg.apps) if (t !== 'VIS' && !act.arr.some(e => hasApproach(e, t))) out.push(`IFATC 4.1.5: no landing runway publishes ${t === 'ILS' ? 'an' : 'a'} ${APP_NAME[t]} approach, so it can't be advertised.`);
     // The remarks and NOTAMs table.
     if (!visualWx() && !has('noPattern')) out.push('Below VMC: No pattern work must be on the ATIS.');
     if (has('noInter')) out.push('No intersection dept.: intersection departures must be allowed unless one blocks the only way to full length and slows the flow.');
@@ -746,6 +764,14 @@ function ifatcAtisWarnings(cfg, act) {
     if (has('noLight') && (G.airport.s || 0) <= 1) out.push('No light aircraft: not at a GA airport, and accept light aircraft wherever they are accepted in real life.');
     if (has('fpl') && visualWx() && !has('sidReq')) out.push('FPL required: only below VMC, or when SID/STAR use is mandated.');
     if (has('event')) out.push('Event: for Infinite Flight sponsored events only.');
+    // 4.2.2: preferred procedures from ALL directions; the SID/STAR remarks only where they're published, and by traffic.
+    const gaps = procGaps(cfg);
+    if (gaps.stars.length) out.push(`IFATC 4.2.2: no preferred STAR from ${gaps.stars.join(', ')}.`);
+    if (gaps.sids.length) out.push(`IFATC 4.2.2: no preferred SID to ${gaps.sids.join(', ')}.`);
+    if ((has('sidRcmd') || has('sidReq')) && !(G.world.nav && G.world.fixes.some(f => f.stars?.length || f.sids?.length))) out.push('SID/STAR use: only where the airport publishes SIDs and STARs.');
+    if (has('sidReq') && G.level === 'light') out.push('SID/STAR use req is for heavy traffic, events and hubs: rcmd fits light traffic.');
+    if (has('sidRcmd') && (G.level === 'busy' || G.level === 'event')) out.push('With this much traffic SID/STAR use req fits better than rcmd.');
+    if (noRadar() && (cfg.stars.length || cfg.sids.length) && G.positions.has('TWR')) out.push('IFATC 4.2.2: Radar normally picks the preferred SIDs/STARs; Tower may with no Radar, but it isn\'t encouraged.');
     const lowVis = G.met && G.met.vis < 0.25;
     if (lowVis && !has('lowVis')) out.push('Visibility is under 1/4 SM: add Low visibility.');
     if (!lowVis && has('lowVis')) out.push('Low visibility is for visibility under 1/4 SM.');
@@ -754,8 +780,11 @@ function ifatcAtisWarnings(cfg, act) {
 
 /** Put a new information out: new letter, the runways it names, and everyone told. */
 function broadcastAtis(cfg) {
+    // IFATC 4.2.2: with the system on Approach, its preferred procedures go out (and yours stay saved for when you're Radar).
+    const keep = radarPicksProcs() ? { ...cfg, ...store.get('atis.' + G.world.icao, {}) } : cfg;
+    if (radarPicksProcs()) Object.assign(cfg, systemProcs());
     G.atisCfg = cfg;
-    store.set('atis.' + G.world.icao, Object.fromEntries(ATIS_KEEP.map(k => [k, cfg[k]])));
+    store.set('atis.' + G.world.icao, Object.fromEntries(ATIS_KEEP.map(k => [k, ['stars', 'sids'].includes(k) ? keep[k] ?? [] : cfg[k]])));
     const prev = G.active.key;
     G.active = (cfg.mode === 'manual' && activeFrom(cfg)) || computeActive(G.world, G.wind);
     nextAtisLetter();
@@ -813,6 +842,7 @@ function renderAtis() {
                 ${warn.length ? `<p class="ia-warn">${warn.map(escapeHtml).join('<br>')}</p>` : ''}</section>
             <section class="ia-col"><div class="ia-h">NOTAMS</div><div class="ia-grid">${notams}</div>
                 <div class="ia-h">APPROACHES</div><div class="ia-grid">${apps}</div>
+                ${stars || sids ? (radarPicksProcs() ? '<p class="ia-warn">Picked by Radar (IFATC 4.2.2).</p>' : '') : ''}
                 ${stars ? `<div class="ia-h">ARRIVALS</div><div class="ia-grid">${stars}</div>` : ''}
                 ${sids ? `<div class="ia-h">DEPARTURES</div><div class="ia-grid">${sids}</div>` : ''}</section>
         </div>
@@ -844,12 +874,15 @@ function bindAtis() {
             toggle(b.dataset.rw, b.dataset.v);
         } else if (b.dataset.rm) {
             toggle('remarks', b.dataset.rm);
-            const other = { noInter: 'interOk', interOk: 'noInter' }[b.dataset.rm];
+            const other = { noInter: 'interOk', interOk: 'noInter', sidRcmd: 'sidReq', sidReq: 'sidRcmd' }[b.dataset.rm];
             if (other) d.remarks = d.remarks.filter(x => x !== other);
         } else if (b.hasAttribute('data-straight')) d.straight = STRAIGHT_STEPS[(STRAIGHT_STEPS.indexOf(d.straight) + 1) % STRAIGHT_STEPS.length];
         else if (b.dataset.nt) toggle('notams', b.dataset.nt);
         else if (b.dataset.app) { if (!(d.apps.length === 1 && d.apps[0] === b.dataset.app)) toggle('apps', b.dataset.app); }   // any number, never none
-        else if (b.dataset.proc) toggle(b.dataset.proc, b.dataset.v);
+        else if (b.dataset.proc) {
+            if (radarPicksProcs()) { sys('IFATC 4.2.2: Radar picks the preferred SIDs and STARs.'); return; }
+            toggle(b.dataset.proc, b.dataset.v);
+        }
         else return;
         renderAtis();
     });
@@ -1012,6 +1045,7 @@ function newGame(airport, level, opts, nav) {
     };
     G.met = makeMet();
     G.atisCfg = atisDefault(world.icao);
+    if (radarPicksProcs()) Object.assign(G.atisCfg, systemProcs());      // IFATC 4.2.2: the system's Radar picks them
     G.temp = Math.round(rand(2, 29));
     G.dew = G.temp - (G.met.ceil != null && G.met.ceil < 1000 ? 1 : Math.round(rand(2, 10)));
     G.atisAt = 0;
@@ -1065,7 +1099,10 @@ function spawnArrival(dist) {
     if (!id) return false;
     const rec = new Set(G.atisCfg.stars), filed = f => f.stars?.some(s => rec.has(s.id));
     const entries = G.world.fixes.filter(f => f.kind === 'arr').sort(() => Math.random() - 0.5);
-    if (rec.size && Math.random() < 0.75) entries.sort((a, b) => filed(b) - filed(a));
+    // Real life: the recommended STARs draw the traffic. Infinite Flight: it comes from every direction, and files the
+    // preferred STAR at its entry when there is one, more often with "SID/STAR use rcmd" or "req" on the ATIS (IFATC 4.2.2).
+    const ifr = G.rules.id === 'ifatc', onPref = ifr ? Math.random() < (hasRemark('sidReq') ? 0.95 : hasRemark('sidRcmd') ? 0.85 : 0.6) : true;
+    if (!ifr && rec.size && Math.random() < 0.75) entries.sort((a, b) => filed(b) - filed(a));
     for (const f of entries) {
         const r = dist || SCOPE_NM - 0.5;
         const b = (f.bearing + (dist ? rand(-20, 20) : 0)) * D2R;
@@ -1083,7 +1120,8 @@ function spawnArrival(dist) {
         };
         // On a published arrival: fly it, descending via, from where it enters the scope.
         if (f.stars?.length && !dist) {
-            const st = pick(f.stars.filter(s => rec.has(s.id)).length ? f.stars.filter(s => rec.has(s.id)) : f.stars);
+            const pref = f.stars.filter(s => rec.has(s.id)), other = f.stars.filter(s => !rec.has(s.id));
+            const st = pick(!ifr ? (pref.length ? pref : f.stars) : pref.length && (onPref || !other.length) ? pref : other.length ? other : f.stars);
             const first = st.legs.find(l => l.alt != null);
             if (first && first.desc !== '-') { ac.alt = Math.max(ac.alt, first.alt); ac.tAlt = ac.alt; }
             ac.via = { kind: 'STAR', id: st.id, legs: st.legs, i: 0, vert: true };
@@ -1189,7 +1227,7 @@ function spawnDeparture(patternWork) {
     if (!id) return false;
     const gates = G.world.fixes.filter(f => f.kind === 'dep'), recSid = new Set(G.atisCfg.sids);
     const onRec = gates.filter(g => g.sids?.some(s => recSid.has(s.id)));
-    const gate = pick(onRec.length && Math.random() < 0.75 ? onRec : gates);
+    const gate = pick(G.rules.id !== 'ifatc' && onRec.length && Math.random() < 0.75 ? onRec : gates);
     const initial = Math.max(Math.ceil((G.world.elev + 4000) / 1000) * 1000, mvaCeilingWithin(10));
     const ac = {
         id: nextId++, ...id, kind: 'dep', state: 'wait', perf: perf(id.type), rwy, gate,
