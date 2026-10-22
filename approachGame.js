@@ -501,6 +501,16 @@ function iapFor(e, type) {
     const fits = list.filter(a => a.rwy === e.id && want.test(a.type || ''));
     return fits.find(a => !/RNP/.test(a.type)) || fits[0] || null;
 }
+/**
+ * The approach as it shows in a flight plan (IFATC 6.9.9): a prefix for the kind (I ILS, L LOC, R RNAV (GPS),
+ * H RNAV (RNP)), the runway, and a Y/Z suffix where the procedure has one: I28R, H35LZ. Null for a visual.
+ */
+function appCode(type, e) {
+    if (!e || type === 'VIS') return null;
+    const iap = iapFor(e, type), rnp = type === 'RNAV' && /RNP/.test(iap?.type || iap?.name || '');
+    const suf = (/\b([YZ])\b/.exec(iap?.name || '') || [])[1] || '';
+    return ({ ILS: 'I', LOC: 'L', RNAV: rnp ? 'H' : 'R' }[type] || 'I') + e.id + suf;
+}
 /** Whether a runway end has this kind of approach: from the data where there is some, otherwise assumed (visual always). */
 const hasApproach = (e, type) => type === 'VIS' || !G.world.nav || !!iapFor(e, type);
 
@@ -564,7 +574,7 @@ function filedPlan(ac) {
         else if (ac.entry) add(ac.entry.name, ac.entry.x, ac.entry.y);
         if (af) add(af.name, af.x, af.y);
         if (e) add('RW' + e.id, e.thr.x, e.thr.y);
-        return { pts, text: [ac.entry?.name, ac.star, af?.name, `${G.world.icao}${e ? '/' + e.id : ''}`].filter(Boolean).join(' ') };
+        return { pts, text: [ac.entry?.name, ac.star, af?.name, ac.filedApp, `${G.world.icao}${e ? '/' + e.id : ''}`].filter(Boolean).join(' ') };
     }
     const sid = ac.rwy && sidFor(ac.gate, ac.rwy);
     if (ac.rwy) add('RW' + ac.rwy.id, ac.rwy.thr.x, ac.rwy.thr.y);
@@ -1144,6 +1154,7 @@ function spawnArrival(dist) {
         }
         // As in Infinite Flight: it checks in asking for an approach, from its flight plan, and you answer.
         const type = appFor(ac.expect);
+        if (Math.random() < 0.7) ac.filedApp = appCode(type, ac.expect);
         ac.request = { kind: type, end: ac.expect, say: `the ${appWord(type)}`, tag: APP_TAG[type], checkin: true };
         pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.wantsDescentVia ? `, on the ${ac.via.id} arrival, request descent via the arrival` : ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${infoOf(ac)}, requesting ${ac.via ? '' : 'radar vectors for '}the ${appWord(type)} approach runway ${ac.expect.id}.`);
         return true;
@@ -1756,7 +1767,10 @@ function issueCall(ac, c) {
     if (c.expectApp) {
         if (ac.kind !== 'arr' || onGround) { sys(`${ac.cs} isn't an arrival.`); return false; }
         const { type, end } = c.expectApp;
-        Object.assign(ac, { expect: end, expectType: type, request: null });
+        // IFATC 6.9.3: "Continue as filed, expect…" is for one descending via its STAR; level, or on vectors, it's "Expect vectors for…".
+        if (c.asFiled && !G.aiActing && G.rules.id === 'ifatc' && ac.kind === 'arr' && (ac.wantsDescentVia || ac.viaSaved || !ac.via))
+            sys(`IFATC 6.9.3: ${ac.cs} ${ac.wantsDescentVia ? "hasn't been cleared to descend via its STAR" : ac.viaSaved ? 'is on vectors' : 'has no STAR to continue on'}: "Expect vectors for…" fits better than "Continue as filed".`, 'bad');
+        Object.assign(ac, { expect: end, expectType: type, request: null, filedApp: appCode(type, end) });
         parts.push(c.asFiled ? `expect the ${appWord(type)} approach runway ${end.id}` : `expect vectors for the ${appWord(type)} approach runway ${end.id}`);
         back.push(`expect the ${appWord(type)} ${end.id}`);
     }
@@ -2731,6 +2745,11 @@ function checkIns() {
             const what = ac.svc === 'FF' ? 'request for flight following' : ac.svc === 'RV' ? 'request for vectors' : 'Check In';
             if (!ac.checkInRepeated && G.t - ac.checkInAt > 45) { ac.checkInRepeated = true; pilot(ac, ac.svc ? `${facName('APP')}, ${ac.radio}, ${fmtAlt(Math.round(ac.alt / 100) * 100)}, ${ac.svc === 'FF' ? 'request flight following' : 'request vectors to the field'}.` : `${facName('DEP')}, ${ac.radio}, checking in, ${fmtAlt(Math.round(ac.alt / 100) * 100)}.`); }
             if (!ac.checkInFlagged && G.t - ac.checkInAt > 90) { ac.checkInFlagged = true; violation(ac, ac.svc ? 'IFATC 6.5.1' : 'IFATC 6.4.4', `${ac.cs}'s ${what} wasn't answered`); }
+        }
+        // An approach request not answered after a minute: asked again (IFATC 6.9.3).
+        if (ac.request?.checkin && ac.freq === 'APP' && mine(ac) && !ac.reqRepeated && G.t - ac.born > 60) {
+            ac.reqRepeated = true;
+            pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(Math.round(ac.alt / 100) * 100)}, requesting the ${appWord(ac.request.kind)} approach runway ${ac.request.end.id}.`);
         }
         // Off its plan near the edge, it asks to have it back (IFATC 6.4.4).
         if ((ac.offHdg || ac.offAlt) && ac.state === 'air' && mine(ac) && !ac.askedBack && Math.hypot(ac.x, ac.y) > SCOPE_NM - 10 && !ac.conflict) {

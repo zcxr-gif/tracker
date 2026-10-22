@@ -391,6 +391,20 @@ position, so Approach does the STAR work Center would.
 Not modelled: Center itself, cruise, Mach, active/away, Resume Flight
 (6.6.1–6.6.7, 6.6.14).
 
+**Approach check-in (IFATC 6.9):** under Infinite Flight rules:
+
+- 6.9.3 Arrivals check in with their approach request. **Continue as filed,
+  expect the ILS 28R** is for one descending via its STAR. For one still
+  level and not cleared to descend via, on vectors, or with no STAR, it gets
+  a note: **Expect vectors for…** fits. Unanswered for a minute, the pilot
+  asks again.
+- 6.9.4 Preferred STARs as in 6.6.10 above.
+- 6.9.9 **Flight plan approach codes**: most arrivals have programmed the
+  approach they expect, shown in the FPL line on the card with Infinite
+  Flight's prefix: I (ILS), L (LOC), R (RNAV (GPS)), H (RNAV (RNP)), then the
+  runway and any Y/Z suffix: `I28R`, `H35LZ`. Telling it to expect another
+  approach reprograms it.
+
 **Holding (IFATC 6.7):** under Infinite Flight rules:
 
 - 6.7.2 **Hold at…** lists **Present position** and the fixes still ahead on
