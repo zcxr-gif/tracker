@@ -479,6 +479,22 @@ on Approach and the system on Tower:
   assured.
 - 6.14.4 "Maintain 180 knots until 5 mile final" is in Request speed.
 
+**Aircraft speed (IFATC 6.15):** under Infinite Flight rules:
+
+- 6.15.1–6.15.4 The data block on the scope shows **ground speed** (true
+  airspeed for the altitude, less the headwind). The card shows both: "IAS
+  250 · GS 268". Speed commands are in IAS. (Mach isn't needed: nothing flies
+  above FL240 here.)
+- 6.15.6 / 6.15.7 Slowing an aircraft while a faster one up to 10 NM behind
+  it, on the same runway, has no speed of its own gets a note: slow the one
+  behind first. "Adjust speed to follow aircraft ahead" when the one ahead has
+  no speed assigned gets a note too: it would set the pace for the whole flow.
+- 6.15.8 A jet slowed under 210 kt more than 20 track miles out gets a note
+  (the minimum speed rules usually stop it first).
+- 6.15.9 / 6.15.10 Speed is the pilot's after leaving a hold, and after the
+  approach clearance unless restated ("maintain 180 knots until 5 mile
+  final").
+
 **Holding (IFATC 6.7):** under Infinite Flight rules:
 
 - 6.7.2 **Hold at…** lists **Present position** and the fixes still ahead on

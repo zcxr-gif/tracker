@@ -1951,7 +1951,9 @@ function issueCall(ac, c) {
         if (ac.appr) ac.appr.spd = sp; else ac.tSpd = sp;
         parts.push('maintain slowest practical speed'); back.push('slowest practical');
     }
+    if (c.spd != null || c.spdPresent || c.spdBest || c.slowest) ac.spdSet = true;
     if (c.spdDisc) {
+        ac.spdSet = false;
         if (ac.appr) Object.assign(ac.appr, { spd: null, spdUntil: undefined });
         ac.spdHold = null; ac.matchSpd = null; ac.tSpd = isProp(ac) ? 120 : ac.alt < 10000 ? 250 : 280;
         parts.push('speed at your discretion'); back.push('speed our discretion');
@@ -1959,6 +1961,8 @@ function issueCall(ac, c) {
     if (c.spdFollow) {
         const o = trafficAhead2(ac) || c.spdFollow;
         if (!o || o === true) { sys(`${ac.cs} has no aircraft ahead to follow.`); return false; }
+        // IFATC 6.15.7: sparingly, and with a speed on the one ahead, or that one sets the pace for the whole flow.
+        if (G.rules.id === 'ifatc' && !G.aiActing && !o.spdSet) sys(`IFATC 6.15.7: ${o.cs} ahead has no speed assigned, so it will set the pace for everyone behind. Give it a speed first; use "follow" sparingly.`, 'bad');
         ac.matchSpd = o; parts.push('adjust speed to follow aircraft ahead'); back.push('adjusting speed');
     }
     if (c.spdPresent || c.spdBest) {
@@ -1972,6 +1976,7 @@ function issueCall(ac, c) {
         const min = minSpeed(ac);
         if (sp < min) { sys(`Minimum assignable speed for ${ac.cs} here is ${min} knots (7110.65 5-7-3).`); sp = min; }
         if (ac.alt < 10000 && sp > 250) { sys('250 knots maximum below 10,000 feet (14 CFR 91.117).'); sp = 250; }
+        if (G.rules.id === 'ifatc' && !G.aiActing && ac.kind === 'arr') speedTechnique(ac, sp);
         const verb = sp < ac.spd - 3 ? 'reduce speed to' : sp > ac.spd + 3 ? 'increase speed to' : 'maintain';
         const until = c.spdUntil || FAF_NM;
         if (ac.appr) {
@@ -2355,6 +2360,20 @@ const instrumentHandoff = ac => !noRadar() && !ac.circuit && !!ac.appr && ac.app
 const HANDOFF_SAY = { RV: 'radar vectors', FF: 'flight following' };
 /** Radar can hand an arrival not on an approach to Tower (IFATC 3.6.3): Infinite Flight rules, VMC, within 15 miles. */
 const radarVectorsOk = ac => G.rules.id === 'ifatc' && ac.state === 'air' && !ac.circuit && Math.hypot(ac.x, ac.y) < 15 && (visualWx() || imcVectorsOk(ac));
+/**
+ * Speed control as IFATC 6.15.6–6.15.8 teaches it: a note when a speed reduction won't do what it's meant to.
+ *  - 6.15.8: not slowed to where it has to configure (under 210 kt for a jet) until about 20 track miles out.
+ *  - 6.15.7: the one ahead isn't slowed while the one behind is faster with no speed of its own.
+ */
+function speedTechnique(ac, sp) {
+    const e = ac.appr?.end || ac.expect, left = ac.appr ? ac.appr.along : e ? Math.hypot(e.thr.x - ac.x, e.thr.y - ac.y) : Math.hypot(ac.x, ac.y);
+    if (!isProp(ac) && sp < 210 && left > 20) sys(`IFATC 6.15.8: ${sp} kt makes ${ac.cs} configure ${Math.round(left)} miles out; keep it clean (210+) until about 20 track miles.`, 'bad');
+    if (!e || sp >= ac.spd - 5) return;
+    const behind = G.aircraft.filter(o => o !== ac && o.kind === 'arr' && o.state === 'air' && !o.spdSet && o.spd > sp + 10 && (o.appr?.end || o.expect) && sameRunwayish(o.appr?.end || o.expect, e))
+        .map(o => ({ o, d: (o.appr ? o.appr.along : Math.hypot(e.thr.x - o.x, e.thr.y - o.y)) - left })).filter(x => x.d > 0 && x.d < 10).sort((a, b) => a.d - b.d)[0];
+    if (behind) sys(`IFATC 6.15.7: slowing ${ac.cs} with ${behind.o.cs} ${behind.d.toFixed(1)} miles behind at ${Math.round(behind.o.spd)} kt and no speed of its own: slow the one behind first.`, 'bad');
+}
+
 /** Ground speed, roughly: true airspeed (2% a thousand feet) less the headwind along the course. */
 const groundSpeed = (ac, course) => ac.spd * (1 + Math.max(0, ac.alt) / 1000 * 0.02) - G.wind.spd * Math.cos(diff(course, G.wind.dir) * D2R);
 /**
@@ -5183,7 +5202,9 @@ function drawAircraft(a) {
     const vs = a.tAlt - a.alt;
     const target = a.appr?.loc ? null : a.tAlt;
     const arrow = Math.abs(vs) < 60 || target == null ? ' ' : vs > 0 ? '↑' : '↓';
-    const l2 = `${alt3(a.alt)}${arrow}${target != null && Math.abs(vs) >= 60 ? alt3(target) : '   '} ${String(Math.round(a.spd)).padStart(3)}`;
+    // IFATC 6.15.4: ground speed on the scope (indicated airspeed is on the card).
+    const shown = G.rules.id === 'ifatc' && a.state === 'air' ? groundSpeed(a, a.hdg) : a.spd;
+    const l2 = `${alt3(a.alt)}${arrow}${target != null && Math.abs(vs) >= 60 ? alt3(target) : '   '} ${String(Math.round(shown)).padStart(3)}`;
     const l3 = `${typeTag(a)} ${a.kind === 'arr' || a.lowAlt || a.wxReq || a.emerg ? intentTag(a) : `${a.gate.name} ${a.alt >= exitAlt(a) - 50 ? '✓' : alt3(exitAlt(a))}`}`;
     c.font = '700 11px "JetBrains Mono", monospace';
     c.fillStyle = col;
@@ -5899,7 +5920,7 @@ function renderCard(force) {
             ${menuTile && !menuPath.length ? `<div class="cm-tiles"><button type="button" class="cm-tile" data-tile>${escapeHtml(menuTile.label)}</button></div>` : ''}`;
     }
     $('#cm-num').innerHTML = ac.state === 'air'
-        ? `${Math.round(ac.alt).toLocaleString('en-US')}ft ${hdg3(ac.hdg)}°<br>GS ${Math.round(ac.spd)} · ${ac.freq}`
+        ? `${Math.round(ac.alt).toLocaleString('en-US')}ft ${hdg3(ac.hdg)}°<br>${G.rules.id === 'ifatc' && ac.state === 'air' ? `IAS ${Math.round(ac.spd)} · GS ${Math.round(groundSpeed(ac, ac.hdg))}` : `GS ${Math.round(ac.spd)}`} · ${ac.freq}`
         : `${ac.state === 'gate' ? 'Gate ' + (ac.stand?.ref || '') : Math.round(ac.spd) + ' kt'}<br>${ac.freq}`;
     $('#cm-st').textContent = statusText(ac);
     $('#cm-fpl').textContent = 'FPL  ' + filedPlan(ac).text + (notPreferredStar(ac) ? `  (${ac.star}: not a preferred STAR)` : '');
