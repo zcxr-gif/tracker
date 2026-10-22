@@ -198,7 +198,7 @@ async function loadData() {
 }
 
 /** Lay the airport out on the local plane: runway ends, fixes, elevation. */
-function buildWorld(p) {
+function buildWorld(p, nav) {
     const cosLat = Math.cos(p.lat * D2R);
     const proj = (lat, lon) => ({ x: (lon - p.lon) * 60 * cosLat, y: (lat - p.lat) * 60 });
     const ends = [];
@@ -235,10 +235,133 @@ function buildWorld(p) {
         fixes.push(e.appFix);
     }
     const minAlt = Math.ceil((elev + 1500) / 1000) * 1000;
+    const real = nav ? realFixes(nav, ends, proj) : null;
+    if (real) {
+        fixes.length = 0;
+        fixes.push(...real.fixes);
+        for (const e of ends) if (e.appFix && !real.fixes.includes(e.appFix)) fixes.push(e.appFix);
+    }
     return {
-        icao: p.icao, name: p.name, elev, ends, fixes, minAlt, proj, lat: p.lat, lon: p.lon,
+        icao: p.icao, name: p.name, elev, ends, fixes, minAlt, proj, lat: p.lat, lon: p.lon, nav: real ? nav : null,
         exitAlt: Math.max(9000, Math.ceil((elev + 6000) / 1000) * 1000),
     };
+}
+
+/* ------------------------------------------------------------------ */
+/* Real waypoints and procedures (FAA CIFP/NASR via tools/build-nav.mjs) */
+/* ------------------------------------------------------------------ */
+
+async function loadNav(icao) {
+    try {
+        const r = await Promise.race([fetch(`/nav/${encodeURIComponent(icao)}.json`), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]);
+        return r.ok ? await r.json() : null;
+    } catch { return null; }
+}
+
+/**
+ * The airport's real fixes in place of invented ones: arrival entry fixes
+ * where each STAR enters the scope (with the STAR from there in), exit gates
+ * where the SIDs end (with each runway's SID), each runway's ILS
+ * intermediate fix as its approach fix (and the FAF's name), and the other
+ * procedure fixes in range as waypoints. null when there's too little to use.
+ */
+function realFixes(nav, ends, proj) {
+    const at = id => { const f = nav.fix[id]; return f ? { name: id, ...proj(f[0], f[1]) } : null; };
+    const dist = f => Math.hypot(f.x, f.y);
+    const legsOf = list => list.map(l => { const f = l[0] && at(l[0]); return { name: l[0], x: f?.x, y: f?.y, alt: l[1], desc: l[2], spd: l[3], pt: l[4], role: l[5] }; });
+    const out = [], byName = new Map();
+    const add = f => { if (!byName.has(f.name)) { byName.set(f.name, f); out.push(f); } return byName.get(f.name); };
+
+    // STARs: each enroute transition (or the common route alone) as one path; enter at the first fix inside the scope.
+    for (const st of nav.star) {
+        const common = st.routes.filter(r => !r.t).flatMap(r => r.legs);
+        const enroute = st.routes.filter(r => r.t && !/^RW/.test(r.t));
+        const paths = enroute.length ? enroute.map(r => [...r.legs, ...common.filter((l, i) => i || l[0] !== r.legs[r.legs.length - 1]?.[0])]) : [common];
+        for (const path of paths) {
+            const legs = legsOf(path).filter(l => l.x != null);
+            const k = legs.findIndex(l => dist(l) <= SCOPE_NM - 3);
+            if (k < 0 || dist(legs[k]) < 14) continue;
+            const f = add({ kind: 'arr', name: legs[k].name, x: legs[k].x, y: legs[k].y, bearing: brg(legs[k].x, legs[k].y), stars: [] });
+            if (f.kind === 'arr' && !f.stars.some(s => s.id === st.id)) f.stars.push({ id: st.id, legs: legs.slice(k) });
+        }
+    }
+    // SIDs: runway transition + common route + an enroute transition, ending at an exit gate.
+    for (const sd of nav.sid) {
+        const common = sd.routes.filter(r => !r.t).flatMap(r => r.legs);
+        const rwyT = sd.routes.filter(r => /^RW/.test(r.t)), enroute = sd.routes.filter(r => r.t && !/^RW/.test(r.t));
+        for (const en of enroute.length ? enroute : [{ t: '', legs: [] }]) {
+            const tail = [...common, ...en.legs];
+            const last = legsOf(tail).filter(l => l.x != null).pop();
+            if (!last) continue;
+            const b = brg(last.x, last.y), inside = dist(last) <= SCOPE_NM - 2;
+            const gate = byName.get(last.name) || add({ kind: 'dep', name: last.name, bearing: b, ...(inside ? { x: last.x, y: last.y } : { x: Math.sin(b * D2R) * FIX_NM, y: Math.cos(b * D2R) * FIX_NM }), sids: [] });
+            if (gate.kind !== 'dep') continue;
+            for (const rt of rwyT) gate.sids.push({ id: sd.id, rwy: rt.t.slice(2), legs: legsOf([...rt.legs, ...tail]) });
+            if (!rwyT.length) gate.sids.push({ id: sd.id, rwy: '', legs: legsOf(tail) });
+        }
+    }
+    const arr = out.filter(f => f.kind === 'arr'), dep = out.filter(f => f.kind === 'dep');
+    if (arr.length < 2 || dep.length < 2) return null;              // not enough real routing: keep the invented fixes
+    // Approach fixes: the ILS (else LOC/RNAV) intermediate fix for each runway end, and its FAF.
+    for (const e of ends) {
+        const iap = ['ILS', 'LOC', 'RNAV'].map(t => nav.iap.find(a => a.rwy === e.id && (a.type || '').startsWith(t))).find(Boolean);
+        if (!iap) continue;
+        const main = iap.routes.find(r => !r.t)?.legs || [];
+        const ifx = main.find(l => l[4] === 'IF' && nav.fix[l[0]]), faf = main.find(l => l[5] === 'F');
+        const f = ifx && at(ifx[0]);
+        if (f && dist(f) < 30) e.appFix = add({ kind: 'app', name: f.name, x: f.x, y: f.y, end: e });
+        e.fafName = faf?.[0] || null; e.iapName = iap.name;
+    }
+    // Every other fix the procedures use, in range, as a waypoint (direct-to, holds, the map).
+    for (const id of new Set([...nav.star, ...nav.sid, ...nav.iap].flatMap(p => p.routes.flatMap(r => r.legs.map(l => l[0]))))) {
+        const f = id && !/^RW/.test(id) && at(id);
+        if (f && dist(f) < SCOPE_NM - 1) add({ kind: 'wp', name: id, x: f.x, y: f.y, bearing: brg(f.x, f.y) });
+    }
+    return { fixes: out };
+}
+
+/**
+ * Flying a published procedure ("descend via" a STAR, "climb via" a SID):
+ * fix to fix, with the altitude and speed constraints. A heading, a direct
+ * or an approach clearance ends it; an altitude ends only the vertical part.
+ */
+function viaStep(ac) {
+    const v = ac.via;
+    let leg = v.legs[v.i];
+    while (leg && leg.x == null && leg.pt !== 'VA' && leg.pt !== 'CA') leg = v.legs[++v.i];
+    if (!leg) {
+        ac.via = null;
+        if (v.kind === 'STAR') pilot(ac, `${ac.radio}, end of the ${v.id} arrival, request vectors.`);
+        else if (ac.gate) ac.direct = ac.gate.x != null ? ac.gate : null;
+        return;
+    }
+    if (leg.x == null) {
+        // Climb on runway heading to an altitude, then on.
+        ac.tHdg = ac.rwy ? ac.rwy.course : ac.hdg;
+        if (ac.alt >= (leg.alt || 0) - 50) v.i++;
+    } else {
+        ac.tHdg = brg(leg.x - ac.x, leg.y - ac.y); ac.turn = null;
+        if (leg.spd && ac.tSpd > leg.spd) ac.tSpd = leg.spd;
+        if (Math.hypot(leg.x - ac.x, leg.y - ac.y) < 1) v.i++;
+    }
+    if (!v.vert) return;
+    // Vertical: down (or up) to the next "at" / "at or below" constraint, never below an "at or above" before it.
+    let target = null, floor = 0;
+    for (let k = v.i; k < v.legs.length; k++) {
+        const l = v.legs[k];
+        if (l.alt == null) continue;
+        if (l.desc === '+') { floor = Math.max(floor, l.alt); continue; }
+        target = l.alt; break;
+    }
+    if (v.kind === 'SID') ac.tAlt = target != null ? Math.min(v.top, Math.max(target, floor)) : v.top;
+    else if (target != null || floor) ac.tAlt = Math.max(target ?? floor, floor, G.world.minAlt);
+}
+
+/** The SID a departure from this runway flies to this gate, if any (runway transitions: RW31L, or RW31B for both). */
+function sidFor(gate, rwy) {
+    const list = gate?.sids || [];
+    const base = rwy.id.replace(/[LRC]$/, '');
+    return list.find(s => s.rwy === rwy.id) || list.find(s => s.rwy === base + 'B' || s.rwy === base) || list.find(s => !s.rwy) || null;
 }
 
 /**
@@ -301,8 +424,8 @@ let nextId = 1;
 const FREQ_NAME = { APP: 'Approach', TWR: 'Tower', GND: 'Ground' };
 const mine = ac => !!G && G.positions.has(ac.freq);
 
-function newGame(airport, level, opts) {
-    const world = buildWorld(airport);
+function newGame(airport, level, opts, nav) {
+    const world = buildWorld(airport, nav);
     const wind = { dir: Math.round(rand(0, 36)) * 10 || 360, spd: Math.round(rand(5, opts.weather ? 22 : 18)) };
     G = {
         world, wind, level, opts, airport, rules: RULESETS[opts.rules] || RULESETS.faa,
@@ -380,6 +503,14 @@ function spawnArrival(dist) {
             x, y, alt, hdg, spd, tHdg: hdg, tAlt: alt, tSpd: spd, turn: null,
             trail: [], trailT: 0, born: G.t, expect: pick(G.active.arr), freq: 'APP',
         };
+        // On a published arrival: fly it, descending via, from where it enters the scope.
+        if (f.stars?.length && !dist) {
+            const st = pick(f.stars);
+            const first = st.legs.find(l => l.alt != null);
+            if (first && first.desc !== '-') { ac.alt = Math.max(ac.alt, first.alt); ac.tAlt = ac.alt; }
+            ac.via = { kind: 'STAR', id: st.id, legs: st.legs, i: 0, vert: true };
+            ac.star = st.id;
+        }
         G.aircraft.push(ac);
         maybeEmergency(ac);
         if (noRadar()) {
@@ -391,7 +522,7 @@ function spawnArrival(dist) {
             pilot(ac, `${G.world.icao} Tower, ${ac.radio}, ${fmtAlt(alt)}, ${onIls ? `inbound on the ILS runway ${onIls.id}` : `inbound for landing, ${Math.round(r)} miles ${dir}`}, information ${PHONETIC[G.atis]}.`);
             return true;
         }
-        pilot(ac, `${G.world.icao} Approach, ${ac.radio}, ${fmtAlt(alt)}, information ${PHONETIC[G.atis]}.`);
+        pilot(ac, `${G.world.icao} Approach, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${PHONETIC[G.atis]}.`);
         atc(`${ac.radio}, ${G.world.icao} Approach, altimeter ${G.altim}, expect ILS runway ${ac.expect.id} approach.`);
         return true;
     }
@@ -890,6 +1021,17 @@ function issueCall(ac, c) {
         back.push(`${c.orbit === 'L' ? 'left' : 'right'} three-sixty`);
     }
 
+    // ---- published procedures
+    if (c.via) {
+        const resume = ac.kind === 'arr' ? ac.viaSaved || ac.via : ac.viaSaved || ac.via;
+        if (!resume) { sys(`${ac.cs} isn't on a published ${ac.kind === 'arr' ? 'arrival' : 'departure'}.`); return false; }
+        ac.via = { ...resume, vert: true }; ac.viaSaved = null; ac.direct = null; ac.holdAt = null; ac.orbit = null;
+        parts.push(ac.kind === 'arr' ? `descend via the ${resume.id} arrival` : `climb via the ${resume.id} departure`);
+        back.push(ac.kind === 'arr' ? `descend via the ${resume.id}` : `climb via the ${resume.id}`);
+    }
+    if (ac.via && !c.via && (c.hdg != null || c.direct || c.holdFix || c.orbit || c.ils)) { ac.viaSaved = ac.via; ac.via = null; }
+    if (ac.via && !c.via && c.alt != null) ac.via.vert = false;
+
     // ---- vertical
     if (c.alt != null || c.ils) {
         const a = clamp(Math.round((c.alt != null ? c.alt : ac.tAlt) / 1000) * 1000, G.world.minAlt, 24000);
@@ -962,6 +1104,7 @@ function issueCall(ac, c) {
         if (c.entry) {
             const { kind, end } = c.entry;
             ac.pattern = { end, kind, pts: patternPoints(ac, kind, end) };
+            ac.via = null;
             Object.assign(ac, { expect: end, appr: null, orbit: null, holdAt: null, direct: null, tAlt: patternAlt(), tSpd: Math.min(ac.tSpd, 210) });
             parts.push(`enter ${PATTERN_SAY[kind]} runway ${end.id}`); back.push(`${PATTERN_SAY[kind]} ${end.id}`);
         }
@@ -1027,10 +1170,12 @@ function issueCall(ac, c) {
         else startLineup(ac, 'roll');
         if (mine(ac)) award(ac, 3);
         const runwayHdg = Math.abs(diff(ac.tHdg, ac.rwy.course)) < 3;
-        const hdgPart = runwayHdg ? 'fly runway heading' : `fly heading ${hdg3(ac.tHdg)}`;
+        const sidName = !c.hdg && sidFor(ac.gate, ac.rwy)?.id;
+        if (c.hdg != null) ac.hdgAssigned = true;
+        const hdgPart = sidName ? `${sidName} departure` : runwayHdg ? 'fly runway heading' : `fly heading ${hdg3(ac.tHdg)}`;
         const imm = ac.immediate ? 'immediate ' : '';
         parts.push(`${wind}, runway ${ac.rwy.id}, ${hdgPart}, cleared for ${imm}takeoff`);
-        back.push(`${runwayHdg ? 'runway heading' : 'heading ' + hdg3(ac.tHdg)}, cleared for ${imm}takeoff ${ac.rwy.id}`);
+        back.push(`${sidName ? sidName + ' departure' : runwayHdg ? 'runway heading' : 'heading ' + hdg3(ac.tHdg)}, cleared for ${imm}takeoff ${ac.rwy.id}`);
     }
     if (c.land) {
         ac.landClr = true;
@@ -2325,6 +2470,7 @@ function routeAlt(ac, plan) {
 }
 
 function aiDeparture(ac) {
+    if (ac.via) return;                    // flying its SID
     if (!ac.aiClimb) {
         ac.aiClimb = true;
         const aboveFinals = Math.max(...G.active.arr.map(e => planFinal(e).joinAlt)) + 1000;
@@ -2508,6 +2654,9 @@ function step(ac, dt) {
             G.occupied.set(ac.rwy.phys, G.t + 5);
             G.lastDepAt.set(ac.rwy.phys, G.t);
             if (p.wake === 'S' || p.wake === 'H') G.depWake.set(ac.rwy.phys, { t: G.t, cs: ac.cs, wake: p.wake });
+            // On a SID: climb via it, to the exit altitude (unless a heading was given with the takeoff clearance).
+            const sid = sidFor(ac.gate, ac.rwy);
+            if (sid && !ac.hdgAssigned) { ac.via = { kind: 'SID', id: sid.id, legs: sid.legs, i: 0, vert: true, top: ac.tAlt }; ac.sid = sid.id; }
             // IFATC 3.2.11: Tower keeps it until half a mile past the departure end, not right after rotation.
             if (G.rules.id === 'ifatc') ac.freq = 'TWR';
             else departureCheckIn(ac);
@@ -2524,6 +2673,8 @@ function step(ac, dt) {
         const f = ac.direct;
         ac.tHdg = brg(f.x - ac.x, f.y - ac.y);
         if (Math.hypot(f.x - ac.x, f.y - ac.y) < 1) ac.direct = null;
+    } else if (ac.via && !(ac.kind === 'dep' && agl(ac) < 400)) {
+        viaStep(ac);
     }
     if (ac.orbit) {
         const turn = TURN_RATE * dt;
@@ -2989,11 +3140,36 @@ function draw() {
         c.textAlign = 'left'; c.textBaseline = 'alphabetic';
     }
 
+    // Published procedures (real data): STARs in from their entry fixes, SIDs off the departure runways, faint.
+    if (G.world.nav) {
+        c.save();
+        c.lineWidth = 1; c.setLineDash([3, 5]);
+        const line = (legs, col) => {
+            c.strokeStyle = col; c.beginPath(); let on = false;
+            for (const l of legs) { if (l.x == null) continue; const [lx, ly] = toS(l.x, l.y); if (on) c.lineTo(lx, ly); else { c.moveTo(lx, ly); on = true; } }
+            c.stroke();
+        };
+        c.globalAlpha = 0.35;
+        for (const f of G.world.fixes) {
+            if (f.kind === 'arr') for (const st of f.stars || []) line(st.legs, COLORS.fixArr);
+            if (f.kind === 'dep') for (const sd of f.sids || []) if (G.active.dep.some(e => sidFor(f, e) === sd)) line(sd.legs, COLORS.fixDep);
+        }
+        c.restore();
+    }
+
     // Fixes.
     c.font = '10px "JetBrains Mono", monospace';
     for (const f of G.world.fixes) {
         if (f.kind === 'app' && !G.active.arr.includes(f.end)) continue;
         const [fx, fy] = toS(f.x, f.y);
+        if (f.kind === 'wp') {
+            // A procedure waypoint: a small triangle, named once zoomed in a little.
+            c.strokeStyle = c.fillStyle = COLORS.fixApp; c.globalAlpha = 0.55;
+            c.beginPath(); c.moveTo(fx, fy - 3); c.lineTo(fx + 3, fy + 2.5); c.lineTo(fx - 3, fy + 2.5); c.closePath(); c.stroke();
+            if (view.scale > 14) c.fillText(f.name, fx + 5, fy + 3);
+            c.globalAlpha = 1;
+            continue;
+        }
         c.strokeStyle = c.fillStyle = f.kind === 'dep' ? COLORS.fixDep : f.kind === 'arr' ? COLORS.fixArr : COLORS.fixApp;
         c.beginPath();
         if (f.kind === 'app') {
@@ -3633,6 +3809,7 @@ function statusDetail(ac) {
     if (ac.holdAt) lat = `holding at ${ac.holdAt.fix.name}`;
     else if (ac.orbit) lat = `${ac.orbit.dir === 'L' ? 'left' : 'right'} 360`;
     else if (ac.direct) lat = `direct ${ac.direct.name}`;
+    else if (ac.via) { const nx = ac.via.legs.slice(ac.via.i).find(l => l.name); lat = `${ac.via.kind === 'STAR' ? 'descending via' : 'climbing via'} ${ac.via.id}${nx ? ' > ' + nx.name : ''}${ac.via.vert ? '' : ' (altitude assigned)'}`; }
     if (ac.appr) {
         const ap = ac.appr;
         lat = ap.loc ? `on the localizer ${ap.end.id} · ${ap.along.toFixed(1)} nm${ac.landClr ? ' · cleared to land' : ' · needs landing clearance'}` : `cleared ILS ${ap.end.id} · ${Math.abs(ap.xt).toFixed(1)} nm ${ap.xt > 0 ? 'right' : 'left'} of course`;
@@ -3647,7 +3824,7 @@ function renderCard(force) {
     el.hidden = !ac;
     $('#scope-wrap').classList.toggle('info-open', !!ac);
     if (!ac) { cardKey = 'none'; el.innerHTML = ''; return; }
-    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}|${!!ac.toTower}|${!!ac.toGround}|${ac.purpose}|${!!ac.prog}|${ac.preClr}|${ac.pattern?.kind}${ac.pattern?.end.id}|${ac.route?.crossings.filter(x => x.cleared).length}`;
+    const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}|${!!ac.toTower}|${!!ac.toGround}|${ac.purpose}|${!!ac.prog}|${ac.preClr}|${!!ac.via}|${!!ac.viaSaved}|${ac.pattern?.kind}${ac.pattern?.end.id}|${ac.route?.crossings.filter(x => x.cleared).length}`;
     if (!force && key === cardKey) { updateCard(); return; }
     cardKey = key;
     const ground = ac.state !== 'air';
@@ -3691,7 +3868,8 @@ function renderCard(force) {
     // Tap-to-pick lists (no dropdowns or typing): a heading, then a grid of chips.
     const picker = (act, title, items) => items.length ? `<details class="pick"><summary>${title}</summary><div class="chips">${items.map(([v, label, sub]) =>
         `<button type="button" class="chip-btn" data-pick="${act}" data-v="${escapeHtml(v)}">${escapeHtml(label)}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</button>`).join('')}</div></details>` : '';
-    const fixItems = fixList.map(f => [f.name, f.name, f.kind === 'arr' ? 'entry' : f.kind === 'dep' ? 'exit' : 'final ' + f.end.id]);
+    const fixItems = fixList.slice().sort((a, b) => Math.hypot(a.x - ac.x, a.y - ac.y) - Math.hypot(b.x - ac.x, b.y - ac.y)).slice(0, 24)
+        .map(f => [f.name, f.name, f.kind === 'arr' ? 'entry' : f.kind === 'dep' ? 'exit' : f.kind === 'wp' ? Math.round(Math.hypot(f.x - ac.x, f.y - ac.y)) + ' mi' : 'final ' + f.end.id]);
     el.innerHTML = `
         <div class="info-h"><span style="flex:1">INFORMATION</span><button class="info-x" data-act="close" aria-label="Close">✕</button></div>
         <div class="card-head">
@@ -3736,6 +3914,7 @@ function renderCard(force) {
             <button class="btn" data-act="immediate">Immediate takeoff</button>
             <button class="btn primary" data-act="takeoff">Cleared for takeoff ${ac.rwy.id}</button></div>` : ''}
         ${ilsBtns ? `<div class="btn-row">${ilsBtns}</div>` : ''}
+        ${!ground && (ac.viaSaved || (ac.via && !ac.via.vert)) ? `<div class="btn-row"><button class="btn" data-act="via">${ac.kind === 'arr' ? 'Descend via' : 'Climb via'} ${(ac.viaSaved || ac.via).id}</button></div>` : ''}
         ${!ground ? `
         ${picker('direct', 'Direct to…', fixItems)}
         ${ac.kind === 'arr' ? picker('ils-other', 'Other ILS…', others.map(e => [e.id, 'ILS ' + e.id])) : ''}
@@ -3810,7 +3989,7 @@ function bindCard() {
         else if (['push', 'taxi', 'holdPos', 'cont', 'cross', 'tower', 'ground'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
         else if (act === 'land') { issue(ac, { land: true }); renderCard(true); }
         else if (act === 'cancelTO') { issue(ac, { cancelTO: true }); renderCard(true); }
-        else if (['freqChange', 'holdShort', 'seqNo', 'contInbound', 'seqLand'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
+        else if (['freqChange', 'holdShort', 'seqNo', 'contInbound', 'seqLand', 'via'].includes(act)) { issue(ac, { [act]: true }); renderCard(true); }
         else if (act === 'immediate') transmitPending({ immediate: true });
         else if (act === 'slowest') { issue(ac, { slowest: true }); syncPending(true); renderCard(true); }
         else if (act === 'ga') { issue(ac, { goAround: true }); syncPending(true); renderCard(true); }
@@ -3937,6 +4116,7 @@ function runCommand(text) {
         else if (t === 'CXTO' || t === 'CANCEL' || t === 'RTO') c.cancelTO = true;
         else if (t === 'HS' || t === 'HOLDSHORT') c.holdShort = true;
         else if (t === 'CI') c.contInbound = true;
+        else if (t === 'DV' || t === 'CV' || t === 'VIA') c.via = true;
         else if (t === 'NO' || t === 'NUMBER') c.seqLand = true;
         else if (t === 'ENT' || t === 'ENTER') {
             const k = toks[i + 1], e = findEnd(toks[i + 2] || '');
@@ -4303,7 +4483,9 @@ async function startGame(airport, level) {
     $('#summary').hidden = true;
     $('#log').innerHTML = '';
     nextId = 1;
-    newGame(airport, level, { ...opts });
+    // Real waypoints and procedures for US fields (nav/<ICAO>.json, built by tools/build-nav.mjs).
+    const nav = await loadNav(airport.icao);
+    newGame(airport, level, { ...opts }, nav);
     const game = G;
     renderAsk();
     loading.clear(); busy('', null);

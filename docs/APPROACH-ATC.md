@@ -323,6 +323,33 @@ Scoring by position:
 | Tower or Approach | Landing | +10 |
 | Approach | Departure out through its gate | +10 |
 
+## Real waypoints and procedures (US airports)
+
+At US airports the fixes and procedures are real, from FAA data: the
+current AIRAC cycle of the FAA's CIFP (SIDs, STARs, instrument approaches)
+and NASR (waypoints, navaids), via the MIT-licensed `@squawk/procedure-data`,
+`@squawk/fix-data` and `@squawk/navaid-data` npm packages.
+
+- `npm run build:nav` (`tools/build-nav.mjs`) writes `nav/<ICAO>.json` for
+  every US airport with a SID, STAR or ILS (about 1,100 airports, 16 MB in
+  all, 35–110 KB each) and `nav/index.json` with the cycle date. Re-run it
+  every 28 days.
+- **Entry fixes** are where each STAR enters the scope. Arrivals check in
+  "descending via the PARCH4 arrival" and fly it, with its altitude and speed
+  constraints, until given a heading, a direct, a hold or an approach
+  (`dv` / "Descend via" resumes it; an altitude ends only the vertical part).
+  At the end of the STAR they ask for vectors.
+- **Exit gates** are where the SIDs end. Departures are cleared with the SID
+  for their runway ("SKORR6 departure, cleared for takeoff") and fly it after
+  takeoff, climbing via it to the exit altitude, unless given a heading
+  (`cv` / "Climb via" resumes it).
+- **Approach fixes** are each runway's ILS intermediate fix (e.g. ROSLY for
+  22L at JFK), and the other fixes the procedures use are drawn as small
+  waypoints, for direct-to and holds (the Direct to list shows the 24
+  nearest).
+- STAR and SID tracks for the runways in use are drawn faintly on the scope.
+- Outside the US, and at airports without data, the fixes stay invented.
+
 ## Controls
 
 - **Tap** an aircraft, its strip, or any log line that names it to open its
