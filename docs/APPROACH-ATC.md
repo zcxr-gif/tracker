@@ -445,6 +445,35 @@ line per switch).
   by 3 miles past, it happens anyway for −2. The system's Tower does it at
   half a mile.
 
+**Inbounds, from the IFATC manual (section 3.3):** with **Approach (radar):
+Closed** on the start screen (Infinite Flight, when you aren't working
+Approach), there's no radar controller:
+
+- Arrivals call Tower directly: "inbound on the ILS runway 10L" when lined
+  up with a final, otherwise "inbound for landing, 18 miles west".
+- 3.3.1 Every one needs a **pattern entry** and a **landing clearance** at
+  minimum: straight in, left/right downwind or left/right base, for any
+  landing runway (the Pattern entry list, or `ent DL 28R`). The aircraft
+  flies it: downwind 3 miles out abeam midfield, base at 8.5 miles, final
+  from 6.5 miles onto the ILS. Cleared to land can come with the entry.
+- 3.3.2 **Continue inbound** (`ci`) is fine while you decide, and a pattern
+  entry without a sequence too, with **Number N** (`no`) added later. But by
+  8 miles out it must have an entry: if not, it's a violation and it orbits
+  until it gets one.
+- 3.3.4 A runway change cancels the entry and the clearance: a new pattern
+  entry and clearance are needed.
+- Go-arounds stay with Tower and need a new entry.
+- With no radar, two aircraft both with Tower only count as a conflict
+  inside 1 mile and 500 ft. Tower sequences them; radar minima don't apply.
+  (This threshold is the game's own: the manual extract doesn't give one.)
+- If the system works Tower, it gives each inbound a straight in and a
+  landing clearance at 15 miles.
+- Departures handed off with "frequency change approved" go on their own
+  navigation (there's no Departure).
+
+Not modelled from 3.3: local flights and pattern work ("cleared for the
+option", left/right traffic, 3.3.5–3.3.6), since all traffic here lands.
+
 Not modelled: back-taxi (3.2.4), multiple aircraft lined up at once (3.2.3),
 and "Straight Out Dept." in the ATIS (3.2.9–3.2.10).
 
