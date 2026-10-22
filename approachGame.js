@@ -552,8 +552,8 @@ function sidFor(gate, rwy) {
 
 /* ---- ATIS: the runways, the approach in use, recommended procedures and remarks, broadcast as a lettered information ---- */
 
-const ATIS_KEEP = ['app', 'stars', 'sids', 'straight'];
-const atisDefault = icao => ({ mode: 'auto', arr: [], dep: [], app: 'ILS', stars: [], sids: [], straight: 0, ...Object.fromEntries(Object.entries(store.get('atis.' + icao, {})).filter(([k]) => ATIS_KEEP.includes(k))) });
+const ATIS_KEEP = ['app', 'stars', 'sids', 'straight', 'remarks', 'notams'];
+const atisDefault = icao => ({ mode: 'auto', arr: [], dep: [], app: 'ILS', stars: [], sids: [], straight: 0, remarks: [], notams: [], ...Object.fromEntries(Object.entries(store.get('atis.' + icao, {})).filter(([k]) => ATIS_KEEP.includes(k))) });
 /** Wind along a runway: positive headwind, negative tailwind. */
 const headwind = e => Math.round(G.wind.spd * Math.cos(diff(e.course, G.wind.dir) * D2R));
 const zuluText = () => { const z = new Date(G.zulu0 + G.t * 1000); return String(z.getUTCHours()).padStart(2, '0') + String(z.getUTCMinutes()).padStart(2, '0') + 'Z'; };
@@ -565,15 +565,58 @@ function activeFrom(cfg) {
     return arr.length && dep.length ? { arr, dep, key: arr.map(e => e.id).join(' ') + '/' + dep.map(e => e.id).join(' ') } : null;
 }
 
-function atisText() {
-    const cfg = G.atisCfg, list = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a[0];
-    const app = G.active.arr.map(e => hasApproach(e, cfg.app) ? cfg.app : 'ILS');
-    return `${G.world.icao} information ${PHONETIC[G.atis]}, ${zuluText()}. Wind ${hdg3(G.wind.dir)} at ${G.wind.spd}${G.met.gust ? ' gusting ' + G.met.gust : ''}${G.opts.weather ? ', ' + metText(G.met) : ''}, altimeter ${G.altim}. `
-        + `${APP_NAME[app[0]].replace(/^./, c => c.toUpperCase())} approach${G.active.arr.length > 1 ? 'es' : ''} in use, landing runway ${list(G.active.arr.map(e => e.id))}, departing runway ${list(G.active.dep.map(e => e.id))}.`
-        + (cfg.stars.length ? ` Arrivals expect the ${list(cfg.stars)} arrival.` : '')
-        + (cfg.sids.length ? ` Departures expect the ${list(cfg.sids)} departure.` : '')
-        + (cfg.straight ? ` Straight out departures to ${cfg.straight} feet.` : '')
-        + ` Advise on initial contact you have information ${PHONETIC[G.atis]}.`;
+/** Infinite Flight's ATIS remarks and NOTAMs, with how each is read out. */
+const REMARKS = [
+    ['noInter', 'No intersection dept.', 'no intersection departures'],
+    ['interOk', 'Intersection dept OK', 'intersection departures available'],
+    ['noPattern', 'No pattern work', 'no pattern work'],
+    ['flow', 'Flow control', 'flow control in effect'],
+    ['longTaxi', 'Long taxi', 'expect long taxi times'],
+    ['gateHold', 'Gate hold', 'gate hold procedures in effect'],
+    ['rolling', 'Rolling dpt', 'rolling departures'],
+    ['fpl', 'FPL required', 'flight plan required'],
+];
+const NOTAMS = [
+    ['event', 'Event', 'event in progress, expect delays'],
+    ['size', 'Size restrictions', 'aircraft size restrictions in effect'],
+    ['severe', 'Severe weather', 'severe weather in the area'],
+    ['lowVis', 'Low visibility', 'low visibility procedures in effect'],
+];
+const STRAIGHT_STEPS = [0, 1000, 3000, 5000];
+const hasRemark = k => !!G?.atisCfg.remarks.includes(k);
+
+/** The weather as a METAR line, as the top of Infinite Flight's ATIS page shows it. */
+function metarText() {
+    const z = new Date(G.zulu0 + G.t * 1000), t = n => (n < 0 ? 'M' : '') + String(Math.abs(n)).padStart(2, '0');
+    const m = G.met, sky = m.ceil == null ? 'SKC' : 'OVC' + String(Math.round(m.ceil / 100)).padStart(3, '0');
+    return [G.world.icao, String(z.getUTCDate()).padStart(2, '0') + zuluText(), hdg3(G.wind.dir) + String(G.wind.spd).padStart(2, '0') + (m.gust ? 'G' + m.gust : '') + 'KT',
+        (VIS[m.vis] || m.vis) + 'SM', m.wx, sky, t(G.temp) + '/' + t(G.dew), 'A' + G.altim].filter(Boolean).join(' ');
+}
+
+/** The ATIS as read out: a draft (cfg, the letter it will carry, its runways) or what's current. */
+function atisText(cfg = G.atisCfg, letter = G.atis, act = G.active) {
+    const list = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a[0];
+    const L = PHONETIC[letter], ifr = G.rules.id === 'ifatc';
+    const app = act.arr.map(e => hasApproach(e, cfg.app) ? cfg.app : 'ILS')[0] || 'ILS';
+    const remarks = [...REMARKS.filter(r => cfg.remarks.includes(r[0])).map(r => r[2]), ...(cfg.straight ? [`straight out departures${ifr ? '' : ` to ${cfg.straight} feet`}`] : [])];
+    const notams = NOTAMS.filter(n => cfg.notams.includes(n[0])).map(n => n[2]);
+    const procs = (cfg.stars.length ? ` Arrivals expect the ${list(cfg.stars)} arrival.` : '') + (cfg.sids.length ? ` Departures expect the ${list(cfg.sids)} departure.` : '');
+    if (ifr) {
+        // Infinite Flight's own wording and order.
+        const apt = (G.airport.name || G.world.icao).replace(/\s*\b(International|Intl|Regional|Municipal)?\s*Airport\b.*$/i, '').trim() || G.world.icao;
+        return `${apt} airport, ATIS information ${L.toUpperCase()}, time ${zuluText().slice(0, 4)} ZULU, Wind ${hdg3(G.wind.dir)} at ${G.wind.spd}${G.met.gust ? ' gusting ' + G.met.gust : ''}, Visibility ${VIS[G.met.vis] || G.met.vis}, Temperature ${G.temp}, Dew Point ${G.dew}, Altimeter ${G.altim}.`
+            + (remarks.length ? ` Remarks, ${remarks.join(', ')}.` : '')
+            + ` Landing Runways ${list(act.arr.map(e => e.id))}, Departing Runways ${list(act.dep.map(e => e.id))}.`
+            + (app !== 'ILS' ? ` Expect ${APP_NAME[app]} approaches.` : '') + procs
+            + (notams.length ? ` Notams, ${notams.join(', ')}.` : '')
+            + ` Advise on initial contact, you have information ${L.toUpperCase()}.`;
+    }
+    return `${G.world.icao} information ${L}, ${zuluText()}. Wind ${hdg3(G.wind.dir)} at ${G.wind.spd}${G.met.gust ? ' gusting ' + G.met.gust : ''}${G.opts.weather ? ', ' + metText(G.met) : ''}, temperature ${G.temp}, dew point ${G.dew}, altimeter ${G.altim}. `
+        + `${APP_NAME[app].replace(/^./, c => c.toUpperCase())} approach${act.arr.length > 1 ? 'es' : ''} in use, landing runway ${list(act.arr.map(e => e.id))}, departing runway ${list(act.dep.map(e => e.id))}.`
+        + procs
+        + (remarks.length ? ` Remarks: ${remarks.join(', ')}.` : '')
+        + (notams.length ? ` NOTAMs: ${notams.join(', ')}.` : '')
+        + ` Advise on initial contact you have information ${L}.`;
 }
 
 /** What's wrong with an ATIS before it goes out: tailwinds (IFATC 2.1.2) and runways without the approach in use. */
@@ -593,62 +636,145 @@ function broadcastAtis(cfg) {
     const prev = G.active.key;
     G.active = (cfg.mode === 'manual' && activeFrom(cfg)) || computeActive(G.world, G.wind);
     G.atis = (G.atis + 1) % 26;
+    G.atisAt = G.t;
     sys(atisText(), 'good');
     if (G.active.key !== prev) runwayChange();
     renderLayers(); renderAtis();
 }
 
 let atisDraft = null;
+/** Infinite Flight's ATIS page, over the scope: runways, remarks, NOTAMs (and the approach and procedures), then publish. */
 function renderAtis() {
     const el = $('#atis');
     if (!el || el.hidden || !G) return;
     const d = atisDraft || (atisDraft = structuredClone(G.atisCfg)), nav = G.world.nav, ifr = G.rules.id === 'ifatc';
-    const seg = (key, opts, val) => `<div class="seg" data-atis="${key}">${opts.map(([v, l]) => `<button type="button" data-v="${v}" class="${String(v) === String(val) ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-    const chips = (key, items, on) => `<div class="chips">${items.map(([v, label, sub]) => `<button type="button" class="chip-btn${on.includes(v) ? ' on' : ''}" data-atis-chip="${key}" data-v="${escapeHtml(v)}">${escapeHtml(label)}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</button>`).join('')}</div>`;
-    const wind = e => { const h = headwind(e); return h >= 0 ? `head ${h}` : `tail ${-h}`; };
-    const ends = G.world.ends.map(e => [e.id, e.id, wind(e)]);
-    const warn = atisWarnings(d);
+    const tile = (attrs, html, on, sub = '', cls = '') => `<button type="button" class="ia-t${on ? ' on' : ''}${cls ? ' ' + cls : ''}" ${attrs}><span>${html}</span>${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</button>`;
+    const act = d.mode === 'manual' ? activeFrom(d) : computeActive(G.world, G.wind);
+    const ends = [...G.world.ends].sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
+    const isOn = (k, e) => (d.mode === 'manual' ? d[k].includes(e.id) : act[k].includes(e));
+    // Red for a tailwind, green for a headwind, as Infinite Flight colours them.
+    const rwy = ends.map(e => { const h = headwind(e), cls = 'rw ' + (h < 0 ? 'tail' : 'head'), tip = `title="${h < 0 ? 'tailwind ' + -h : 'headwind ' + h} kt"`;
+        return tile(`data-rw="dep" data-v="${e.id}" ${tip}`, `${e.id}<br>DEP`, isOn('dep', e), '', cls) + tile(`data-rw="arr" data-v="${e.id}" ${tip}`, `${e.id}<br>LDG`, isOn('arr', e), '', cls); }).join('');
+    const rem = REMARKS.map(([k, l]) => tile(`data-rm="${k}"`, escapeHtml(l.toUpperCase()), d.remarks.includes(k))).join('')
+        + tile('data-straight', 'STRAIGHT OUT DEPT', d.straight > 0, d.straight ? `to ${d.straight.toLocaleString('en-US')} ft` : '');
+    const notams = NOTAMS.map(([k, l]) => tile(`data-nt="${k}"`, escapeHtml(l.toUpperCase()), d.notams.includes(k))).join('');
+    const apps = [['ILS', 'ILS'], ...(ifr ? [] : [['LOC', 'LOC']]), ['RNAV', ifr ? 'GPS' : 'RNAV'], ['VIS', 'VISUAL']].map(([v, l]) => tile(`data-app="${v}"`, l, d.app === v, '', 'sm')).join('');
     // Only procedures traffic here can fly: arrivals that enter the scope far enough out, departures that reach an exit.
     const flown = (kind, key) => [...new Set(G.world.fixes.filter(f => f.kind === kind).flatMap(f => (f[key] || []).map(p => p.id)))].sort();
-    const via = (kind, key) => id => G.world.fixes.filter(f => f.kind === kind && f[key]?.some(p => p.id === id)).map(f => f.name).join(' ');
-    const stars = nav ? flown('arr', 'stars').map(id => [id, id, via('arr', 'stars')(id)]) : [];
-    const sids = nav ? flown('dep', 'sids').map(id => [id, id]) : [];
+    const via = (kind, key, id) => G.world.fixes.filter(f => f.kind === kind && f[key]?.some(p => p.id === id)).map(f => f.name).join(' ');
+    const stars = nav ? flown('arr', 'stars').map(id => tile(`data-proc="stars" data-v="${escapeHtml(id)}"`, escapeHtml(id), d.stars.includes(id), via('arr', 'stars', id), 'sm')).join('') : '';
+    const sids = nav ? flown('dep', 'sids').map(id => tile(`data-proc="sids" data-v="${escapeHtml(id)}"`, escapeHtml(id), d.sids.includes(id), '', 'sm')).join('') : '';
+    const warn = atisWarnings(d);
+    const ago = Math.round((G.t - (G.atisAt ?? 0)) / 60);
+    const next = (G.atis + 1) % 26;
     el.innerHTML = `
-        <div class="layers-h"><span>ATIS · INFORMATION ${PHONETIC[G.atis].toUpperCase()}</span><button type="button" class="info-x" data-close aria-label="Close">✕</button></div>
-        <p class="note atis-now">${escapeHtml(atisText())}</p>
-        <h4>Runways</h4>
-        <div class="lrow"><span>Choose</span>${seg('mode', [['auto', 'By the wind'], ['manual', 'Myself']], d.mode)}</div>
-        ${d.mode === 'manual' ? `<h4>Landing</h4>${chips('arr', ends, d.arr)}<h4>Departing</h4>${chips('dep', ends, d.dep)}` : ''}
-        <h4>Approach in use</h4>
-        ${seg('app', [['ILS', 'ILS'], ...(ifr ? [] : [['LOC', 'LOC']]), ['RNAV', ifr ? 'GPS' : 'RNAV'], ['VIS', 'Visual']], d.app)}
-        ${stars.length ? `<h4>Recommended arrivals</h4>${chips('stars', stars, d.stars)}` : ''}
-        ${sids.length ? `<h4>Recommended departures</h4>${chips('sids', sids, d.sids)}` : ''}
-        <h4>Straight out departures</h4>
-        ${seg('straight', [[0, 'Off'], [1000, '1,000'], [3000, '3,000'], [5000, '5,000']], d.straight)}
-        <p class="note">${stars.length || sids.length ? 'Pilots file the recommended procedures and fly them. ' : ''}Straight out: runway heading to that height above the field before turning on course.</p>
-        ${warn.length ? `<p class="note atis-warn">${warn.map(escapeHtml).join('<br>')}</p>` : ''}
-        <div class="btn-row"><button type="button" class="btn primary" data-atis-go ${d.mode === 'manual' && !activeFrom(d) ? 'disabled' : ''}>Broadcast information ${PHONETIC[(G.atis + 1) % 26]}</button></div>`;
+        <div class="ia-top"><span class="ia-metar">${escapeHtml(metarText())}</span><span>Updated ${ago < 1 ? 'just now' : ago === 1 ? 'a minute ago' : ago + ' minutes ago'} - Current Time: ${zuluText()}</span></div>
+        <div class="ia-bar"><span>WIND: ${hdg3(G.wind.dir)}°(M) at ${G.wind.spd}${G.met.gust ? ' gusting ' + G.met.gust : ''}</span><span class="sp"></span>
+            <span class="ia-lbl">ATIS INFORMATION</span><span class="ia-letter">${PHONETIC[next].toUpperCase()}</span>
+            <button type="button" class="ia-pub" data-atis-go ${act ? '' : 'disabled'}>PUBLISH</button><button type="button" class="ia-x" data-close aria-label="Close">✕</button></div>
+        <div class="ia-cols">
+            <section class="ia-col ia-rwcol"><div class="ia-h">RUNWAYS <button type="button" class="ia-auto${d.mode === 'auto' ? ' on' : ''}" data-auto title="Pick the runways from the wind">BY WIND</button></div><div class="ia-grid ia-rws">${rwy}</div></section>
+            <section class="ia-col"><div class="ia-h">REMARKS</div><div class="ia-grid">${rem}</div>
+                ${warn.length ? `<p class="ia-warn">${warn.map(escapeHtml).join('<br>')}</p>` : ''}</section>
+            <section class="ia-col"><div class="ia-h">NOTAMS</div><div class="ia-grid">${notams}</div>
+                <div class="ia-h">APPROACH</div><div class="ia-grid">${apps}</div>
+                ${stars ? `<div class="ia-h">ARRIVALS</div><div class="ia-grid">${stars}</div>` : ''}
+                ${sids ? `<div class="ia-h">DEPARTURES</div><div class="ia-grid">${sids}</div>` : ''}</section>
+        </div>
+        <div class="ia-text">${escapeHtml(act ? atisText(d, next, act) : 'Pick at least one landing and one departure runway.')}</div>`;
+}
+
+function openAtis(open) {
+    const el = $('#atis');
+    el.hidden = !open;
+    atisDraft = null;
+    if (open) railView = 'ATIS'; else if (railView === 'ATIS') railView = null;
+    renderAtis(); renderRail();
 }
 
 function bindAtis() {
     const el = $('#atis');
-    $('#atis-btn').onclick = () => { el.hidden = !el.hidden; $('#atis-btn').classList.toggle('on', !el.hidden); atisDraft = null; renderAtis(); };
     el.addEventListener('click', e => {
         if (!G) return;
-        if (e.target.closest('[data-close]')) { el.hidden = true; $('#atis-btn').classList.remove('on'); return; }
+        if (e.target.closest('[data-close]')) { openAtis(false); return; }
         const b = e.target.closest('button');
         if (!b || !atisDraft) return;
-        const d = atisDraft, seg = b.closest('[data-atis]');
+        const d = atisDraft, toggle = (k, v) => { d[k] = d[k].includes(v) ? d[k].filter(x => x !== v) : [...d[k], v]; };
         if (b.hasAttribute('data-atis-go')) { broadcastAtis(d); atisDraft = null; renderAtis(); return; }
-        if (seg) {
-            const k = seg.dataset.atis;
-            d[k] = k === 'straight' ? Number(b.dataset.v) : b.dataset.v;
-            if (k === 'mode' && d.mode === 'manual' && !d.arr.length) Object.assign(d, { arr: G.active.arr.map(e => e.id), dep: G.active.dep.map(e => e.id) });
-        } else if (b.dataset.atisChip) {
-            const k = b.dataset.atisChip, v = b.dataset.v;
-            d[k] = d[k].includes(v) ? d[k].filter(x => x !== v) : [...d[k], v];
-        } else return;
+        if (b.hasAttribute('data-auto')) d.mode = d.mode === 'auto' ? 'manual' : 'auto';
+        else if (b.dataset.rw) {
+            // Touching a runway takes them off the wind, starting from what's in use.
+            if (d.mode === 'auto') Object.assign(d, { mode: 'manual', arr: G.active.arr.map(e => e.id), dep: G.active.dep.map(e => e.id) });
+            toggle(b.dataset.rw, b.dataset.v);
+        } else if (b.dataset.rm) {
+            toggle('remarks', b.dataset.rm);
+            const other = { noInter: 'interOk', interOk: 'noInter' }[b.dataset.rm];
+            if (other) d.remarks = d.remarks.filter(x => x !== other);
+        } else if (b.hasAttribute('data-straight')) d.straight = STRAIGHT_STEPS[(STRAIGHT_STEPS.indexOf(d.straight) + 1) % STRAIGHT_STEPS.length];
+        else if (b.dataset.nt) toggle('notams', b.dataset.nt);
+        else if (b.dataset.app) d.app = b.dataset.app;
+        else if (b.dataset.proc) toggle(b.dataset.proc, b.dataset.v);
+        else return;
         renderAtis();
+    });
+}
+
+/* ---- Frequencies down the left, as in Infinite Flight: the real ones (OurAirports), tap one to see its traffic ---- */
+
+let freqData = null;
+async function loadFreqs(icao) {
+    try {
+        if (!freqData) {
+            const r = await Promise.race([fetch('/approach-freqs.json'), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]);
+            freqData = r.ok ? await r.json() : {};
+        }
+    } catch { freqData = {}; }
+    return freqData[icao] || {};
+}
+const FAC_WORD = { APP: 'Approach', DEP: 'Departure', TWR: 'Tower', GND: 'Ground', ATIS: 'ATIS' };
+/** The facility as pilots call it: "Kennedy Tower", "New York Approach", or the field's code and the position. */
+const facName = k => G?.freqs?.[k]?.[1] || `${G.world.icao} ${FAC_WORD[k]}`;
+const mhz = f => (Math.round(f * 1000) % 10 ? f.toFixed(3) : f.toFixed(2));
+const freqLabel = k => { const f = G.freqs?.[k]; return k === 'ATIS' ? `${G.world.icao} ATIS${f ? ` (${mhz(f[0])})` : ''}` : `${facName(k)}${f ? ` (${mhz(f[0])})` : ''}`; };
+
+let railView = null;                 // 'APP' | 'DEP' | 'TWR' | 'GND': the strip list shows only that frequency; 'ATIS': the ATIS page
+let railHtml = '';
+const onFreq = {
+    APP: a => a.freq === 'APP' && (a.kind === 'arr' || !G.freqs?.DEP),
+    DEP: a => a.freq === 'APP' && a.kind === 'dep',
+    TWR: a => a.freq === 'TWR',
+    GND: a => a.freq === 'GND',
+};
+function railRows() {
+    const rows = ['STATUS'];
+    if (G.ground) rows.push('GND');
+    rows.push('TWR');
+    if (!noRadar()) { rows.push('APP'); if (G.freqs?.DEP) rows.push('DEP'); }
+    rows.push('ATIS');
+    return rows;
+}
+function renderRail() {
+    const el = $('#freq-rail');
+    if (!el || !G) return;
+    const html = railRows().map(k => {
+        if (k === 'STATUS') return `<button type="button" class="rail-i${hudMin ? '' : ' on'}" data-rail="STATUS">Status</button>`;
+        if (k === 'ATIS') return `<button type="button" class="rail-i atis${railView === 'ATIS' ? ' on' : ''}" data-rail="ATIS">${escapeHtml(freqLabel('ATIS'))}</button>`;
+        const pos = k === 'DEP' ? 'APP' : k, yours = G.positions.has(pos);
+        const n = yours ? G.aircraft.filter(a => onFreq[k](a) && wantsYou(a)).length : 0;
+        return `<button type="button" class="rail-i${railView === k ? ' on' : ''}${yours ? '' : ' sys'}" data-rail="${k}" title="${yours ? 'Your frequency' : 'The system is working this'}">${escapeHtml(freqLabel(k))}${n ? `<b>${n}</b>` : ''}</button>`;
+    }).join('');
+    if (html !== railHtml) { el.innerHTML = html; railHtml = html; }
+}
+function bindRail() {
+    $('#freq-rail').addEventListener('click', e => {
+        const b = e.target.closest('[data-rail]');
+        if (!b || !G) return;
+        const k = b.dataset.rail;
+        if (k === 'ATIS') { openAtis(railView !== 'ATIS'); return; }
+        if (k === 'STATUS') { hudMin = !hudMin; store.set('hudMin', hudMin); renderHud(); renderRail(); return; }
+        if (railView === 'ATIS') $('#atis').hidden = true;
+        railView = railView === k ? null : k;
+        renderStrips(); renderRail();
     });
 }
 
@@ -743,6 +869,9 @@ function newGame(airport, level, opts, nav) {
     };
     G.met = makeMet();
     G.atisCfg = atisDefault(world.icao);
+    G.temp = Math.round(rand(2, 29));
+    G.dew = G.temp - (G.met.ceil != null && G.met.ceil < 1000 ? 1 : Math.round(rand(2, 10)));
+    G.atisAt = 0;
     if (opts.weather && G.rules.storms) for (let i = 0; i < 4; i++) spawnCell(true);
 }
 
@@ -810,12 +939,12 @@ function spawnArrival(dist) {
             if (onIls) ac.expect = onIls;
             Object.assign(ac, { freq: 'TWR', tAlt: Math.max(G.world.minAlt, Math.round((G.world.elev + 4000) / 1000) * 1000), tSpd: 230, tHdg: brg(-x, -y) });
             const dir = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'][Math.round(norm(brg(x, y)) / 45) % 8];
-            pilot(ac, `${G.world.icao} Tower, ${ac.radio}, ${fmtAlt(alt)}, ${onIls ? `inbound on the ILS runway ${onIls.id}` : `inbound for landing, ${Math.round(r)} miles ${dir}`}, information ${PHONETIC[G.atis]}.`);
+            pilot(ac, `${facName('TWR')}, ${ac.radio}, ${fmtAlt(alt)}, ${onIls ? `inbound on the ILS runway ${onIls.id}` : `inbound for landing, ${Math.round(r)} miles ${dir}`}, information ${PHONETIC[G.atis]}.`);
             return true;
         }
-        pilot(ac, `${G.world.icao} Approach, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${PHONETIC[G.atis]}.`);
+        pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(ac.alt)}${ac.via ? `, descending via the ${ac.via.id} arrival` : ''}, information ${PHONETIC[G.atis]}.`);
         const expectType = hasApproach(ac.expect, G.atisCfg.app) ? G.atisCfg.app : 'ILS';
-        atc(`${ac.radio}, ${G.world.icao} Approach, altimeter ${G.altim}, expect ${expectType === 'VIS' ? 'visual' : APP_NAME[expectType]} approach runway ${ac.expect.id}.`);
+        atc(`${ac.radio}, ${facName('APP')}, altimeter ${G.altim}, expect ${expectType === 'VIS' ? 'visual' : APP_NAME[expectType]} approach runway ${ac.expect.id}.`);
         return true;
     }
     return false;
@@ -923,7 +1052,7 @@ function spawnDeparture() {
     }
     G.aircraft.push(ac);
     maybeEmergency(ac);
-    pilot(ac, `${G.world.icao} Tower, ${ac.radio}, holding short runway ${rwy.id}, information ${PHONETIC[G.atis]}, ready for departure.`);
+    pilot(ac, `${facName('TWR')}, ${ac.radio}, holding short runway ${rwy.id}, information ${PHONETIC[G.atis]}, ready for departure.`);
     return true;
 }
 
@@ -1630,14 +1759,14 @@ function taxiClearance(ac, want, parts, back) {
 function toTower(ac) {
     Object.assign(ac, { freq: 'TWR', toTower: false, remindAt: G.t + (G.rules.id === 'ifatc' ? 60 : 240), waitSince: ac.waitSince || G.t, acked: false });
     if (G.positions.has('GND')) award(ac, 3);
-    pilot(ac, `${G.world.icao} Tower, ${ac.radio}, holding short runway ${ac.rwy.id}, ready for departure.`);
+    pilot(ac, `${facName('TWR')}, ${ac.radio}, holding short runway ${ac.rwy.id}, ready for departure.`);
 }
 
 /** An arrival clear of the runway goes over to Ground and asks for its gate. */
 function toGround(ac) {
     Object.assign(ac, { freq: 'GND', toGround: false });
     ac.stand = ac.stand || freeStand();
-    pilot(ac, `${G.world.icao} Ground, ${ac.radio}, clear of ${ac.landEnd.id}${ac.exitTwy ? ' at ' + ac.exitTwy : ''}, taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'the ramp'}.`);
+    pilot(ac, `${facName('GND')}, ${ac.radio}, clear of ${ac.landEnd.id}${ac.exitTwy ? ' at ' + ac.exitTwy : ''}, taxi to ${ac.stand ? 'gate ' + ac.stand.ref : 'the ramp'}.`);
 }
 
 function startTaxi(ac, r, purpose) {
@@ -1702,8 +1831,8 @@ function patternNav(ac) {
 function departureCheckIn(ac) {
     ac.freq = 'APP';
     if (noRadar()) return;                         // no Departure on: it's on its own navigation
-    pilot(ac, `${G.world.icao} Departure, ${ac.radio}, ${fmtAlt(Math.round(Math.max(ac.alt, G.world.elev + 500) / 100) * 100)} climbing ${fmtAlt(ac.tAlt)}.`);
-    atc(`${ac.radio}, ${G.world.icao} Departure, radar contact.`, !G.positions.has('APP'));
+    pilot(ac, `${facName('DEP')}, ${ac.radio}, ${fmtAlt(Math.round(Math.max(ac.alt, G.world.elev + 500) / 100) * 100)} climbing ${fmtAlt(ac.tAlt)}.`);
+    atc(`${ac.radio}, ${facName('DEP')}, radar contact.`, !G.positions.has('APP'));
 }
 
 /** How far past the departure end of its runway an airborne departure is, in NM (negative: still over it). */
@@ -1907,7 +2036,7 @@ function weather(dt) {
             const leftOk = !heavyAhead(ac, ac.hdg - deg), rightOk = !heavyAhead(ac, ac.hdg + deg);
             const dir = leftOk && !rightOk ? 'L' : rightOk && !leftOk ? 'R' : Math.random() < 0.5 ? 'L' : 'R';
             ac.wxReq = { dir, deg, t: G.t };
-            pilot(ac, `${G.world.icao} Approach, ${ac.radio}, request ${deg} degrees ${dir === 'L' ? 'left' : 'right'} for weather.`);
+            pilot(ac, `${facName('APP')}, ${ac.radio}, request ${deg} degrees ${dir === 'L' ? 'left' : 'right'} for weather.`);
         } else if (G.t - ac.wxReq.t > 45) {
             // No answer: the captain deviates anyway.
             const r = ac.wxReq;
@@ -1996,7 +2125,7 @@ function groundStep(ac, dt) {
     case 'gate':
         if (ac.kind === 'dep' && !ac.called && G.t >= ac.readyAt) {
             ac.called = true;
-            pilot(ac, `${G.world.icao} Ground, ${ac.radio}, gate ${ac.stand.ref}, information ${PHONETIC[G.atis]}, ready to push.`);
+            pilot(ac, `${facName('GND')}, ${ac.radio}, gate ${ac.stand.ref}, information ${PHONETIC[G.atis]}, ready to push.`);
         }
         if (ac.kind === 'arr' && G.t >= ac.parkedUntil) ac.gone = true;
         return true;
@@ -2096,7 +2225,7 @@ function taxiStep(ac, dt) {
     if (G.rules.id === 'ifatc' && ac.purpose === 'runway' && ac.toTower && ac.freq === 'GND' && end - ac.s < 0.15 && !ac.crossReq) {
         ac.freq = 'TWR'; ac.toTower = false; ac.waitSince = G.t; ac.remindAt = G.t + 60;
         if (G.positions.has('GND')) award(ac, 3);
-        pilot(ac, `${G.world.icao} Tower, ${ac.radio}, approaching runway ${ac.rwy.id}, ready for departure.`);
+        pilot(ac, `${facName('TWR')}, ${ac.radio}, approaching runway ${ac.rwy.id}, ready for departure.`);
     }
     if (ac.s >= end - 0.0005) arrive(ac);
 }
@@ -2989,7 +3118,7 @@ function runwayChange() {
             ac.rwy = nextDepRunway(); ac.tHdg = ac.rwy.course;
             if (ac.state === 'taxi' || ac.state === 'wait') {
                 Object.assign(ac, { state: 'pushed', route: null, freq: 'GND', spd: 0, crossReq: null });
-                pilot(ac, `${G.world.icao} Ground, ${ac.radio}, we'll need new taxi instructions for runway ${ac.rwy.id}.`);
+                pilot(ac, `${facName('GND')}, ${ac.radio}, we'll need new taxi instructions for runway ${ac.rwy.id}.`);
             }
             continue;
         }
@@ -3169,7 +3298,7 @@ function approachLateral(ac) {
         ap.est = true;
         ac.freq = 'TWR';
         // Approach hands it to the tower; you are both, so the call comes straight to you.
-        pilot(ac, `${G.world.icao} Tower, ${ac.radio}, ${Math.max(1, Math.round(g.along))} mile final runway ${e.id}.`);
+        pilot(ac, `${facName('TWR')}, ${ac.radio}, ${Math.max(1, Math.round(g.along))} mile final runway ${e.id}.`);
     }
 
     // The runway has to be clear by the time we get there (7110.65 3-10-3).
@@ -3963,6 +4092,7 @@ function dropPlan(ac, tgt) {
     const plan = planTaxi(ac, tgt);
     if (plan.err) return { err: true, label: cap(plan.err) };
     const via = plan.r.names.length ? ' via ' + plan.r.names.join(' ') : '';
+    if (tgt.kind === 'rwy' && tgt.inter && hasRemark('noInter')) return { err: true, label: `No intersection departures (ATIS): full length from the holding point` };
     if (tgt.kind === 'rwy' && tgt.inter && tgt.inter.left < 6000) return { err: true, label: `Only ${tgt.inter.left.toLocaleString('en-US')} ft left from ${tgt.inter.name}: too short` };
     const label = tgt.kind === 'rwy' ? `Runway ${tgt.end.id}${tgt.inter ? ` at ${tgt.inter.name} (${tgt.inter.left.toLocaleString('en-US')} ft)` : ''}${via}` : tgt.kind === 'gate' ? `Gate ${tgt.gate.ref}${via}` : `${via.trim() || 'Taxi'}, ${plan.hold}`;
     return { label: cap(label) + (plan.r.crossings.length ? ` · hold short ${plan.r.crossings[0].label}` : ''), cmd: { taxi: tgt }, r: plan.r };
@@ -4419,6 +4549,12 @@ function renderStrips() {
             <span class="r">${right}</span>
             <span class="atc${mine(a) ? ' yours' : ''}${req ? ' req' : ''}">ATC${req ? ' (1)' : ''}<i></i></span></button>`;
     };
+    if (onFreq[railView]) {
+        const list = G.aircraft.filter(a => onFreq[railView](a) && !(a.state === 'gate' && a.kind === 'arr'));
+        el.innerHTML = `<div class="strip-h"><span>${escapeHtml(freqLabel(railView))}</span><span>${list.length}</span></div>` + (list.map(strip).join('') || '<div class="strip-none">Nobody on frequency.</div>');
+        renderRail();
+        return;
+    }
     // Your frequencies first, each with its own traffic; then what the system is working.
     const order = ['APP', 'TWR', 'GND'].filter(f => G.positions.has(f));
     const groups = order.map(f => {
@@ -4429,6 +4565,7 @@ function renderStrips() {
     const sysList = G.aircraft.filter(a => !G.positions.has(a.freq) && !(a.state === 'gate' && a.kind === 'arr' && a.parkedUntil));
     if (sysList.length) groups.push(`<div class="strip-h"><span>With the system</span><span>${sysList.length}</span></div>` + sysList.map(strip).join(''));
     el.innerHTML = groups.join('');
+    renderRail();
 }
 
 function renderHud() {
@@ -4612,6 +4749,7 @@ function bindGame() {
     bindCard();
     bindLayers();
     bindAtis();
+    bindRail();
     $('#coord').addEventListener('click', e => { const b = e.target.closest('[data-ans]'); if (b && G) answer(Number(b.dataset.ans)); });
     // The airport info box folds away to one line. On pointerdown: the box is redrawn several times a second.
     $('#hud').addEventListener('pointerdown', e => {
@@ -4619,7 +4757,7 @@ function bindGame() {
         e.preventDefault();
         hudMin = !hudMin;
         store.set('hudMin', hudMin);
-        renderHud();
+        renderHud(); renderRail();
     });
     $('#speed').addEventListener('click', e => { const b = e.target.closest('button'); if (b && G) setSpeed(Number(b.dataset.speed)); });
     const voice = $('#voice');
@@ -4870,8 +5008,10 @@ async function startGame(airport, level) {
     $('#log').innerHTML = '';
     nextId = 1;
     // Real waypoints and procedures for US fields (nav/<ICAO>.json, built by tools/build-nav.mjs).
-    const nav = await loadNav(airport.icao);
+    const [nav, freqs] = await Promise.all([loadNav(airport.icao), loadFreqs(airport.icao)]);
     newGame(airport, level, { ...opts }, nav);
+    G.freqs = freqs;
+    railView = null; railHtml = '';
     const game = G;
     renderLayers();
     renderAsk();

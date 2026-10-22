@@ -133,8 +133,64 @@
 
         /* ---------------- Game ---------------- */
         .game { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: minmax(0, 1fr); min-height: 0; height: calc(100vh - 54px); height: calc(100dvh - 54px); overflow: hidden; }
-        .scope-wrap { position: relative; min-width: 0; min-height: 0; background: #060b0f; overflow: hidden; }
-        #scope { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+        .scope-wrap { --rail: 104px; --railh: 0px; position: relative; min-width: 0; min-height: 0; background: #060b0f; overflow: hidden; }
+        #scope { position: absolute; left: var(--rail); top: var(--railh); right: 0; bottom: 0; width: calc(100% - var(--rail)); height: calc(100% - var(--railh)); touch-action: none; cursor: crosshair; }
+
+        /* Frequencies down the left, as in Infinite Flight. */
+        .freq-rail {
+            position: absolute; left: 0; top: 0; bottom: 0; width: var(--rail); z-index: 5; display: flex; flex-direction: column;
+            background: rgba(8,11,15,.94); border-right: 1px solid rgba(255,255,255,.1); overflow: auto;
+        }
+        .rail-i {
+            position: relative; flex: 1 1 0; min-height: 58px; display: flex; align-items: center; justify-content: center;
+            padding: 6px 6px; text-align: center; font-size: .78rem; line-height: 1.3; color: #fff; background: none;
+            border-bottom: 1px solid rgba(255,255,255,.06); cursor: pointer;
+        }
+        .rail-i:hover { background: rgba(255,255,255,.05); }
+        .rail-i.sys { color: #8a94a2; }
+        .rail-i.on { color: #f5a623; }
+        .rail-i b { position: absolute; top: 6px; right: 6px; min-width: 18px; height: 18px; border-radius: 9px; background: #f5a623; color: #111; font: 700 .66rem/18px var(--mono); }
+
+        /* The ATIS page, laid out like Infinite Flight's. */
+        .ifatis {
+            position: absolute; left: var(--rail); top: var(--railh); right: 0; bottom: 0; z-index: 6; display: flex; flex-direction: column;
+            background: rgba(14,19,26,.97); color: #fff; font-size: .9rem; letter-spacing: .02em;
+        }
+        .ifatis[hidden] { display: none; }
+        .ia-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 9px 14px; background: #1a2230; font-size: .86rem; }
+        .ia-metar { color: #8fe388; font-family: var(--mono); font-size: .8rem; }
+        .ia-bar { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; background: #1a2230; border-top: 2px solid #0e131a; }
+        .ia-bar .sp { flex: 1; }
+        .ia-letter { padding: 10px 12px; background: #11171f; font-weight: 600; }
+        .ia-pub, .ia-x { padding: 10px 22px; background: #11171f; color: #fff; font-weight: 600; letter-spacing: .06em; }
+        .ia-x { padding: 10px 14px; }
+        .ia-pub:hover:not(:disabled) { background: #f5a623; color: #111; }
+        .ia-pub:disabled { opacity: .4; }
+        .ia-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 186px minmax(0, 1.25fr) minmax(0, 1fr); gap: 4px; margin-top: 4px; }
+        .ia-col { min-height: 0; overflow: auto; background: rgba(0,0,0,.18); }
+        .ia-h { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; background: #1a2230; font-size: .86rem; letter-spacing: .06em; }
+        .ia-col .ia-h ~ .ia-h { position: static; margin-top: 4px; }
+        .ia-auto { padding: 4px 8px; font-size: .64rem; color: #9aa4b2; border: 1px solid rgba(255,255,255,.2); border-radius: 3px; background: none; }
+        .ia-auto.on { color: #f5a623; border-color: #f5a623; }
+        .ia-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; padding: 10px; }
+        .ia-rws { grid-template-columns: 1fr 1fr; gap: 6px; }
+        .ia-t {
+            min-height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px;
+            background: #1b222c; color: #fff; border: 2px solid transparent; text-transform: uppercase; font-size: .84rem; line-height: 1.35; text-align: center; cursor: pointer;
+        }
+        .ia-t:hover { background: #232c38; }
+        .ia-t.on { border-color: #f5a623; }
+        .ia-t small { font-size: .66rem; color: #9aa4b2; text-transform: none; }
+        .ia-t.sm { min-height: 62px; }
+        .ia-t.rw { min-height: 66px; font-size: .82rem; }
+        .ia-t.rw.head { color: #7be08a; }
+        .ia-t.rw.tail { color: #ff5a5a; }
+        .ia-t.rw.on { color: #f5a623; }
+        .ia-warn { margin: 0 10px 10px; color: #ffb38a; font-size: .78rem; }
+        .ia-text { padding: 12px 14px; background: #1a2230; border-top: 4px solid #0e131a; font-size: .86rem; line-height: 1.5; max-height: 30%; overflow: auto; }
+        .scope-wrap .hud { left: calc(var(--rail) + 12px); top: calc(var(--railh) + 12px); }
+        .scope-wrap .info { left: var(--rail); top: var(--railh); }
+        .scope-wrap.info-open .hud { left: calc(var(--rail) + 332px); }
         .hud {
             position: absolute; left: 12px; top: 12px; pointer-events: none;
             font-family: var(--mono); font-size: .76rem; line-height: 1.55; color: #9fc7bd;
@@ -227,7 +283,6 @@
         .info-x:hover { background: rgba(255,255,255,.18); }
         .info .card-head .cs { font-size: 1.05rem; }
         .info .card-status { color: #d8dee6; }
-        .scope-wrap.info-open .hud { left: 332px; }
         .info .btn { background: #15191f; border-color: rgba(255,255,255,.14); font-family: var(--font, inherit); }
         .info .btn.primary { background: var(--gold); }
 
@@ -344,7 +399,27 @@
             .game { display: block; height: auto; overflow: visible; }
             .side { overflow: visible; }
             .info { top: auto; width: 100%; max-height: 62%; border-right: 0; border-top: 1px solid rgba(255,255,255,.18); }
+            .scope-wrap { --rail: 0px; --railh: 40px; }
+            .freq-rail { right: 0; bottom: auto; width: auto; height: var(--railh); flex-direction: row; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.1); }
+            .rail-i { flex: 0 0 auto; min-height: 0; max-height: none; padding: 0 12px; font-size: .7rem; white-space: nowrap; border-bottom: 0; border-right: 1px solid rgba(255,255,255,.06); }
+            .rail-i b { top: 2px; right: 2px; min-width: 14px; height: 14px; line-height: 14px; font-size: .58rem; }
+            .rail-i.atis { order: -1; }
+            .rail-i[data-rail="STATUS"] { order: -2; }
+            .scope-wrap .info { top: auto; }
             .scope-wrap.info-open .hud { left: 12px; }
+            .zoom { top: 52px; }
+            .ia-cols { display: block; overflow: auto; }
+            .ia-col { overflow: visible; }
+            .ia-rws { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
+            .ia-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+            .ia-t { min-height: 78px; font-size: .74rem; }
+            .ifatis { position: fixed; inset: 0; z-index: 60; }
+            .ia-bar { flex-wrap: wrap; }
+            .ia-bar > span:first-child { flex-basis: 100%; }
+            .ia-bar .sp { display: none; }
+            .ia-pub { flex: 1; }
+            .ia-text { max-height: 26vh; }
+            .ia-lbl { display: none; }
             .coord { right: 8px; bottom: auto; top: 56px; width: calc(100% - 16px); }
             .scope-wrap { height: 62vh; height: 62dvh; }
             .side { border-left: 0; }
@@ -365,7 +440,22 @@
             body.in-game .log { height: 74px; font-size: .66rem; }
             body.in-game .cmd input, body.in-game .cmd .btn { height: 30px; }
             body.in-game .info { top: 0; bottom: 0; width: min(270px, 42vw); max-height: none; border-top: 0; border-right: 1px solid rgba(255,255,255,.12); font-size: .72rem; }
-            body.in-game .scope-wrap.info-open .hud { left: calc(min(270px, 42vw) + 10px); }
+            body.in-game .scope-wrap { --rail: 74px; --railh: 0px; }
+            body.in-game .freq-rail { right: auto; bottom: 0; width: var(--rail); height: auto; flex-direction: column; border-right: 1px solid rgba(255,255,255,.1); border-bottom: 0; }
+            body.in-game .rail-i.atis, body.in-game .rail-i[data-rail="STATUS"] { order: 0; }
+            body.in-game .rail-i { flex: 1 1 0; padding: 4px; font-size: .6rem; white-space: normal; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.06); min-height: 40px; }
+            body.in-game .scope-wrap .info { top: 0; }
+            body.in-game .zoom { top: 12px; }
+            body.in-game .ia-top, body.in-game .ia-bar { padding-top: 4px; padding-bottom: 4px; font-size: .7rem; }
+            body.in-game .ia-metar { font-size: .64rem; }
+            body.in-game .ia-cols { display: grid; grid-template-columns: 150px minmax(0, 1.2fr) minmax(0, 1fr); }
+            body.in-game .ia-col { overflow: auto; }
+            body.in-game .ia-rws { grid-template-columns: 1fr 1fr; }
+            body.in-game .ia-t { min-height: 58px; font-size: .64rem; padding: 4px; }
+            body.in-game .ia-t.rw { min-height: 44px; }
+            body.in-game .ia-h { padding: 6px 10px; font-size: .7rem; }
+            body.in-game .ia-text { font-size: .66rem; padding: 6px 10px; max-height: 22%; }
+            body.in-game .scope-wrap.info-open .hud { left: calc(var(--rail) + min(270px, 42vw) + 10px); }
             body.in-game .hud { font-size: .62rem; padding: 5px 7px; max-width: 46%; }
             body.in-game .zoom { gap: 4px; }
             body.in-game .zoom button { width: 30px; height: 30px; font-size: .95rem; }
@@ -480,6 +570,7 @@
 
     <div class="game" id="game" hidden>
         <div class="scope-wrap" id="scope-wrap">
+            <nav class="freq-rail" id="freq-rail" aria-label="Frequencies"></nav>
             <canvas id="scope" aria-label="Radar scope"></canvas>
             <div class="hud" id="hud"></div>
             <div class="zoom">
@@ -491,7 +582,7 @@
             <section class="info" id="card" hidden aria-label="Selected aircraft"></section>
             <div class="coord" id="coord" hidden role="dialog" aria-label="Coordination"></div>
             <div class="layers" id="layers" hidden aria-label="Map layers"></div>
-            <div class="layers" id="atis" hidden aria-label="ATIS"></div>
+            <div class="ifatis" id="atis" hidden aria-label="ATIS"></div>
             <div class="toast" id="toast"></div>
             <div class="loader" id="loader" hidden role="status" aria-live="polite">
                 <img src="/Images/inflight-mark.png" alt="" width="34" height="34">
@@ -517,7 +608,6 @@
                     <button data-speed="4">4×</button>
                 </div>
                 <span class="spacer"></span>
-                <button class="chip" id="atis-btn" title="Runways, approach in use, recommended procedures: edit and broadcast the ATIS">ATIS</button>
                 <button class="chip" id="layers-btn" title="Waypoints and published procedures on the scope">Layers</button>
                 <button class="chip" id="icons" title="Radar targets or aircraft icons">Targets</button>
                 <button class="chip" id="style" title="Switch between the dark radar and a light chart">Radar</button>

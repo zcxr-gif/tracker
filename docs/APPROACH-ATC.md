@@ -111,19 +111,58 @@ assumed to have all of them.
 - Typed: `i22L` ILS, `loc22L` localizer, `rnav22L` or `gps22L` RNAV,
   `va22L` visual, `rfs` report the field in sight, `un` unable (a request).
 
+## Frequencies
+
+Down the left of the scope is a frequency list, as in Infinite Flight:
+- Status, Ground, Tower, Approach and Departure, then the ATIS.
+- Real frequencies and facility names ("Kennedy Tower (119.10)", "Norcal
+  Approach (128.325)") from OurAirports (public domain), built into
+  `approach-freqs.json` by `npm run build:freqs`.
+- Pilots call the facilities by those names. Where the list has no name, it's
+  the field's code and the position.
+
+How it works:
+- Tap a frequency to list only its traffic. Tap it again for everything.
+- A gold count shows who is waiting on you there.
+- Grey frequencies are the system's.
+- **Status** folds the airport info box, and the **ATIS** entry opens the ATIS
+  page.
+- On an upright phone the list runs across the top of the scope.
+
 ## ATIS
 
-The **ATIS** chip opens an editor for the information. Nothing changes until
-**Broadcast information X**:
+The ATIS page is laid out like Infinite Flight's:
+- the METAR and the current time;
+- the wind, the next information letter and **PUBLISH**;
+- columns of Runways, Remarks and NOTAMs;
+- the text as it will be read.
+
+Nothing changes until **PUBLISH**:
 - the letter advances;
 - the full ATIS goes in the log;
 - a runway change moves everyone, as a wind-driven change does.
 
+Under Infinite Flight rules the text follows Infinite Flight's wording and
+order: *"San Francisco airport, ATIS information BRAVO, time 1730 ZULU, Wind
+230 at 9, … Remarks, no intersection departures, expect long taxi times.
+Landing Runways 28R and 28L, … Notams, event in progress, expect delays, …"*
+
 What it sets:
-- **Runways.** *By the wind* (as before) or *Myself*: pick the landing and
-  departing runways, each shown with its headwind or tailwind.
-  - Picked runways stay when the wind shifts. A tailwind over 10 kt is
-    flagged, both in the editor and when the wind turns (IFATC 2.1.2).
+- **Runways**: a DEP and an LDG tile for every runway end.
+  - Green means a headwind and red a tailwind, as in Infinite Flight. Gold
+    marks what's in use.
+  - Touching one switches from **BY WIND** to your own choice. Picked
+    runways stay when the wind shifts.
+  - A tailwind over 10 kt is flagged, both on the page and when the wind
+    turns (IFATC 2.1.2).
+- **Remarks**: Infinite Flight's set. No intersection dept. and Intersection
+  dept OK exclude each other.
+  - **No intersection departures** is enforced: dragging a departure to an
+    intersection is refused.
+  - The rest are read out for pilots: pattern work, flow control, long taxi,
+    gate hold, rolling departures, FPL required.
+- **NOTAMs**: event, size restrictions, severe weather, low visibility. These
+  are read out only.
 - **Approach in use**: ILS, LOC, RNAV/GPS or visual.
   - Arrivals are told to *"expect RNAV (GPS) approach runway 04R"* on
     check-in.
@@ -135,14 +174,15 @@ What it sets:
   - Arrivals file a recommended STAR three times in four.
   - Departures are sent to an exit the recommended SID serves, and fly that
     SID when it serves their exit.
-- **Straight-out departures**: runway heading to 1,000, 3,000 or 5,000 ft
-  above the field before the SID or a turn on course.
+- **Straight out dept** (a remark; tap again to step 1,000, 3,000, 5,000 ft,
+  off): runway heading to that height above the field before the SID or a
+  turn on course.
   - The Infinite Flight ATIS remark *"Straight Out Dept."* sets this.
   - Under Real-life rules it is also part of the clearance: *"fly runway
     heading until 3,000, then the DEEZZ6 departure, cleared for takeoff."*
 
-The approach type, recommended procedures and straight-out setting are
-remembered per airport. Runways always start by the wind.
+The approach type, recommended procedures, remarks and NOTAMs are remembered
+per airport. Runways always start by the wind.
 
 ## Speed
 
