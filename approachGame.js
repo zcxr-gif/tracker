@@ -839,8 +839,10 @@ function bindRail() {
  * best-into-wind runway and its parallels, no crossing runways at once).
  * The outermost parallel on each side lands and the ones inside it depart,
  * as at ATL, LAX or DEN; a lone runway (or one close pair) does both.
+ * Under Infinite Flight rules every runway in the flow lands and departs
+ * (IFATC 3.6.1: Radar uses ALL the runways).
  */
-function computeActive(world, wind) {
+function computeActive(world, wind, allRunways = G?.rules.id === 'ifatc') {
     const head = e => Math.cos(diff(e.course, wind.dir) * D2R);
     const best = world.ends.reduce((b, e) => (head(e) > head(b) + 0.02 || (Math.abs(head(e) - head(b)) <= 0.02 && e.len > b.len) ? e : b));
     const family = world.ends.filter(e => Math.abs(diff(e.course, best.course)) < 10 && e.len >= 1.2);
@@ -853,7 +855,10 @@ function computeActive(world, wind) {
     const lanes = [];
     for (const e of family) { const l = lanes.find(l => l.some(o => sameRunwayish(o, e))); if (l) l.push(e); else lanes.push([e]); }
     let arr, dep;
-    if (lanes.length >= 2) {
+    if (allRunways) {
+        arr = [...family];
+        dep = [...family];
+    } else if (lanes.length >= 2) {
         // The outermost runway on each side lands; everything inside it departs.
         arr = [lanes[0][0], lanes[lanes.length - 1][lanes[lanes.length - 1].length - 1]];
         dep = family.filter(e => !arr.includes(e));
@@ -862,7 +867,7 @@ function computeActive(world, wind) {
         arr = [[...lanes[0]].sort((a, b) => b.len - a.len)[0]];
         dep = [...lanes[0]];
     }
-    dep = dep.sort((a, b) => b.len - a.len).slice(0, 3);
+    dep = dep.sort((a, b) => b.len - a.len).slice(0, allRunways ? undefined : 3);
     return { arr, dep, key: arr.map(e => e.id).join(' ') + '/' + dep.map(e => e.id).join(' ') };
 }
 
@@ -904,7 +909,7 @@ function newGame(airport, level, opts, nav) {
         dem: null, mva: null, relief: {},
         tiles: new TerrainTiles(airport.lat, airport.lon, world.elev),
         wx: [], met: null, nextCell: 0,
-        active: computeActive(world, wind),
+        active: computeActive(world, wind, opts.rules === 'ifatc'),
         aircraft: [],
         t: 0,
         score: 0,
@@ -1442,7 +1447,7 @@ function issueCall(ac, c) {
         const why = runwayBlocker(ac);
         if (why) { sys(`Runway ${ac.rwy.id} is not clear: ${why} (7110.65 3-9-6).`, 'bad'); return false; }
     }
-    if ((c.land || c.option) && !(ac.appr && ac.appr.loc) && !(noRadar() && ac.pattern) && !ac.circuit) { sys(`${ac.cs} isn't established on the final approach course yet.`); return false; }
+    if ((c.land || c.option) && !(ac.appr && ac.appr.loc) && !((ac.pattern || c.entry) && towerInbound(ac)) && !ac.circuit) { sys(`${ac.cs} isn't established on the final approach course yet.`); return false; }
     if ((c.holdFix || c.orbit || c.ils || c.direct) && onGround) { sys(`${ac.cs} is on the ground.`); return false; }
     if (c.ils && ac.kind !== 'arr') { sys(`${ac.cs} is a departure.`); return false; }
     if (c.spd != null && ac.appr && ac.appr.along < Math.max(FAF_NM, 5)) {
@@ -1480,6 +1485,10 @@ function issueCall(ac, c) {
         ac.request = null;
         return true;
     }
+
+    // IFATC 3.6.1: once Radar has handed an instrument arrival to Tower, keep runway changes to a minimum.
+    const newEnd = c.ils || c.visual;
+    if (newEnd && G.rules.id === 'ifatc' && !G.aiActing && ac.freq === 'TWR' && instrumentHandoff(ac) && newEnd !== ac.appr.end) sys(`IFATC 3.6.1: ${ac.cs} was handed over on the ${APP_NAME[ac.appr.type]} ${ac.appr.end.id}. Keep runway changes for instrument arrivals to a minimum.`, 'bad');
 
     let icpt = null;
     if (c.ils) {
@@ -1617,11 +1626,19 @@ function issueCall(ac, c) {
         parts.push('continue as filed'); back.push('continue as filed');
     }
     if (c.toTwr) {
-        if (ac.kind !== 'arr' || ac.freq !== 'APP' || !(ac.appr || ac.pattern)) { sys(`${ac.cs} goes to Tower once it's cleared for an approach.`); return false; }
+        // IFATC 3.6.3: besides an approach, Radar can hand over an arrival on radar vectors or flight following, close in and in VMC, for a pattern entry.
+        const vectors = !(ac.appr || ac.pattern) && radarVectorsOk(ac);
+        if (ac.kind !== 'arr' || ac.freq !== 'APP' || !(ac.appr || ac.pattern || vectors)) {
+            sys(G.rules.id === 'ifatc' && !visualWx() ? `${ac.cs} goes to Tower once it's cleared for an approach (no pattern entries below VMC).`
+                : G.rules.id === 'ifatc' ? `${ac.cs} goes to Tower once it's cleared for an approach, or on vectors within 15 miles.` : `${ac.cs} goes to Tower once it's cleared for an approach.`);
+            return false;
+        }
         atc(`${ac.radio}, contact ${facName('TWR')}${G.freqs?.TWR ? ' on ' + mhz(G.freqs.TWR[0]) : ''}.`, G.aiActing);
         pilot(ac, `Over to Tower, ${ac.radio}.`);
         ac.freq = 'TWR';
+        ac.handoff = vectors ? ac.vfrIn || 'RV' : ac.appr?.type || 'VIS';
         if (ac.appr) ac.appr.est = true;
+        if (vectors) towerCheckInVfr(ac);
         return true;
     }
     if (c.intentions) {
@@ -1724,7 +1741,14 @@ function issueCall(ac, c) {
 
     // ---- Tower: inbounds with no radar (IFATC 3.3)
     if (c.entry || c.contInbound || c.seqLand) {
-        if (!(noRadar() || ac.circuit) || ac.kind !== 'arr' || ac.state !== 'air' || ac.freq !== 'TWR' || ac.appr?.loc && c.entry) { sys(`${ac.cs} isn't an inbound for you to sequence.`); return false; }
+        // With radar (IFATC 3.6.3): a visual arrival gets a sequence when it isn't number 1, an ILS or GPS one only its clearance.
+        const visualSeq = c.seqLand && !c.entry && !c.contInbound && ac.freq === 'TWR' && ac.appr?.type === 'VIS' && !ac.circuit;
+        if (G.rules.id === 'ifatc' && ac.freq === 'TWR' && ac.state === 'air' && (instrumentHandoff(ac) || c.entry && ac.handoff === 'VIS' && !ac.circuit)) {
+            sys(instrumentHandoff(ac) ? `IFATC 3.6.3: ${ac.cs} is on the ${APP_NAME[ac.appr.type]} from Radar. No pattern entry or sequence: just its landing clearance.`
+                : `IFATC 3.6.3: ${ac.cs} is on a visual from Radar. No pattern entry: a sequence if it isn't number 1, then its landing clearance.`);
+            return false;
+        }
+        if (!(towerInbound(ac) || ac.circuit || visualSeq) || ac.kind !== 'arr' || ac.state !== 'air' || ac.freq !== 'TWR' || ac.appr?.loc && c.entry) { sys(`${ac.cs} isn't an inbound for you to sequence.`); return false; }
         if (c.contInbound) { ac.contInbound = true; parts.push('continue inbound'); back.push('continuing inbound'); }
         if (c.entry) {
             const { kind, end } = c.entry;
@@ -1757,6 +1781,19 @@ function issueCall(ac, c) {
     if (c.descPat) {
         if (ac.state !== 'air') { sys(`${ac.cs} is on the ground.`); return false; }
         ac.tAlt = circuitAlt(ac); parts.push('descend to pattern altitude'); back.push('descending to pattern altitude');
+    }
+    if (c.radarPattern) {
+        // IFATC 3.6.2: pattern work stays with Tower. Only once it's been denied can the circuits still going be handed to Radar, as a radar pattern.
+        if (!ac.circuit || ac.appr || ac.state !== 'air' || ac.freq !== 'TWR') { sys(`${ac.cs} isn't in the pattern.`); return false; }
+        if (noRadar()) { sys('There is no radar controller to take it.'); return false; }
+        if (!hasRemark('noPattern')) { sys('IFATC 3.6.2: pattern work stays with Tower. Hand it to Radar only once pattern work is denied (No pattern work on the ATIS).'); return false; }
+        const e = ac.circuit.end;
+        atc(`${ac.radio}, contact ${facName('APP')}${G.freqs?.APP ? ' on ' + mhz(G.freqs.APP[0]) : ''} for a radar pattern.`, G.aiActing);
+        pilot(ac, `Over to Approach, ${ac.radio}.`);
+        Object.assign(ac, { rpCircuit: ac.circuit, circuit: null, landClr: false, optionClr: false, freq: 'APP', handoff: null, expect: e, tSpd: Math.max(ac.tSpd, isProp(ac) ? 110 : 210),
+            request: { kind: visualWx() ? 'VIS' : appFor(e), end: e, say: 'a radar pattern', tag: 'RP', radarPattern: true } });
+        pilot(ac, `${facName('APP')}, ${ac.radio}, ${fmtAlt(Math.round(ac.alt / 100) * 100)}, request radar pattern runway ${e.id}.`);
+        return true;
     }
     if (c.turnCross || c.extUp) {
         const k = ac.circuit;
@@ -1909,7 +1946,8 @@ function issueCall(ac, c) {
     if (c.land) {
         ac.landClr = true; ac.optionClr = false;
         const le = (ac.appr || ac.pattern || ac.circuit).end;
-        parts.push(G.rules.id === 'ifatc' ? `number ${landingNumber(ac)}, runway ${le.id}, cleared to land` : `${wind}, runway ${le.id}, cleared to land`);
+        // IFATC 3.6.3: an ILS or GPS arrival from Radar gets no sequence, only the clearance.
+        parts.push(G.rules.id === 'ifatc' ? `${instrumentHandoff(ac) ? '' : `number ${landingNumber(ac)}, `}runway ${le.id}, cleared to land` : `${wind}, runway ${le.id}, cleared to land`);
         back.push(`cleared to land ${le.id}`);
     }
 
@@ -2038,6 +2076,37 @@ function startTaxi(ac, r, purpose) {
 
 /** Approach closed (the start option "Inbounds: pattern entries"): arrivals call Tower and get a pattern entry (IFATC 3.3). */
 const noRadar = () => !!G && G.opts.radar === 'none' && !G.positions.has('APP');
+/**
+ * An arrival Tower sequences itself, with a pattern entry: every inbound with no radar; with radar, the ones
+ * Radar handed over on radar vectors or flight following (IFATC 3.6.3).
+ */
+const towerInbound = ac => ac.kind === 'arr' && ac.freq === 'TWR' && !ac.appr?.loc && !ac.circuit && !ac.transit && (noRadar() || ac.handoff === 'RV' || ac.handoff === 'FF');
+/** Handed to Tower on an instrument approach (ILS, GPS): with radar, that's a landing clearance and nothing else (IFATC 3.6.3). */
+const instrumentHandoff = ac => !noRadar() && !ac.circuit && !!ac.appr && ac.appr.type !== 'VIS' && !['VIS', 'RV', 'FF'].includes(ac.handoff);
+const HANDOFF_SAY = { RV: 'radar vectors', FF: 'flight following' };
+/** Radar can hand an arrival not on an approach to Tower (IFATC 3.6.3): Infinite Flight rules, VMC, within 15 miles. */
+const radarVectorsOk = ac => G.rules.id === 'ifatc' && visualWx() && ac.state === 'air' && !ac.circuit && Math.hypot(ac.x, ac.y) < 15;
+
+/** On Tower's frequency after a radar vectors or flight following handover: where it is, and what it's with you on. */
+function towerCheckInVfr(ac) {
+    const d = Math.hypot(ac.x, ac.y);
+    Object.assign(ac, { request: null, holdAt: null, via: null, viaSaved: null, noEntryFlagged: false });
+    pilot(ac, `${facName('TWR')}, ${ac.radio}, ${Math.max(1, Math.round(d))} miles ${compass(brg(ac.x, ac.y))}, ${fmtAlt(Math.round(ac.alt / 100) * 100)}, inbound for landing with you on ${HANDOFF_SAY[ac.handoff]}, information ${PHONETIC[G.atis]}.`);
+}
+
+/** A VFR light aircraft inbound to land, with radar (IFATC 3.6.3): it asks Approach for radar vectors or flight following, and Radar hands it to Tower. */
+function spawnVfrInbound() {
+    const id = makeGACallsign([...PROPS]);
+    if (!id) return false;
+    const b = rand(0, 360) * D2R, r = rand(20, SCOPE_NM - 1), x = Math.sin(b) * r, y = Math.cos(b) * r;
+    if (G.aircraft.some(a => airborne(a) && Math.hypot(a.x - x, a.y - y) < 5)) return false;
+    const hdg = brg(-x, -y), alt = Math.round((G.world.elev + rand(2500, 4500)) / 500) * 500, vfrIn = Math.random() < 0.5 ? 'RV' : 'FF';
+    const ac = { id: nextId++, ...id, kind: 'arr', state: 'air', perf: perf(id.type), x, y, alt, hdg, spd: 120, tHdg: hdg, tAlt: alt, tSpd: 120, turn: null,
+        trail: [], trailT: 0, born: G.t, freq: 'APP', expect: pick(G.active.arr), vfrIn, asked: true };
+    G.aircraft.push(ac);
+    pilot(ac, `${facName('APP')}, ${ac.radio}, ${Math.round(r)} miles ${compass(brg(x, y))}, ${fmtAlt(alt)}, VFR inbound for landing, information ${PHONETIC[G.atis]}, ${vfrIn === 'RV' ? 'request vectors to the field' : 'request flight following'}.`);
+    return true;
+}
 const patternAlt = () => Math.max(G.world.minAlt, Math.round((G.world.elev + 2000) / 100) * 100);
 const PATTERN_SAY = { S: 'straight in', DL: 'left downwind', DR: 'right downwind', BL: 'left base', BR: 'right base' };
 
@@ -2293,7 +2362,7 @@ function patternNav(ac) {
     if (d > 8) { if (!ac.orbit) { ac.tHdg = brg(-ac.x, -ac.y); ac.turn = null; } return; }
     if (!ac.noEntryFlagged) {
         ac.noEntryFlagged = true;
-        violation(ac, 'IFATC 3.3.2', `${ac.cs} reached the pattern without a pattern entry`);
+        violation(ac, HANDOFF_SAY[ac.handoff] ? 'IFATC 3.6.3' : 'IFATC 3.3.2', `${ac.cs} reached the pattern without a pattern entry`);
         pilot(ac, `Tower, ${ac.radio}, 8 miles out, request pattern entry, we'll orbit here.`);
     }
     if (!ac.orbit) ac.orbit = { dir: 'L', rem: 360 };
@@ -2394,6 +2463,7 @@ function goAround(ac, reason, notYourFault) {
     // In the pattern it flies upwind and goes round again; no radar: it stays with Tower and needs a new pattern entry (IFATC 3.3).
     if (ac.circuit) { Object.assign(ac.circuit, { leg: 'up', behind: null, ext: false, short: false, baseAt: undefined }); ac.optionClr = false; ac.tAlt = circuitAlt(ac); ac.tSpd = isProp(ac) ? 90 : 200; ac.freq = 'TWR'; }
     else if (noRadar()) Object.assign(ac, { pattern: null, noEntryFlagged: false });
+    else if (ac.freq === 'TWR' && HANDOFF_SAY[ac.handoff]) Object.assign(ac, { pattern: null, noEntryFlagged: true });
     else if (ac.freq === 'TWR') ac.freq = 'APP';
     if (!ac.circuit) ac.tSpd = 210;
     G.stats.goArounds++;
@@ -2975,7 +3045,9 @@ function extraTrailNm(key) {
     if (!feedsYourTower()) return 0;
     const co = coordState(), pref = coordPref || 'auto';
     const waiting = G.aircraft.filter(a => (a.state === 'wait' || a.state === 'luaw') && a.rwy && seqKey(a.rwy) === key).length;
-    const gap = pref === 'gaps' || (pref === 'auto' && waiting >= 2) ? 3 : 0;
+    // IFATC 3.6.1: Radar leaves 5 miles at busy times, room for a departure in between, and watches the queue itself.
+    const ifatc = G.rules.id === 'ifatc';
+    const gap = pref === 'gaps' || (pref === 'auto' && waiting >= (ifatc ? 1 : 2)) ? (ifatc ? 5 - SEP_NM : 3) : 0;
     return (co.extra[key] || 0) + gap;
 }
 
@@ -3055,7 +3127,7 @@ function coordinate() {
     if (G.positions.has('APP') && !G.positions.has('TWR') && !co.gapAsk) {
         for (const [k, q] of queues) {
             if (q.holding < 3) continue;
-            ask('TWR', 'APP', `I've got ${q.holding} departures holding for ${q.e.id}. Can you give me a 6-mile gap on final?`, [
+            ask('TWR', 'APP', `I've got ${q.holding} departures holding for ${q.e.id}. Can you give me a ${G.rules.id === 'ifatc' ? 5 : 6}-mile gap on final?`, [
                 { label: 'Will do', act: () => { co.gapAsk = { key: k, until: G.t + 360 }; } },
                 { label: 'Unable', act: () => {} },
             ], 1);
@@ -3095,7 +3167,7 @@ function aiTower(ac) {
     if (ac.appr?.loc && !ac.landClr && ac.appr.along < 8) { ai(ac, { land: true }); return; }
     if (ac.kind === 'arr' && ac.state === 'clear') { ai(ac, { ground: true }); return; }
     // No radar: the system's Tower gives inbounds a straight-in to the runway they expect, at 15 miles.
-    if (noRadar() && ac.kind === 'arr' && ac.state === 'air' && !ac.appr && !ac.pattern && Math.hypot(ac.x, ac.y) < 15) {
+    if (towerInbound(ac) && ac.state === 'air' && !ac.appr && !ac.pattern && Math.hypot(ac.x, ac.y) < 15) {
         const end = G.active.arr.includes(ac.expect) ? ac.expect : G.active.arr[0];
         ai(ac, { entry: { kind: 'S', end }, land: true });
         return;
@@ -3257,9 +3329,11 @@ function bestRunway(ac) {
         let t = eta;
         for (const x of q) t = Math.max(t, x.t + spacingSec(x.ac, ac));
         const inner = G.active.arr.some(o => !sameRunwayish(o, e) && parallelFt(o, e) != null && Math.abs(finalGeom(P, o).xt) < 4);
-        const score = t + (e === ac.expect ? -20 : 0) + (inner ? 900 : 0);
-        // Never turn in across another final when there's any runway that avoids it.
-        if (!best || (best.inner && !inner) || (best.inner === inner && score < best.score)) best = { e, f, side, P, eta, score, inner };
+        // Never turn in across another final when there's any runway that avoids it; under Infinite Flight rules
+        // the inside runways land too (IFATC 3.6.1), over the staggered finals, when they save a couple of minutes.
+        const all = G.rules.id === 'ifatc';
+        const score = t + (e === ac.expect ? -20 : 0) + (inner ? (all ? 150 : 900) : 0);
+        if (!best || (!all && best.inner && !inner) || ((all || best.inner === inner) && score < best.score)) best = { e, f, side, P, eta, score, inner };
     }
     return best;
 }
@@ -3281,6 +3355,40 @@ function holdFor(ac) {
 
 function aiApproach(ac) {
     if (ac.state !== 'air' || ac.pattern || ac.divert || ac.via?.kind === 'IAP') return;
+    if (ac.request?.radarPattern) {
+        // IFATC 3.6.2: a radar pattern is Radar's call, on its own workload, with Tower's in mind: a long departure line makes it likelier to take one.
+        const load = G.aircraft.filter(a => a.freq === 'APP' && a.state === 'air').length;
+        const depLine = G.aircraft.filter(a => a.kind === 'dep' && (a.state === 'wait' || a.state === 'luaw')).length;
+        const e = ac.request.end;
+        ac.request = null;
+        if (load <= (depLine >= 3 ? 9 : 6)) {
+            atc(`${ac.radio}, ${facName('APP')}, radar contact, radar pattern approved, expect vectors runway ${e.id}.`, true);
+            pilot(ac, `Radar pattern, vectors ${e.id}, ${ac.radio}.`);
+            coordSay('APP', 'TWR', `I'll take ${ac.cs} for a radar pattern.`);
+            ac.rpCircuit = null;
+        } else {
+            atc(`${ac.radio}, unable radar pattern at this time, contact ${facName('TWR')} for a full stop.`, true);
+            pilot(ac, `Back to Tower for a full stop, ${ac.radio}.`);
+            coordSay('APP', 'TWR', `Too busy for a radar pattern with ${ac.cs}. It's back with you for a full stop.`);
+            Object.assign(ac, { circuit: { ...ac.rpCircuit, work: false }, rpCircuit: null, freq: 'TWR', tAlt: circuitAlt(ac) });
+            return;
+        }
+    }
+    // Radar vectors or flight following to the field, then over to Tower close in, in VMC (IFATC 3.6.3).
+    if (ac.vfrIn && !ac.appr && !ac.pattern) {
+        if (!visualWx()) { ac.vfrIn = null; }
+        else {
+            if (!ac.radarContact) {
+                ac.radarContact = true;
+                const h = brg(-ac.x, -ac.y);
+                if (ac.vfrIn === 'RV') ac.tHdg = h;
+                atc(`${ac.radio}, ${facName('APP')}, radar contact${ac.vfrIn === 'RV' ? `, fly heading ${hdg3(h)}, vectors to the field` : ', maintain VFR'}.`, true);
+                pilot(ac, `${ac.vfrIn === 'RV' ? `Heading ${hdg3(h)}` : 'Maintain VFR'}, ${ac.radio}.`);
+            }
+            if (Math.hypot(ac.x, ac.y) < 12) ai(ac, { toTwr: true });
+            return;
+        }
+    }
     if (ac.request) {
         const r = ac.request;
         // A check-in: what to expect (continue as filed when it has a route). Then a visual in good weather close in; anything else, unable.
@@ -3547,12 +3655,14 @@ function tick(dt) {
         G.nextSpawn = G.t + (ok ? cfg.gap * ramp * rand(0.7, 1.3) : 8);
     }
     // Pattern work and transitions, for a Tower you're working: in VMC (3 SM), and not with "no pattern work" on the ATIS (IFATC 3.4.1).
-    if (G.positions.has('TWR') && G.t >= (G.nextVfr ?? 30)) {
+    // With radar (Infinite Flight rules), VFR inbounds on radar vectors or flight following, for your Tower or your Approach (IFATC 3.6.3).
+    if ((G.positions.has('TWR') || G.positions.has('APP')) && G.t >= (G.nextVfr ?? 30)) {
         G.nextVfr = G.t + rand(60, 140);
         const cap = { light: 1, normal: 2, busy: 3, event: 4 }[G.level];
         const inPattern = G.aircraft.filter(a => a.patternWork).length;
-        if (G.opts.pattern && visualWx() && !hasRemark('noPattern') && inPattern < cap) spawnDeparture(true);
-        else if (noRadar() && Math.random() < 0.5 && G.aircraft.filter(a => a.transit).length < 2) spawnTransit();
+        if (G.positions.has('TWR') && G.opts.pattern && visualWx() && !hasRemark('noPattern') && inPattern < cap) spawnDeparture(true);
+        else if (G.positions.has('TWR') && noRadar() && Math.random() < 0.5 && G.aircraft.filter(a => a.transit).length < 2) spawnTransit();
+        else if (G.rules.id === 'ifatc' && !noRadar() && visualWx() && Math.random() < 0.4 && G.aircraft.filter(a => a.vfrIn && a.state === 'air').length < 2) spawnVfrInbound();
     }
 
     if (G.t >= G.nextWind) shiftWind();
@@ -3562,7 +3672,12 @@ function tick(dt) {
         if (ac.divert) continue;
         if (ac.transit) transitNav(ac);
         else if (ac.circuit && !ac.appr) circuitNav(ac);
-        else if (!ac.appr && (ac.pattern || (noRadar() && ac.freq === 'TWR'))) patternNav(ac);
+        else if (!ac.appr && (ac.pattern || towerInbound(ac))) patternNav(ac);
+        else if (ac.vfrIn && ac.freq === 'APP' && !ac.appr && !ac.vfrOrbited && Math.hypot(ac.x, ac.y) < 6) {
+            // Still with Approach this close in: it orbits once and asks to go to Tower.
+            ac.vfrOrbited = true; ac.orbit = { dir: 'L', rem: 360 };
+            pilot(ac, `${facName('APP')}, ${ac.radio}, ${Math.round(Math.hypot(ac.x, ac.y))} miles from the field, request frequency change to Tower, orbiting left.`);
+        }
     }
     for (const ac of G.aircraft) step(ac, dt);
     G.aircraft = G.aircraft.filter(a => !a.gone);
@@ -3599,7 +3714,7 @@ function shiftWind() {
 function runwayChange() {
     toast(`Runway change: ${G.active.arr.map(e => e.id).join(' / ')}`, 'good');
     for (const ac of G.aircraft) {
-        if (noRadar() && ac.kind === 'arr' && ac.freq === 'TWR' && ac.state === 'air' && (ac.pattern || ac.landClr || ac.appr) && !G.active.arr.includes((ac.appr || ac.pattern || {}).end)) {
+        if ((noRadar() || HANDOFF_SAY[ac.handoff]) && ac.kind === 'arr' && ac.freq === 'TWR' && ac.state === 'air' && (ac.pattern || ac.landClr || ac.appr) && !G.active.arr.includes((ac.appr || ac.pattern || {}).end)) {
             Object.assign(ac, { pattern: null, appr: null, landClr: false, noEntryFlagged: false });
             pilot(ac, `Tower, ${ac.radio}, copy the runway change, request a new pattern entry.`);
             continue;
@@ -3815,6 +3930,7 @@ function approachLateral(ac) {
     ac.turn = null;
     if (!ap.est && Math.abs(g.xt) < 0.2 && Math.abs(diff(ac.hdg, c)) < 10) {
         ap.est = true;
+        if (ac.freq === 'APP') ac.handoff = ap.type;
         ac.freq = 'TWR';
         // Approach hands it to the tower; you are both, so the call comes straight to you.
         pilot(ac, `${facName('TWR')}, ${ac.radio}, ${Math.max(1, Math.round(g.along))} mile final runway ${e.id}.`);
@@ -4544,7 +4660,7 @@ function intentTag(a) {
     if (a.transit) return a.transit.ok ? 'TRANS' : 'TRANS?';
     if (a.circuit && !a.appr) return LEG_TAG[a.circuit.leg] + ' ' + a.circuit.end.id + (a.optionClr ? ' OPT' : a.landClr ? ' CL' : '');
     if (a.circuit && a.appr) return 'FNL ' + a.appr.end.id + (a.optionClr ? ' OPT' : a.landClr ? ' CL' : '');
-    if (a.pattern && !noRadar()) return 'VIS ' + a.pattern.end.id;
+    if (a.pattern && !towerInbound(a)) return 'VIS ' + a.pattern.end.id;
     if (a.appr) return (APP_TAG[a.appr.type] || 'ILS') + (a.appr.loc ? '* ' : ' ') + a.appr.end.id + (a.landClr ? ' CL' : '') + (a.appr.loc ? ' ' + a.appr.along.toFixed(1) : '');
     if (a.holdAt) return 'HLD ' + a.holdAt.fix.name;
     if (a.orbit) return '360' + a.orbit.dir;
@@ -4907,7 +5023,7 @@ function menuFor(ac) {
     const air = ac.state === 'air';
     if (ac.request) {
         const r = ac.request, filed = filedRoute(ac);
-        add(`Respond to ${appWord(r.kind)} approach request`, { sub: () => [
+        add(r.radarPattern ? 'Respond to radar pattern request' : `Respond to ${appWord(r.kind)} approach request`, { sub: () => [
             ...(filed ? [{ label: `Expect the ${appWord(r.kind)} runway ${r.end.id}, continue as filed`, cmd: { expectApp: { type: r.kind, end: r.end }, asFiled: true } }] : []),
             { label: `Expect vectors for the ${appWord(r.kind)} runway ${r.end.id}`, cmd: { expectApp: { type: r.kind, end: r.end } } },
             { label: 'Expect another approach…', sub: () => expectList(ac) },
@@ -5061,6 +5177,7 @@ function airMenu(ac, add) {
             ...(ac.landClr ? [{ label: 'Cancel landing clearance', cmd: { cancelLand: true } }] : []),
             ...others.map(o => ({ label: `Number ${n}, traffic to follow is on ${legOf(o)} (${o.cs})`, cmd: { seqBehind: o } })),
         ] });
+        if (!noRadar() && !ac.appr) add(`Contact ${freqLabel('APP')} (radar pattern)`, { cmd: { radarPattern: true } });
         add('Request speed', { sub: speedMenu(ac) });
         if (!ac.appr) { if (ifr) add('Make a 360 for spacing', { cmd: { orbit: 'L' } }); else { add('Make left 360', { cmd: { orbit: 'L' } }); add('Make right 360', { cmd: { orbit: 'R' } }); } }
         if (ac.appr) add('Go around…', { sub: () => [{ label: 'Go around', cmd: { goAround: true } }, { label: `Go around, make left traffic runway ${e.id}`, cmd: { goAround: true, traffic: 'L' } }, { label: `Go around, make right traffic runway ${e.id}`, cmd: { goAround: true, traffic: 'R' } }] });
@@ -5068,9 +5185,11 @@ function airMenu(ac, add) {
         add('Standby / corrections', { sub: standbyMenu });
         return;
     }
-    const inbound = noRadar() && ac.kind === 'arr' && ac.freq === 'TWR' && !ac.appr?.loc;
+    const inbound = towerInbound(ac);
     if (ac.kind === 'dep' && ac.freq === 'TWR') add('Frequency change approved', { cmd: { freqChange: true } }, true);
-    if ((ac.appr?.loc || noRadar() && ac.pattern) && !ac.landClr) add(`Cleared to land runway ${(ac.appr || ac.pattern).end.id}`, { cmd: { land: true } }, ac.freq === 'TWR');
+    if ((ac.appr?.loc || towerInbound(ac) && ac.pattern) && !ac.landClr) add(`Cleared to land runway ${(ac.appr || ac.pattern).end.id}`, { cmd: { land: true } }, ac.freq === 'TWR');
+    // A visual from Radar that isn't number 1 gets its sequence (IFATC 3.6.3).
+    if (ac.freq === 'TWR' && ac.appr?.type === 'VIS' && !ac.landClr && landingNumber(ac) > 1) add(`Number ${landingNumber(ac)}`, { cmd: { seqLand: true } });
     if (inbound) {
         add('Continue inbound', { cmd: { contInbound: true } });
         add(`Number ${landingNumber(ac)}`, { cmd: { seqLand: true } });
@@ -5089,7 +5208,7 @@ function airMenu(ac, add) {
     if (inbound) add('Request speed', { sub: speedMenu(ac) });
     if (ac.kind === 'arr' && !inbound) add('Expect approach…', { sub: () => expectList(ac) });
     const other = [
-        ...(ac.kind === 'arr' && ac.freq === 'APP' && (ac.appr || ac.pattern) ? [{ label: `Contact ${freqLabel('TWR')}`, cmd: { toTwr: true } }] : []),
+        ...(ac.kind === 'arr' && ac.freq === 'APP' && (ac.appr || ac.pattern || radarVectorsOk(ac)) ? [{ label: `Contact ${freqLabel('TWR')}${ac.appr || ac.pattern ? '' : ` (${HANDOFF_SAY[ac.vfrIn || 'RV']})`}`, cmd: { toTwr: true } }] : []),
         ...(ac.kind === 'dep' && ac.freq === 'TWR' ? [{ label: 'Frequency change approved', cmd: { freqChange: true } }] : []),
     ];
     if (other.length) add('Contact other frequency', { sub: () => other });
@@ -5409,6 +5528,7 @@ function runCommand(text) {
         else if (t === 'CXTO' || t === 'CANCEL' || t === 'RTO') c.cancelTO = true;
         else if (t === 'HS' || t === 'HOLDSHORT') c.holdShort = true;
         else if (t === 'CI') c.contInbound = true;
+        else if (t === 'RP') c.radarPattern = true;
         else if (t === 'DV' || t === 'CV' || t === 'VIA') c.via = true;
         else if (t === 'NO' || t === 'NUMBER') c.seqLand = true;
         else if (t === 'ENT' || t === 'ENTER') {
@@ -6053,7 +6173,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit };
+    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound };
 }
 
 init();

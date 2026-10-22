@@ -357,7 +357,8 @@ traffic doesn't count against you.
 - **Approach (system)** works like a TRACON arrival manager:
   - **Runways:** one flow at a time, no crossing runways at once. With
     parallels, the outermost runway on each side lands and the ones inside
-    it depart, as at ATL, LAX or DEN. Side-by-side finals are flown 1,000 ft
+    it depart, as at ATL, LAX or DEN (Real life; under Infinite Flight rules
+    every runway does both, IFATC 3.6.1). Side-by-side finals are flown 1,000 ft
     apart (dependent parallels), and arrivals always take the runway on
     their own side when one exists, so nobody turns in across another
     final.
@@ -916,9 +917,54 @@ Not modelled: "Flight of XX" formations (3.4.5).
 Not modelled: back-taxi (3.2.4), multiple aircraft lined up at once (3.2.3),
 and "Straight Out Dept." in the ATIS (3.2.9–3.2.10).
 
-The radar part of the manual wasn't available while this was built (the site
-wasn't reachable), so these follow Infinite Flight's features and community
-guidance. Where the manual says otherwise, change that line in `RULESETS`.
+**Tower working with Radar (IFATC 3.6):** with Approach open (yours or the
+system's), under Infinite Flight rules.
+
+- 3.6.1 **All runways**: Radar lands and departs on every runway in the
+  flow, not outer-lands, inner-departs. Side-by-side finals stay 1,000 ft
+  apart, and an arrival turns in across another final for an inside runway
+  when that saves it a couple of minutes.
+- 3.6.1 **5 miles at busy times**: with a departure waiting for a runway, the
+  system's Approach leaves 5 miles between arrivals on it, room for one to go.
+  It watches the queue itself. The system's Tower asks your Approach for a
+  5-mile gap (6 in Real life mode).
+- 3.6.1 **Runway changes**: re-clearing an ILS or GPS arrival onto another
+  runway once it's with Tower is flagged: keep them to a minimum.
+- 3.6.2 **Pattern work stays with Tower**. **Contact Approach (radar
+  pattern)** (`rp`) on a circuit is refused unless pattern work is denied (No
+  pattern work on the ATIS). Then it asks Approach for a radar pattern:
+  - the system's Approach takes it when it has 6 or fewer aircraft (9 with
+    three departures waiting, for Tower's sake), and vectors it round for a
+    full stop;
+  - otherwise it says unable and sends it back to Tower for a full stop;
+  - your Approach answers it like any request.
+- 3.6.3 What Tower gives an arrival from Radar:
+
+  | Handed over on | Pattern entry | Sequence | Clearance |
+  |---|---|---|---|
+  | ILS / GPS | No | No | Yes |
+  | Radar vectors | Yes | If not number 1 | Yes |
+  | Flight following | Yes | If not number 1 | Yes |
+  | Visual | No | If not number 1 | Yes |
+
+  - ILS and GPS arrivals: a pattern entry or "number N" is refused, and the
+    landing clearance drops the number ("runway 28R, cleared to land").
+  - Visuals: no pattern entry; **Number N** is on the card until cleared.
+  - **VFR inbounds** (light aircraft, in VMC) call Approach for vectors to the
+    field or flight following. The system's Approach gives radar contact and
+    hands them to Tower at 12 miles: *"…12 miles east, 4,500, inbound for
+    landing with you on radar vectors"*. Then it's as 3.3: a pattern entry by
+    8 miles (or a violation, and it orbits), a sequence when needed, and the
+    clearance. A go-around stays with Tower and needs a new entry.
+  - Your Approach can hand any arrival over that way within 15 miles in VMC
+    (**Contact Tower (radar vectors)**). Still with you at 6 miles, a VFR
+    inbound orbits once and asks for Tower.
+
+Not modelled: the Tower controller handover frequency (3.6.1).
+
+The Radar sections of the manual (4.x) aren't in yet, so Approach follows
+Infinite Flight's features and community guidance. Where the manual says
+otherwise, change that line in `RULESETS`.
 
 ## Emergencies (option)
 
