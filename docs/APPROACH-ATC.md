@@ -453,6 +453,18 @@ Not modelled: Center itself, cruise, Mach, active/away, Resume Flight
   course and below the glideslope. Tower then has a straight in only (no
   pattern below VMC).
 
+**Visual approaches (IFATC 6.13):** under Infinite Flight rules:
+
+- 6.13.1 VMC is 3 SM visibility (no ceiling test), for visual approaches,
+  the pattern and VFR services alike.
+- 6.13.3 The pilot reports the airport in sight before the clearance. A
+  visual clearance to one that hasn't reported asks it instead (*"report the
+  airport in sight"*); with the field in sight it reports at once, and the
+  next clearance goes through. A pilot who asked for the visual has already
+  reported. Vectors can carry on in between.
+- 6.13.2 At Tower a visual gets a sequence (if not number 1) and its
+  clearance, no pattern entry (3.6.3 above).
+
 **Holding (IFATC 6.7):** under Infinite Flight rules:
 
 - 6.7.2 **Hold at…** lists **Present position** and the fixes still ahead on

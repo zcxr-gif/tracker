@@ -492,7 +492,8 @@ const APP_NAME = new Proxy(APP_NAMES, { get: (o, k) => (k === 'RNAV' && G?.rules
 const APP_TAG = { ILS: 'ILS', LOC: 'LOC', RNAV: 'RNV', VIS: 'VIS' };
 
 /** Good enough weather for a visual approach (7110.65 7-4-2: ceiling 1,000 ft or more, visibility 3 SM or more). */
-const visualWx = () => !G.met || ((G.met.ceil == null || G.met.ceil >= 1000) && G.met.vis >= 3);
+/** VMC: 1,000 ft ceiling and 3 SM. Under Infinite Flight rules just the 3 SM visibility (IFATC 6.13.1). */
+const visualWx = () => !G.met || ((G.rules.id === 'ifatc' || G.met.ceil == null || G.met.ceil >= 1000) && G.met.vis >= 3);
 
 /** The published approach of a type for a runway end (real data), or null. */
 function iapFor(e, type) {
@@ -1607,6 +1608,14 @@ function issueCall(ac, c) {
             atc(`${ac.radio}, report the airport in sight.`, G.aiActing);
             pilot(ac, `Negative contact, we'll report the field, ${ac.radio}.`);
             ac.reportField = true;
+            return true;
+        }
+        // IFATC 6.13.1 / 6.13.3: the pilot reports the airport in sight first; then the clearance.
+        if (G.rules.id === 'ifatc' && !G.aiActing && !ac.fieldReported) {
+            atc(`${ac.radio}, report the airport in sight.`);
+            pilot(ac, `${ac.radio}, airport in sight.`);
+            ac.fieldReported = true;
+            sys(`IFATC 6.13.3: ask for the airport in sight first; now that ${ac.cs} has it, clear the visual.`);
             return true;
         }
     }
@@ -3404,6 +3413,7 @@ function pilotRequests() {
         const ok = t => G.atisCfg.apps.includes(t), was = ac.expectType || appFor(e);
         if (was !== 'VIS' && fieldInSight(ac) && Math.random() < (ok('VIS') ? 0.4 : 0.15)) {
             ac.request = { kind: 'VIS', end: e, say: 'the visual', tag: 'VIS' };
+            ac.fieldReported = true;
             pilot(ac, `${ac.radio}, field in sight, request the visual runway ${e.id}.`);
         } else if (was !== 'RNAV' && hasApproach(e, 'RNAV') && G.world.nav && Math.random() < (ok('RNAV') ? 0.2 : 0.06)) {
             ac.request = { kind: 'RNAV', end: e, say: 'the ' + APP_NAME.RNAV, tag: 'RNV' };
