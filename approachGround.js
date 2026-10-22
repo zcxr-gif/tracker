@@ -140,7 +140,7 @@ function network(lines) {
  */
 export function buildGround(layout, proj, ends) {
     if (!layout || !layout.features) return { error: 'no layout data came back' };
-    const lines = [], aprons = [], gatesRaw = [];
+    const lines = [], aprons = [], gatesRaw = [], buildings = [];
     for (const f of layout.features) {
         const p = f.properties || {}, g = f.geometry;
         if (!g) continue;
@@ -148,6 +148,9 @@ export function buildGround(layout, proj, ends) {
             // Real centrelines carry a point every metre or two round curves: thin them, or the network runs to tens of thousands of nodes.
             const pts = simplify(g.coordinates.map(([lon, lat]) => proj(lat, lon)));
             if (pts.length >= 2) lines.push({ name: String(p.ref || p.name || '').trim(), kind: p.aeroway, pts });
+        } else if ((p.aeroway === 'building' || p.aeroway === 'terminal' || p.aeroway === 'hangar') && (g.type === 'Polygon' || g.type === 'LineString')) {
+            const ring = g.type === 'Polygon' ? g.coordinates[0] : g.coordinates;
+            if (ring.length > 3) buildings.push(ring.map(([lon, lat]) => proj(lat, lon)));
         } else if (p.aeroway === 'apron' && g.type === 'Polygon') {
             aprons.push(g.coordinates[0].map(([lon, lat]) => proj(lat, lon)));
         } else if ((p.aeroway === 'gate' || p.aeroway === 'parking_position') && g.type === 'Point') {
@@ -157,7 +160,7 @@ export function buildGround(layout, proj, ends) {
     }
     const list = network(lines);
     // What was mapped, for drawing even when it can't be taxied on.
-    const fail = error => ({ error, map: { lines, aprons, gates: gatesRaw } });
+    const fail = error => ({ error, map: { lines, aprons, buildings, gates: gatesRaw } });
     if (list.length < 10) return fail(`only ${lines.length} taxiways mapped (${list.length} points)`);
 
     // Keep the biggest connected network; stray fragments can't be reached.
@@ -241,7 +244,7 @@ export function buildGround(layout, proj, ends) {
         exits.set(e, ex.sort((a, b) => a.along - b.along));
     }
 
-    return { nodes: list, main, gates, holds, exits, lines, aprons, physRunways, onRunway,
+    return { nodes: list, main, gates, holds, exits, lines, aprons, buildings, physRunways, onRunway,
         summary: `${lines.length} taxiway segments, ${gates.length} ${gatesRaw.length >= 3 ? 'gates' : 'apron stands'}, holding points at ${holds.size} of ${ends.length} runway ends` };
 }
 

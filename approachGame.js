@@ -361,6 +361,7 @@ function spawnArrival(dist) {
             trail: [], trailT: 0, born: G.t, expect: pick(G.active.arr), freq: 'APP',
         };
         G.aircraft.push(ac);
+        maybeEmergency(ac);
         pilot(ac, `${G.world.icao} Approach, ${ac.radio}, ${fmtAlt(alt)}, information ${PHONETIC[G.atis]}.`);
         atc(`${ac.radio}, ${G.world.icao} Approach, altimeter ${G.altim}, expect ILS runway ${ac.expect.id} approach.`);
         return true;
@@ -375,6 +376,54 @@ function seedTraffic(n) {
         const ok = wantDep ? spawnDeparture() || spawnArrival(rand(12, SCOPE_NM - 1)) : spawnArrival(rand(12, SCOPE_NM - 1)) || spawnDeparture();
         if (ok) i++; else misses++;
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* Emergencies: rare, and the player can turn them off                 */
+/* ------------------------------------------------------------------ */
+
+const EMERG_RATE = 1 / 45;           // per flight
+const EMERGENCIES = [
+    { kind: 'engine', mayday: true, text: 'engine failure', spd: 210 },
+    { kind: 'medical', mayday: false, text: 'medical emergency on board' },
+    { kind: 'fuel', mayday: true, text: 'minimum fuel, declaring an emergency' },
+    { kind: 'hydraulic', mayday: false, text: 'hydraulic failure', spd: 220 },
+    { kind: 'smoke', mayday: true, text: 'smoke in the cabin' },
+    { kind: 'bird', mayday: false, text: 'bird strike, possible engine damage', spd: 230 },
+];
+
+function maybeEmergency(ac) {
+    if (G.opts.emerg && Math.random() < EMERG_RATE) ac.emergPending = pick(EMERGENCIES);
+}
+
+/** Declares when the moment is right: an arrival well out, a departure climbing out. */
+function emergencyCheck() {
+    for (const ac of G.aircraft) {
+        const e = ac.emergPending;
+        if (!e || ac.state !== 'air' || ac.gone) continue;
+        const dist = Math.hypot(ac.x, ac.y);
+        const ready = ac.kind === 'arr' ? G.t - ac.born > 45 && dist > 10 && !ac.appr?.loc : agl(ac) > 1500 && dist < 25;
+        if (ready) declareEmergency(ac, e);
+    }
+}
+
+function declareEmergency(ac, e) {
+    ac.emergPending = null;
+    ac.emerg = { ...e, t: G.t };
+    const souls = Math.round(ac.perf.wake === 'H' || ac.perf.wake === 'S' ? rand(220, 380) : rand(90, 190));
+    const call = e.mayday ? 'Mayday, mayday, mayday' : 'Pan-pan, pan-pan, pan-pan';
+    if (ac.kind === 'dep') {
+        // Back to land: from here on it's an arrival, to the nearest landing runway.
+        ac.kind = 'arr'; ac.returning = true;
+        ac.direct = null; ac.aiPlan = null;
+        ac.expect = G.active.arr.slice().sort((a, b) => Math.hypot(a.thr.x - ac.x, a.thr.y - ac.y) - Math.hypot(b.thr.x - ac.x, b.thr.y - ac.y))[0];
+        if (ac.freq === 'TWR') ac.freq = 'APP';
+    }
+    ac.holdAt = null; ac.orbit = null;
+    if (ac.aiPlan) ac.aiPlan = null;
+    if (e.spd) ac.tSpd = Math.min(ac.tSpd, e.spd);
+    pilot(ac, `${call}, ${ac.radio}, ${e.text}, ${ac.returning ? 'request immediate return' : 'request priority handling'}, ${souls} souls on board.`);
+    toast(`${ac.cs} ${e.mayday ? 'MAYDAY' : 'PAN-PAN'}: ${e.text}`, 'bad', 8000);
 }
 
 function nextDepRunway() {
@@ -409,9 +458,11 @@ function spawnDeparture() {
         const n = G.ground.nodes[stand.node];
         Object.assign(ac, { state: 'gate', stand, x: stand.x, y: stand.y, hdg: brg(stand.x - n.x, stand.y - n.y), freq: 'GND', readyAt: G.t + rand(5, 60), called: false });
         G.aircraft.push(ac);
+        maybeEmergency(ac);
         return true;
     }
     G.aircraft.push(ac);
+    maybeEmergency(ac);
     pilot(ac, `${G.world.icao} Tower, ${ac.radio}, holding short runway ${rwy.id}, information ${PHONETIC[G.atis]}, ready for departure.`);
     return true;
 }
@@ -428,7 +479,15 @@ function logLine(kind, text) {
     if (!log) return;
     const div = document.createElement('div');
     div.className = 'm-' + kind;
-    div.textContent = text;
+    if (G) {
+        // Stamped with the shift's Zulu time, as the IFATC text log does.
+        const z = new Date(G.zulu0 + G.t * 1000), p2 = n => String(n).padStart(2, '0');
+        const ts = document.createElement('span');
+        ts.className = 'ts';
+        ts.textContent = `${p2(z.getUTCHours())}:${p2(z.getUTCMinutes())}:${p2(z.getUTCSeconds())} `;
+        div.appendChild(ts);
+    }
+    div.appendChild(document.createTextNode(text));
     log.appendChild(div);
     while (log.children.length > 80) log.firstChild.remove();
     log.scrollTop = log.scrollHeight;
@@ -608,6 +667,8 @@ function issueCall(ac, c) {
     }
 
     // ---- things that stop the call before it is made
+    if (c.hdg != null && onGround && !G.aiActing) { sys(`${ac.cs} is on the ground: headings are for airborne aircraft.`); delete c.hdg; delete c.turn; }
+    if ((c.holdFix || c.orbit) && ac.emerg && !G.aiActing) { pilot(ac, `Unable, ${ac.radio}, we need to land as soon as possible.`); return false; }
     if ((c.luaw || c.takeoff) && ac.freq === 'GND') { sys(`${ac.cs} is still on Ground: have it contact Tower first.`); return false; }
     if (c.luaw && ac.state !== 'wait') { sys(`${ac.cs} is not holding short.`); return false; }
     if (c.takeoff && ac.state !== 'wait' && ac.state !== 'luaw') { sys(`${ac.cs} is not at the runway.`); return false; }
@@ -846,6 +907,10 @@ function taxiClearance(ac, want, parts, back) {
     if (purpose === 'gate') ac.stand = tgt.gate;
     ac.heldAt = hold;
     const wasTower = ac.toTower;
+    if (purpose === 'runway' && !G.aiActing && G.coord?.gateHold > G.t && ac.state === 'pushed') {
+        G.score -= 3;
+        coordSay('TWR', 'GND', `I asked you to hold them at the gate: ${ac.cs} is just going to wait at the runway.`);
+    }
     startTaxi(ac, r, purpose);
     ac.toTower = purpose === 'runway' && wasTower;
     const via = r.names.join(', ') || 'the taxiway';
@@ -917,6 +982,7 @@ function cancelApproach(ac) { ac.appr = null; }
 function goAround(ac, reason, notYourFault) {
     ac.wentAround = reason || 'ordered';
     const e = ac.appr ? ac.appr.end : null;
+    if (ac.freq === 'TWR') learnFromGoAround(e, reason);
     ac.appr = null; ac.direct = null; ac.holdAt = null; ac.orbit = null; ac.turn = null; ac.landClr = false;
     if (e) ac.tHdg = e.course;
     // Missed approach: runway heading, climbing clear of the terrain along it, back to Approach for another go.
@@ -1313,6 +1379,8 @@ function aiTerrainNet() {
 }
 
 function aiControl() {
+    if (G.opts.emerg) emergencyCheck();
+    coordinate();
     if (!G.positions.has('APP')) { aiConflicts(); aiTerrainNet(); }
     for (const ac of G.aircraft) {
         if (ac.gone) continue;
@@ -1325,6 +1393,136 @@ function aiControl() {
 }
 
 const ai = (ac, c) => issue(ac, { ...c, ai: true });
+
+/* ------------------------------------------------------------------ */
+/* Coordination: the system's controllers learn from the player        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Where the system and the player share the airport, the system adapts to
+ * how the player works instead of pushing traffic into them:
+ *
+ *   - System Approach feeding the player's Tower asks once how they want
+ *     arrivals spaced (tight, gaps for departures, or gaps only when
+ *     departures are waiting) and remembers the answer. Each arrival the
+ *     player has to send around (runway occupied, no landing clearance)
+ *     adds a mile in trail on that final; quiet stretches take it back off.
+ *   - System Tower with the player on Approach asks for a gap when
+ *     departures pile up, and thanks them when they give one.
+ *   - System Tower with the player on Ground asks them to hold departures
+ *     at the gate when the runway queue is full.
+ */
+let coordPref = store.get('coordTrail', null);     // 'tight' | 'gaps' | 'auto'
+
+const coordState = () => (G.coord = G.coord || { extra: {}, asks: [], lastAsk: -1e9, learnedAt: 0 });
+const feedsYourTower = () => G.positions.has('TWR') && !G.positions.has('APP');
+
+/** Miles on top of the minimum the system's Approach leaves on a final the player's Tower works. */
+function extraTrailNm(key) {
+    if (!feedsYourTower()) return 0;
+    const co = coordState(), pref = coordPref || 'auto';
+    const waiting = G.aircraft.filter(a => (a.state === 'wait' || a.state === 'luaw') && a.rwy && seqKey(a.rwy) === key).length;
+    const gap = pref === 'gaps' || (pref === 'auto' && waiting >= 2) ? 3 : 0;
+    return (co.extra[key] || 0) + gap;
+}
+
+function coordSay(from, to, text) { logLine('coord', `${FREQ_NAME[from]} → ${FREQ_NAME[to]}: ${text}`); }
+
+/** A question from a system controller, answered with the buttons on the scope; `def` is taken if it times out. */
+function ask(from, to, text, options, def = 0) {
+    const co = coordState();
+    if (co.asks.some(q => q.text === text)) return;
+    co.asks.push({ from, to, text, options, def, until: G.t + 45 });
+    co.lastAsk = G.t;
+    coordSay(from, to, text);
+    renderAsk();
+}
+
+function answer(i) {
+    const co = coordState(), q = co.asks.shift();
+    if (!q) return;
+    const o = q.options[i] || q.options[q.def];
+    logLine('atc', `${FREQ_NAME[q.to]}: ${o.label}.`);
+    o.act && o.act();
+    renderAsk();
+}
+
+function renderAsk() {
+    const el = $('#coord');
+    if (!el) return;
+    const q = G && G.coord && G.coord.asks[0];
+    el.hidden = !q;
+    if (!q) return;
+    el.innerHTML = `<div class="coord-h">${FREQ_NAME[q.from].toUpperCase()} → ${FREQ_NAME[q.to].toUpperCase()}</div>
+        <div class="coord-t">${escapeHtml(q.text)}</div>
+        <div class="coord-b">${q.options.map((o, i) => `<button class="btn${i === q.def ? ' primary' : ''}" data-ans="${i}">${escapeHtml(o.label)}</button>`).join('')}</div>`;
+}
+
+/** Learning: an arrival the player's Tower had to send around costs the system a mile in trail on that final. */
+function learnFromGoAround(e, reason) {
+    if (!feedsYourTower() || !e || !/occupied|landing clearance/.test(reason || '')) return;
+    const co = coordState(), key = seqKey(e);
+    co.extra[key] = Math.min(4, (co.extra[key] || 0) + 1);
+    co.learnedAt = G.t;
+    coordSay('APP', 'TWR', `Copy the go-around. I'll leave you another mile on ${e.id}: ${(SEP_NM + co.extra[key]).toFixed(0)} miles or more in trail from here on.`);
+    if (co.extra[key] >= 2 && coordPref !== 'gaps' && !co.askedGaps) {
+        co.askedGaps = true;
+        ask('APP', 'TWR', `That's ${co.extra[key]} go-arounds on ${e.id}. Want a departure gap between every pair of arrivals?`, [
+            { label: 'Yes, gaps every time', act: () => { coordPref = 'gaps'; store.set('coordTrail', coordPref); } },
+            { label: 'No, I\'ll manage', act: () => {} },
+        ], 0);
+    }
+}
+
+function coordinate() {
+    const co = coordState();
+    // Questions nobody answered take their default.
+    if (co.asks.length && G.t > co.asks[0].until) answer(co.asks[0].def);
+    // A quiet ten minutes: the learned extra comes back off, half a mile at a time.
+    if (G.t - co.learnedAt > 600) {
+        co.learnedAt = G.t;
+        for (const k in co.extra) co.extra[k] = Math.max(0, co.extra[k] - 0.5);
+    }
+    if (co.asks.length || G.t - co.lastAsk < 300 || G.t < 40) return;
+
+    if (feedsYourTower() && !coordPref) {
+        ask('APP', 'TWR', 'How do you want your arrivals on final?', [
+            { label: 'Gaps when departures wait', act: () => { coordPref = 'auto'; store.set('coordTrail', coordPref); } },
+            { label: 'Tight, 3 miles', act: () => { coordPref = 'tight'; store.set('coordTrail', coordPref); } },
+            { label: 'Gaps every time', act: () => { coordPref = 'gaps'; store.set('coordTrail', coordPref); } },
+        ], 0);
+        return;
+    }
+    const queues = new Map();
+    for (const a of G.aircraft) if (a.kind === 'dep' && a.rwy && (a.state === 'wait' || a.state === 'luaw' || a.state === 'taxi' && a.purpose === 'runway')) {
+        const k = seqKey(a.rwy);
+        queues.set(k, { e: a.rwy, n: (queues.get(k)?.n || 0) + 1, holding: (queues.get(k)?.holding || 0) + (a.state === 'wait' ? 1 : 0) });
+    }
+    // The player's Approach is feeding the system's Tower: ask for a gap when departures pile up.
+    if (G.positions.has('APP') && !G.positions.has('TWR') && !co.gapAsk) {
+        for (const [k, q] of queues) {
+            if (q.holding < 3) continue;
+            ask('TWR', 'APP', `I've got ${q.holding} departures holding for ${q.e.id}. Can you give me a 6-mile gap on final?`, [
+                { label: 'Will do', act: () => { co.gapAsk = { key: k, until: G.t + 360 }; } },
+                { label: 'Unable', act: () => {} },
+            ], 1);
+            return;
+        }
+    }
+    // The player's Ground is feeding the system's Tower: hold them at the gate when the queue is full.
+    if (G.positions.has('GND') && !G.positions.has('TWR') && !(co.gateHold > G.t)) {
+        for (const [, q] of queues) {
+            if (q.n < 5) continue;
+            ask('TWR', 'GND', `The queue for ${q.e.id} is ${q.n} deep. Can you hold departures at the gate for a few minutes?`, [
+                { label: 'Will do', act: () => { co.gateHold = G.t + 180; co.gateHoldSaid = false; } },
+                { label: 'Unable', act: () => {} },
+            ], 0);
+            return;
+        }
+    }
+    if (co.gateHold && G.t > co.gateHold && !co.gateHoldSaid) { co.gateHoldSaid = true; coordSay('TWR', 'GND', 'Thanks. Go ahead and send them again.'); }
+    if (co.gapAsk && G.t > co.gapAsk.until) { co.gapAsk = null; coordSay('TWR', 'APP', 'Never mind the gap, I\'ll work around it.'); }
+}
 
 function aiGround(ac) {
     if (ac.state === 'gate' && ac.kind === 'dep' && ac.called) ai(ac, { push: true });
@@ -1359,7 +1557,11 @@ function aiTower(ac) {
     let side = others.length ? (others.reduce((t, v) => t + v, 0) > 0 ? -1 : 1) : 0;
     if (!side) { G.altSide = -(G.altSide || 1); side = G.altSide; }
     const hdg = Math.round(norm(ac.rwy.course + 20 * side) / 5) * 5 || 360;
-    if (ai(ac, { takeoff: true, hdg })) G.lastClr.set(phys, G.t);
+    if (ai(ac, { takeoff: true, hdg })) {
+        G.lastClr.set(phys, G.t);
+        const gap = G.coord?.gapAsk;
+        if (gap && gap.key === seqKey(ac.rwy)) { G.coord.gapAsk = null; award(ac, 5, 'gap'); coordSay('TWR', 'APP', `Thanks for the gap, ${ac.cs} is rolling.`); }
+    }
 }
 
 /*
@@ -1455,8 +1657,11 @@ function bookSlot(ac, e, eta) {
     G.seq = G.seq || {};
     for (const k in G.seq) G.seq[k] = G.seq[k].filter(x => x.ac !== ac && !x.ac.gone && x.ac.state === 'air');
     const key = seqKey(e), q = (G.seq[key] = G.seq[key] || []);
+    // An emergency goes first; the rest are re-spaced behind it on final.
+    if (ac.emerg) { q.unshift({ ac, t: eta }); return { key, t: eta }; }
     let t = eta;
-    for (const x of q) t = Math.max(t, x.t + spacingSec(x.ac, ac));
+    const extra = extraTrailNm(key) / AI_FINAL_KT * 3600;
+    for (const x of q) t = Math.max(t, x.t + spacingSec(x.ac, ac) + extra);
     q.push({ ac, t });
     return { key, t };
 }
@@ -1536,6 +1741,11 @@ function aiApproach(ac) {
         const slot = bookSlot(ac, b.e, b.eta);
         Object.assign(plan, { e: b.e, f: b.f, side: b.side, P: b.P, slotKey: slot.key, slot: slot.t });
         ac.expect = b.e;
+        // An emergency gets a short base, 2.5 miles off the final, when it's low enough to get down from there.
+        if (ac.emerg && ac.alt - b.f.joinAlt < 4000) {
+            const off = 2.5;
+            plan.P = { name: `${b.e.id} base`, side: b.side, ...ptOnFinal(b.e, b.f.icpt + off / Math.tan(30 * D2R), off * b.side) };
+        }
         if (slot.t - b.eta > 75 && ac.entry && Math.hypot(ac.entry.x - ac.x, ac.entry.y - ac.y) < 12) {
             const h = holdFor(ac);
             Object.assign(plan, { phase: 'hold', fix: h.fix, base: h.base });
@@ -1566,7 +1776,7 @@ function aiApproach(ac) {
     if (plan.phase === 'route') {
         // Round the weather: the other side's base point if that path is clear.
         const other = basePointFor(ac, plan.f, -plan.side);
-        if (wxOnPath(ac, plan.P) && !wxOnPath(ac, other)) { plan.side = -plan.side; plan.P = other; }
+        if (!ac.emerg && wxOnPath(ac, plan.P) && !wxOnPath(ac, other)) { plan.side = -plan.side; plan.P = other; }
         plan.phase = 'inbound';
         ai(ac, { direct: plan.P, alt: routeAlt(ac, plan), spd: 210 });
         return;
@@ -1587,7 +1797,7 @@ function aiApproach(ac) {
         const spd = late < -25 ? Math.max(min, 180) : late > 25 ? max : 210;
         if (Math.abs(spd - ac.tSpd) >= 10 && dP > 4) ai(ac, { spd });
         if (dP < 1.5) {
-            if (finalTooTight(ac, plan)) {
+            if (!ac.emerg && finalTooTight(ac, plan)) {
                 // Extend: keep going away from the field until there's room behind the one ahead.
                 plan.phase = 'extend';
                 ai(ac, { hdg: Math.round(norm(plan.e.course + 180)), spd: Math.max(minSpeed(ac), 180) });
@@ -1986,6 +2196,14 @@ function approachLateral(ac) {
 
 function land(ac, e) {
     G.stats.landed++;
+    if (ac.emerg) {
+        // Safe on the ground. The trucks inspect the runway before anyone else uses it.
+        G.occupied.set(e.phys, Math.max(G.occupied.get(e.phys) || 0, G.t + 120));
+        if (G.positions.has('TWR') || G.positions.has('APP')) award(ac, 10, 'emergency');
+        sys(`${ac.cs} is down safely on ${e.id}. Runway closed for two minutes while the fire crews check it.`, 'good');
+        toast(`Runway ${e.id} closed: emergency vehicles`, 'bad', 6000);
+        G.stats.emergencies = (G.stats.emergencies || 0) + 1;
+    }
     const exits = G.ground && G.ground.exits.get(e);
     if (exits && exits.length) {
         // Roll out and turn off at the first exit past about 0.9 NM, or the last one.
@@ -2460,24 +2678,33 @@ function visible(a) {
     return view.scale > 25;
 }
 
-/** Taxiways, aprons and gates, when zoomed in on the field. */
+/**
+ * Taxiways, aprons, buildings and stands, when zoomed in on the field. Drawn
+ * the way Infinite Flight's map draws an airport: thin orange taxiway
+ * centrelines, building outlines, and each stand as a dot on its lead-in
+ * line (green free, red taken).
+ */
 function drawSurface() {
     const c = ctx, s = view.scale, gr = G.surfaceMap, chart = mapStyle === 'chart';
+    const path = pts => { c.beginPath(); pts.forEach((p, i) => { const [x, y] = toS(p.x, p.y); if (i) c.lineTo(x, y); else c.moveTo(x, y); }); };
     c.save();
-    c.fillStyle = chart ? 'rgba(120,120,110,0.18)' : 'rgba(255,255,255,0.05)';
-    for (const poly of gr.aprons) {
-        c.beginPath();
-        poly.forEach((p, i) => { const [x, y] = toS(p.x, p.y); if (i) c.lineTo(x, y); else c.moveTo(x, y); });
-        c.closePath(); c.fill();
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    c.fillStyle = chart ? 'rgba(120,120,110,0.18)' : 'rgba(255,255,255,0.035)';
+    for (const poly of gr.aprons) { path(poly); c.closePath(); c.fill(); }
+    if (gr.buildings && s > 40) {
+        c.strokeStyle = chart ? 'rgba(60,60,70,0.55)' : 'rgba(225,230,238,0.5)';
+        c.lineWidth = 1;
+        for (const poly of gr.buildings) { path(poly); c.closePath(); c.stroke(); }
     }
-    c.strokeStyle = chart ? 'rgba(200,150,30,0.9)' : 'rgba(242,193,78,0.38)';
-    c.lineWidth = Math.max(1, Math.min(3, s / 120));
+    const orange = chart ? 'rgba(200,140,20,0.95)' : 'rgba(232,160,48,0.85)';
+    c.strokeStyle = orange;
+    c.lineWidth = Math.max(1, Math.min(2.2, s / 140));
     c.beginPath();
     for (const l of gr.lines) l.pts.forEach((p, i) => { const [x, y] = toS(p.x, p.y); if (i) c.lineTo(x, y); else c.moveTo(x, y); });
     c.stroke();
     if (s > 70) {
         c.font = '700 10px "JetBrains Mono", monospace';
-        c.fillStyle = chart ? '#6b4f00' : 'rgba(242,193,78,0.85)';
+        c.fillStyle = chart ? '#6b4f00' : 'rgba(242,193,78,0.9)';
         c.textAlign = 'center'; c.textBaseline = 'middle';
         // Tiles cut taxiways into pieces: label each name once per ~0.4 NM, not once per piece.
         const placed = [];
@@ -2490,11 +2717,21 @@ function drawSurface() {
             c.fillText(l.name, x, y);
         }
     }
-    if (s > 60) {
-        // Parking spots as dots: names only clutter the field (they're in the strips and the card).
-        c.fillStyle = chart ? '#334' : 'rgba(200,215,230,0.7)';
-        const r = s > 160 ? 2.2 : 1.6;
-        for (const g of gr.gates || []) { const [x, y] = toS(g.x, g.y); c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); }
+    if (s > 60 && gr.gates) {
+        // Stands: names only clutter the field (they're in the strips and the card).
+        const taken = new Set(G.aircraft.filter(a => a.stand && (a.state === 'gate' || a.state === 'push' || a.purpose === 'gate')).map(a => a.stand));
+        const r = Math.max(2, Math.min(4.5, s / 70));
+        if (G.ground && gr === G.ground) {
+            c.strokeStyle = orange; c.lineWidth = 1;
+            c.beginPath();
+            for (const g of gr.gates) { const n = gr.nodes[g.node]; if (!n) continue; const [x, y] = toS(g.x, g.y), [nx, ny] = toS(n.x, n.y); c.moveTo(x, y); c.lineTo(nx, ny); }
+            c.stroke();
+        }
+        for (const g of gr.gates) {
+            const [x, y] = toS(g.x, g.y);
+            c.fillStyle = taken.has(g) ? '#b4474f' : '#4ade80';
+            c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+        }
     }
     c.restore();
     c.textAlign = 'left'; c.textBaseline = 'alphabetic';
@@ -2535,7 +2772,7 @@ function drawAircraft(a) {
     const c = ctx, s = view.scale;
     const [x, y] = toS(a.x, a.y);
     const base = a.kind === 'arr' ? COLORS.arr : COLORS.dep;
-    const col = a.conflict || a.lowAlt ? COLORS.bad : a === G.selected ? COLORS.sel : base;
+    const col = a.conflict || a.lowAlt || a.emerg ? COLORS.bad : a === G.selected ? COLORS.sel : base;
 
     // History.
     c.fillStyle = base;
@@ -2575,7 +2812,7 @@ function drawAircraft(a) {
     const target = a.appr?.loc ? null : a.tAlt;
     const arrow = Math.abs(vs) < 60 || target == null ? ' ' : vs > 0 ? '↑' : '↓';
     const l2 = `${alt3(a.alt)}${arrow}${target != null && Math.abs(vs) >= 60 ? alt3(target) : '   '} ${String(Math.round(a.spd)).padStart(3)}`;
-    const l3 = `${typeTag(a)} ${a.kind === 'arr' || a.lowAlt || a.wxReq ? intentTag(a) : `${a.gate.name} ${a.alt >= exitAlt(a) - 50 ? '✓' : alt3(exitAlt(a))}`}`;
+    const l3 = `${typeTag(a)} ${a.kind === 'arr' || a.lowAlt || a.wxReq || a.emerg ? intentTag(a) : `${a.gate.name} ${a.alt >= exitAlt(a) - 50 ? '✓' : alt3(exitAlt(a))}`}`;
     c.font = '700 11px "JetBrains Mono", monospace';
     c.fillStyle = col;
     const bx = x + 12, by = y - 20;
@@ -2591,6 +2828,7 @@ function drawAircraft(a) {
 /** Type as a data block shows it: H/ for heavy, J/ for super. */
 const typeTag = a => (a.perf.wake === 'S' ? 'J/' : a.perf.wake === 'H' ? 'H/' : '') + a.type;
 function intentTag(a) {
+    if (a.emerg) return (a.emerg.mayday ? 'MAYDAY ' : 'PAN ') + (a.appr ? a.appr.end.id : '');
     if (a.lowAlt) return 'LA ' + alt3(mvaHere(a));
     if (a.wxReq) return 'WX ' + a.wxReq.deg + a.wxReq.dir;
     if (a.appr) return (a.appr.loc ? 'LOC ' : 'ILS ') + a.appr.end.id + (a.landClr ? ' CL' : '');
@@ -2731,7 +2969,8 @@ function bindScope() {
         const ac = G && hitAircraft(sx, sy);
         if (ac) select(ac);
         const gnd = ac && G.ground && ac.state !== 'air' && ac.state !== 'roll';
-        drag = { id: e.pointerId, mode: gnd ? 'gnd' : ac ? 'ac' : 'pan', ac, sx, sy, px: sx, py: sy, moved: false, hdg: null, vx: view.x, vy: view.y };
+        // Headings only for aircraft in the air; anything else on the ground just gets selected.
+        drag = { id: e.pointerId, mode: gnd ? 'gnd' : ac && ac.state === 'air' ? 'ac' : ac ? 'sel' : 'pan', ac, sx, sy, px: sx, py: sy, moved: false, hdg: null, vx: view.x, vy: view.y };
     });
     canvas.addEventListener('pointermove', e => {
         const r = canvas.getBoundingClientRect();
@@ -2851,13 +3090,9 @@ function statusDetail(ac) {
 function renderCard(force) {
     const el = $('#card');
     const ac = G && G.selected;
-    if (!ac) {
-        if (cardKey !== 'none' || force) {
-            cardKey = 'none';
-            el.innerHTML = `<div class="card-empty">Select an aircraft on the scope or in the strips. Drag from a target to give it a heading. On the ground, drag it to a runway, a taxiway or a gate to taxi it there.</div>`;
-        }
-        return;
-    }
+    el.hidden = !ac;
+    $('#scope-wrap').classList.toggle('info-open', !!ac);
+    if (!ac) { cardKey = 'none'; el.innerHTML = ''; return; }
     const key = `${ac.id}|${ac.state}|${G.active.key}|${!!ac.appr}|${!!ac.appr?.loc}|${!!ac.landClr}|${!!ac.wxReq}|${!!ac.crossReq}|${!!ac.holdPos}|${ac.freq}|${!!ac.called}|${!!ac.toTower}|${!!ac.toGround}|${ac.purpose}`;
     if (!force && key === cardKey) { updateCard(); return; }
     cardKey = key;
@@ -2887,6 +3122,7 @@ function renderCard(force) {
         .filter(f => f.kind !== 'app' || G.active.arr.includes(f.end))
         .map(f => `<option value="${f.name}">${f.name} · ${f.kind === 'arr' ? 'entry' : f.kind === 'dep' ? 'exit gate' : 'final ' + f.end.id}</option>`).join('');
     el.innerHTML = `
+        <div class="info-h"><span style="flex:1">INFORMATION</span><button class="info-x" data-act="close" aria-label="Close">✕</button></div>
         <div class="card-head">
             <span class="cs">${ac.cs}</span>
             <span class="badge ${ac.kind}">${ac.kind === 'arr' ? 'Arrival' : 'Departure'}</span>
@@ -2896,10 +3132,10 @@ function renderCard(force) {
         ${crossBtn}
         ${!yours ? `<div class="card-empty">The system is working ${FREQ_NAME[ac.freq]}. It will reach your frequency when it's handed off.</div>` : surface ? (groundBtns ? `<div class="btn-row">${groundBtns}</div>` : '') : `
         ${ac.wxReq ? `<div class="btn-row"><button class="btn primary" data-act="dev">Approve ${ac.wxReq.deg}° ${ac.wxReq.dir === 'L' ? 'left' : 'right'} for weather</button></div>` : ''}
-        <div class="row"><label>Heading</label><div class="stepper">
+        ${ground ? '' : `<div class="row"><label>Heading</label><div class="stepper">
             <button data-adj="hdg:-10">−10</button><button data-adj="hdg:-5">−5</button>
             <span class="val" id="p-hdg"></span>
-            <button data-adj="hdg:5">+5</button><button data-adj="hdg:10">+10</button></div></div>
+            <button data-adj="hdg:5">+5</button><button data-adj="hdg:10">+10</button></div></div>`}
         <div class="row"><label>Altitude</label><div class="stepper">
             <button data-adj="alt:-1000">−1000</button>
             <span class="val" id="p-alt"></span>
@@ -2932,7 +3168,7 @@ function updateCard() {
     const ac = G.selected;
     if (!ac) return;
     $('#card-status').textContent = statusText(ac);
-    if (!$('#p-hdg')) return;
+    if (!$('#p-alt')) return;
     const set = (k, txt) => { const v = $('#p-' + k); if (v) { v.textContent = txt; v.classList.toggle('dirty', pending.dirty[k]); } };
     set('hdg', hdg3(pending.hdg));
     set('alt', pending.alt.toLocaleString('en-US'));
@@ -2954,6 +3190,7 @@ function transmitPending(extra) {
 
 function adjust(k, delta) {
     if (!G.selected) return;
+    if (k === 'hdg' && G.selected.state !== 'air') return;
     if (k === 'hdg') pending.hdg = norm(pending.hdg + delta) || 360;
     if (k === 'alt') pending.alt = clamp(pending.alt + delta, G.world.minAlt, 24000);
     if (k === 'spd') pending.spd = clamp(pending.spd + delta, 160, 320);
@@ -2967,6 +3204,7 @@ function bindCard() {
         const b = e.target.closest('button');
         if (!b || !G.selected) return;
         const ac = G.selected;
+        if (b.dataset.act === 'close') { select(null); return; }
         if (b.dataset.adj) { const [k, v] = b.dataset.adj.split(':'); adjust(k, Number(v)); return; }
         if (b.dataset.ils) { transmitPending({ ils: findEnd(b.dataset.ils) }); return; }
         const act = b.dataset.act;
@@ -2990,6 +3228,13 @@ function bindCard() {
     });
 }
 
+/** A pilot waiting on you for something: the (1) on the strip's ATC cell. */
+function wantsYou(a) {
+    return !!(a.emerg || a.crossReq || a.wxReq || a.lowAlt
+        || (a.state === 'gate' && a.kind === 'dep' && a.called) || a.state === 'pushed' || a.state === 'clear'
+        || a.state === 'wait' || (a.appr?.loc && !a.landClr && a.freq === 'TWR'));
+}
+
 function renderStrips() {
     if (!G) return;
     const el = $('#strips');
@@ -3006,10 +3251,12 @@ function renderStrips() {
             if (a.kind === 'dep' && (a.lowAlt || a.wxReq)) what = intentTag(a);
             right = `<span class="l0">${alt3(a.alt)}${Math.abs(a.tAlt - a.alt) > 60 && !a.appr?.loc ? (a.tAlt > a.alt ? '↑' : '↓') + alt3(a.tAlt) : ''}</span><span class="l2">${what}</span>`;
         }
-        return `<button class="strip ${a.kind}${a === G.selected ? ' sel' : ''}${a.conflict || a.lowAlt || a.wxReq || a.crossReq ? ' conf' : ''}${mine(a) ? '' : ' sys'}" data-id="${a.id}">
+        const req = mine(a) && wantsYou(a);
+        return `<button class="strip ${a.kind}${a === G.selected ? ' sel' : ''}${a.conflict || a.lowAlt || a.wxReq || a.crossReq || a.emerg ? ' conf' : ''}${a.emerg ? ' emerg' : ''}${mine(a) ? '' : ' sys'}" data-id="${a.id}">
             <span class="bar"></span>
             <span><span class="l1">${a.cs}</span><span class="l2">${typeTag(a)}</span></span>
-            <span class="r">${right}</span></button>`;
+            <span class="r">${right}</span>
+            <span class="atc${mine(a) ? ' yours' : ''}${req ? ' req' : ''}">ATC${req ? ' (1)' : ''}<i></i></span></button>`;
     };
     // Your frequencies first, each with its own traffic; then what the system is working.
     const order = ['APP', 'TWR', 'GND'].filter(f => G.positions.has(f));
@@ -3139,6 +3386,7 @@ function togglePause() {
 
 function endShift() {
     G.over = true;
+    $('#coord').hidden = true;
     const best = store.get('best', {});
     const prev = best[G.world.icao] || null;
     const isBest = prev == null || G.score > prev;
@@ -3171,6 +3419,7 @@ function endShift() {
 function bindGame() {
     bindScope();
     bindCard();
+    $('#coord').addEventListener('click', e => { const b = e.target.closest('[data-ans]'); if (b && G) answer(Number(b.dataset.ans)); });
     // The airport info box folds away to one line. On pointerdown: the box is redrawn several times a second.
     $('#hud').addEventListener('pointerdown', e => {
         if (!e.target.closest('.hud-tog') || !G) return;
@@ -3241,7 +3490,7 @@ function bindGame() {
 
 let hudMin = store.get('hudMin', false);
 let opts = { terrain: store.get('terrain', false), weather: store.get('weather', false), positions: store.get('positions', ['APP', 'TWR']),
-    start: store.get('start', 'random'), startN: store.get('startN', 6) };
+    start: store.get('start', 'random'), startN: store.get('startN', 6), emerg: store.get('emerg', true) };
 
 function toastStart(text) { $('#pos-summary').textContent = text; setTimeout(renderStart, 1600); }
 
@@ -3309,7 +3558,7 @@ async function loadSurface(world, say = () => {}) {
 /** OpenStreetMap through Overpass: three servers at once, plus the live map's own airport request. */
 function overpassLayout(world, box) {
     const bbox = `${box.s.toFixed(5)},${box.w.toFixed(5)},${box.n.toFixed(5)},${box.e.toFixed(5)}`;
-    const q = `[out:json][timeout:40];(way["aeroway"~"taxiway|taxilane|apron"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
+    const q = `[out:json][timeout:40];(way["aeroway"~"taxiway|taxilane|apron|terminal|hangar"](${bbox});node["aeroway"~"gate|parking_position"](${bbox}););out geom;`;
     const servers = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
     const ask = url => fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
         .then(r => r.ok ? r.json() : Promise.reject(new Error(`${new URL(url).host} ${r.status}`)))
@@ -3325,6 +3574,7 @@ async function startGame(airport, level) {
     store.set('positions', opts.positions);
     store.set('start', opts.start);
     store.set('startN', opts.startN);
+    store.set('emerg', opts.emerg);
     $('#start').hidden = true;
     $('#game').hidden = false;
     window.scrollTo(0, 0);
@@ -3333,6 +3583,7 @@ async function startGame(airport, level) {
     nextId = 1;
     newGame(airport, level, { ...opts });
     const game = G;
+    renderAsk();
     fitView();
     resetView();
     cardKey = '';
@@ -3382,6 +3633,7 @@ async function startGame(airport, level) {
     const wxNote = game.opts.weather ? ` Weather ${metText(game.met)}${below(game.met) ? ', below ILS minimums' : ''}.` : '';
     const yours = ['APP', 'TWR', 'GND'].filter(f => game.positions.has(f)).map(f => FREQ_NAME[f]).join(' and ');
     sys(`You're working ${yours}. The system works the rest.`);
+    sys('Tap an aircraft (or its strip) to open its information and commands. Drag an airborne target to give a heading; drag one on the ground to a runway, taxiway or gate.');
     sys(`${airport.icao} approach is open. Landing ${G.active.arr.map(e => e.id).join(', ')}, departing ${G.active.dep.map(e => e.id).join(', ')}. Departures exit at ${terrainOn() ? 'the altitude on their strip' : fmtAlt(G.world.exitAlt) + ' or above'}.${wxNote}`);
     seedTraffic(game.opts.start === 'none' ? 0 : game.opts.start === 'set' ? game.opts.startN : Math.round(rand(2, TRAFFIC[level].max * 0.7)));
     const u = new URL(location.href);
@@ -3414,6 +3666,7 @@ function renderStart() {
     document.querySelectorAll('#traffic button').forEach(b => b.classList.toggle('on', b.dataset.level === level));
     document.querySelectorAll('#opt-terrain button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.terrain));
     document.querySelectorAll('#opt-weather button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.weather));
+    document.querySelectorAll('#opt-emerg button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === opts.emerg));
     document.querySelectorAll('#opt-start [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === opts.start));
     $('#start-n').textContent = opts.startN;
     $('#start-n-row').classList.toggle('off', opts.start !== 'set');
@@ -3478,7 +3731,7 @@ async function init() {
         if (b.dataset.n) { opts.start = 'set'; opts.startN = clamp(opts.startN + Number(b.dataset.n), 1, 20); }
         renderStart();
     });
-    for (const k of ['terrain', 'weather']) {
+    for (const k of ['terrain', 'weather', 'emerg']) {
         $('#opt-' + k).addEventListener('click', e => {
             const b = e.target.closest('button');
             if (!b) return;

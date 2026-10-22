@@ -264,6 +264,8 @@ B, K, hold short of runway 13L/31R"*.
 - Arrivals roll out, turn off at the first exit past about 0.9 NM, and
   report clear of the runway to **Tower**, who tells them **contact Ground**.
   You then taxi them to their gate. They park and leave after about 25 s.
+- Headings are for airborne aircraft only: dragging a target on the ground
+  never gives one, and the card has no heading on the ground.
 - Commands: `tx` (taxi to the usual place), `tx 31L`, `tx 12` (a gate),
   `pb`, `hp` / `ct` (hold position / continue), `cr` (cross), `mt` (contact
   Tower), `mg` (contact Ground).
@@ -310,6 +312,40 @@ Scoring by position:
 | Tower | Takeoff | +3 |
 | Tower or Approach | Landing | +10 |
 | Approach | Departure out through its gate | +10 |
+
+## Emergencies (option)
+
+On by default ("Rare"); the start screen turns them off. About one flight in
+45 declares, once it's settled: an arrival more than 10 NM out, or a
+departure climbing through 1,500 ft (which then returns to land).
+
+- Mayday (engine failure, low fuel, smoke) or pan-pan (medical, hydraulics,
+  bird strike), with souls on board, as a pilot would say it. The target and
+  its strip turn red and the data block reads MAYDAY or PAN.
+- It refuses holds and 360s. Engine and hydraulic failures cap its speed.
+- The system's Approach puts it first in the sequence, on a short base
+  2.5 NM off the final, and re-spaces everyone else behind it.
+- Once it's down, +10, and the runway closes for two minutes while the fire
+  crews inspect it.
+
+## Coordination
+
+Where the system and the player share the airport, the system's controllers
+adapt to the player instead of pushing traffic into them. Their questions
+appear in a box on the scope (and in the log, in purple), and take the
+highlighted answer if left for 45 s.
+
+- **System Approach → your Tower**: asks once how you want arrivals on final:
+  tight (3 NM), gaps every time, or gaps only when two or more departures are
+  waiting. The answer is remembered between shifts. Every arrival you have
+  to send around (runway occupied, no landing clearance) adds a mile in
+  trail on that final, up to four. After two, it offers gaps every time.
+  Ten quiet minutes take half a mile back off.
+- **System Tower → your Approach**: with three departures holding, asks for
+  a 6-mile gap; give one and it thanks you (+5) as a departure rolls.
+- **System Tower → your Ground**: with five departures queued for a runway,
+  asks you to hold them at the gate for three minutes. Sending one anyway
+  costs 3.
 
 ## Not modelled
 

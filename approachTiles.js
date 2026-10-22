@@ -157,8 +157,24 @@ async function aerowayFromTiles(template, box, kindOf = p => p.class) {
     }
     const tiles = await Promise.all(jobs);
     const features = [];
+    // Metres per tile at this latitude, for telling terminals and hangars from houses.
+    const tileM = 40075016 * Math.cos((box.s + box.n) / 2 * Math.PI / 180) / 2 ** ZOOM;
     for (const { tx, ty, buf } of tiles) {
         if (!buf) continue;
+        // Big buildings only (terminals, hangars, cargo sheds): outlines on the surface map.
+        const bl = decodeLayer(buf, 'building');
+        if (bl) {
+            const E = bl.extent, m2 = (tileM / E) ** 2;
+            for (const f of bl.features) {
+                if (f.type !== 3) continue;
+                for (const ring of f.rings) {
+                    let a = 0;
+                    for (let i = 1; i < ring.length; i++) a += ring[i - 1][0] * ring[i][1] - ring[i][0] * ring[i - 1][1];
+                    if (Math.abs(a) / 2 * m2 < 4000 || ring.length < 4) continue;
+                    features.push({ type: 'Feature', properties: { aeroway: 'building' }, geometry: { type: 'Polygon', coordinates: [ring.map(([px, py]) => [lonOf(tx + px / E, ZOOM), latOf(ty + py / E, ZOOM)])] } });
+                }
+            }
+        }
         const layer = decodeLayer(buf, 'aeroway');
         if (!layer) continue;
         const E = layer.extent;
