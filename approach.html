@@ -245,6 +245,19 @@
         @media (prefers-reduced-motion: reduce) { .loader img { animation: none; opacity: .9; } }
         @media (min-width: 861px) { .scope-wrap.loading .coord { bottom: 84px; } }
 
+        /* Tap-to-pick lists in the aircraft panel. */
+        .pick { margin: 0 0 6px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: #0f1318; }
+        .pick summary { cursor: pointer; padding: 9px 12px; font-weight: 700; font-size: .84rem; list-style: none; }
+        .pick summary::-webkit-details-marker { display: none; }
+        .pick summary::after { content: '▸'; float: right; color: var(--muted); }
+        .pick[open] summary::after { content: '▾'; }
+        .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 5px; padding: 0 8px 8px; }
+        .chip-btn { min-height: 38px; padding: 4px 6px; border-radius: 7px; background: #171c23; border: 1px solid rgba(255,255,255,.12); font-family: var(--mono); font-size: .76rem; font-weight: 700; color: #e6e9ee; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+        .chip-btn small { font-size: .6rem; font-weight: 500; color: var(--muted); }
+        .chip-btn:active { background: #232a33; }
+        .log .tap { cursor: pointer; }
+        .log .tap:hover { background: rgba(255,255,255,.04); }
+
         /* A question from one of the system's controllers. */
         .coord {
             position: absolute; right: 60px; bottom: 14px; z-index: 4; width: min(360px, calc(100% - 80px));
@@ -320,6 +333,28 @@
             .side { border-left: 0; }
             .strips { max-height: none; }
             .mast-link.wide { display: none; }
+        }
+
+        /* Phones held sideways: the scope beside the list, like the desktop, without the site header. */
+        @media (max-height: 540px) and (orientation: landscape) {
+            body.in-game .mast { display: none; }
+            body.in-game .game { display: grid; grid-template-columns: minmax(0, 1fr) min(300px, 38vw); height: 100vh; height: 100dvh; overflow: hidden; }
+            body.in-game .scope-wrap { height: auto; }
+            body.in-game .side { overflow: auto; border-left: 1px solid var(--line); }
+            body.in-game .side section { padding: 6px 8px; }
+            body.in-game .stats .v { font-size: .9rem; }
+            body.in-game .ctrls .chip, body.in-game .ctrls .seg button { padding: 4px 7px; font-size: .7rem; }
+            body.in-game .strip { min-height: 38px; font-size: .68rem; }
+            body.in-game .log { height: 74px; font-size: .66rem; }
+            body.in-game .cmd input, body.in-game .cmd .btn { height: 30px; }
+            body.in-game .info { top: 0; bottom: 0; width: min(270px, 42vw); max-height: none; border-top: 0; border-right: 1px solid rgba(255,255,255,.12); font-size: .72rem; }
+            body.in-game .scope-wrap.info-open .hud { left: calc(min(270px, 42vw) + 10px); }
+            body.in-game .hud { font-size: .62rem; padding: 5px 7px; max-width: 46%; }
+            body.in-game .zoom { gap: 4px; }
+            body.in-game .zoom button { width: 30px; height: 30px; font-size: .95rem; }
+            body.in-game .coord { top: auto; bottom: 8px; right: 50px; width: min(340px, 60%); }
+            body.in-game .info .btn { height: 32px; font-size: .74rem; }
+            body.in-game .stepper button { height: 28px; min-width: 32px; }
         }
     </style>
 </head>

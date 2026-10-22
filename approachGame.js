@@ -514,6 +514,8 @@ function logLine(kind, text) {
         div.appendChild(ts);
     }
     div.appendChild(document.createTextNode(text));
+    const who = G && G.aircraft.find(a => text.includes(a.radio) || text.includes(a.cs));
+    if (who) { div.dataset.id = who.id; div.classList.add('tap'); }
     log.appendChild(div);
     while (log.children.length > 80) log.firstChild.remove();
     log.scrollTop = log.scrollHeight;
@@ -2792,6 +2794,18 @@ function draw() {
 
     if (drag && drag.mode === 'gnd' && drag.moved) drawGroundDrag();
 
+    if (drag && (drag.mode === 'ac' || drag.mode === 'twr') && drag.moved && drag.air) {
+        const [ax, ay] = toS(drag.ac.x, drag.ac.y), t = drag.air, bad = !!t.err;
+        c.save();
+        c.strokeStyle = bad ? '#ff8a98' : COLORS.sel; c.setLineDash([4, 4]); c.lineWidth = 1.5;
+        c.beginPath(); c.moveTo(ax, ay); c.lineTo(drag.px, drag.py); c.stroke(); c.setLineDash([]);
+        if (t.x != null) { const [tx, ty] = toS(t.x, t.y); c.lineWidth = 2; c.beginPath(); c.arc(tx, ty, 10, 0, Math.PI * 2); c.stroke(); }
+        c.font = '700 12px "JetBrains Mono", monospace';
+        const w = c.measureText(t.label).width + 12, lx = Math.min(drag.px + 14, view.w - w - 4), ly = Math.max(drag.py - 30, 4);
+        c.fillStyle = 'rgba(6,11,15,0.85)'; c.fillRect(lx, ly, w, 20);
+        c.fillStyle = bad ? '#ff8a98' : COLORS.sel; c.textBaseline = 'middle'; c.fillText(t.label, lx + 6, ly + 10);
+        c.restore(); c.textBaseline = 'alphabetic';
+    } else
     // Heading drag.
     if (drag && drag.mode === 'ac' && drag.moved && drag.hdg != null) {
         const [ax, ay] = toS(drag.ac.x, drag.ac.y);
@@ -3041,6 +3055,61 @@ function intentTag(a) {
     return a.expect ? 'exp ' + a.expect.id : '';
 }
 
+/** The runway end under a screen point (on the runway itself, toward the nearer threshold), or null. */
+function runwayAt(sx, sy) {
+    const [wx, wy] = toW(sx, sy), px = 1 / view.scale;
+    for (const e of G.world.ends) {
+        const f = toSegment({ x: wx, y: wy }, e.thr, e.far);
+        if (f.d < (e.width || 0.025) / 2 + 8 * px && f.t > 0 && f.t < 1) {
+            const pair = G.world.ends.filter(o => o.phys === e.phys);
+            return pair.sort((a, b) => Math.hypot(a.thr.x - wx, a.thr.y - wy) - Math.hypot(b.thr.x - wx, b.thr.y - wy))[0];
+        }
+    }
+    return null;
+}
+
+/**
+ * Dropping an airborne aircraft: on a fix, direct to it; on an arrival's final
+ * approach course, a 30° intercept and the ILS; on its runway while on the
+ * localizer, cleared to land. Elsewhere the drag is a heading. null for heading.
+ */
+function airTarget(ac, sx, sy) {
+    const f = hitFix(sx, sy);
+    if (f) return { label: `Direct ${f.name}`, cmd: { direct: f }, x: f.x, y: f.y };
+    if (ac.kind !== 'arr') return null;
+    const e = runwayAt(sx, sy);
+    if (e && ac.appr?.loc && e.phys === ac.appr.end.phys) return ac.landClr ? { err: true, label: 'Already cleared to land', x: e.thr.x, y: e.thr.y } : { label: `Cleared to land ${ac.appr.end.id}`, cmd: { land: true }, x: e.thr.x, y: e.thr.y };
+    const [wx, wy] = toW(sx, sy), px = 1 / view.scale;
+    for (const end of G.active.arr) {
+        const c = end.course * D2R, dx = wx - end.thr.x, dy = wy - end.thr.y;
+        const along = -(dx * Math.sin(c) + dy * Math.cos(c)), xt = dx * Math.cos(c) - dy * Math.sin(c);
+        if (along < FAF_NM || along > 25 || Math.abs(xt) > Math.max(0.6, 12 * px)) continue;
+        // Aim at the point dropped on, no steeper than a 30° intercept; else 30° from the side it's on.
+        // Checked now, so an approach that can't be joined from here shows red before it's sent.
+        const P = ptOnFinal(end, along), side = finalGeom(ac, end).xt > 0 ? 1 : -1;
+        const toward = brg(P.x - ac.x, P.y - ac.y), off = diff(end.course, toward);
+        const tries = [Math.abs(off) <= 30 ? toward : norm(end.course + Math.sign(off) * 30), norm(end.course - 30 * side)]
+            .map(h => Math.round(h / 5) * 5 || 360);
+        for (const hdg of tries) {
+            const ic = predictIntercept(ac, end, hdg);
+            if (ic && ic.along >= FAF_NM && ic.angle <= 30.5) {
+                const close = ic.along < GATE_NM + 2 ? ` · joins ${ic.along.toFixed(1)} mi, inside the gate` : '';
+                return { label: `ILS ${end.id} · heading ${hdg3(hdg)}${close}`, cmd: { hdg, ils: end }, x: P.x, y: P.y };
+            }
+        }
+        return { err: true, label: `Can't join the ${end.id} localizer from here: vector it first`, x: P.x, y: P.y };
+    }
+    return null;
+}
+
+/** A departure at the runway with no taxi map: onto the runway lines it up, and lined up, clears it for takeoff. */
+function towerTarget(ac, sx, sy) {
+    const e = runwayAt(sx, sy);
+    if (!e || e.phys !== ac.rwy.phys) return { err: true, label: `Drop on runway ${ac.rwy.id}` };
+    return ac.state === 'luaw' ? { label: `Cleared for takeoff ${ac.rwy.id}`, cmd: { takeoff: true }, x: e.thr.x, y: e.thr.y }
+        : { label: `Line up and wait ${ac.rwy.id}`, cmd: { luaw: true }, x: e.thr.x, y: e.thr.y };
+}
+
 /** What a ground drag would end on: a gate dot, a runway, or a point on a taxiway. */
 function groundTarget(sx, sy) {
     const gr = G.ground;
@@ -3069,6 +3138,7 @@ function dropPlan(ac, tgt) {
     if (tgt.kind === 'ac') return { label: `Give way to ${tgt.ac.cs}`, cmd: { giveWay: tgt.ac } };
     if (ac.state === 'gate') return ac.kind === 'dep' && ac.called ? { label: 'Pushback approved', cmd: { push: true } } : { err: true, label: ac.kind === 'dep' ? 'Not ready to push yet' : 'Parked' };
     if (ac.crossReq && tgt.kind === 'rwy' && tgt.end.phys === ac.crossReq.phys) return { label: `Cross runway ${ac.crossReq.label}`, cmd: { cross: true } };
+    if (ac.state === 'luaw' && tgt.kind === 'rwy' && tgt.end.phys === ac.rwy.phys) return { label: `Cleared for takeoff ${ac.rwy.id}`, cmd: { takeoff: true } };
     if (ac.state === 'wait' && tgt.kind === 'rwy' && tgt.end.phys === ac.rwy.phys) {
         return ac.freq === 'GND' ? { label: 'Contact Tower', cmd: { tower: true } } : { label: `Line up and wait ${ac.rwy.id}`, cmd: { luaw: true } };
     }
@@ -3175,8 +3245,9 @@ function bindScope() {
         const ac = G && hitAircraft(sx, sy);
         if (ac) select(ac);
         const gnd = ac && G.ground && ac.state !== 'air' && ac.state !== 'roll';
-        // Headings only for aircraft in the air; anything else on the ground just gets selected.
-        drag = { id: e.pointerId, mode: gnd ? 'gnd' : ac && ac.state === 'air' ? 'ac' : ac ? 'sel' : 'pan', ac, sx, sy, px: sx, py: sy, moved: false, hdg: null, vx: view.x, vy: view.y };
+        // Headings only for aircraft in the air; on the ground it's taxiing (or, with no taxi map, the runway).
+        const twr = ac && !G.ground && (ac.state === 'wait' || ac.state === 'luaw');
+        drag = { id: e.pointerId, mode: gnd ? 'gnd' : ac && ac.state === 'air' ? 'ac' : twr ? 'twr' : ac ? 'sel' : 'pan', ac, sx, sy, px: sx, py: sy, moved: false, hdg: null, vx: view.x, vy: view.y };
     });
     canvas.addEventListener('pointermove', e => {
         const r = canvas.getBoundingClientRect();
@@ -3201,6 +3272,9 @@ function bindScope() {
         } else if (drag.mode === 'ac' && drag.moved && drag.ac.state !== 'roll') {
             const [ax, ay] = toS(drag.ac.x, drag.ac.y);
             drag.hdg = Math.round(brg(sx - ax, -(sy - ay)) / 5) * 5 || 360;
+            drag.air = airTarget(drag.ac, sx, sy);
+        } else if (drag.mode === 'twr' && drag.moved) {
+            drag.air = towerTarget(drag.ac, sx, sy);
         }
     });
     const end = e => {
@@ -3213,6 +3287,9 @@ function bindScope() {
         if (d.mode === 'gnd' && d.moved) {
             dropGround(d.ac, d.tgt);
             renderCard(true);
+        } else if ((d.mode === 'ac' || d.mode === 'twr') && d.moved && d.air) {
+            if (!d.air.err) issue(d.ac, d.air.cmd); else sys(`${d.ac.cs}: ${d.air.label}.`);
+            syncPending(true); renderCard(true);
         } else if (d.mode === 'ac' && d.moved && d.hdg != null) {
             issue(d.ac, { hdg: d.hdg });
             syncPending(true);
@@ -3330,19 +3407,19 @@ function renderCard(force) {
         <div class="btn-row">
             ${ac.prog ? `<button class="btn primary" data-act="discretion">Continue at your discretion</button>` : `<button class="btn" data-act="expectProg">Expect progressive taxi</button>`}
         </div>
-        ${nearby.length ? `<div class="btn-row">
-            <select data-act="giveWay" aria-label="Give way to"><option value="">Give way to…</option>${nearby.map(o => `<option value="${o.id}">${o.cs}</option>`).join('')}</select>
-            <select data-act="follow" aria-label="Follow"><option value="">Follow…</option>${nearby.filter(o => o.state === 'taxi').map(o => `<option value="${o.id}">${o.cs}</option>`).join('')}</select>
-        </div>` : ''}` : '';
+        ${picker('giveWay', 'Give way to…', nearby.map(o => [String(o.id), o.cs, typeTag(o)]))}
+        ${picker('follow', 'Follow…', nearby.filter(o => o.state === 'taxi').map(o => [String(o.id), o.cs, typeTag(o)]))}` : '';
     const ilsBtns = ac.kind === 'arr' && !ground
         ? G.active.arr.map(e => `<button class="btn ils" data-ils="${e.id}">ILS ${e.id}</button>`).join('')
           + (ac.appr?.loc && !ac.landClr ? `<button class="btn primary" data-act="land">Cleared to land ${ac.appr.end.id}</button>` : '')
           + (ac.appr ? `<button class="btn warn" data-act="ga">Go around</button>` : '')
         : '';
     const others = G.world.ends.filter(e => !G.active.arr.includes(e));
-    const fixOpts = G.world.fixes
-        .filter(f => f.kind !== 'app' || G.active.arr.includes(f.end))
-        .map(f => `<option value="${f.name}">${f.name} · ${f.kind === 'arr' ? 'entry' : f.kind === 'dep' ? 'exit gate' : 'final ' + f.end.id}</option>`).join('');
+    const fixList = G.world.fixes.filter(f => f.kind !== 'app' || G.active.arr.includes(f.end));
+    // Tap-to-pick lists (no dropdowns or typing): a heading, then a grid of chips.
+    const picker = (act, title, items) => items.length ? `<details class="pick"><summary>${title}</summary><div class="chips">${items.map(([v, label, sub]) =>
+        `<button type="button" class="chip-btn" data-pick="${act}" data-v="${escapeHtml(v)}">${escapeHtml(label)}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</button>`).join('')}</div></details>` : '';
+    const fixItems = fixList.map(f => [f.name, f.name, f.kind === 'arr' ? 'entry' : f.kind === 'dep' ? 'exit' : 'final ' + f.end.id]);
     el.innerHTML = `
         <div class="info-h"><span style="flex:1">INFORMATION</span><button class="info-x" data-act="close" aria-label="Close">✕</button></div>
         <div class="card-head">
@@ -3376,12 +3453,11 @@ function renderCard(force) {
             ${ac.state === 'wait' ? `<button class="btn" data-act="luaw">Line up and wait</button>` : ''}
             <button class="btn primary" data-act="takeoff">Cleared for takeoff ${ac.rwy.id}</button></div>` : ''}
         ${ilsBtns ? `<div class="btn-row">${ilsBtns}</div>` : ''}
-        ${!ground ? `<div class="btn-row">
-            <select data-act="direct" aria-label="Direct to fix"><option value="">Direct to…</option>${fixOpts}</select>
-            ${ac.kind === 'arr' && others.length ? `<select data-act="ils-other" aria-label="Other runway"><option value="">Other ILS…</option>${others.map(e => `<option value="${e.id}">ILS ${e.id}</option>`).join('')}</select>` : ''}
-        </div>
+        ${!ground ? `
+        ${picker('direct', 'Direct to…', fixItems)}
+        ${ac.kind === 'arr' ? picker('ils-other', 'Other ILS…', others.map(e => [e.id, 'ILS ' + e.id])) : ''}
+        ${picker('hold', 'Hold at…', fixItems)}
         <div class="btn-row">
-            <select data-act="hold" aria-label="Hold at fix"><option value="">Hold at…</option>${fixOpts}</select>
             <button class="btn" data-act="orbitL">Left 360</button>
             <button class="btn" data-act="orbitR">Right 360</button>
         </div>` : ''}`}`;
@@ -3429,6 +3505,14 @@ function bindCard() {
         if (!b || !G.selected) return;
         const ac = G.selected;
         if (b.dataset.act === 'close') { select(null); return; }
+        if (b.dataset.pick) {
+            const v = b.dataset.v, act = b.dataset.pick;
+            if (act === 'direct' || act === 'hold') issue(ac, { [act === 'direct' ? 'direct' : 'holdFix']: G.world.fixes.find(f => f.name === v) });
+            else if (act === 'ils-other') { transmitPending({ ils: findEnd(v) }); return; }
+            else if (act === 'giveWay' || act === 'follow') { const o = G.aircraft.find(a => a.id === Number(v)); if (o) issue(ac, { [act]: o }); }
+            syncPending(true); renderCard(true);
+            return;
+        }
         if (b.dataset.prog) { issue(ac, { prog: b.dataset.prog }); renderCard(true); return; }
         if (b.dataset.act === 'discretion' || b.dataset.act === 'expectProg') { issue(ac, { [b.dataset.act]: true }); renderCard(true); return; }
         if (b.dataset.adj) { const [k, v] = b.dataset.adj.split(':'); adjust(k, Number(v)); return; }
@@ -3516,7 +3600,7 @@ function renderHud() {
         + `ARR <b>${G.active.arr.map(e => e.id).join(' ')}</b><br>`
         + `DEP <b>${G.active.dep.map(e => e.id).join(' ')}</b><br>`
         + `EXIT <b>${terrainOn() ? 'by gate' : alt3(G.world.exitAlt) + '+'}</b> · MVA <b>${terrainOn() ? 'by sector' : alt3(G.world.minAlt)}</b>`
-        + (G.surfaceStatus ? `<br><span class="taxi-st${G.ground ? '' : ' bad'}">TAXI MAP <b>${escapeHtml(G.surfaceStatus)}</b></span>` : '')
+        + (G.surfaceStatus ? `<br><span class="taxi-st${G.ground ? '' : ' bad'}">TAXI MAP <b>${escapeHtml(G.surfaceStatus.length > 80 ? G.surfaceStatus.slice(0, 78) + '… (see log)' : G.surfaceStatus)}</b></span>` : '')
         + (G.opts.terrain && !G.mva ? '<br>loading terrain…' : '')
         + `<br>RULES <b>${G.rules.id === 'ifatc' ? 'INFINITE FLIGHT' : 'REAL LIFE (FAA)'}</b>`
         + (below(G.met) && G.rules.minimums ? '<br><b style="color:#ff8a98">BELOW MINIMUMS</b>' : '');
@@ -3657,7 +3741,7 @@ function endShift() {
             <button class="btn" id="pick">Pick an airport</button>
         </div></div>`;
     $('#again').onclick = () => startGame(DATA.byIcao.get(G.world.icao), G.level);
-    $('#pick').onclick = () => { $('#game').hidden = true; $('#start').hidden = false; G = null; renderStart(); };
+    $('#pick').onclick = () => { $('#game').hidden = true; $('#start').hidden = false; document.body.classList.remove('in-game'); G = null; renderStart(); };
 }
 
 function bindGame() {
@@ -3697,6 +3781,11 @@ function bindGame() {
         store.set('style', mapStyle);
         showStyle();
     };
+    $('#log').addEventListener('click', e => {
+        const d = e.target.closest('[data-id]');
+        const a = d && G && G.aircraft.find(x => x.id === Number(d.dataset.id));
+        if (a) select(a);
+    });
     $('#strips').addEventListener('click', e => {
         const b = e.target.closest('.strip');
         if (b) select(G.aircraft.find(a => a.id === Number(b.dataset.id)) || null);
@@ -3732,7 +3821,8 @@ function bindGame() {
     document.addEventListener('visibilitychange', () => { if (document.hidden && G && G.speed > 0 && !G.over) togglePause(); });
 }
 
-let hudMin = store.get('hudMin', false);
+// Folded by default on short (sideways phone) screens, where the scope has little room.
+let hudMin = store.get('hudMin', typeof matchMedia === 'function' && matchMedia('(max-height: 540px)').matches);
 let opts = { terrain: store.get('terrain', false), weather: store.get('weather', false), positions: store.get('positions', ['APP', 'TWR']),
     start: store.get('start', 'random'), startN: store.get('startN', 6), emerg: store.get('emerg', true), rules: store.get('rules', 'faa') };
 
@@ -3907,6 +3997,7 @@ async function startGame(airport, level) {
     store.set('emerg', opts.emerg);
     store.set('rules', opts.rules);
     $('#start').hidden = true;
+    document.body.classList.add('in-game');
     $('#game').hidden = false;
     window.scrollTo(0, 0);
     $('#summary').hidden = true;

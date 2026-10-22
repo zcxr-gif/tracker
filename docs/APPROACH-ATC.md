@@ -323,6 +323,26 @@ Scoring by position:
 | Tower or Approach | Landing | +10 |
 | Approach | Departure out through its gate | +10 |
 
+## Controls
+
+- **Tap** an aircraft, its strip, or any log line that names it to open its
+  information panel. Every command there is a button: Direct to, Hold at,
+  Other ILS, Give way and Follow open as grids of chips, with no dropdowns or
+  typing needed. The command line is still there for keyboard players.
+- **Drag** an airborne target:
+  - to give a heading;
+  - onto a fix for direct to it;
+  - onto an arrival runway's final approach course for the ILS (the
+    intercept heading is worked out, aimed at the point dropped on, no
+    steeper than 30°; the label goes red when it can't be joined from
+    there, and warns when it would join inside the gate);
+  - onto its runway, once on the localizer, for cleared to land.
+- **Drag** a departure at the runway onto it: line up and wait, then cleared
+  for takeoff. On the ground, see Ground below.
+- **Sideways phones**: the scope sits beside the aircraft list as on a
+  desktop, the site header hides during a shift, and the info box starts
+  folded.
+
 ## Rules: Real life or Infinite Flight
 
 The start screen picks the rule set (`RULESETS` in `approachGame.js`, one
