@@ -1432,7 +1432,8 @@ function minSpeed(ac) {
     // 7110.65 5-7-3. Turbojet arrivals: 250 at/above 10,000; 210 below; 170 within 20 flying miles of the threshold.
     if (ac.alt >= 10000) return 250;
     if (ac.kind === 'dep') return 230;
-    return Math.hypot(ac.x, ac.y) < 20 ? 170 : 210;
+    // Infinite Flight has no 7110.65 minimum on final: inside 20 NM, 10 kt above its approach speed.
+    return Math.hypot(ac.x, ac.y) < 20 ? (G.rules.id === 'ifatc' ? Math.min(170, ac.perf.vapp + 10) : 170) : 210;
 }
 
 /** A controller error: the clearance stands, the rule is named, and it costs points. */
@@ -3705,6 +3706,8 @@ function aiCross(ac) {
 }
 
 function aiTower(ac) {
+    // On its own final, the system's Tower keeps the spacing the same way Approach did (speed, or a go-around as a last resort).
+    if (ac.kind === 'arr' && ac.state === 'air' && ac.appr?.loc && !ac.circuit) aiFinalSpacing(ac, true);
     if (ac.appr?.loc && !ac.landClr && ac.appr.along < 8) { ai(ac, { land: true }); return; }
     if (ac.kind === 'arr' && ac.state === 'clear') { ai(ac, { ground: true }); return; }
     // No radar: the system's Tower gives inbounds a straight-in to the runway they expect, at 15 miles.
@@ -3941,7 +3944,8 @@ function aiApproach(ac) {
         const r = ac.request;
         // A check-in: what to expect (continue as filed when it has a route). Then a visual in good weather close in; anything else, unable.
         if (r.checkin) ai(ac, { expectApp: { type: r.kind, end: r.end }, asFiled: !!ac.via });
-        else if (r.kind === 'VIS' && visualWx() && Math.hypot(ac.x, ac.y) < 18) { ai(ac, { visual: r.end }); if (ac.aiPlan) ac.aiPlan.phase = 'final'; return; }
+        // A visual only when its own way in fits the sequence; otherwise it stays on vectors.
+        else if (r.kind === 'VIS' && visualWx() && Math.hypot(ac.x, ac.y) < 18 && visualFits(ac, r.end)) { ai(ac, { visual: r.end }); if (ac.aiPlan) ac.aiPlan.phase = 'final'; return; }
         // IFATC 6.10.1: a GPS approach is accommodated when traffic permits.
         else if (r.kind === 'RNAV' && G.rules.id === 'ifatc' && G.aircraft.filter(a => a.freq === 'APP' && a.state === 'air').length <= 6) { ai(ac, { expectApp: { type: 'RNAV', end: r.end }, asFiled: !!ac.via }); ac.gpsOk = true; }
         else ai(ac, { unable: true });
@@ -4040,13 +4044,19 @@ function aiApproach(ac) {
     }
 
     if (plan.phase === 'final' && ac.appr) aiFinalSpacing(ac);
+    // Established and kept for spacing: over to Tower once the closure is acceptable, or by the final approach fix.
+    if (ac.appr?.loc && ac.appr.est && ac.freq === 'APP' && (!closingOn(ac) || ac.appr.along < FAF_NM + 1)) {
+        ac.handoff = ac.appr.type; ac.freq = 'TWR';
+        atc(`${ac.radio}, contact ${facName('TWR')}${G.freqs?.TWR ? ' on ' + mhz(G.freqs.TWR[0]) : ''}.`, true);
+        pilot(ac, `${facName('TWR')}, ${ac.radio}, ${Math.max(1, Math.round(ac.appr.along))} mile final runway ${ac.appr.end.id}.`);
+    }
 }
 
 /** Turn onto the final: 30° intercept, maintain the join altitude until established, cleared ILS. */
 function turnIn(ac, plan) {
     const hdg = Math.round(norm(plan.e.course - 30 * plan.side));
     const pref = ac.gpsOk && hasApproach(plan.e, 'RNAV') ? 'RNAV' : appFor(plan.e), type = pref === 'VIS' ? 'ILS' : pref;
-    if (G.atisCfg.apps.includes('VIS') && visualWx() && fieldInSight(ac) && ai(ac, { visual: plan.e })) { plan.phase = 'final'; return; }
+    if (G.atisCfg.apps.includes('VIS') && visualWx() && fieldInSight(ac) && visualFits(ac, plan.e) && ai(ac, { visual: plan.e })) { plan.phase = 'final'; return; }
     if (ai(ac, { hdg, ils: plan.e, appType: type, alt: plan.f.joinAlt, spd: 180 })) plan.phase = 'final';
     else plan.phase = 'new';
 }
@@ -4056,15 +4066,32 @@ function turnIn(ac, plan) {
  * final? Compares distance to fly to the threshold, ours if we turned now
  * against each of theirs, with the radar or wake minimum plus the buffer.
  */
+/** How far an arrival still has to fly to the threshold: down the final, along its visual or pattern path, or joining at 30°. */
+function toGoFinal(a) {
+    if (a.appr?.loc) return a.appr.along;
+    if (a.pattern) {
+        let d = 0, p = a;
+        for (const q of a.pattern.pts) { d += Math.hypot(q.x - p.x, q.y - p.y); p = q; }
+        return d + finalGeom(p, a.pattern.end).along;
+    }
+    const ee = a.appr ? a.appr.end : a.aiPlan.e, ff = planFinal(ee);
+    const fa = finalGeom(a, ee);
+    // Joining at 30°: the run to the course plus what's left of the final from there.
+    return Math.abs(fa.xt) / Math.sin(30 * D2R) + Math.max(ff.icpt, fa.along - Math.abs(fa.xt) / Math.tan(30 * D2R));
+}
+/** Whether a visual approach from here fits the sequence on that final: 3 NM plus the buffer (and a mile for its own pace) from everyone on it. */
+function visualFits(ac, e) {
+    const vp = visualPattern(ac, e), ours = toGoFinal({ ...ac, pattern: vp, appr: null });
+    return !G.aircraft.some(a => {
+        if (a === ac || a.kind !== 'arr' || a.state !== 'air') return false;
+        const theirs = a.appr ? a.appr.end : a.pattern ? a.pattern.end : a.aiPlan?.phase === 'final' ? a.aiPlan.e : null;
+        return theirs && sameRunwayish(theirs, e) && Math.abs(toGoFinal(a) - ours) < SEP_NM + AI_SPACING_BUFFER + 1;
+    });
+}
+
 function finalTooTight(ac, plan) {
     const f = plan.f, e = plan.e;
-    const toGo = a => {
-        if (a.appr?.loc) return a.appr.along;
-        const ee = a.appr ? a.appr.end : a.aiPlan.e, ff = planFinal(ee);
-        const fa = finalGeom(a, ee);
-        // Joining at 30°: the run to the course plus what's left of the final from there.
-        return Math.abs(fa.xt) / Math.sin(30 * D2R) + Math.max(ff.icpt, fa.along - Math.abs(fa.xt) / Math.tan(30 * D2R));
-    };
+    const toGo = toGoFinal;
     const ours = toGo(ac);
     return G.aircraft.some(a => {
         if (a === ac || a.kind !== 'arr' || a.state !== 'air') return false;
@@ -4082,7 +4109,7 @@ function finalTooTight(ac, plan) {
 }
 
 /** On final behind someone: slow down if the gap closes, break out before it's lost. */
-function aiFinalSpacing(ac) {
+function aiFinalSpacing(ac, tower) {
     const ap = ac.appr;
     const along = ap.loc ? ap.along : Math.hypot(ptOnFinal(ap.end, planFinal(ap.end).icpt).x - ac.x, ptOnFinal(ap.end, planFinal(ap.end).icpt).y - ac.y) + planFinal(ap.end).icpt;
     let lead = null, gap = Infinity;
@@ -4092,13 +4119,50 @@ function aiFinalSpacing(ac) {
         if (g > 0 && g < gap) { gap = g; lead = a; }
     }
     if (!lead) return;
-    const need = Math.max(along < 10 && lead.appr.along < 10 ? 2.5 : SEP_NM, wakeNm(lead, ac));
-    if (gap < need + 0.4 && along > FAF_NM + 0.5 && ap.spd !== minSpeed(ac)) ai(ac, { spd: minSpeed(ac) });
+    const need = Math.max(along < 10 && lead.appr.along < 10 && G.rules.reducedTrail ? 2.5 : SEP_NM, wakeNm(lead, ac));
+    // The fastest speed, no faster than its normal final profile (210 / 180 / 160 kt), that still keeps the spacing all
+    // the way down, the leader slowing to its approach speed included (IFATC 6.15.6: the one behind first, in good time).
+    if (along > FAF_NM + 0.5) {
+        const lo = Math.max(minSpeed(ac), ac.perf.vapp + 10), hi = along > 15 ? 210 : along > 8 ? 180 : 160, want = need + 0.6;
+        let v = hi;
+        while (v > lo && finalGapAhead(lead, ac, along, v) < want) v -= 10;
+        v = Math.max(lo, v);
+        // Only ever slows it: back to its own profile (no assigned speed) once there's room.
+        if (v >= hi) { if (ap.spd != null) Object.assign(ap, { spd: null, spdUntil: undefined }); }
+        else if (v !== ap.spd) ai(ac, { spd: v });
+        // Even at its slowest it won't keep the spacing, and it's still well out: off the approach now and round again,
+        // rather than a go-around close in.
+        if (!tower && along > 8 && finalGapAhead(lead, ac, along, lo) < need - 0.2) {
+            const side = finalGeom(ac, ap.end).xt >= 0 ? 1 : -1;
+            ai(ac, { hdg: Math.round(norm(ap.end.course + 180 - 60 * side) / 5) * 5 || 360, alt: Math.max(ac.tAlt, planFinal(ap.end).joinAlt) });
+            if (ac.aiPlan) ac.aiPlan.phase = 'new';
+            return;
+        }
+    }
     if (gap < need - 0.1) {
         // Break out: climb straight ahead and come round again.
         goAround(ac, 'spacing on final', true);
-        ac.aiPlan.phase = 'new';
+        if (ac.aiPlan) ac.aiPlan.phase = 'new';
     }
+}
+
+/**
+ * The least spacing between a follower and the aircraft ahead of it on the same final, from now until the leader
+ * lands, if the follower holds `spd` to the final approach fix: both fly the game's final-approach speed profile
+ * (the leader any speed it was given), easing speed at about 0.6 kt/s, true airspeed rising with height.
+ */
+function finalGapAhead(lead, fol, folAlong, spd) {
+    const k = al => (1 + (G.world.elev + GS_FT_PER_NM * Math.max(0, al)) / 1000 * 0.02) / 3600;
+    const prof = (a, al, sp, until) => al < FAF_NM ? a.perf.vapp : sp != null && al >= until ? sp : al > 15 ? 210 : al > 8 ? 180 : 160;
+    const lsp = lead.appr.spd, lu = lead.appr.spdUntil ?? FAF_NM;
+    let la = lead.appr.along, fa = folAlong, lv = lead.spd, fv = fol.spd, min = fa - la;
+    for (let t = 0; t < 1200 && la > 0; t += 5) {
+        lv += clamp(prof(lead, la, lsp, lu) - lv, -3, 6);
+        fv += clamp(prof(fol, fa, spd, FAF_NM) - fv, -3, 6);
+        la -= lv * k(la) * 5; fa -= fv * k(fa) * 5;
+        min = Math.min(min, fa - Math.max(0, la));
+    }
+    return min;
 }
 
 /** The lowest altitude on the way to the base point: the join altitude, or the MVAs still ahead. */
@@ -4509,6 +4573,8 @@ function approachLateral(ac) {
         ap.est = true;
         // IFATC 6.14: your Approach (with the system on Tower) switches it, when its spacing is assured.
         if (G.rules.id === 'ifatc' && ac.freq === 'APP' && G.positions.has('APP') && !G.positions.has('TWR')) return true;
+        // The system's Approach keeps it until its closure on the one ahead is acceptable (IFATC 6.14.3); aiApproach hands it over then.
+        if (ac.freq === 'APP' && !G.positions.has('APP') && closingOn(ac) && ap.along > FAF_NM + 1) return true;
         if (ac.freq === 'APP') ac.handoff = ap.type;
         ac.freq = 'TWR';
         // Approach hands it to the tower; you are both, so the call comes straight to you.
@@ -5209,7 +5275,6 @@ function drawSurfaceAircraft(a) {
         c.fillStyle = col;
         c.fillRect(x - 3, y - 3, 6, 6);
     }
-    if (a === G.selected) { c.strokeStyle = COLORS.sel; c.beginPath(); c.arc(x, y, 14, 0, Math.PI * 2); c.stroke(); }
     c.font = '700 10px "JetBrains Mono", monospace';
     c.fillStyle = col;
     c.fillText(a.cs, x + 10, y - 8);
@@ -5255,10 +5320,6 @@ function drawAircraft(a) {
     if (iconMode && drawIcon(c, a.type, col, x, y, a.hdg, view.scale)) { /* drawn */ }
     else if (a.kind === 'arr') c.fillRect(x - 3.5, y - 3.5, 7, 7);
     else { c.beginPath(); c.moveTo(x, y - 5); c.lineTo(x + 5, y); c.lineTo(x, y + 5); c.lineTo(x - 5, y); c.closePath(); c.fill(); }
-    if (a === G.selected) {
-        c.strokeStyle = COLORS.sel;
-        c.beginPath(); c.arc(x, y, 10, 0, Math.PI * 2); c.stroke();
-    }
 
     // Data block.
     const vs = a.tAlt - a.alt;
@@ -6921,7 +6982,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly, divertTarget };
+    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly, divertTarget, finalGapAhead, closingOn };
 }
 
 init();

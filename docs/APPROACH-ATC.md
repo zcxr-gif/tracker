@@ -668,9 +668,23 @@ traffic doesn't count against you.
   - **Turn-in:** before clearing the ILS it checks the spacing by distance
     to the threshold against everyone on that final, and the 1.5 NM
     diagonal against a dependent parallel. If it's too tight, it extends
-    the downwind until there's room. On final it slows a follower whose gap
-    is closing, and breaks it out (a go-around, re-sequenced) before
-    spacing is lost.
+    the downwind until there's room.
+  - **On final:** every 2 s it plays each follower and the aircraft ahead
+    down to the runway, including the leader slowing to its approach speed.
+    It gives the follower the fastest speed, no faster than its normal
+    profile (210 / 180 / 160 kt by distance), that keeps 3 NM plus a margin,
+    or clears its speed when there's room. It only ever slows the one behind
+    (IFATC 6.15.6). Under Infinite Flight rules it can slow one to 10 kt above
+    its approach speed; in Real life mode, no lower than 170 kt (5-7-3).
+  - If even that won't keep the spacing and the follower is still more than
+    8 NM out, it's turned off the final and re-sequenced. A go-around is only
+    the last resort close in.
+  - It keeps an established arrival on its own frequency until its closure on
+    the one ahead is acceptable (IFATC 6.14.3), or the final approach fix. The
+    system's Tower keeps up the same speed control on its final.
+  - A visual approach (asked for, or at the turn-in) is cleared only when the
+    aircraft's own way in fits the sequence: 3 NM plus a margin from
+    everything on that final. Otherwise it stays on vectors.
   - **Conflict probe:** every 2 s it projects everything airborne 2 minutes
     ahead. When one of its own aircraft would lose radar or wake
     separation, it stops that aircraft at an altitude 1,000 ft clear of the
