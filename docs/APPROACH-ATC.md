@@ -410,6 +410,23 @@ Not modelled: Center itself, cruise, Mach, active/away, Resume Flight
   or the next fix), and the speed is its own again (6.15.9).
 - The long-press quick menu has Hold (fix, then turns) and Exit hold too.
 
+**Diversions (IFATC 6.8):** under Infinite Flight rules, now and then an
+arrival on Approach asks to divert to a real airport 40–200 NM away (*"request
+diversion to KOAK, 12 miles southeast, due to weather at our destination"*),
+shown as REQ DIV. The card names the airport, its distance and its longest
+runway.
+
+- **Approved, resume own navigation**: it turns for the airport and leaves,
+  not counted against you. In busy airspace (8 or more on frequency, or
+  traffic within 5 NM and 1,500 ft) you're reminded vectors out are safer
+  (6.8.2).
+- **Approved, expect radar vectors**: it flies your headings until
+  **Resume own navigation**, then turns for the airport.
+- **Unable**: for an airport too short for the type (2,500 ft props, 6,000
+  jets, 8,000 heavies) or at capacity. Denying a suitable one is flagged
+  (6.8.3).
+- The system's Approach approves its own, with vectors when it's busy.
+
 **Flight following (IFATC 6.5):** with you on Approach under Infinite Flight
 rules, VFR light aircraft cross the scope at VFR levels (odd thousands plus
 500 heading 000–179, even plus 500 heading 180–359) and ask for flight

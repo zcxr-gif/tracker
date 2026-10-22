@@ -1797,10 +1797,38 @@ function issueCall(ac, c) {
         else if (ac.via) ac.via.vert = true;
         parts.push('altitude at your discretion'); back.push('altitude at our discretion');
     }
+    // ---- IFATC 6.8: diversions
+    if (c.divApprove || c.divDeny) {
+        const r = ac.divReq;
+        if (!r) { sys(`${ac.cs} hasn't asked to divert.`); return false; }
+        ac.divReq = null;
+        if (c.divDeny) {
+            // 6.8.3: sparingly, only for an unsuitable airport or one at capacity.
+            if (!G.aiActing && r.suitable) sys(`IFATC 6.8.3: deny a diversion only to an unsuitable airport or one at capacity; ${r.icao} has ${r.longest.toLocaleString('en-US')} ft of runway.`, 'bad');
+            atc(`${ac.radio}, unable diversion to ${r.icao}${r.suitable ? '' : ', runway too short for your aircraft'}.`, G.aiActing);
+            pilot(ac, `Roger, continuing to ${G.world.icao}, ${ac.radio}.`);
+            return true;
+        }
+        Object.assign(ac, { divert: true, divTo: r, appr: null, pattern: null, request: null, landClr: false, via: null, viaSaved: null, holdAt: null, orbit: null, direct: null });
+        if (c.divApprove === 'own') {
+            // 6.8.2: in busy airspace, vectors out first; it can go its own way once clear.
+            const busy = G.aircraft.filter(a => a.freq === 'APP' && a.state === 'air').length >= 8 || G.aircraft.some(a => a !== ac && airborne(a) && Math.hypot(a.x - ac.x, a.y - ac.y) < 5 && Math.abs(a.alt - ac.alt) < 1500);
+            if (!G.aiActing && busy) sys(`IFATC 6.8.2: the airspace is busy around ${ac.cs}: radar vectors out are safer than its own navigation.`, 'bad');
+            ac.tHdg = r.brg;
+            atc(`${ac.radio}, diversion to ${r.icao} approved, resume own navigation.`, G.aiActing);
+            pilot(ac, `Diverting to ${r.icao}, own navigation, ${ac.radio}.`);
+        } else {
+            atc(`${ac.radio}, diversion to ${r.icao} approved, expect radar vectors.`, G.aiActing);
+            pilot(ac, `Diverting to ${r.icao}, expecting vectors, ${ac.radio}.`);
+            if (G.aiActing) ac.tHdg = r.brg;
+        }
+        return true;
+    }
     if (c.ownNav) {
         if (ac.state !== 'air') { sys(`${ac.cs} is on the ground.`); return false; }
         Object.assign(ac, { holdAt: null, orbit: null, turn: null });
-        if (ac.kind === 'dep' && ac.gate?.x != null) ac.direct = ac.gate;
+        if (ac.divTo) { ac.direct = null; ac.tHdg = ac.divTo.brg; }
+        else if (ac.kind === 'dep' && ac.gate?.x != null) ac.direct = ac.gate;
         else { ac.direct = null; ac.tHdg = brg(-ac.x, -ac.y); }
         parts.push('resume own navigation'); back.push('own navigation');
     }
@@ -2544,6 +2572,43 @@ function circuitLeft(a) {
     if (k.leg === 'base') return Math.abs(fg.xt) + g.baseAt;
     if (k.leg === 'down') return Math.max(0, g.baseAt - fg.along) + off + g.baseAt;
     return e.len * 2 + off * 2 + g.baseAt + 2;
+}
+
+/* ---- Diversions (IFATC 6.8) ---- */
+
+/** A real airport 40–200 NM away to divert to; suitable when its longest runway fits the type. */
+function divertTarget(ac) {
+    const lat0 = G.airport.lat, lon0 = G.airport.lon;
+    const cands = DATA.playable.filter(p => p.icao !== G.world.icao).map(p => {
+        const dy = (p.lat - lat0) * 60, dx = (p.lon - lon0) * 60 * Math.cos(lat0 * D2R);
+        return { p, d: Math.hypot(dx, dy), b: brg(dx, dy) };
+    }).filter(c => c.d > 40 && c.d < 200);
+    if (!cands.length) return null;
+    // Mostly a proper airport; now and then one too small for it.
+    const big = cands.filter(c => c.p.s >= 2), c = pick(Math.random() < 0.8 && big.length ? big : cands);
+    const longest = Math.max(...c.p.runways.map(r => r.length_ft || 0));
+    const need = ac.perf.prop ? 2500 : ac.perf.wake === 'H' || ac.perf.wake === 'S' ? 8000 : 6000;
+    return { icao: c.p.icao, brg: c.b, d: Math.round(c.d), longest, suitable: longest >= need };
+}
+const DIVERT_WHY = ['weather at our destination', 'a passenger issue, nothing urgent', 'company request', 'a fuel imbalance, not an emergency'];
+
+/** Now and then a pilot on your Approach asks to divert (IFATC 6.8.1); the system's Approach answers its own. */
+function divertRequests() {
+    if (G.rules.id !== 'ifatc' || noRadar()) return;
+    for (const ac of G.aircraft) {
+        if (ac.divReq) {
+            if (!mine(ac)) ai(ac, { divApprove: G.aircraft.filter(a => a.freq === 'APP' && a.state === 'air').length >= 8 ? 'vectors' : 'own' });
+            else if (!ac.divRepeated && G.t - ac.divReq.at > 60) { ac.divRepeated = true; pilot(ac, `${facName('APP')}, ${ac.radio}, still requesting diversion to ${ac.divReq.icao}.`); }
+            continue;
+        }
+        if (ac.kind !== 'arr' || ac.state !== 'air' || ac.freq !== 'APP' || ac.divert || ac.emerg || ac.appr || ac.pattern || ac.overfly || ac.vfrIn || ac.circuit || ac.divAsked) continue;
+        if (Math.hypot(ac.x, ac.y) < 15 || G.t - ac.born < 120 || Math.random() > 1 / 2500) continue;
+        ac.divAsked = true;
+        const t = divertTarget(ac);
+        if (!t) continue;
+        ac.divReq = { ...t, at: G.t };
+        pilot(ac, `${facName('APP')}, ${ac.radio}, request diversion to ${t.icao}, ${t.d} miles ${cardinal(t.brg)}, due to ${pick(DIVERT_WHY)}.`);
+    }
 }
 
 /* ---- Flight following (IFATC 6.5): VFR aircraft crossing Approach's airspace ---- */
@@ -3314,6 +3379,7 @@ function aiControl() {
     atisCheck();
     checkIns();
     amendments();
+    divertRequests();
     coordinate();
     if (!G.positions.has('APP')) { aiConflicts(); aiTerrainNet(); }
     for (const ac of G.aircraft) {
@@ -5046,7 +5112,8 @@ function intentTag(a) {
     if (a.checkInPending && a.svc) return 'REQ ' + a.svc;
     if (a.overfly) return 'VFR ' + (a.fplAccepted ? 'FF' : '');
     if (a.request) return 'REQ ' + a.request.tag;
-    if (a.divert) return 'DIVERT';
+    if (a.divReq) return 'REQ DIV';
+    if (a.divert) return 'DIVERT' + (a.divTo ? ' ' + a.divTo.icao : '');
     if (a.transit) return a.transit.ok ? 'TRANS' : 'TRANS?';
     if (a.circuit && !a.appr) return LEG_TAG[a.circuit.leg] + ' ' + a.circuit.end.id + (a.optionClr ? ' OPT' : a.landClr ? ' CL' : '');
     if (a.circuit && a.appr) return 'FNL ' + a.appr.end.id + (a.optionClr ? ' OPT' : a.landClr ? ' CL' : '');
@@ -5637,6 +5704,11 @@ function airMenu(ac, add) {
     ] });
     if (ac.kind === 'arr' && !ac.overfly) add('Missed approach instructions', { sub: () => [2000, 3000, 4000].map(h => Math.max(G.world.minAlt, Math.round((G.world.elev + h) / 1000) * 1000))
         .filter((v, i, a) => a.indexOf(v) === i).map(v => ({ label: `Runway heading, climb and maintain ${fmtAlt(v)}`, cmd: { missed: v } })) });
+    if (ac.divReq && mine(ac)) add(`Diversion to ${ac.divReq.icao} (${ac.divReq.d} mi, ${ac.divReq.longest.toLocaleString('en-US')} ft runway)`, { sub: () => [
+        { label: 'Approved, resume own navigation', cmd: { divApprove: 'own' } },
+        { label: 'Approved, expect radar vectors', cmd: { divApprove: 'vectors' } },
+        { label: 'Unable', cmd: { divDeny: true } },
+    ] }, true);
     if (ac.checkInPending && ac.freq === 'APP') add(ac.svc === 'FF' ? 'Radar contact, maintain VFR' : 'Radar contact', { cmd: { radarContact: true } }, true);
     if (ac.checkInPending && ac.svc && ac.freq === 'APP') add(ac.svc === 'FF' ? 'Unable flight following' : 'Unable radar service', { cmd: { unableFF: true } });
     if (ac.overfly && ac.freq === 'APP' && !ac.checkInPending) add('Frequency change approved', { cmd: { freqChange: true } }, Math.hypot(ac.x, ac.y) > SCOPE_NM - 12);
@@ -5860,7 +5932,7 @@ function wantsYou(a) {
     if (a.divert || a.standbyUntil > G.t) return false;
     if (a.transit) return a.transit.asked && a.transit.ok === null;
     if (a.circuit && a.circuit.leg === 'down' && !a.landClr) return true;
-    return !!(a.emerg || a.crossReq || a.wxReq || a.lowAlt || a.reminded || a.request || a.checkInPending
+    return !!(a.emerg || a.crossReq || a.wxReq || a.lowAlt || a.reminded || a.request || a.checkInPending || a.divReq
         || (a.state === 'gate' && a.kind === 'dep' && a.called) || a.state === 'pushed' || a.state === 'clear'
         || a.state === 'wait' || (a.appr?.loc && !a.landClr && a.freq === 'TWR'));
 }
@@ -6626,7 +6698,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly };
+    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly, divertTarget };
 }
 
 init();
