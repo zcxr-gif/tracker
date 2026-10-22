@@ -73,6 +73,23 @@ table. It is at least as strict for the aircraft the game spawns. The Super is
 the A388; Heavies are the widebodies (B763, B772/77W/77L, B789, A339, A359,
 A35K, B748, MD11).
 
+**Under Infinite Flight rules (IFATC 6.2):**
+
+- 6.2.1 **Terrain**: at least 1,000 ft above the ground under the aircraft
+  (with Terrain on), instead of the MVA. Below it, the low altitude alert
+  and a note citing 6.2.1. The pattern, VFR services and aircraft close in
+  at the runway are left to the pilot.
+- 6.2.2 3 NM or 1,000 ft, everywhere (no wake, no 2.5 NM).
+- 6.2.3 **Not separated when it first called you**: no penalty. You're told,
+  and have 60 seconds to separate them before it counts as your loss.
+- 6.2.4 **Collision alert**: a red target and ring inside 3 NM and 1,000 ft.
+  Inside 1.5 NM and 500 ft, a flashing inner ring, plus an alarm beep with
+  sound on. Tapping one of the aircraft silences the beep, not the conflict.
+  Every loss of separation with your traffic needs **Traffic alert** (Misc.
+  messages) to one of them within 20 seconds, or it's a violation.
+- 6.2.5 **VFR services** (flight following, transitions, the pattern) see and
+  avoid: against them only 500 ft vertical, or 1 NM, counts.
+
 ## Approaches
 
 - **Approach gate** is 1 NM outside the final approach fix. The game puts

@@ -2320,6 +2320,7 @@ function sayMessage(ac, m) {
     const [k, , text, fx] = m;
     atc(`${ac.radio}, ${text}`, G.aiActing);
     if (fx === 'expedite') ac.expediteUntil = G.t + 90;
+    if (k === 'alert') ac.trafficAlertAt = G.t;                       // IFATC 6.2.4
     if (k === 'atis') {
         // IFATC 4.1.2: checked in with an old letter, told to recheck; from here it's the pilot's to keep up with.
         if (ac.atisL != null && ac.atisL !== G.atis && !G.aiActing) award(ac, 1, 'ATIS');
@@ -2756,14 +2757,18 @@ function terrainCheck() {
         }
         // Established on the approach, or climbing out, the procedure protects them.
         const climbing = ac.tAlt > ac.alt + 50 && (ac.kind === 'dep' || Math.hypot(ac.x, ac.y) < 6);
-        const mva = mvaAt(G.mva, ac.x, ac.y);
-        const low = !ac.appr?.loc && !climbing && mva && ac.alt < mva - 50;
+        // IFATC 6.2.1: 1,000 ft above the ground at all times (VFR services and the pattern are the pilot's to keep clear).
+        const ground = G.rules.id === 'ifatc' ? Math.ceil((terrainAt(G.dem, ac.x, ac.y) + 1000) / 100) * 100 : 0;
+        const mva = ground || mvaAt(G.mva, ac.x, ac.y);
+        const low = !ac.appr?.loc && !climbing && mva && ac.alt < mva - 50 && !(ground && (vfrService(ac) || ac.pattern || nearRunway));
         if (low && !ac.lowAlt && !mine(ac)) G.stats.sysLowAlt = (G.stats.sysLowAlt || 0) + 1;
         if (low && !ac.lowAlt && mine(ac)) {
             G.stats.lowAlt++;
             G.score -= 10;
             // 7110.65 2-1-6 safety alert phraseology.
-            atc(`${ac.radio}, low altitude alert, check your altitude immediately. The MVA in your area is ${fmtAlt(mva)}.`);
+            atc(ground ? `${ac.radio}, low altitude alert, check your altitude immediately, terrain ${fmtAlt(Math.round(terrainAt(G.dem, ac.x, ac.y) / 100) * 100)} below you.`
+                : `${ac.radio}, low altitude alert, check your altitude immediately. The MVA in your area is ${fmtAlt(mva)}.`);
+            if (ground) sys(`${ac.cs} is less than 1,000 ft above the terrain (IFATC 6.2.1).`, 'bad');
             toast(`Low altitude alert — ${ac.cs}`, 'bad');
         }
         ac.lowAlt = !!low;
@@ -4198,10 +4203,32 @@ function requiredSep(a, b) {
     return { nm, why };
 }
 
+/** Receiving a VFR service (flight following, a transition, the pattern): see and avoid, 500 ft from other traffic (IFATC 6.2.5). */
+const vfrService = a => a.vfrIn === 'FF' || a.handoff === 'FF' || !!a.transit || !!a.circuit || !!a.patternWork;
+
+/** The collision alert's aural alarm (IFATC 6.2.4), with sound on; tapping one of the aircraft silences it. */
+let alarmCtx = null;
+function alarmBeep() {
+    if (!voiceOn) return;
+    try {
+        alarmCtx = alarmCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = alarmCtx.createOscillator(), g = alarmCtx.createGain();
+        o.frequency.value = 880; g.gain.value = 0.08;
+        o.connect(g); g.connect(alarmCtx.destination);
+        o.start(); o.stop(alarmCtx.currentTime + 0.18);
+    } catch { /* no audio */ }
+}
+
 function separation() {
     const air = G.aircraft.filter(airborne);
-    for (const a of G.aircraft) a.conflict = false;
-    const now = new Set();
+    for (const a of G.aircraft) {
+        a.conflict = false; a.alarm = false;
+        // When an aircraft first comes onto your frequency (IFATC 6.2.3).
+        const m = mine(a);
+        if (m && !a.wasMine) a.contactAt = G.t;
+        a.wasMine = m;
+    }
+    const now = new Set(), ifr = G.rules.id === 'ifatc';
     for (let i = 0; i < air.length; i++) {
         for (let j = i + 1; j < air.length; j++) {
             const a = air[i], b = air[j];
@@ -4209,7 +4236,8 @@ function separation() {
             // In trail on one glideslope the spacing is the miles, not the feet between them.
             const sameFinal = a.appr?.loc && b.appr?.loc && sameRunwayish(a.appr.end, b.appr.end);
             // No radar (IFATC 3.3): Tower separates its pattern traffic by sequence, not radar minima; only a real conflict counts.
-            const visual = a.freq === 'TWR' && b.freq === 'TWR' && (noRadar() || a.circuit || b.circuit || a.transit || b.transit || a.patternWork || b.patternWork);
+            const visual = a.freq === 'TWR' && b.freq === 'TWR' && (noRadar() || a.circuit || b.circuit || a.transit || b.transit || a.patternWork || b.patternWork)
+                || ifr && (vfrService(a) || vfrService(b));                                // IFATC 6.2.5: see and avoid, 500 ft
             if (!sameFinal && dz >= (visual ? 500 : SEP_FT - 25)) continue;              // 1,000 ft vertical (5-5-5)
             const d = Math.hypot(a.x - b.x, a.y - b.y);
             if (d >= 8) continue;
@@ -4218,6 +4246,8 @@ function separation() {
             const key = a.id < b.id ? `${a.id}-${b.id}` : `${b.id}-${a.id}`;
             now.add(key);
             a.conflict = b.conflict = true;
+            // IFATC 6.2.4: red target inside 3 NM and 1,000 ft; red with the aural alarm inside 1.5 NM and 500 ft.
+            if (d < 1.5 && dz < 500) a.alarm = b.alarm = true;
             // The system's own traffic is the system's problem.
             if (!mine(a) && !mine(b)) {
                 if (!G.conf.has('s' + key)) {
@@ -4230,17 +4260,34 @@ function separation() {
                 continue;
             }
             let c = G.conf.get(key);
+            // IFATC 6.2.3: not separated when it first called you, it's the pilot's until you can separate it, as soon as practicable.
+            const justCalled = x => mine(x) && G.t - (x.contactAt ?? -1e9) < 4;
+            if (!c && ifr && (justCalled(a) || justCalled(b))) {
+                c = { t: G.t, last: G.t, near: true, inherited: G.t + 60 };
+                G.conf.set(key, c);
+                sys(`${a.cs} and ${b.cs} came to you ${d.toFixed(1)} miles apart: separate them as soon as practicable (IFATC 6.2.3).`);
+            }
+            if (c?.inherited) {
+                if (G.t < c.inherited) continue;
+                G.conf.delete(key); c = null;
+            }
             if (!c) {
-                c = { t: G.t, last: G.t, near: false };
+                c = { t: G.t, last: G.t, near: false, alertBy: ifr ? G.t + 20 : 0 };
                 G.conf.set(key, c);
                 G.stats.incidents++;
                 G.score -= 10;
-                sys(`Separation lost: ${a.cs} and ${b.cs}, ${d.toFixed(1)} miles — ${req.why} needs ${req.nm} miles${sameFinal ? ' in trail' : ' or 1,000 feet'} (7110.65 5-5-4).`, 'bad');
+                sys(`Separation lost: ${a.cs} and ${b.cs}, ${d.toFixed(1)} miles — ${req.why} needs ${req.nm} miles${sameFinal ? ' in trail' : visual ? ' or 500 feet' : ' or 1,000 feet'} (7110.65 5-5-4).`, 'bad');
                 toast(`Separation lost — ${a.cs} / ${b.cs}`, 'bad');
             } else if (G.t - c.last >= 10) {
                 c.last = G.t;
                 G.score -= 2;
             }
+            // IFATC 6.2.4: a valid alert needs a traffic alert at once, to one of yours.
+            if (c.alertBy && G.t > c.alertBy) {
+                c.alertBy = 0;
+                if (![a, b].some(x => mine(x) && x.trafficAlertAt >= c.t)) violation(mine(a) ? a : b, 'IFATC 6.2.4', `No traffic alert to ${[a, b].filter(mine).map(x => x.cs).join(' or ')} after the collision alert`);
+            }
+            if (a.alarm && (mine(a) || mine(b)) && !c.silenced && G.t - (c.beep || 0) >= 2) { c.beep = G.t; alarmBeep(); }
             if (!c.near && d < 0.5 && dz < 500) {
                 c.near = true;
                 G.score -= 40;
@@ -4757,6 +4804,8 @@ function drawAircraft(a) {
     if (a.conflict) {
         c.strokeStyle = COLORS.bad;
         c.beginPath(); c.arc(x, y, (SEP_NM / 2) * s, 0, Math.PI * 2); c.stroke();
+        // The alarm level (inside 1.5 NM and 500 ft): a flashing inner ring.
+        if (a.alarm && Math.floor(performance.now() / 300) % 2) { c.lineWidth = 2; c.beginPath(); c.arc(x, y, 14, 0, Math.PI * 2); c.stroke(); c.lineWidth = 1; }
     }
 
     // Target: a radar return, or the aircraft itself.
@@ -5091,6 +5140,8 @@ function select(ac) {
     if (ac) broadcastOpen = false;
     G.selected = ac;
     if (ac) ac.reminded = false;
+    // Tapping an aircraft in a collision alert silences the alarm, not the conflict (IFATC 6.2.4).
+    if (ac?.alarm) for (const [k, c] of G.conf) if (k.split('-').includes(String(ac.id))) c.silenced = true;
     closeLadder(); closeContext();
     renderCard(true);
     renderStrips();
