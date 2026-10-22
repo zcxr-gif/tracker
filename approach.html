@@ -622,10 +622,10 @@
                     <h3>Rules</h3>
                     <div class="opt-row"><div class="seg" id="opt-rules"><button data-v="faa" class="on">Real life</button><button data-v="ifatc">Infinite Flight</button></div></div>
                     <p class="opt-note" id="rules-note"></p>
-                    <h3 id="radar-h" class="sub">Approach radar</h3>
+                    <h3 id="radar-h" class="sub">Inbounds</h3>
                     <div id="radar-row">
-                        <div class="opt-row"><div class="seg" id="opt-radar"><button data-v="system" class="on">System</button><button data-v="none">Closed</button></div></div>
-                        <p class="opt-note">Closed: arrivals call Tower directly, and you give each a pattern entry, a number and a landing clearance (IFATC 3.3).</p>
+                        <div class="opt-row"><div class="seg" id="opt-radar"><button data-v="system" class="on">Vectored</button><button data-v="none">Pattern entries</button></div></div>
+                        <p class="opt-note">Vectored: the system's Approach brings arrivals to you on final. Pattern entries: no Approach, so arrivals call Tower and you give each an entry (straight in, downwind, base), a number and a landing clearance, and VFR traffic asks to transition your airspace (IFATC 3.3, 3.4).</p>
                     </div>
                 </div>
 
@@ -633,6 +633,7 @@
                     <h3>Options</h3>
                     <div class="opt-row"><span title="Minimum vectoring altitudes from the real ground; below the ground, the aircraft is lost.">Terrain</span><div class="seg" id="opt-terrain"><button data-v="off" class="on">Off</button><button data-v="on">On</button></div></div>
                     <div class="opt-row"><span title="Storm cells, deviation requests, low ceilings and gusts.">Weather</span><div class="seg" id="opt-weather"><button data-v="off" class="on">Off</button><button data-v="on">On</button></div></div>
+                    <div class="opt-row" id="pattern-row"><span title="Light aircraft (and the odd jet) doing circuits off your runway: 1,000 ft above the field for props, 1,500 for jets. Only in VMC, and not with No pattern work on the ATIS (IFATC 3.4).">Pattern work</span><div class="seg" id="opt-pattern"><button data-v="off">Off</button><button data-v="on" class="on">On</button></div></div>
                     <div class="opt-row" id="emerg-row"><span id="emerg-h" title="Now and then a mayday or pan-pan: priority, and the runway closes for two minutes after.">Emergencies</span><div class="seg" id="opt-emerg"><button data-v="off">Off</button><button data-v="on" class="on">Rare</button></div></div>
                 </div>
 

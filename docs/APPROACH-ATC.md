@@ -19,7 +19,10 @@ It is laid out like Infinite Flight's Control screen:
   - Traffic (Light, Normal, Busy, Event) and how many aircraft there are
     at the start;
   - Rules (Real life or Infinite Flight);
-  - Options (terrain, weather, emergencies);
+  - Inbounds, when you aren't working Approach: Vectored (the system's
+    Approach) or Pattern entries (no radar: arrivals call Tower);
+  - Options (terrain, weather, pattern work when you're on Tower,
+    emergencies);
   - How to play;
   - the disclaimer above.
 - **MODE ATC and CONTROL** at the bottom start the shift.
@@ -740,17 +743,19 @@ line per switch).
   by 3 miles past, it happens anyway for −2. The system's Tower does it at
   half a mile.
 
-**Inbounds, from the IFATC manual (section 3.3):** with **Approach (radar):
-Closed** on the start screen (Infinite Flight, when you aren't working
-Approach), there's no radar controller:
+**Inbounds, from the IFATC manual (section 3.3):** with **Inbounds: Pattern
+entries** on the start screen (either rule set, when you aren't working
+Approach), there's no radar controller. Use it to practise pattern entries:
 
 - Arrivals call Tower directly: "inbound on the ILS runway 10L" when lined
   up with a final, otherwise "inbound for landing, 18 miles west".
 - 3.3.1 Every one needs a **pattern entry** and a **landing clearance** at
   minimum: straight in, left/right downwind or left/right base, for any
-  landing runway (the Pattern entry list, or `ent DL 28R`). The aircraft
-  flies it: downwind 3 miles out abeam midfield, base at 8.5 miles, final
-  from 6.5 miles onto the ILS. Cleared to land can come with the entry.
+  landing runway (the Pattern entry list, or `ent DL 28R`).
+  - A downwind or base entry joins the traffic pattern itself (below): at
+    45° to midfield downwind, or onto base, at pattern altitude.
+  - A straight-in joins final from 6.5 miles.
+  - Cleared to land can come with the entry.
 - 3.3.2 **Continue inbound** (`ci`) is fine while you decide, and a pattern
   entry without a sequence too, with **Number N** (`no`) added later. But by
   8 miles out it must have an entry: if not, it's a violation and it orbits
@@ -758,16 +763,58 @@ Approach), there's no radar controller:
 - 3.3.4 A runway change cancels the entry and the clearance: a new pattern
   entry and clearance are needed.
 - Go-arounds stay with Tower and need a new entry.
-- With no radar, two aircraft both with Tower only count as a conflict
-  inside 1 mile and 500 ft. Tower sequences them; radar minima don't apply.
-  (This threshold is the game's own: the manual extract doesn't give one.)
+- With no radar, and for pattern traffic and transitions always, two
+  aircraft both with Tower only count as a conflict inside 1 mile and 500
+  ft. Tower sequences them, so radar minima don't apply. (This threshold is
+  the game's own: the manual extract doesn't give one.)
 - If the system works Tower, it gives each inbound a straight in and a
   landing clearance at 15 miles.
 - Departures handed off with "frequency change approved" go on their own
   navigation (there's no Departure).
 
-Not modelled from 3.3: local flights and pattern work ("cleared for the
-option", left/right traffic, 3.3.5–3.3.6), since all traffic here lands.
+**The traffic pattern (IFATC 3.4):** with **Pattern work: On** and you on
+Tower, light aircraft and the odd jet do circuits off your runway.
+- **When**: only in visual conditions (3 SM or better), and not while the
+  ATIS says *No pattern work*. More of them at busier traffic levels (1 to 4
+  at once).
+- **The pattern**: upwind, crosswind, downwind, base and final.
+  - **Props** fly it at 1,000 ft above the field, with downwind 1 NM out
+    and base 1.5 NM from the threshold.
+  - **Jets** fly it at 1,500 ft, 1.5 NM out, with base at 2.5 NM.
+  - **Turns** start a turn radius early, as a pilot leads them.
+  - **Descent** starts on base, onto a 3° path.
+- **Departing**: they hold short *"…ready for departure, remaining in the
+  pattern"*, and the takeoff clearance carries the direction: *"make right
+  traffic, cleared for takeoff"* (left if none is given).
+- **Landing clearance**: on downwind they want one, shown as ATC (1).
+  - *Cleared for the option* or *cleared touch and go* means a touch and
+    go, then round again.
+  - *Cleared to land* means a full stop.
+  - After a few laps they ask for a full stop themselves.
+  - No clearance by short final and they go around, then fly upwind and
+    rejoin.
+- **Sequencing and shaping**:
+  - *Number N, follow the Cessna on base* (the "Number, follow traffic…"
+    list). It won't turn base until the traffic it follows is on final
+    with room behind it. See-and-avoid keeps anyone from cutting in.
+  - *Extend downwind*, *turn base*, *make short approach*, *make left/right
+    traffic* (on upwind or crosswind), *left/right 360*.
+  - An extended downwind past 7 miles asks for base.
+- Inbounds given a downwind or base entry fly the same pattern, for a full
+  stop.
+
+**Transitions (IFATC 3.4.2–3.4.4):** with Pattern entries (no radar), VFR
+light aircraft crossing the field call at about 12 miles: *"request
+transition through your airspace southbound"*.
+- **Answers**: *Transition approved* (at its altitude), *transition approved,
+  maintain 3,500*, or *unable transition, remain clear*.
+- **Waiting**: unanswered by 6 miles, it orbits outside.
+- **Rules**:
+  - an approval above Tower's airspace (5,000 ft above the field) breaks
+    3.4.3;
+  - one less than 500 ft above the pattern traffic breaks 3.4.4.
+
+Not modelled: "Flight of XX" formations (3.4.5).
 
 Not modelled: back-taxi (3.2.4), multiple aircraft lined up at once (3.2.3),
 and "Straight Out Dept." in the ATIS (3.2.9–3.2.10).
