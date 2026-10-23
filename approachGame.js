@@ -22,6 +22,8 @@ import { drawIcon } from './approachIcons.js';
 import { AirportLayoutManager } from './airportLayout.js';
 import { aerowayFromOpenFreeMap, gatesFromBackend } from './approachTiles.js';
 import { generateNav } from './approachNavGen.js';
+import { buildRegistry, encode, decode, Publisher, Subscriber } from './approachSync.js';
+import * as net from './approachNet.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -928,7 +930,7 @@ function bindAtis() {
         const b = e.target.closest('button');
         if (!b || !atisDraft) return;
         const d = atisDraft, toggle = (k, v) => { d[k] = d[k].includes(v) ? d[k].filter(x => x !== v) : [...d[k], v]; };
-        if (b.hasAttribute('data-atis-go')) { broadcastAtis(d); atisDraft = null; renderAtis(); return; }
+        if (b.hasAttribute('data-atis-go')) { publishAtis(d); atisDraft = null; renderAtis(); return; }
         if (b.hasAttribute('data-auto')) d.mode = d.mode === 'auto' ? 'manual' : 'auto';
         else if (b.dataset.rw) {
             // Touching a runway takes them off the wind, starting from what's in use.
@@ -991,7 +993,7 @@ function renderRail() {
         if (k === 'STATUS') return `<button type="button" class="rail-i${hudMin ? '' : ' on'}" data-rail="STATUS">Status</button>`;
         if (k === 'ATIS') return `<button type="button" class="rail-i atis${railView === 'ATIS' ? ' on' : ''}" data-rail="ATIS">${escapeHtml(freqLabel('ATIS'))}</button>`;
         if (k === 'BCAST') return `<button type="button" class="rail-i${broadcastOpen ? ' on' : ''}" data-rail="BCAST">Broadcast</button>`;
-        const pos = k === 'DEP' ? 'APP' : k, yours = G.positions.has(pos);
+        const pos = k === 'DEP' ? 'APP' : k, yours = G.me.has(pos);
         const n = yours ? G.aircraft.filter(a => onFreq[k](a) && wantsYou(a)).length : 0;
         return `<button type="button" class="rail-i${railView === k ? ' on' : ''}${yours ? '' : ' sys'}" data-rail="${k}" title="${yours ? 'Your frequency' : 'The system is working this'}">${escapeHtml(freqLabel(k))}${n ? `<b>${n}</b>` : ''}</button>`;
     }).join('');
@@ -1075,6 +1077,8 @@ let nextId = 1;
 /** The three positions. Each aircraft is on exactly one frequency at a time. */
 const FREQ_NAME = { APP: 'Approach', TWR: 'Tower', GND: 'Ground', VFR: 'no frequency (VFR)' };
 const mine = ac => !!G && G.positions.has(ac.freq);
+/** On a frequency this player works. In multiplayer G.positions is everyone's (the system works the rest) and G.me is yours. */
+const yours = ac => !!G && G.me.has(ac.freq);
 
 function newGame(airport, level, opts, nav) {
     const world = buildWorld(airport, nav);
@@ -1105,6 +1109,7 @@ function newGame(airport, level, opts, nav) {
         zulu0: Date.now(),
         over: false,
     };
+    G.me = opts.me ? new Set(opts.me) : G.positions;
     G.met = makeMet();
     G.atisCfg = atisDefault(world.icao);
     if (radarPicksProcs()) Object.assign(G.atisCfg, systemProcs());      // IFATC 4.2.2: the system's Radar picks them
@@ -1329,6 +1334,13 @@ const DIGIT_WORDS = { 0: 'zero', 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: '
 let voiceOn = store.get('voice', false);
 
 function logLine(kind, text) {
+    if (NET?.role === 'host' && G) {
+        // The radio is heard by everyone. The game's notes go to whoever they're about: the player whose
+        // clearance it was, everyone for what happens in the shift, and only you for your own screen.
+        if (!NOTE_KINDS.has(kind)) netSend('log', { k: kind, x: text });
+        else if (NET.actor) { netSend('log', { k: kind, x: text }, NET.actor.id); return; }
+        else if (NET.inTick) netSend('log', { k: kind, x: text });
+    }
     const log = $('#log');
     if (!log) return;
     const div = document.createElement('div');
@@ -1356,7 +1368,11 @@ function sys(text, tone) {
 }
 function pilot(ac, text) {
     logLine('pilot', text);
-    if (!voiceOn || !('speechSynthesis' in window)) return;
+    speak(ac, text);
+}
+function speak(ac, text) {
+    // In multiplayer you hear your own frequencies' pilots.
+    if (!voiceOn || !('speechSynthesis' in window) || (NET && !yours(ac))) return;
     let s = text.split(ac.radio).join(ac.spoken);
     s = s.replace(/heading (\d{3})/g, (_, d) => 'heading ' + d.split('').map(c => DIGIT_WORDS[c]).join(' '));
     s = s.replace(/runway (\d{1,2})([LRC]?)/g, (_, n, side) =>
@@ -1543,10 +1559,12 @@ function crossingUnsafe(ac, cr) {
  */
 function issue(ac, c) {
     if (!ac || ac.gone) return false;
+    // A guest's clearance goes to the host, whose game says it; the readback comes back over the radio.
+    if (NET?.role === 'guest' && !c.ai) { netSend('cmd', { id: ac.id, c: encode(c, { reg: NET.reg, isAc: o => G.aircraft.includes(o) }) }); return true; }
     // Runway crossings are the tower's to give (real life) or Ground's, in coordination with Tower (IFATC 2.2.2).
     const owner = c.cross ? crossOwner(ac) : ac.freq;
-    if (!c.ai && !G.positions.has(owner)) {
-        sys(`${ac.cs} is on ${FREQ_NAME[owner]}, which the system is working.`);
+    if (!c.ai && !actorWorks(owner)) {
+        sys(`${ac.cs} is on ${FREQ_NAME[owner]}, which ${workedBy(owner)} is working.`);
         return false;
     }
     G.aiActing = !!c.ai;
@@ -3778,7 +3796,7 @@ function answer(i) {
 function renderAsk() {
     const el = $('#coord');
     if (!el) return;
-    const q = G && G.coord && G.coord.asks[0];
+    const q0 = G && G.coord && G.coord.asks[0], q = q0 && G.me.has(q0.to) ? q0 : null;
     el.hidden = !q;
     if (!q) return;
     el.innerHTML = `<div class="coord-h">${FREQ_NAME[q.from].toUpperCase()} → ${FREQ_NAME[q.to].toUpperCase()}</div>
@@ -4979,7 +4997,7 @@ function separation() {
                 c.alertBy = 0;
                 if (![a, b].some(x => mine(x) && x.trafficAlertAt >= c.t)) violation(mine(a) ? a : b, 'IFATC 6.2.4', `No traffic alert to ${[a, b].filter(mine).map(x => x.cs).join(' or ')} after the collision alert`);
             }
-            if (a.alarm && (mine(a) || mine(b)) && !c.silenced && G.t - (c.beep || 0) >= 2) { c.beep = G.t; alarmBeep(); }
+            if (a.alarm && (yours(a) || yours(b)) && !c.silenced && G.t - (c.beep || 0) >= 2) { c.beep = G.t; alarmBeep(); }
             if (!c.near && d < 0.5 && dz < 500) {
                 c.near = true;
                 G.score -= 40;
@@ -5061,7 +5079,7 @@ function fieldRadius() {
 /** Home view for the positions you work: the whole scope for Approach, the field for Tower and Ground. */
 function resetView() {
     view.x = 0; view.y = 0;
-    const r = !G || G.positions.has('APP') ? SCOPE_NM + 2 : G.positions.has('GND') && G.ground ? fieldRadius() : 8;
+    const r = !G || G.me.has('APP') ? SCOPE_NM + 2 : G.me.has('GND') && G.ground ? fieldRadius() : 8;
     view.scale = Math.min(view.w, view.h) / 2 / r;
 }
 const toS = (x, y) => [view.w / 2 + (x - view.x) * view.scale, view.h / 2 - (y - view.y) * view.scale];
@@ -5442,7 +5460,7 @@ function drawSurfaceAircraft(a) {
     const [x, y] = toS(a.x, a.y);
     // White, aircraft and tag: the arrival/departure colours blend into the taxiway lines.
     const col = a.color || COLORS.plane;
-    const dim = !mine(a);
+    const dim = !yours(a);
     c.globalAlpha = dim ? 0.6 : 1;
     if (!drawIcon(c, a.type, COLORS.plane, x, y, a.hdg, view.scale)) {
         c.fillStyle = COLORS.plane;
@@ -5657,7 +5675,7 @@ function dropPlan(ac, tgt) {
         return ac.freq === 'GND' ? { label: 'Contact Tower', cmd: { tower: true } } : { label: `Line up and wait ${ac.rwy.id}`, cmd: { luaw: true } };
     }
     if (ac.kind === 'arr' && ac.freq === 'TWR' && ['clear', 'rollout', 'taxi'].includes(ac.state)) {
-        if (!G.positions.has('GND') || tgt.kind !== 'gate') return { label: 'Contact Ground', cmd: { ground: true } };
+        if (!G.me.has('GND') || tgt.kind !== 'gate') return { label: 'Contact Ground', cmd: { ground: true } };
     }
     const plan = planTaxi(ac, tgt);
     if (plan.err) return { err: true, label: cap(plan.err) };
@@ -5672,7 +5690,7 @@ function dropGround(ac, tgt) {
     const p = dropPlan(ac, tgt);
     if (p.err) { sys(`${ac.cs}: ${p.label}.`); return; }
     // Tower working both: an arrival dragged to a gate goes to Ground and gets its taxi in one go.
-    if (p.cmd.ground && G.positions.has('GND') && tgt?.kind === 'gate' && ac.state === 'clear') {
+    if (p.cmd.ground && G.me.has('GND') && tgt?.kind === 'gate' && ac.state === 'clear') {
         if (issue(ac, p.cmd)) issue(ac, { taxi: tgt });
         return;
     }
@@ -5837,7 +5855,7 @@ function bindScope() {
             renderCard(true);
         } else if (d.mode === 'ac' && d.moved && d.hdg != null) {
             // As in Infinite Flight: the heading, then pick the altitude (or keep it) from the ladder.
-            if (mine(d.ac)) altitudeLadder(d.ac, d.hdg, d.scan); else issue(d.ac, { hdg: d.hdg });
+            if (yours(d.ac)) altitudeLadder(d.ac, d.hdg, d.scan); else issue(d.ac, { hdg: d.hdg });
         } else if (d.mode === 'pan' && !d.moved && !d.ac) {
             const f = hitFix(d.sx, d.sy);
             if (f && G.selected && G.selected.state !== 'roll') { issue(G.selected, { direct: f }); }
@@ -5868,7 +5886,7 @@ function select(ac) {
     G.selected = ac;
     if (ac) ac.reminded = false;
     // Tapping an aircraft in a collision alert silences the alarm, not the conflict (IFATC 6.2.4).
-    if (ac?.alarm) for (const [k, c] of G.conf) if (k.split('-').includes(String(ac.id))) c.silenced = true;
+    if (ac?.alarm) for (const [k, c] of G.conf) if (k.split('-').includes(String(ac.id))) { c.silenced = true; NET?.silenced?.add(k); }
     closeLadder(); closeContext();
     renderCard(true);
     renderStrips();
@@ -5893,7 +5911,7 @@ function reminders() {
 }
 
 function statusText(ac) {
-    const on = `On ${FREQ_NAME[ac.freq]}${mine(ac) ? '' : ' (the system)'} · `;
+    const on = `On ${FREQ_NAME[ac.freq]}${yours(ac) ? '' : ` (${workedBy(ac.freq)})`} · `;
     return on + statusDetail(ac);
 }
 function statusDetail(ac) {
@@ -5936,7 +5954,7 @@ let menuPath = [], menuKey = '', menuItems = [], menuTile = null;
  * hl marks what the pilot is asking for or the obvious next call.
  */
 function menuFor(ac) {
-    if (!mine(ac)) return [];
+    if (!yours(ac)) return [];
     const items = [], add = (label, x, hl) => items.push({ label, ...x, hl: !!hl });
     const air = ac.state === 'air';
     if (ac.request) {
@@ -5951,7 +5969,7 @@ function menuFor(ac) {
     }
     if (ac.wxReq) add(`Approve ${ac.wxReq.deg}° ${ac.wxReq.dir === 'L' ? 'left' : 'right'} for weather`, { cmd: { deviate: true } }, true);
     const nextCross = ac.crossReq || (ac.state === 'taxi' && ac.route?.crossings.find(x => !x.cleared));
-    if (nextCross && G.positions.has(crossOwner(ac))) add(`Cross runway ${crossName(nextCross)}${ac.crossReq ? '' : ' (ahead)'}`, { cmd: { cross: true } }, !!ac.crossReq);
+    if (nextCross && G.me.has(crossOwner(ac))) add(`Cross runway ${crossName(nextCross)}${ac.crossReq ? '' : ' (ahead)'}`, { cmd: { cross: true } }, !!ac.crossReq);
     if (air) airMenu(ac, add); else groundMenu(ac, add);
     return items;
 }
@@ -6024,7 +6042,7 @@ function groundMenu(ac, add) {
         const cr = ac.crossReq || ac.route?.crossings.find(x => !x.cleared);
         add('Progressive taxi', { sub: () => [
             ...(ac.prog ? [] : [{ label: 'Expect progressive taxi instructions', cmd: { expectProg: true } }]),
-            ...(cr && G.positions.has(crossOwner(ac)) ? [{ label: `Cross runway ${crossName(cr)}`, cmd: { cross: true } }] : []),
+            ...(cr && G.me.has(crossOwner(ac)) ? [{ label: `Cross runway ${crossName(cr)}`, cmd: { cross: true } }] : []),
             { label: 'Turn left next taxiway', cmd: { prog: 'L' } }, { label: 'Turn right next taxiway', cmd: { prog: 'R' } },
             { label: 'Continue straight ahead', cmd: { prog: 'S' } }, { label: 'Make 180', cmd: { prog: '180' } },
             ...(ac.prog ? [{ label: 'Continue taxi at your discretion', cmd: { discretion: true } }] : []),
@@ -6161,7 +6179,7 @@ function airMenu(ac, add) {
     ] });
     if (ac.kind === 'arr' && !ac.overfly) add('Missed approach instructions', { sub: () => [2000, 3000, 4000].map(h => Math.max(G.world.minAlt, Math.round((G.world.elev + h) / 1000) * 1000))
         .filter((v, i, a) => a.indexOf(v) === i).map(v => ({ label: `Runway heading, climb and maintain ${fmtAlt(v)}`, cmd: { missed: v } })) });
-    if (ac.divReq && mine(ac)) add(`Diversion to ${ac.divReq.icao} (${ac.divReq.d} mi, ${ac.divReq.longest.toLocaleString('en-US')} ft runway)`, { sub: () => [
+    if (ac.divReq && yours(ac)) add(`Diversion to ${ac.divReq.icao} (${ac.divReq.d} mi, ${ac.divReq.longest.toLocaleString('en-US')} ft runway)`, { sub: () => [
         { label: 'Approved, resume own navigation', cmd: { divApprove: 'own' } },
         { label: 'Approved, expect radar vectors', cmd: { divApprove: 'vectors' } },
         { label: 'Unable', cmd: { divDeny: true } },
@@ -6216,7 +6234,7 @@ function holdFixes(ac) {
 }
 /** Hold at a fix: the direction of turns, then the altitude (the speed goes with it, IFATC 6.7.3). */
 const holdMenu = ac => () => holdFixes(ac).map(h => ({ label: h.label, sub: () => ['R', 'L'].map(dir => ({ label: dir === 'L' ? 'Left turns' : 'Right turns',
-    ...(G.rules.id === 'ifatc' && mine(ac) ? { run: () => holdLadder(ac, h.f, dir) } : { cmd: { holdFix: h.f, holdDir: dir } }) })) }));
+    ...(G.rules.id === 'ifatc' && yours(ac) ? { run: () => holdLadder(ac, h.f, dir) } : { cmd: { holdFix: h.f, holdDir: dir } }) })) }));
 function holdLadder(ac, f, dir) {
     if (f.ppos) Object.assign(f, { x: ac.x, y: ac.y });
     const lo = Math.max(1000, Math.ceil((G.world.elev + 1000) / 500) * 500), min = terrainOn() ? mvaHere({ x: f.x, y: f.y }) : 0, vals = [];
@@ -6255,14 +6273,14 @@ function renderCard(force) {
         items = it.sub(); title = p;
     }
     menuTile = top.find(i => i.hl && (i.cmd || i.sub)) || null;
-    const key = `${ac.id}|${mine(ac)}|${menuPath.join('>')}|${items.map(i => i.label + (i.hl ? '*' : '')).join('|')}|${menuTile?.label}`;
+    const key = `${ac.id}|${yours(ac)}|${menuPath.join('>')}|${items.map(i => i.label + (i.hl ? '*' : '')).join('|')}|${menuTile?.label}`;
     if (force || key !== menuKey) {
         menuKey = key; menuItems = items;
         el.innerHTML = `<div class="cm-h"><div><b>${escapeHtml(ac.cs)}</b><small>${escapeHtml(ac.radio)}</small><span>${escapeHtml(typeTag(ac))}</span></div><div class="cm-num" id="cm-num"></div><button type="button" class="cm-x" data-close aria-label="Close">✕</button></div>
             <div class="cm-fpl" id="cm-fpl"></div>
             <div class="cm-st" id="cm-st"></div>
             <div class="cm-list">${menuPath.length ? `<button type="button" class="cm-i back" data-back><span>‹</span>${escapeHtml(title)}</button>` : ''}
-            ${mine(ac) ? items.map((it, i) => `<button type="button" class="cm-i${it.hl ? ' hl' : ''}${it.cmd === null ? ' note' : ''}" data-i="${i}"><span>${i + 1}</span>${escapeHtml(it.label)}${it.sub ? '<i>›</i>' : ''}</button>`).join('') || '<div class="cm-none">Nothing to say right now.</div>'
+            ${yours(ac) ? items.map((it, i) => `<button type="button" class="cm-i${it.hl ? ' hl' : ''}${it.cmd === null ? ' note' : ''}" data-i="${i}"><span>${i + 1}</span>${escapeHtml(it.label)}${it.sub ? '<i>›</i>' : ''}</button>`).join('') || '<div class="cm-none">Nothing to say right now.</div>'
                 : `<div class="cm-none">The system is working ${FREQ_NAME[ac.freq]}. ${ac.cs} reaches your frequency when it's handed off.</div>`}</div>
             ${menuTile && !menuPath.length ? `<div class="cm-tiles"><button type="button" class="cm-tile" data-tile>${escapeHtml(menuTile.label)}</button></div>` : ''}`;
     }
@@ -6287,12 +6305,7 @@ function bindCard() {
     $('#cmdmenu').addEventListener('click', e => {
         const ac = G && G.selected, b = e.target.closest('button');
         if (b && broadcastOpen && !ac) {
-            if (b.dataset.bc != null) {
-                const pos = ['TWR', 'GND', 'APP'].filter(f => G.positions.has(f)).map(f => FREQ_NAME[f]).join('/');
-                const bc = BROADCASTS[Number(b.dataset.bc)];
-                atc(`Attention all aircraft, ${bc[2](pos)}.`);
-                if (bc[0] === 'atis' || bc[0] === 'checkAtis') atisNotified();
-            }
+            if (b.dataset.bc != null) sayBroadcast(Number(b.dataset.bc));
             broadcastOpen = false; menuKey = ''; renderCard(true); renderRail();
             return;
         }
@@ -6379,7 +6392,7 @@ function openContext(ac, sx, sy) {
         el.style.left = Math.min(w.width - el.offsetWidth - 8, r.left - w.left + sx + 18) + 'px';
         el.style.top = Math.max(8, Math.min(w.height - el.offsetHeight - 8, r.top - w.top + sy - 20)) + 'px';
     };
-    const air = ac.state === 'air' && mine(ac);
+    const air = ac.state === 'air' && yours(ac);
     show([
         ...(air ? [{ label: 'Assign Altitude', run: () => altitudeLadder(ac) }] : []),
         ...(air ? [{ label: 'Hold', sub: () => holdFixes(ac).slice(0, 8).map(h => ({ label: h.f.ppos ? 'Present position' : h.f.name, sub: () => ['R', 'L'].map(dir => ({ label: dir === 'L' ? 'Left turns' : 'Right turns',
@@ -6420,12 +6433,12 @@ function renderStrips() {
             if (a.kind === 'dep' && (a.lowAlt || a.wxReq)) what = intentTag(a);
             right = `<span class="l0">${alt3(a.alt)}${Math.abs(a.tAlt - a.alt) > 60 && !a.appr?.loc ? (a.tAlt > a.alt ? '↑' : '↓') + alt3(a.tAlt) : ''}</span><span class="l2">${what}</span>`;
         }
-        const req = mine(a) && wantsYou(a);
-        return `<button class="strip ${a.kind}${a === G.selected ? ' sel' : ''}${a.conflict || a.lowAlt || a.wxReq || a.crossReq || a.emerg ? ' conf' : ''}${a.emerg ? ' emerg' : ''}${mine(a) ? '' : ' sys'}" data-id="${a.id}">
+        const req = yours(a) && wantsYou(a);
+        return `<button class="strip ${a.kind}${a === G.selected ? ' sel' : ''}${a.conflict || a.lowAlt || a.wxReq || a.crossReq || a.emerg ? ' conf' : ''}${a.emerg ? ' emerg' : ''}${yours(a) ? '' : ' sys'}" data-id="${a.id}">
             <span class="bar"></span>
             <span><span class="l1">${a.cs}</span><span class="l2">${typeTag(a)}</span></span>
             <span class="r">${right}</span>
-            <span class="atc${mine(a) ? ' yours' : ''}${req ? ' req' : ''}">ATC${req ? ' (1)' : ''}<i></i></span></button>`;
+            <span class="atc${yours(a) ? ' yours' : ''}${req ? ' req' : ''}">ATC${req ? ' (1)' : ''}<i></i></span></button>`;
     };
     if (onFreq[railView]) {
         const list = G.aircraft.filter(a => onFreq[railView](a) && !(a.state === 'gate' && a.kind === 'arr'));
@@ -6434,14 +6447,22 @@ function renderStrips() {
         return;
     }
     // Your frequencies first, each with its own traffic; then what the system is working.
-    const order = ['APP', 'TWR', 'GND'].filter(f => G.positions.has(f));
+    const order = ['APP', 'TWR', 'GND'].filter(f => G.me.has(f));
     const groups = order.map(f => {
         const list = G.aircraft.filter(a => a.freq === f && !(a.state === 'gate' && a.kind === 'arr'));
         return `<div class="strip-h"><span>${FREQ_NAME[f]}</span><span>${list.length}</span></div>`
             + (list.map(strip).join('') || '<div class="strip-none">Nobody on frequency.</div>');
     });
-    const sysList = G.aircraft.filter(a => !G.positions.has(a.freq) && !(a.state === 'gate' && a.kind === 'arr' && a.parkedUntil));
-    if (sysList.length) groups.push(`<div class="strip-h"><span>With the system</span><span>${sysList.length}</span></div>` + sysList.map(strip).join(''));
+    // In multiplayer, the other controllers' traffic under their names, then the system's.
+    const others = new Map();
+    for (const a of G.aircraft) {
+        if (G.me.has(a.freq) || (a.state === 'gate' && a.kind === 'arr' && a.parkedUntil)) continue;
+        const who = workedBy(a.freq);
+        if (!others.has(who)) others.set(who, []);
+        others.get(who).push(a);
+    }
+    for (const [who, list] of [...others].sort(([a], [b]) => (a === 'the system') - (b === 'the system')))
+        groups.push(`<div class="strip-h"><span>With ${escapeHtml(who)}</span><span>${list.length}</span></div>` + list.map(strip).join(''));
     el.innerHTML = groups.join('');
     renderRail();
 }
@@ -6456,7 +6477,8 @@ function renderHud() {
     const tog = `<button class="hud-tog" type="button" aria-label="${hudMin ? 'Show' : 'Hide'} the airport info">${hudMin ? '+' : '−'}</button>`;
     const testLine = G.test && G.test.t0 != null && !G.test.done ? `<span class="t-hud">PRACTICAL TEST · ${Object.values(G.test.ac).filter(testDone).length}/${TEST_SCRIPT.length} done · ${G.test.events.filter(e => e.sev === 'major').length} major, ${G.test.events.filter(e => e.sev === 'minor').length} minor</span><br>` : G.test && !G.test.done ? '<span class="t-hud">PRACTICAL TEST · waiting for the taxi map…</span><br>' : '';
     if (hudMin) { $('#hud').innerHTML = `${tog}<b>${G.world.icao}</b> ${zulu}${testLine ? '<br>' + testLine : ''}`; return; }
-    $('#hud').innerHTML = `${tog}${testLine}<b>${G.world.icao}</b> ${zulu} · YOU <b>${['APP', 'TWR', 'GND'].filter(f => G.positions.has(f)).join(' ')}</b><br>`
+    $('#hud').innerHTML = `${tog}${testLine}<b>${G.world.icao}</b> ${zulu} · YOU <b>${['APP', 'TWR', 'GND'].filter(f => G.me.has(f)).join(' ')}</b><br>`
+        + (NET ? `ONLINE <b>${NET.session.code}</b> · ${NET.session.players.length} controller${NET.session.players.length > 1 ? 's' : ''}${NET.role === 'host' ? ' · you host' : ''}<br>` : '')
         + `ATIS <b>${PHONETIC[G.atis].toUpperCase()}</b> · A<b>${G.altim}</b><br>`
         + `WIND <b>${hdg3(G.wind.dir)}/${String(G.wind.spd).padStart(2, '0')}${G.met.gust ? 'G' + G.met.gust : ''}</b>${G.opts.weather ? ` · <b>${metText(G.met)}</b>` : ''}<br>`
         + `ARR <b>${G.active.arr.map(e => e.id).join(' ')}</b> · <b>${G.atisCfg.apps.map(t => APP_TAG[t]).join('/')}</b>${G.atisCfg.mode === 'manual' ? ' (set)' : ''}<br>`
@@ -6572,10 +6594,7 @@ let last = 0, acc = 0, uiT = 0;
 function frame(now) {
     const dt = Math.min(0.25, (now - last) / 1000 || 0);
     last = now;
-    if (G && !G.over && G.speed > 0) {
-        acc += dt * G.speed;
-        while (acc >= TICK) { tick(TICK); acc -= TICK; }
-    }
+    simulate(dt);
     if (G) {
         draw();
         if ((uiT += dt) > 0.4) {
@@ -6591,7 +6610,21 @@ function frame(now) {
     requestAnimationFrame(frame);
 }
 
-function setSpeed(s) {
+/** The simulation's share of a frame. A guest's game doesn't run: it draws what the host sends. */
+function simulate(dt) {
+    if (!G || NET?.role === 'guest') return;
+    if (!G.over && G.speed > 0) {
+        acc += dt * G.speed;
+        if (NET) NET.inTick = true;
+        try { while (acc >= TICK) { tick(TICK); acc -= TICK; } } finally { if (NET) NET.inTick = false; }
+    }
+    if (NET?.role === 'host') publishState();
+}
+
+function setSpeed(s, fromHost) {
+    if (NET?.role === 'guest' && !fromHost) { toast('Only the host can pause or change the speed.'); return; }
+    // Online, the shift runs in real time for everyone: paused or 1×.
+    if (NET && s > 1) s = 1;
     G.speed = s;
     if (s > 0) lastSpeed = s;             // tapping PAUSED resumes at this speed
     document.querySelectorAll('#speed button').forEach(b => b.classList.toggle('on', Number(b.dataset.speed) === s));
@@ -6893,6 +6926,8 @@ function startTest(icao) {
 
 function endShift() {
     if (G.test && !G.test.reported) { testReport('Ended before every pilot was handled.'); return; }
+    // Online, the host ending the shift ends the session.
+    if (NET) { net.call('leave').catch(() => {}); NET = null; G.positions = G.me; renderOnline(); }
     G.over = true;
     loading.clear(); busy('', null);
     $('#coord').hidden = true;
@@ -6922,7 +6957,7 @@ function endShift() {
             <button class="btn" id="pick">Pick an airport</button>
         </div></div>`;
     $('#again').onclick = () => startGame(DATA.byIcao.get(G.world.icao), G.level);
-    $('#pick').onclick = () => { $('#game').hidden = true; $('#start').hidden = false; document.body.classList.remove('in-game'); G = null; renderStart(); };
+    $('#pick').onclick = showStart;
 }
 
 function bindGame() {
@@ -6931,7 +6966,7 @@ function bindGame() {
     bindLayers();
     bindAtis();
     bindRail();
-    $('#coord').addEventListener('click', e => { const b = e.target.closest('[data-ans]'); if (b && G) answer(Number(b.dataset.ans)); });
+    $('#coord').addEventListener('click', e => { const b = e.target.closest('[data-ans]'); if (b && G) answerAsk(Number(b.dataset.ans)); });
     // The airport info box folds away to one line. On pointerdown: the box is redrawn several times a second.
     $('#hud').addEventListener('pointerdown', e => {
         if (!e.target.closest('.hud-tog') || !G) return;
@@ -6959,7 +6994,7 @@ function bindGame() {
         segOn(voice, voiceOn ? 1 : 0);
         if (!voiceOn) try { speechSynthesis.cancel(); } catch { /* none */ }
     };
-    $('#end').onclick = () => { if (G && !G.over) endShift(); };
+    $('#end').onclick = () => { if (G && !G.over) { if (NET?.role === 'guest') leaveOnline(); else endShift(); } };
     const icons = $('#icons');
     segOn(icons, iconMode ? 1 : 0);
     icons.onclick = e => { const b = e.target.closest('button'); if (!b) return; iconMode = b.dataset.v === '1'; store.set('icons', iconMode); segOn(icons, iconMode ? 1 : 0); };
@@ -7003,14 +7038,15 @@ function bindGame() {
             if (!list.length) return;
             const i = list.indexOf(G.selected);
             select(list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length]);
-        } else if (G.selected && G.selected.state === 'air' && mine(G.selected)) {
+        } else if (G.selected && G.selected.state === 'air' && yours(G.selected)) {
             // Arrows: a heading 5° (10° with shift) either way, or 1,000 ft up or down, said at once.
             const ac = G.selected, step = e.shiftKey ? 10 : 5;
             if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); issue(ac, { hdg: norm(Math.round(ac.tHdg) + (k === 'ArrowLeft' ? -step : step)) || 360 }); }
             else if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); issue(ac, { alt: clamp(ac.tAlt + (k === 'ArrowUp' ? 1000 : -1000), G.world.minAlt, 24000) }); }
         }
     });
-    document.addEventListener('visibilitychange', () => { if (document.hidden && G && G.speed > 0 && !G.over) togglePause(); });
+    // Online, the others keep working: the host's game runs on in the background instead.
+    document.addEventListener('visibilitychange', () => { if (document.hidden && G && G.speed > 0 && !G.over && !NET) togglePause(); });
 }
 
 // Folded by default on short (sideways phone) screens, where the scope has little room.
@@ -7068,6 +7104,9 @@ async function loadSurface(world, say = () => {}) {
         let ground;
         try { ground = buildGround({ type: 'FeatureCollection', features }, (lat, lon) => world.proj(lat, lon), world.ends); }
         catch (err) { ground = { error: `couldn't be read (${err.message})` }; }
+        // What it was built from, for online guests to build the same one (not enumerable: not map data).
+        const kept = ground.error ? ground.map : ground;
+        if (kept) Object.defineProperty(kept, 'src', { value: features });
         if (ground.error) {
             failures.push(`${source}: ${ground.error}`);
             if (ground.map && (!map || ground.map.lines.length > map.lines.length)) map = ground.map;
@@ -7137,6 +7176,7 @@ function swapGround(up) {
     busy('swap', null);
     sys(`Taxilanes in: the taxi map is now ${up.source} (${gr.summary}).`, 'good');
     renderHud();
+    if (NET?.role === 'host' && NET.pub) { NET.reg = groundRegistry(); sendSurface(); }
 }
 
 /** OpenStreetMap through Overpass: three servers at once, plus the live map's own airport request. Kept on the device per airport. */
@@ -7192,16 +7232,10 @@ async function startGame(airport, level, test) {
     store.set('radar', opts.radar);
     store.set('pattern', opts.pattern);
     }
-    $('#start').hidden = true;
-    document.body.classList.add('in-game');
-    $('#game').hidden = false;
-    window.scrollTo(0, 0);
-    $('#summary').hidden = true;
-    $('#log').innerHTML = '';
-    nextId = 1;
+    showGame();
     // Waypoints and procedures: published (US), hand-built, or generated around the real navaids.
     const [nav, freqs] = await Promise.all([loadNav(airport), loadFreqs(airport.icao)]);
-    newGame(airport, level, { ...opts, ...(test ? TEST_OPTS : {}) }, nav);
+    newGame(airport, level, { ...opts, ...(test ? TEST_OPTS : {}), ...(NET ? { me: opts.positions } : {}) }, nav);
     G.freqs = freqs;
     // The practical: only the scripted pilots, steady wind, the examiner listening.
     if (test) Object.assign(G, { test: { t0: null, ac: {}, failedSpawn: {}, events: [], used: new Set(), done: false }, nextSpawn: Infinity, nextVfr: Infinity, nextWind: Infinity });
@@ -7249,9 +7283,15 @@ async function startGame(airport, level, test) {
     if (!game.ground && game.positions.has('GND')) {
         game.positions.delete('GND');
         if (!game.positions.size) game.positions.add('TWR');
+        if (NET) { game.me = new Set(game.positions); setOnlinePositions([...game.me]); }
         const msg = `No taxi map for ${airport.icao} (${surface.error}), so Ground isn't available this shift. You're on ${[...game.positions].map(f => FREQ_NAME[f]).join(' and ')}.`;
         sys(msg, 'bad');
         toast(msg, 'bad', 9000);
+    }
+    // Online: without a taxi map nobody can take Ground.
+    if (!game.ground && NET?.role === 'host') {
+        NET.meta = { ...NET.meta, noGround: true };
+        net.call('meta', NET.meta).then(r => onRoster(r.session)).catch(() => {});
     }
     resetView();
     if (game.opts.terrain) {
@@ -7261,16 +7301,7 @@ async function startGame(airport, level, test) {
         const d = await dem;
         step('terrain', null);
         if (G !== game) return;
-        if (d) {
-            game.dem = d;
-            game.mva = buildMva(d, game.world.minAlt, undefined, game.rules.id === 'ifatc');
-            // Each gate's exit altitude clears the highest MVA within 10 miles of it.
-            for (const f of game.world.fixes.filter(f => f.kind === 'dep')) {
-                let hi = 0;
-                for (let dy = -10; dy <= 10; dy++) for (let dx = -10; dx <= 10; dx++) if (dx * dx + dy * dy <= 100) hi = Math.max(hi, mvaAt(game.mva, f.x + dx, f.y + dy));
-                f.exitAlt = Math.max(game.world.exitAlt, Math.ceil(hi / 1000) * 1000);
-            }
-        }
+        if (d) applyTerrain(game, d);
         else sys('Terrain could not be loaded, so the MVA is one altitude for the whole scope.', 'bad');
     } else {
         dem.then(d => { if (G === game && d) game.dem = d; });
@@ -7284,7 +7315,450 @@ async function startGame(airport, level, test) {
     seedTraffic(game.opts.start === 'none' ? 0 : game.opts.start === 'set' ? game.opts.startN : Math.round(rand(2, TRAFFIC[level].max * 0.7)));
     const u = new URL(location.href);
     u.searchParams.set('airport', airport.icao);
+    u.searchParams.delete('join');
     history.replaceState(null, '', u);
+    if (NET?.role === 'host' && G === game) hostReady();
+}
+
+function showGame() {
+    $('#start').hidden = true;
+    document.body.classList.add('in-game');
+    $('#game').hidden = false;
+    window.scrollTo(0, 0);
+    $('#summary').hidden = true;
+    $('#log').innerHTML = '';
+    nextId = 1;
+    renderOnline();
+}
+
+function showStart() {
+    $('#game').hidden = true;
+    $('#start').hidden = false;
+    document.body.classList.remove('in-game');
+    G = null;
+    renderStart();
+}
+
+function applyTerrain(game, d) {
+    game.dem = d;
+    game.mva = buildMva(d, game.world.minAlt, undefined, game.rules.id === 'ifatc');
+    // Each gate's exit altitude clears the highest MVA within 10 miles of it.
+    for (const f of game.world.fixes.filter(f => f.kind === 'dep')) {
+        let hi = 0;
+        for (let dy = -10; dy <= 10; dy++) for (let dx = -10; dx <= 10; dx++) if (dx * dx + dy * dy <= 100) hi = Math.max(hi, mvaAt(game.mva, f.x + dx, f.y + dy));
+        f.exitAlt = Math.max(game.world.exitAlt, Math.ceil(hi / 1000) * 1000);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Online: one controller per frequency                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Multiplayer. The host's game runs the shift; a guest's game draws what it
+ * sends (approachSync.js) and sends its clearances back to be said there. The
+ * lobby (approach_mp.cjs in the backend) holds one controller per frequency:
+ * nobody can take Ground, Tower or Approach while someone else has it, and
+ * whatever nobody has, the system works, as it does alone. Public sessions are
+ * listed on the start screen; private ones are joined with their code.
+ */
+let NET = null;     // { role: 'host'|'guest', session, you, regW, reg, pub | sub, actor, inTick, ... }
+const NOTE_KINDS = new Set(['sys', 'bad', 'good']);
+/** Each player's own: tag colour and placement, reminders, and where the canvas drew the label. */
+const LOCAL_AC = ['box', 'color', 'tagPos', 'remindAt', 'reminded'];
+/** Not sent: map data both sides build (the taxi map is sent once, as features), and the host's own view and loading. */
+const LOCAL_G = ['world', 'ground', 'surfaceMap', 'pendingGround', 'dem', 'mva', 'relief', 'tiles', 'selected', 'aircraft', 'test',
+    'airport', 'rules', 'freqs', 'aiActing', 'frame', 'me', 'opts', 'level', 'surfaceStatus', 'procSel'];
+/** Caches filled in during play: they'd number differently on each side. */
+const REG_SKIP = ['xing', 'proj', 'procs'];
+const PUB_MS = 250, SURF_CHUNK = 200000;
+
+const netSend = (type, data, to) => net.send(type, data, to);
+const playerName = () => ($('#mp-name')?.value || '').trim().slice(0, 20) || 'Controller';
+const groundRegistry = () => buildRegistry({ g: G.ground || null }, { base: 1e6, into: NET.regW });
+const allPositions = session => [...new Set(session.players.flatMap(p => p.positions))];
+
+/** Who works a frequency: "you", another controller's name, or "the system". */
+function workedBy(f) {
+    const p = NET?.session.players.find(p => p.positions.includes(f));
+    if (!p) return G?.me.has(f) ? 'you' : 'the system';
+    return p.id === (NET.actor ? NET.actor.id : NET.you) ? 'you' : p.name;
+}
+/** May whoever is giving this clearance (you, or the guest whose message the host is acting on) work this frequency? */
+const actorWorks = f => (NET?.actor ? NET.actor.positions.has(f) : G.me.has(f));
+
+let netBound = false;
+async function listen() {
+    if (netBound) return;
+    netBound = true;
+    const s = await net.socket();
+    s.on('roster', onRoster);
+    s.on('msg', m => (NET?.role === 'host' ? onHostMsg(m.from, m.type, m.data) : onGuestMsg(m.type, m.data)));
+    s.on('closed', e => { if (NET?.role === 'guest') guestEnded(e?.reason || 'The session ended.'); });
+    s.on('disconnect', () => {
+        if (NET?.role === 'guest') guestEnded('Lost the connection to the session.');
+        else if (NET?.role === 'host') {
+            NET = null;
+            if (G) { G.positions = G.me; sys('Lost the connection to the multiplayer server, so the session has ended. The system has the other frequencies again.', 'bad'); renderOnline(); renderHud(); }
+        }
+    });
+}
+
+const onlineMeta = () => ({
+    icao: chosen.icao, name: chosen.name.slice(0, 80), level, rules: opts.rules,
+    opts: { terrain: opts.terrain, weather: opts.weather, radar: opts.radar, pattern: opts.pattern, emerg: opts.emerg },
+});
+
+async function hostOnline(visibility) {
+    if (!chosen) { toastStart('Choose an airport first.'); return; }
+    store.set('mpName', playerName());
+    try {
+        const r = await net.call('host', { name: playerName(), visibility, positions: opts.positions, meta: onlineMeta() });
+        NET = { role: 'host', session: r.session, you: r.you, pending: new Set(), lastPub: 0, meta: onlineMeta() };
+        await listen();
+    } catch (err) { toastStart(err.message); return; }
+    await startGame(chosen, level);
+    sys(`Online: session ${NET?.session.code} is open (${visibility}). Others join from the start screen${visibility === 'private' ? ' with the code' : ''}; each takes a frequency nobody has. Settings has the invite link.`, 'good');
+}
+
+/** The shift is set up: number the map, and let in anyone who arrived while it loaded. */
+function hostReady() {
+    NET.regW = buildRegistry({ s: SIZE, w: G.world }, { skip: REG_SKIP });
+    NET.reg = groundRegistry();
+    NET.pub = new Publisher({ skipAc: LOCAL_AC, skipG: LOCAL_G });
+    for (const id of NET.pending) welcome(id, false);
+    NET.pending.clear();
+}
+
+function welcome(id, resync) {
+    if (!resync) sendSurface(id);
+    netSend('full', { ...NET.pub.full(), counts: [NET.regW.count, NET.reg.count] }, id);
+}
+
+/** The taxi map, as the features it was built from, in pieces small enough for the relay. To one guest, or everyone. */
+function sendSurface(to) {
+    const src = G.ground?.src || G.surfaceMap?.src || null;
+    const txt = JSON.stringify({ features: src, status: G.surfaceStatus || '' });
+    const n = Math.max(1, Math.ceil(txt.length / SURF_CHUNK)), id = NET.surfId = (NET.surfId || 0) + 1;
+    for (let i = 0; i < n; i++) netSend('surface', { id, i, n, part: txt.slice(i * SURF_CHUNK, (i + 1) * SURF_CHUNK) }, to);
+}
+
+function publishState() {
+    if (!NET.pub || !G) return;
+    const now = performance.now();
+    if (now - NET.lastPub < PUB_MS) return;
+    NET.lastPub = now;
+    const acs = new Set(G.aircraft);
+    const m = NET.pub.diff(G.aircraft, G, { reg: NET.reg, isAc: o => acs.has(o) });
+    if (m) netSend('state', m);
+}
+
+/** A guest's message: said on the host, as that guest, on that guest's frequencies only. */
+function onHostMsg(from, type, data) {
+    if (!G || !NET) return;
+    if (type === 'hello') { if (NET.pub) welcome(from, !!data?.resync); else NET.pending.add(from); return; }
+    const p = NET.session.players.find(x => x.id === from);
+    if (!p || G.over) return;
+    NET.actor = { id: from, name: p.name, positions: new Set(p.positions) };
+    try {
+        const ctx = { reg: NET.reg, ac: id => G.aircraft.find(a => a.id === id) };
+        if (type === 'cmd') {
+            const ac = ctx.ac(data?.id), c = decode(data?.c, ctx);
+            if (!c || typeof c !== 'object' || Array.isArray(c)) return;
+            delete c.ai;
+            if (ac) issue(ac, c); else sys('That aircraft has left.');
+        } else if (type === 'answer') {
+            const q = G.coord?.asks[0];
+            if (q && q.text === data?.text && actorWorks(q.to)) answer(Number(data.i));
+        } else if (type === 'bcast') sayBroadcast(Number(data?.i));
+        else if (type === 'atis') {
+            const d = decode(data?.d, {});
+            if (d && Array.isArray(d.remarks) && Array.isArray(d.apps) && d.apps.length) broadcastAtis(d);
+        }
+    } catch (err) {
+        console.warn('[approach] couldn\'t act on a guest\'s message', type, err);
+    } finally { NET.actor = null; }
+}
+
+/** Who has what changed: the host's game hands the frequencies nobody has to the system. */
+function onRoster(session) {
+    if (!NET) return;
+    const before = NET.session;
+    NET.session = session;
+    if (!G) return;
+    const me = session.players.find(p => p.id === NET.you);
+    if (me) G.me = new Set(me.positions);
+    if (NET.role === 'host') G.positions = new Set(allPositions(session));
+    const names = list => list.map(f => FREQ_NAME[f]).join(' and ');
+    const was = new Map(before.players.map(p => [p.id, p]));
+    for (const p of session.players) {
+        if (p.id === NET.you) continue;
+        const old = was.get(p.id);
+        if (!old) sys(`${p.name} joined on ${names(p.positions)}.`, 'good');
+        else if (old.positions.join() !== p.positions.join()) sys(`${p.name} now works ${names(p.positions)}.`);
+        was.delete(p.id);
+    }
+    for (const p of was.values()) {
+        if (p.id === NET.you) continue;
+        const freed = p.positions.filter(f => !allPositions(session).includes(f));
+        sys(`${p.name} left.${freed.length ? ` The system has ${names(freed)} now.` : ''}`);
+    }
+    menuKey = '';
+    renderOnline(); renderHud(); renderStrips(); renderCard(true); renderAsk();
+}
+
+function setOnlinePositions(list) {
+    net.call('positions', list).then(r => onRoster(r.session)).catch(err => { toast(err.message, 'bad', 4000); if (err.session) onRoster(err.session); });
+}
+
+/* ---- the guest's side ---- */
+
+async function joinOnline(code, positions) {
+    if (!DATA) return;
+    store.set('mpName', playerName());
+    try {
+        const r = await net.call('join', { code, name: playerName(), positions });
+        const meta = r.session.meta;
+        if (!DATA.byIcao.get(meta.icao)) { net.call('leave').catch(() => {}); toastStart(`${meta.icao} isn't in this game's airport list.`); return; }
+        NET = { role: 'guest', session: r.session, you: r.you, sub: new Subscriber({ keepAc: LOCAL_AC }), silenced: new Set(), surf: null, queued: null };
+        await listen();
+    } catch (err) { toastStart(err.message); listOnline(); return; }
+    await startGuest();
+}
+
+async function startGuest() {
+    const meta = NET.session.meta, airport = DATA.byIcao.get(meta.icao), host = NET.session.players.find(p => p.host);
+    showGame();
+    const [nav, freqs] = await Promise.all([loadNav(airport), loadFreqs(airport.icao)]);
+    if (NET?.role !== 'guest') return;
+    const me = NET.session.players.find(p => p.id === NET.you);
+    newGame(airport, meta.level, { ...opts, ...meta.opts, rules: meta.rules, positions: allPositions(NET.session), me: me ? me.positions : [] }, nav);
+    const game = G;
+    Object.assign(G, { freqs, speed: 0, surfaceStatus: 'from the host…' });
+    railView = null; railHtml = '';
+    renderLayers(); renderAsk();
+    loading.clear(); busy('', null);
+    fitView(); resetView();
+    menuKey = '';
+    renderCard(true);
+    setSpeed(0, true);
+    busy('surface', `Joining ${host ? host.name + '\'s' : 'the'} shift`);
+    sys(`Joining ${meta.icao} online, session ${NET.session.code}${host ? ` hosted by ${host.name}` : ''}…`);
+    NET.regW = buildRegistry({ s: SIZE, w: G.world }, { skip: REG_SKIP });
+    netSend('hello', {});
+    // The terrain map for the MVAs, as the host has it.
+    const dem = loadDem(airport.lat, airport.lon).catch(() => null);
+    const d = await dem;
+    if (G === game && d) { if (game.opts.terrain) applyTerrain(game, d); else game.dem = d; }
+}
+
+function onGuestMsg(type, data) {
+    if (!G || NET?.role !== 'guest' || !data) return;
+    if (type === 'surface') guestSurface(data);
+    else if (type === 'log') {
+        logLine(data.k, data.x);
+        const a = data.k === 'pilot' && G.aircraft.find(x => data.x.includes(x.radio));
+        if (a) speak(a, data.x);
+    } else if (type === 'full' && !NET.reg) NET.queued = data;      // before the taxi map: held until it's built
+    else if ((type === 'state' || type === 'full') && NET.reg) guestState(data);
+}
+
+function guestSurface(data) {
+    if (!NET.surf || NET.surf.id !== data.id) NET.surf = { id: data.id, parts: [], got: 0 };
+    if (NET.surf.parts[data.i] == null) NET.surf.got++;
+    NET.surf.parts[data.i] = data.part;
+    if (NET.surf.got < data.n) return;
+    const { features, status } = JSON.parse(NET.surf.parts.join(''));
+    NET.surf = null;
+    let ground = null, map = null;
+    if (features) {
+        let gr;
+        try { gr = buildGround({ type: 'FeatureCollection', features }, (lat, lon) => G.world.proj(lat, lon), G.world.ends); }
+        catch (err) { gr = { error: err.message }; }
+        if (gr.error) map = gr.map || null; else ground = gr;
+    }
+    const first = !NET.reg;
+    Object.assign(G, { ground, surfaceMap: ground || map, surfaceStatus: status });
+    NET.reg = groundRegistry();
+    busy('surface', null);
+    if (!first) return;
+    resetView();
+    if (NET.queued) { const q = NET.queued; NET.queued = null; guestState(q); }
+}
+
+function guestState(msg) {
+    const speed = G.speed, ask = askKey();
+    const r = NET.sub.apply(msg, G, NET.reg);
+    if (r.missed) { netSend('hello', { resync: true }); return; }
+    if (r.stale) return;
+    G.aircraft = r.aircraft;
+    if (G.selected && !G.aircraft.includes(G.selected)) select(null);
+    if (G.speed !== speed) setSpeed(G.speed, true);
+    if (askKey() !== ask) renderAsk();
+    if (msg.full && !NET.started) {
+        NET.started = true;
+        if (msg.counts && (msg.counts[0] !== NET.regW.count || msg.counts[1] !== NET.reg.count))
+            sys('Your copy of the map differs a little from the host\'s, so a few details (a gate or a fix) may not match.', 'bad');
+        const yoursNow = ['APP', 'TWR', 'GND'].filter(f => G.me.has(f)).map(f => FREQ_NAME[f]).join(' and ');
+        sys(`You're working ${yoursNow}. ${NET.session.players.filter(p => p.id !== NET.you).map(p => `${p.name} has ${p.positions.map(f => FREQ_NAME[f]).join(' and ')}`).join('; ')}; the system works the rest. Only the host can pause.`);
+        renderHud();
+    }
+    // The collision alarm, for a conflict with one of yours (IFATC 6.2.4), until you tap one of them.
+    if (G.conf && G.t - (NET.beepAt || 0) >= 2) for (const [k, c] of G.conf) {
+        const pair = k.split('-').map(Number).map(id => G.aircraft.find(a => a.id === id));
+        if (pair.some(a => a?.alarm) && pair.some(a => a && yours(a)) && !c.silenced && !NET.silenced.has(k)) { NET.beepAt = G.t; alarmBeep(); break; }
+    }
+}
+
+const askKey = () => { const q = G?.coord?.asks?.[0]; return q ? q.to + q.text : ''; };
+
+function guestEnded(reason) {
+    NET = null;
+    if (!G) return;
+    G.over = true;
+    loading.clear(); busy('', null);
+    $('#coord').hidden = true;
+    const el = $('#summary');
+    el.hidden = false;
+    el.innerHTML = `<div class="summary-card">
+        <h2>Session over at ${G.world.icao}</h2>
+        <div class="muted" style="color:var(--muted)">${escapeHtml(reason)}</div>
+        <div class="big">${G.score}</div>
+        <div>Team score</div>
+        <div class="grid">
+            <div>Landed <b>${G.stats.landed}</b></div>
+            <div>Departed <b>${G.stats.departed}</b></div>
+            <div>Separation losses <b>${G.stats.incidents}</b></div>
+            <div>Go-arounds <b>${G.stats.goArounds}</b></div>
+            <div>Rule violations <b>${G.stats.violations}</b></div>
+        </div>
+        <div class="btn-row"><button class="btn primary" id="pick">Back to the start</button></div></div>`;
+    $('#pick').onclick = showStart;
+    renderOnline();
+}
+
+async function leaveOnline() {
+    net.call('leave').catch(() => {});
+    NET = null;
+    showStart();
+}
+
+/* ---- actions a guest sends to the host ---- */
+
+function answerAsk(i) {
+    if (NET?.role === 'guest') {
+        const q = G.coord?.asks[0];
+        if (q) netSend('answer', { i, text: q.text });
+        $('#coord').hidden = true;
+        return;
+    }
+    answer(i);
+}
+
+function sayBroadcast(i) {
+    if (NET?.role === 'guest') { netSend('bcast', { i }); return; }
+    const bc = BROADCASTS[i];
+    if (!bc) return;
+    const pos = ['TWR', 'GND', 'APP'].filter(actorWorks).map(f => FREQ_NAME[f]).join('/');
+    atc(`Attention all aircraft, ${bc[2](pos)}.`);
+    if (bc[0] === 'atis' || bc[0] === 'checkAtis') atisNotified();
+}
+
+function publishAtis(d) {
+    if (NET?.role === 'guest') { netSend('atis', { d: encode(d, {}) }); return; }
+    broadcastAtis(d);
+}
+
+/* ---- the online controls: in the game (settings) and on the start screen ---- */
+
+function renderOnline() {
+    const on = !!NET;
+    $('#mp-set').hidden = !on;
+    for (const b of document.querySelectorAll('#speed [data-speed]')) b.hidden = !!NET && Number(b.dataset.speed) > 1;
+    $('#end').textContent = NET?.role === 'guest' ? 'Leave session' : NET ? 'End session' : 'End shift';
+    if (!on) return;
+    $('#mp-code-v').textContent = NET.session.code;
+    $('#mp-vis').textContent = NET.session.visibility === 'private' ? 'private' : 'public';
+    for (const b of document.querySelectorAll('#mp-pos [data-pos]')) {
+        const f = b.dataset.pos, p = NET.session.players.find(x => x.positions.includes(f));
+        const mineF = p?.id === NET.you, noMap = f === 'GND' && NET.session.meta.noGround;
+        b.classList.toggle('on', mineF);
+        b.disabled = (!!p && !mineF) || (noMap && !mineF);
+        b.title = noMap && !p ? 'No taxi map this shift' : p && !mineF ? `${p.name} has ${FREQ_NAME[f]}` : mineF ? `Give ${FREQ_NAME[f]} back to the system` : `Take ${FREQ_NAME[f]}`;
+        b.querySelector('small').textContent = p && !mineF ? p.name : mineF ? 'you' : noMap ? 'no map' : 'free';
+    }
+}
+
+function bindOnline() {
+    $('#mp-name').value = store.get('mpName', '');
+    $('#mp-public').onclick = () => hostOnline('public');
+    $('#mp-private').onclick = () => hostOnline('private');
+    $('#mp-join').onclick = () => peekOnline($('#mp-code').value);
+    $('#mp-code').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); peekOnline($('#mp-code').value); } });
+    $('#mp-refresh').onclick = () => listOnline();
+    $('#online').addEventListener('toggle', () => { if ($('#online').open) listOnline(); });
+    // A free frequency in a listed (or looked-up) session: join on it.
+    const pick = e => {
+        const b = e.target.closest('[data-join]');
+        if (b && !b.disabled) joinOnline(b.dataset.join, [b.dataset.pos]);
+    };
+    $('#mp-list').addEventListener('click', pick);
+    $('#mp-found').addEventListener('click', pick);
+    $('#mp-pos').addEventListener('click', e => {
+        const b = e.target.closest('[data-pos]');
+        if (!b || !NET || !G) return;
+        const f = b.dataset.pos, have = [...G.me];
+        if (have.includes(f) && have.length === 1) { toast('Keep at least one frequency (or leave the session).'); return; }
+        setOnlinePositions(have.includes(f) ? have.filter(x => x !== f) : [...have, f]);
+    });
+    $('#mp-copy').onclick = () => {
+        if (!NET) return;
+        const link = `${location.origin}${location.pathname}?join=${NET.session.code}`;
+        const done = () => toast(`Invite copied: ${link}`);
+        navigator.clipboard?.writeText(link).then(done, () => toast(`Invite: ${link}`, '', 8000)) ?? toast(`Invite: ${link}`, '', 8000);
+    };
+    setInterval(() => { if ($('#online').open && !$('#start').hidden && !document.hidden) listOnline(true); }, 15000);
+    // Online, the host's game keeps running in a background tab, where the browser stops drawing frames.
+    let bgLast = 0;
+    setInterval(() => {
+        const now = performance.now();
+        if (document.hidden && NET?.role === 'host') simulate(Math.min(2, (now - (bgLast || now)) / 1000));
+        bgLast = now;
+    }, 500);
+    const code = new URLSearchParams(location.search).get('join');
+    if (code) { $('#online').open = true; $('#mp-code').value = code.toUpperCase(); peekOnline(code); }
+}
+
+/** A session as a row: the airport, the host, the rules, and a button per frequency (taken ones show who has them). */
+function sessionRow(s) {
+    const host = s.players.find(p => p.host);
+    const pos = ['GND', 'TWR', 'APP'].map(f => {
+        const p = s.players.find(x => x.positions.includes(f)), noMap = !p && f === 'GND' && s.meta.noGround;
+        return `<button type="button" class="mp-f${p || noMap ? ' taken' : ''}" data-join="${s.code}" data-pos="${f}"${p || noMap ? ' disabled' : ''} title="${p ? escapeHtml(p.name) + ' has ' + FREQ_NAME[f] : noMap ? 'No taxi map this shift' : 'Join on ' + FREQ_NAME[f]}">${FREQ_NAME[f]}<small>${p ? escapeHtml(p.name) : noMap ? 'no map' : 'free'}</small></button>`;
+    }).join('');
+    return `<div class="mp-s"><div class="mp-s-h"><b>${escapeHtml(s.meta.icao)}</b> <span>${escapeHtml(s.meta.name || '')}</span></div>
+        <div class="mp-s-sub">${escapeHtml(host?.name || '?')} · ${s.meta.rules === 'ifatc' ? 'Infinite Flight' : 'Real-life'} rules · ${TRAFFIC_NAME[s.meta.level] || ''} traffic${s.visibility === 'private' ? ' · private' : ''}</div>
+        <div class="mp-fs">${pos}</div></div>`;
+}
+
+async function listOnline(quiet) {
+    const el = $('#mp-list');
+    if (!quiet) el.innerHTML = '<div class="loading">Looking for sessions…</div>';
+    try {
+        const { sessions } = await net.call('list');
+        el.innerHTML = sessions.length ? sessions.map(sessionRow).join('') : '<div class="mp-none">No public sessions right now. Host one!</div>';
+    } catch (err) { el.innerHTML = `<div class="mp-none">${escapeHtml(err.message)}</div>`; }
+}
+
+async function peekOnline(code) {
+    code = String(code || '').trim().toUpperCase();
+    const el = $('#mp-found');
+    if (!code) { el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="loading">Looking up the code…</div>';
+    try {
+        const { session } = await net.call('peek', code);
+        el.innerHTML = session.free.length ? sessionRow(session) : `<div class="mp-none">Every frequency in ${code} is taken.</div>` + sessionRow(session);
+    } catch (err) { el.innerHTML = `<div class="mp-none">${escapeHtml(err.message)}</div>`; }
 }
 
 /* ---- start screen ---- */
@@ -7455,6 +7929,7 @@ async function init() {
         });
     }
     $('#go').onclick = () => { if (chosen) startGame(chosen, level); };
+    bindOnline();
     new ResizeObserver(drawStartMap).observe($('#ctl-map'));
 
     try {
@@ -7470,7 +7945,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly, divertTarget, finalGapAhead, closingOn, perf, downwindNm, startTest, testDone, surfaceTag, towerInbound, departureNumber };
+    window.approach = { get G() { return G; }, get NET() { return NET; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly, divertTarget, finalGapAhead, closingOn, perf, downwindNm, startTest, testDone, surfaceTag, towerInbound, departureNumber };
 }
 
 init();

@@ -134,6 +134,33 @@
         .opt-row > span { font-size: .86rem; color: var(--ink2); }
         .opt-note { margin: 8px 0 0; color: var(--muted); font-size: .76rem; line-height: 1.45; }
         .opt-note b { color: var(--ink); }
+        /* Online: host or join a session; one controller per frequency. */
+        .online-sec summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: baseline; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+        .online-sec summary small { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: .72rem; }
+        .online-sec summary::after { content: '▸'; }
+        .online-sec[open] summary::after { content: '▾'; }
+        .online-sec input { height: 34px; min-width: 0; flex: 1; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); padding: 0 10px; font-size: .84rem; }
+        .mp-me { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: .8rem; color: var(--ink2); }
+        .mp-host, .mp-join { display: flex; gap: 6px; margin-top: 10px; }
+        .mp-host .btn { flex: 1; }
+        .mp-join input { font-family: var(--mono); text-transform: uppercase; letter-spacing: .12em; }
+        .mp-refresh { color: var(--muted); font-size: .9rem; padding: 0 4px; }
+        .mp-list, #mp-found { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+        .mp-s { background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 8px 10px; }
+        .mp-s-h { font-size: .84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .mp-s-h b { font-family: var(--mono); }
+        .mp-s-h span, .mp-s-sub { color: var(--muted); font-size: .74rem; }
+        .mp-fs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 6px; }
+        .mp-f { display: flex; flex-direction: column; align-items: center; padding: 5px 4px; border-radius: 7px; background: rgba(94,224,138,.12); border: 1px solid rgba(94,224,138,.35); font-size: .76rem; font-weight: 700; }
+        .mp-f small { font-weight: 500; font-size: .66rem; color: var(--ink2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mp-f:hover:not(:disabled) { background: rgba(94,224,138,.22); }
+        .mp-f.taken { background: transparent; border-color: rgba(255,255,255,.08); color: var(--muted); cursor: not-allowed; }
+        .mp-none { color: var(--muted); font-size: .78rem; padding: 4px 0; }
+        .mp-code b { font-family: var(--mono); letter-spacing: .12em; }
+        .mp-code small { color: var(--muted); }
+        .mp-pos button { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+        .mp-pos button small { font-family: Inter, system-ui, sans-serif; font-size: .6rem; font-weight: 500; color: var(--muted); max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mp-pos button:disabled { opacity: .55; cursor: not-allowed; }
         .howto summary { cursor: pointer; list-style: none; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
         .howto summary::after { content: ' ▸'; }
         .howto[open] summary::after { content: ' ▾'; }
@@ -664,6 +691,20 @@
                     <div class="opt-row" id="emerg-row"><span id="emerg-h" title="Now and then a mayday or pan-pan: priority, and the runway closes for two minutes after.">Emergencies</span><div class="seg" id="opt-emerg"><button data-v="off">Off</button><button data-v="on" class="on">Rare</button></div></div>
                 </div>
 
+                <details class="ctl-sec online-sec" id="online">
+                    <summary>Online <small>one controller per frequency</small></summary>
+                    <div class="mp-me"><label for="mp-name">Your name</label><input id="mp-name" maxlength="20" placeholder="Controller" autocomplete="nickname" spellcheck="false"></div>
+                    <div class="mp-host">
+                        <button type="button" class="btn" id="mp-public">Host public</button>
+                        <button type="button" class="btn" id="mp-private">Host private</button>
+                    </div>
+                    <p class="opt-note">Hosting opens the airport and options above, on the frequencies you picked. Others take the ones nobody has: two controllers can never share a frequency, and the system works whatever's free. Public sessions are listed here for anyone; a private one is joined only with its code.</p>
+                    <div class="mp-join"><input id="mp-code" maxlength="6" placeholder="Session code" autocomplete="off" spellcheck="false" aria-label="Session code"><button type="button" class="btn" id="mp-join">Find</button></div>
+                    <div id="mp-found"></div>
+                    <h3 class="sub">Public sessions <button type="button" class="mp-refresh" id="mp-refresh" aria-label="Refresh">↻</button></h3>
+                    <div class="mp-list" id="mp-list"></div>
+                </details>
+
                 <details class="ctl-sec howto">
                     <summary>How to play</summary>
                     <div><b>Tap</b> an aircraft (or its strip) for its commands, laid out as in the Infinite Flight ATC client: a numbered menu, with the pilot's request in green and the likely next call as a tile. The log shows only that aircraft's radio while it's selected.</div>
@@ -713,6 +754,12 @@
                 <div class="srow"><span>Map</span><div class="seg" id="style"><button type="button" data-v="radar">Radar</button><button type="button" data-v="chart">Chart</button></div></div>
                 <div class="srow"><span>Traffic</span><div class="seg" id="icons"><button type="button" data-v="0">Targets</button><button type="button" data-v="1">Aircraft</button></div></div>
                 <div class="srow"><span>Voice</span><div class="seg" id="voice"><button type="button" data-v="0">Off</button><button type="button" data-v="1">On</button></div></div>
+                <div class="mp-set" id="mp-set" hidden>
+                    <div class="srow"><span>Online</span><span class="mp-code"><b id="mp-code-v"></b> <small id="mp-vis"></small></span><button type="button" class="btn" id="mp-copy">Copy invite</button></div>
+                    <div class="srow"><span>Yours</span><div class="seg mp-pos" id="mp-pos">
+                        <button type="button" data-pos="GND">GND<small></small></button><button type="button" data-pos="TWR">TWR<small></small></button><button type="button" data-pos="APP">APP<small></small></button>
+                    </div></div>
+                </div>
                 <div class="srow btns"><button type="button" class="btn" id="layers-btn">Map layers…</button><button type="button" class="btn warn" id="end">End shift</button></div>
             </div>
             <div class="toast" id="toast"></div>

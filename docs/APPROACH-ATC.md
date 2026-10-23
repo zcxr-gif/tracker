@@ -30,6 +30,36 @@ It is laid out like Infinite Flight's Control screen:
 While an aircraft is selected in a shift, the log shows only its radio:
 its calls and yours to it.
 
+## Online
+
+**Online** on the start screen hosts a session or joins one. Each session is
+one airport with up to three controllers, **one per frequency**: nobody can
+take Ground, Tower or Approach while someone else in the session has it. A
+controller may hold more than one, and the system works whatever nobody holds,
+as it does when you play alone.
+
+- **Host public** lists the session for anyone; **Host private** gives a
+  six-character code to share (Settings → Copy invite has a link). Hosting
+  uses the airport, traffic, rules and options on the start screen, on the
+  frequencies you picked.
+- To join, pick a free frequency in a listed session, or find one by its code.
+  Taken frequencies show who has them. Settings → Yours takes another free
+  one or gives one back to the system.
+- The host's game runs the shift and the others' games show it. A guest's
+  clearance is said in the host's game, and only on that guest's frequencies:
+  an aircraft on someone else's frequency answers "which Ana is working".
+- Everyone hears the radio. The game's notes about a clearance go only to
+  whoever gave it; what happens in the shift goes to everyone. The score is
+  the team's.
+- Online, the shift runs in real time: only the host can pause, and there's
+  no 2×–4×. The host's game keeps running in a background tab.
+- The host ending the shift ends the session. A guest leaving hands their
+  frequencies back to the system. With no taxi map at the airport, nobody can
+  take Ground.
+
+The lobby is `approach_mp.cjs` in the ACARS backend; the state sync is
+`approachSync.js` (test: `node tools/test-approach-sync.mjs`).
+
 `approach.html` / `approachGame.js` model a US terminal radar (TRACON)
 controller who is also working the tower. Where the game models a rule, it
 follows FAA Order JO 7110.65 (*Air Traffic Control*). This file lists each
