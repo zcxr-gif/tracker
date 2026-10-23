@@ -467,6 +467,27 @@
         .summary-card .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 14px 0 18px; text-align: left; font-size: .86rem; color: var(--ink2); }
         .summary-card .grid b { color: var(--ink); font-family: var(--mono); float: right; }
         .summary-card .btn-row { justify-content: center; }
+        .test-aps { display: flex; flex-wrap: wrap; gap: 6px; }
+        .test-aps .btn small { color: var(--muted); font-weight: 500; }
+        .t-hud { color: var(--gold); font-weight: 700; }
+        .test-report { width: min(560px, 100%); max-height: 100%; overflow: auto; text-align: left; }
+        .test-report h2, .test-report > div:not(.btn-row) { text-align: center; }
+        .test-report h3 { margin: 16px 0 6px; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+        .t-ok { color: var(--good, #3ddc97) !important; }
+        .t-fail { color: var(--bad, #ff5468) !important; }
+        .t-minor { color: var(--gold); }
+        .t-na { color: var(--muted); }
+        .t-auto { color: var(--bad, #ff5468); font-weight: 600; }
+        .t-elements { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: .84rem; }
+        .t-elements td { padding: 7px 4px; border-top: 1px solid var(--line); vertical-align: top; }
+        .t-elements td:last-child { text-align: right; white-space: nowrap; }
+        .t-elements small { color: var(--muted); }
+        .t-events { list-style: none; margin: 0; padding: 0; font-size: .8rem; line-height: 1.45; }
+        .t-events li { padding: 3px 0; color: var(--ink2); }
+        .t-events li span { font-family: var(--mono); color: var(--muted); }
+        .t-events .t-major { color: var(--bad, #ff5468); }
+        .t-events .t-minor { color: var(--gold); }
+        .t-events .t-good { color: var(--good, #3ddc97); }
 
         @media (max-width: 860px) {
             .game { display: block; height: auto; overflow: visible; }
@@ -585,6 +606,11 @@
                 <span id="ctl-sub">Approach · an endless ATC practice shift</span>
             </header>
             <div class="ctl-scroll">
+                <div class="ctl-sec test-sec">
+                    <h3>Tower practical test <small>Ground + Tower · 7 pilots</small></h3>
+                    <div class="test-aps" id="test-aps"></div>
+                    <p class="opt-note">A mock IFATC Tower practical, under Infinite Flight rules with no radar: pushback, taxi, crossings, departures, pattern work, inbounds needing entries, a transition and a curveball or two. Any major error fails; up to 3 minor errors pass.</p>
+                </div>
                 <div class="ctl-sec">
                     <h3>Frequencies <small>tap the ones you'll work</small></h3>
                     <div class="pos" id="opt-pos" role="group" aria-label="Frequencies you work">

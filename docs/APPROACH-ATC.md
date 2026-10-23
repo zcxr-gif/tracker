@@ -88,7 +88,13 @@ A35K, B748, MD11).
   Every loss of separation with your traffic needs **Traffic alert** (Misc.
   messages) to one of them within 20 seconds, or it's a violation.
 - 6.2.5 **VFR services** (flight following, transitions, the pattern) see and
-  avoid: against them only 500 ft vertical, or 1 NM, counts.
+  avoid: against them only 500 ft vertical, or ¾ NM, counts. A light
+  aircraft's downwind is ½–1 NM off the runway, so traffic on final abeam it
+  is the pattern working. Not counted at all: an arrival on short final
+  behind a departure climbing off the same runway (that's runway separation,
+  checked at the threshold), and two aircraft on final to parallel runways,
+  each on its own centerline. With no radar, Tower's traffic is separated
+  this way against everyone, including departures already handed off.
 
 **Drag and vector (IFATC 6.3):**
 
@@ -770,7 +776,9 @@ B, K, hold short of runway 13L/31R"*.
   **contact Tower when ready** on the way (or **contact Tower** once they're
   holding short). Without it they report holding short to Ground and wait,
   and Tower can't clear them.
-- Arrivals roll out, turn off at the first exit past about 0.9 NM, and
+- Arrivals roll out (braking to a 30 kt roll, then slowing for the turn-off),
+  turn off at the first exit past their stopping distance (about 0.9 NM for
+  a jet, ¼ NM for a Cessna), and
   report clear of the runway to **Tower**, who tells them **contact Ground**.
   You then taxi them to their gate. They park and leave after about 25 s.
 - Headings are for airborne aircraft only: dragging a target on the ground
@@ -1244,10 +1252,14 @@ Tower, light aircraft and the odd jet do circuits off your runway.
 - **The pattern**: upwind, crosswind, downwind, base and final.
   - **Height**: props at 1,000 ft above the field, jets at 1,500 ft.
   - **Downwind width by size**: as wide as the aircraft's own 180° turn at
-    pattern speed (90 kt props, 200 kt jets), so it rolls out on downwind and
+    pattern speed (90 kt props, 220 kt jets), so it rolls out on downwind and
     final without overshooting. The FAA's guidance is about ½–1 NM out for
     light aircraft and wider for bigger, faster ones. Here: a Cessna about
-    1 NM, E175 2.6, A320 2.8, 787 2.9, 777-300ER 3.2, A380 3.6 (1–4 NM).
+    1 NM, E175 3.1, A320, 737, 757 and 787 3.4, 777-300ER 3.9, A380 4
+    (1–4 NM).
+  - **Speeds**: props 90 kt on downwind and 80 on base; jets fly the
+    conservative speeds of IFATC's practical test: 220 kt downwind and 190 on
+    base, slowing to the final approach speed.
   - **Base**: far enough out to roll out on a stabilised final: 4 NM of
     final for jets (on the glidepath by 1,000 ft), so they turn base about
     5 NM from the threshold; props about 1.5 NM. Never inside the point
@@ -1270,7 +1282,12 @@ Tower, light aircraft and the odd jet do circuits off your runway.
 - **Sequencing and shaping**:
   - *Number N, follow the Cessna on base* (the "Number, follow traffic…"
     list). It won't turn base until the traffic it follows is on final
-    with room behind it. See-and-avoid keeps anyone from cutting in.
+    with room behind it, and would be on the runway a minute or more ahead
+    (a jet behind a 65 kt Cessna waits longer).
+  - See-and-avoid: traffic on base or final has the right of way, so no one
+    turns base to reach the runway within about 70 s of it, even from a
+    longer final. On the downwind they slow (as far as the type can) to
+    keep their spacing behind traffic ahead on the same downwind.
   - *Extend downwind*, *turn base*, *make short approach*, *make left/right
     traffic* (on upwind or crosswind), *left/right 360*.
   - An extended downwind past 7 miles asks for base.
@@ -1375,6 +1392,54 @@ highlighted answer if left for 45 s.
 - **System Tower → your Ground**: with five departures queued for a runway,
   asks you to hold them at the gate for three minutes. Sending one anyway
   costs 3.
+
+## Tower practical test (IFATC)
+
+A mock of IFATC's Tower practical: **Practical test** at the top of the
+start screen's panel, then one of the test airports (EDDH, EGCC, KPDX,
+KSJC). You work Ground and Tower together, under Infinite Flight rules,
+with no radar (inbounds call you for a pattern entry), no weather,
+terrain, emergencies or random traffic. The wind is set at random each
+time (5–18 kt), so the runways change from one try to the next. As IFATC sets the test, nothing is bigger than a 757, and the jets
+fly conservative patterns: downwind 210–250 kt, base 180–210, final
+160–180.
+
+**The seven pilots** call in this order (seconds after the taxi map is in):
+
+| Pilot | When | What |
+|---|---|---|
+| D1 · 737-800 | 0:05 | Departure. Once pushed, asks for another runway: *Runway X approved* or *Unable runway X, expect runway Y* (Ground menu). |
+| D2 · A320 | 0:25 | Departure. |
+| P1 · Cessna 172 | 0:50 | Pattern work: a pattern departure, touch and go, then a full stop. |
+| A1 · 737-800 | 2:00 | Inbound from 16 NM, needs a pattern entry. |
+| A2 · E175 | 3:20 | Already lined up on a 13 NM final. |
+| T1 · SR22 | 4:20 | VFR transition request from 15 NM. |
+| A3 · CRJ-700 | 5:30 | Inbound from 16 NM with an old ATIS letter. |
+
+**Marking.** The examiner marks each element of the test and writes down
+every error, with the time:
+
+| Element | A major error (fails the test) | Minor errors |
+|---|---|---|
+| Pushback | | Pushing into moving traffic (2.1) |
+| Taxi | | Ground conflicts, a runway with a tailwind, a pilot left waiting over 2 minutes |
+| Departure | | No left/right traffic for a pattern departure, other 3.1–3.2 rules |
+| **Aircraft Separation** | Any loss of separation; a takeoff with the runway not clear (3.1.1); a crossing into traffic (2.3.2) | |
+| Runway Usage | | A runway request left unanswered; only one runway used (4.1.4) |
+| Pattern | An arrival never cleared to land | No pattern entry (3.3.2), other 3.3–3.6 rules |
+| Transition | | Not answered before it had to orbit; 3.4.2–3.4.4 |
+| **Go-Around** | An arrival that had to go around on its own (runway occupied, crossing traffic) | |
+| Runway Exit | | No exit instruction (a note if *expedite* would have helped) |
+
+The two elements in bold are automatic failures: IFATC marks them in red.
+Any major error fails the test; otherwise up to three minor errors pass.
+It also fails if not every pilot is handled within 60 minutes (of game
+time: the speed buttons work), or if you end it early.
+
+**The report** shows PASS or FAIL, each element (✓, minor, ✗), and the
+examiner's notes, including what went well (a runway change facilitated,
+an ATIS recheck asked for, an anticipated takeoff clearance). **Retake**
+starts it again; scores and best scores aren't kept for a test.
 
 ## Not modelled
 
