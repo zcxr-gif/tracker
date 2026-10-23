@@ -36,7 +36,7 @@ const SEP_FT = 1000;
 const TICK = 0.25;          // simulation step, seconds
 const TURN_RATE = 3;        // deg/s, standard rate
 const MAX_BANK = 25;        // deg: airliners turn at standard rate or 25° of bank, whichever is less
-const ROLL_ACCEL = 1.2;     // deg/s per second: how fast a turn rate builds or eases (5-10 s to roll in)
+const ROLL_ACCEL = 1.2;     // deg/s per second: how fast a turn rate builds or eases (5-10 s to roll in); per size in SIZE
 const GS_FT_PER_NM = 318;   // 3° glideslope
 const MIN_LANDING_RWY_FT = 4500;
 const FAF_NM = 5;           // nominal final approach fix
@@ -82,18 +82,35 @@ const PROPS = new Set(['C172', 'SR22', 'PA28', 'DA40', 'C208']);
 const TYPE_WORD = { C172: 'Cessna', SR22: 'Cirrus', PA28: 'Piper', DA40: 'Diamond', C208: 'Caravan' };
 const typeWord = a => TYPE_WORD[a.type] || (/^A3/.test(a.type) ? 'Airbus' : /^B7/.test(a.type) ? 'Boeing' : /^(E1|E7|CRJ)/.test(a.type) ? 'regional jet' : 'traffic');
 
+/**
+ * How each size of aircraft flies. Bigger means slower at everything: climbing, speeding up and slowing down,
+ * rolling into a turn, and down the runway to rotate.
+ *   climb, desc        fpm (climb is 25% less above 10,000 ft)
+ *   accel / accelClimb kt/s speeding up level / while climbing
+ *   decel / decelDesc  kt/s slowing level / while descending (flaps help on final)
+ *   roll               deg/s² how fast a turn rate builds and eases
+ *   bank               deg, the most it banks in a turn (standard rate, 3°/s, when that's less): the big ones bank less
+ *   toAccel            kt/s down the runway
+ */
+const SIZE = {
+    light:    { climb: 700,  desc: 700,  accel: 1.5,  accelClimb: 0.8,  decel: 1.5,  decelDesc: 1.0,  roll: 3.0,  bank: 30, toAccel: 2.5, vr: 55,  vapp: 65 },
+    regional: { climb: 3000, desc: 2200, accel: 1.6,  accelClimb: 1.1,  decel: 1.0,  decelDesc: 0.6,  roll: 2.0,  bank: 27, toAccel: 3.8, vr: 135, vapp: 130 },
+    narrow:   { climb: 2500, desc: 2000, accel: 1.3,  accelClimb: 0.9,  decel: 0.8,  decelDesc: 0.5,  roll: 1.4,  bank: 25, toAccel: 3.4, vr: 145, vapp: 140 },
+    wide:     { climb: 2000, desc: 1900, accel: 1.0,  accelClimb: 0.7,  decel: 0.7,  decelDesc: 0.45, roll: 1.0,  bank: 24, toAccel: 3.0, vr: 155, vapp: 145 },
+    heavy:    { climb: 1700, desc: 1800, accel: 0.85, accelClimb: 0.55, decel: 0.6,  decelDesc: 0.4,  roll: 0.8,  bank: 22, toAccel: 2.7, vr: 165, vapp: 155 },
+    super:    { climb: 1500, desc: 1700, accel: 0.8,  accelClimb: 0.5,  decel: 0.55, decelDesc: 0.35, roll: 0.7,  bank: 20, toAccel: 2.5, vr: 160, vapp: 145 },
+};
+const WIDE = new Set(['B763', 'B772', 'B789', 'A339', 'A359', 'A35K']);
+const sizeOf = type => PROPS.has(type) ? 'light' : type === 'A388' ? 'super' : WIDE.has(type) ? 'wide' : HEAVY.has(type) ? 'heavy' : /^(CRJ|E1|E7)/.test(type) ? 'regional' : 'narrow';
+
 function perf(type) {
-    if (PROPS.has(type)) return { prop: true, heavy: false, wake: 'L', vapp: type === 'C208' ? 80 : 65, vr: 55, climb: 700, desc: 800 };
-    const heavy = HEAVY.has(type);
-    const regional = /^(CRJ|E1|E7)/.test(type);
+    const size = sizeOf(type), heavy = HEAVY.has(type);
+    if (size === 'light') return { ...SIZE.light, size, prop: true, heavy: false, wake: 'L', ...(type === 'C208' ? { climb: 900, vr: 70, vapp: 80, toAccel: 3 } : {}) };
     return {
-        heavy,
+        ...SIZE[size], size, heavy,
         // Wake turbulence weight class: Super, Heavy, B757, Large.
         wake: type === 'A388' ? 'S' : heavy ? 'H' : /^B75/.test(type) ? 'B757' : 'L',
-        vapp: heavy ? 150 : regional ? 130 : 140,
-        vr: heavy ? 160 : regional ? 135 : 145,
-        climb: heavy ? 2000 : 2600,
-        desc: 2000,
+        ...(/^B75/.test(type) ? { vr: 150 } : {}),
     };
 }
 
@@ -4183,7 +4200,7 @@ function aiFinalSpacing(ac, tower) {
 /**
  * The least spacing between a follower and the aircraft ahead of it on the same final, from now until the leader
  * lands, if the follower holds `spd` to the final approach fix: both fly the game's final-approach speed profile
- * (the leader any speed it was given), easing speed at about 0.6 kt/s, true airspeed rising with height.
+ * (the leader any speed it was given), easing speed at each one's own descending rate (SIZE), true airspeed rising with height.
  */
 function finalGapAhead(lead, fol, folAlong, spd) {
     const k = al => (1 + (G.world.elev + GS_FT_PER_NM * Math.max(0, al)) / 1000 * 0.02) / 3600;
@@ -4191,8 +4208,8 @@ function finalGapAhead(lead, fol, folAlong, spd) {
     const lsp = lead.appr.spd, lu = lead.appr.spdUntil ?? FAF_NM;
     let la = lead.appr.along, fa = folAlong, lv = lead.spd, fv = fol.spd, min = fa - la;
     for (let t = 0; t < 1200 && la > 0; t += 5) {
-        lv += clamp(prof(lead, la, lsp, lu) - lv, -3, 6);
-        fv += clamp(prof(fol, fa, spd, FAF_NM) - fv, -3, 6);
+        lv += clamp(prof(lead, la, lsp, lu) - lv, -lead.perf.decelDesc * 5, lead.perf.accel * 5);
+        fv += clamp(prof(fol, fa, spd, FAF_NM) - fv, -fol.perf.decelDesc * 5, fol.perf.accel * 5);
         la -= lv * k(la) * 5; fa -= fv * k(fa) * 5;
         min = Math.min(min, fa - Math.max(0, la));
     }
@@ -4419,7 +4436,7 @@ function step(ac, dt) {
         return;
     }
     if (ac.state === 'roll') {
-        ac.spd += (ac.immediate ? 4.2 : 3.5) * dt;
+        ac.spd += p.toAccel * (ac.immediate ? 1.2 : 1) * dt;
         move(ac, dt);
         if (ac.spd >= p.vr) {
             ac.state = 'air';
@@ -4451,10 +4468,10 @@ function step(ac, dt) {
     } else if (ac.via && !(ac.kind === 'dep' && agl(ac) < Math.max(400, ac.straightOut || 0))) {
         viaStep(ac);
     }
-    const maxRate = turnRate(ac);
+    const maxRate = turnRate(ac), roll = p.roll || ROLL_ACCEL;      // bigger aircraft roll into and out of turns more slowly
     if (ac.orbit) {
         const dir = ac.orbit.dir === 'L' ? -1 : 1;
-        ac.rr = (ac.rr || 0) + clamp(dir * maxRate - (ac.rr || 0), -ROLL_ACCEL * dt, ROLL_ACCEL * dt);
+        ac.rr = (ac.rr || 0) + clamp(dir * maxRate - (ac.rr || 0), -roll * dt, roll * dt);
         ac.hdg = norm(ac.hdg + ac.rr * dt);
         if ((ac.orbit.rem -= Math.abs(ac.rr * dt)) <= 0) ac.orbit = null;
     } else {
@@ -4466,14 +4483,14 @@ function step(ac, dt) {
         if (ac.turn === 'R' && d < 0) d += 360;
         // Rolling in and out: the turn rate builds and eases at the roll rate, and comes off as the heading comes up.
         const want = Math.sign(d) * Math.min(maxRate, Math.abs(d) * 0.6);
-        ac.rr = (ac.rr || 0) + clamp(want - (ac.rr || 0), -ROLL_ACCEL * dt, ROLL_ACCEL * dt);
+        ac.rr = (ac.rr || 0) + clamp(want - (ac.rr || 0), -roll * dt, roll * dt);
         if (Math.abs(d) < 0.3 && Math.abs(ac.rr) < 0.4) { ac.hdg = norm(target); ac.rr = 0; }
         else ac.hdg = norm(ac.hdg + ac.rr * dt);
     }
 
     // ---- vertical
     let tAlt = ac.tAlt;
-    let rate = ac.alt < tAlt ? (ac.kind === 'dep' ? (ac.alt < 10000 ? p.climb : p.climb * 0.75) : 1800) : p.desc;
+    let rate = ac.alt < tAlt ? (ac.alt < 10000 ? p.climb : p.climb * 0.75) : p.desc;
     let tSpd = ac.tSpd;
     if (ac.appr && ac.appr.loc) {
         const gsAlt = elev + Math.max(0, ac.appr.along) * GS_FT_PER_NM;
@@ -4505,9 +4522,9 @@ function step(ac, dt) {
 
     // ---- speed: 250 below 10,000 (14 CFR 91.117)
     if (ac.alt < 10000 && tSpd > 250) tSpd = 250;
-    // Jets speed up about 1.3 kt/s (less climbing), and slow about 0.8 kt/s level, 0.5 kt/s coming down; flaps out on final help.
+    // By size (SIZE): speeding up is slower climbing, slowing down slower descending; flaps out on final help (+25%).
     const ds = tSpd - ac.spd, descending = ac.vs < -300;
-    const decel = ac.appr?.loc ? 1.0 : descending ? 0.5 : 0.8, accel = ac.vs > 300 ? 0.9 : 1.3;
+    const decel = ac.appr?.loc ? p.decel * 1.25 : descending ? p.decelDesc : p.decel, accel = ac.vs > 300 ? p.accelClimb : p.accel;
     ac.spd += clamp(ds, -decel * dt, accel * dt);
 
     move(ac, dt);
@@ -4531,7 +4548,7 @@ function step(ac, dt) {
  */
 function turnRate(ac) {
     const tas = ac.spd * (1 + ac.alt / 1000 * 0.02);
-    return Math.min(TURN_RATE, 1091 * Math.tan(MAX_BANK * D2R) / Math.max(tas, 100));
+    return Math.min(TURN_RATE, 1091 * Math.tan((ac.perf.bank || MAX_BANK) * D2R) / Math.max(tas, 100));
 }
 
 /**
@@ -7016,7 +7033,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly, divertTarget, finalGapAhead, closingOn };
+    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly, divertTarget, finalGapAhead, closingOn, perf };
 }
 
 init();

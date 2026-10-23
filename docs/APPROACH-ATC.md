@@ -327,19 +327,32 @@ Use, Size restrictions' effect.
 
 ## How the aircraft fly
 
-The aircraft fly with airliner performance:
-- **Turns**: standard rate (3°/s) when slow, but never more than 25° of
-  bank. At 250 kt that's about 2°/s, so a 90° turn takes about 45 s. The
-  rate builds over a few seconds as the aircraft rolls in, and eases off
-  as the heading comes up, so turns start and finish smoothly. Localizer
-  intercepts lead the turn by the radius and the roll-in time.
-- **Speed**: about 1.3 kt/s faster (0.9 climbing), and about 0.8 kt/s
-  slower in level flight, 0.5 kt/s while descending ("descend or slow
-  down") and 1 kt/s on final with the flaps coming out.
-- **Climbs and descents**: up to 2,000–2,600 fpm climbing out, 2,000 fpm
-  down, and 2,200 fpm on the glideslope. The vertical speed builds and
-  eases at about 500 fpm per second and levels off smoothly at the
-  assigned altitude.
+Each aircraft flies by its size. Bigger is slower at everything: climbing,
+speeding up and slowing down, rolling into a turn, and down the runway.
+
+| Size | Types | Climb / descent (fpm) | Speed up level / climbing (kt/s) | Slow down level / descending (kt/s) | Bank | Rotate / approach (kt) |
+|---|---|---|---|---|---|---|
+| Light | C172, SR22, PA28, DA40 (C208) | 700 (900) / 700 | 1.5 / 0.8 | 1.5 / 1.0 | 30° | 55 / 65 (70 / 80) |
+| Regional | CRJ, E-jets | 3,000 / 2,200 | 1.6 / 1.1 | 1.0 / 0.6 | 27° | 135 / 130 |
+| Narrowbody | A320 family, 737, 757 | 2,500 / 2,000 | 1.3 / 0.9 | 0.8 / 0.5 | 25° | 145 (757: 150) / 140 |
+| Widebody | 767, 787, A330, A350, 777-200 | 2,000 / 1,900 | 1.0 / 0.7 | 0.7 / 0.45 | 24° | 155 / 145 |
+| Heavy | 777-300ER/F, 747-8, MD-11 | 1,700 / 1,800 | 0.85 / 0.55 | 0.6 / 0.4 | 22° | 165 / 155 |
+| Super | A380 | 1,500 / 1,700 | 0.8 / 0.5 | 0.55 / 0.35 | 20° | 160 / 145 |
+
+- **Turns**: standard rate (3°/s) when slow, never more than the size's
+  bank. The rate builds as the aircraft rolls in and eases as the heading
+  comes up, and the big ones roll in more slowly. A 90° turn at 210 kt takes
+  about 39 s in an E175, 43 s in an A320, 49 s in a 777-300ER and 54 s in an
+  A380. Localizer intercepts lead the turn by the radius and the roll-in
+  time, so the bigger ones start their turns earlier.
+- **Speed**: slowing down is slower while descending ("descend or slow
+  down"); on final, with the flaps coming out, 25% quicker than level.
+- **Climbs**: 25% slower above 10,000 ft. From brake release to 3,000 ft
+  above the field takes about 1:40 in an E175 and 3:05 in an A380.
+- **Takeoff roll**: from 36 s (E175) to 64 s (A380) to rotation.
+- **Descents**: 2,200 fpm on the glideslope. The vertical speed builds and
+  eases at about 500 fpm per second and levels off smoothly at the assigned
+  altitude.
 
 ## Departures
 
