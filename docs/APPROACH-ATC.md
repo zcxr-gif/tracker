@@ -1416,6 +1416,30 @@ fly conservative patterns: downwind 210–250 kt, base 180–210, final
 | T1 · SR22 | 4:20 | VFR transition request from 15 NM. |
 | A3 · CRJ-700 | 5:30 | Inbound from 16 NM with an old ATIS letter. |
 
+**The examiner's go-around.** Once in every test the examiner makes one
+arrival need a go-around, and you have to see it and send it around:
+- with the arrival on a 2–4½ mile final, whatever is on its runway stays
+  there: the aircraft landing ahead stops (*"brake problem, give us a
+  minute"*), a departure lined up won't go (*"we'll need another minute"*,
+  and it refuses a takeoff clearance), or a departure holding short lines
+  up without a clearance;
+- or, if none of that comes up, the last jet in flies its final high and
+  fast (holding about 900 ft above the glidepath at 200 kt). Watch its
+  altitude and speed on the tag.
+
+It holds the runway until the arrival has gone around. Not sent around,
+the arrival goes around on its own at 1.2 miles: a major error. Either
+way it doesn't come back. About 20 seconds after the go-around it asks
+*"request departure to the north"* (any direction but straight back over
+the field):
+1. approve it: *Northbound departure approved* (the four directions are in
+   its menu, or type `depn`, `depe`, `deps`, `depw`). Another direction is
+   a minor error; no answer within a minute is a minor error;
+2. it turns that way, climbs and asks for a frequency change about 30
+   seconds later: *Frequency change approved* (`fc`). Switching it before
+   approving the direction, or no answer within a minute, is a minor error.
+   Unanswered, it leaves your airspace at 15 miles on its own.
+
 **Marking.** The examiner marks each element of the test and writes down
 every error, with the time:
 
@@ -1428,7 +1452,7 @@ every error, with the time:
 | Runway Usage | | A runway request left unanswered; only one runway used (4.1.4) |
 | Pattern | An arrival never cleared to land | No pattern entry (3.3.2), other 3.3–3.6 rules |
 | Transition | | Not answered before it had to orbit; 3.4.2–3.4.4 |
-| **Go-Around** | An arrival that had to go around on its own (runway occupied, crossing traffic) | |
+| **Go-Around** | The examiner's go-around not sent around in time; any arrival that had to go around on its own (runway occupied, crossing traffic) | Its departure direction or frequency change not answered, the wrong direction approved, or switched before the direction |
 | Runway Exit | | No exit instruction (a note if *expedite* would have helped) |
 
 The two elements in bold are automatic failures: IFATC marks them in red.

@@ -1654,6 +1654,7 @@ function issueCall(ac, c) {
     if (c.luaw && G.aircraft.some(a => a !== ac && a.state === 'luaw' && a.rwy.phys === ac.rwy.phys)) {
         sys(`Someone is already lined up on ${ac.rwy.id}.`); return false;
     }
+    if (c.takeoff && testBlocking(ac)) { atc(`${ac.radio}, runway ${ac.rwy.id}, cleared for takeoff.`); pilot(ac, `Unable, ${ac.radio}, we need another minute on the runway.`); return false; }
     if (c.takeoff) {
         const why = runwayBlocker(ac);
         if (why) { sys(`Runway ${ac.rwy.id} is not clear: ${why} (7110.65 3-9-6).`, 'bad'); return false; }
@@ -2168,6 +2169,34 @@ function issueCall(ac, c) {
         if (!G.aiActing && top != null && alt < top + 500) violation(ac, 'IFATC 3.4.4', `${fmtAlt(alt)} leaves less than 500 ft above the pattern at ${fmtAlt(top)}`);
         Object.assign(t, { ok: true }); ac.tAlt = alt; ac.orbit = null; ac.tHdg = t.hdg;
         parts.push(`transition approved${c.transit === 'ok' ? '' : `, maintain ${fmtAlt(alt)}`}`); back.push(`transition approved${c.transit === 'ok' ? '' : ', ' + fmtAlt(alt)}`);
+    }
+
+    // ---- Tower: the practical's go-around, leaving: "request departure to the north", then a frequency change.
+    if (c.depDir) {
+        const g = ac.gaDep;
+        if (!g || ac.state !== 'air' || ac.freq !== 'TWR') { sys(`${ac.cs} hasn't asked to depart.`); return false; }
+        if (g.approved) { sys(`${ac.cs} is already on its way ${g.approved}bound.`); return false; }
+        atc(`${ac.radio}, ${c.depDir}bound departure approved.`, G.aiActing);
+        pilot(ac, `${c.depDir[0].toUpperCase() + c.depDir.slice(1)}bound departure, ${ac.radio}.`);
+        g.approved = c.depDir; g.approvedT = G.t;
+        if (G.test && !G.aiActing) {
+            if (c.depDir !== g.dir) testRecord('Go-Around', 'minor', `Approved a ${c.depDir}bound departure; the pilot asked for ${g.dir}`, ac);
+            else testSaw('Go-Around', 'Approved the departure direction after the go-around', ac);
+        }
+        return true;
+    }
+    if (c.freqChange && ac.gaDep) {
+        const g = ac.gaDep;
+        if (ac.freq !== 'TWR' || g.fc) { sys(`${ac.cs} isn't on your frequency.`); return false; }
+        if (G.test && !G.aiActing) {
+            if (!g.approved) testRecord('Go-Around', 'minor', `Switched before approving its departure to the ${g.dir}`, ac);
+            else testSaw('Go-Around', 'Frequency change after the go-around', ac);
+        }
+        if (!g.approved) { g.approved = g.dir; g.approvedT = G.t; }
+        atc(`${ac.radio}, frequency change approved.`, G.aiActing);
+        pilot(ac, `Frequency change approved, good day, ${ac.radio}.`);
+        g.fc = true; ac.freq = 'VFR';
+        return true;
     }
 
     // ---- Tower: departures (IFATC 3.2)
@@ -3073,7 +3102,8 @@ function goAround(ac, reason, notYourFault) {
     ac.wentAround = reason || 'ordered';
     // The examiner: sent around for the runway (not by you, in time), or never cleared to land.
     if (G.test && mine(ac) && !notYourFault) {
-        if (/runway occupied|crossing runway/.test(reason || '')) testRecord('Go-Around', 'major', `Had to go around on its own: ${reason}. Watch the spacing and send it around in time`, ac);
+        if (G.test.ga?.target === ac && reason) testRecord('Go-Around', 'major', `Not sent around in time: it went around on its own (${reason})`, ac);
+        else if (/runway occupied|crossing runway/.test(reason || '')) testRecord('Go-Around', 'major', `Had to go around on its own: ${reason}. Watch the spacing and send it around in time`, ac);
         else if (/no landing clearance/.test(reason || '')) testRecord('Pattern', 'major', 'Never cleared to land: it had to go around', ac);
     }
     const e = ac.appr ? ac.appr.end : null;
@@ -3094,6 +3124,11 @@ function goAround(ac, reason, notYourFault) {
     if (!notYourFault && mine(ac)) award(ac, -3);
     pilot(ac, `${ac.radio}, going around${reason ? ', ' + reason : ''}.`);
     if (reason) toast(`${ac.cs} going around — ${reason}`, 'bad');
+    // The practical's go-around: it won't try again, it asks to leave (to the north, say) and then for a frequency change.
+    if (G.test?.ga?.target === ac && !ac.gaDep) {
+        ac.gaDep = { dir: G.test.ga.dir, askAt: G.t + 20, asked: false, approved: null, fc: false };
+        ac.circuit = null; ac.pattern = null; ac.tSpd = 210;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -3361,6 +3396,12 @@ function groundStep(ac, dt) {
         const left = ac.exitAt.along - run;
         // Brake to turn-off speed by the exit (harder when told to expedite).
         const brake = ac.expediteUntil > G.t ? 4.5 : 3;
+        // The practical's go-around: the tester stops on the runway until the arrival behind has gone around.
+        if (testBlocking(ac)) {
+            ac.spd = Math.max(0, ac.spd - brake * dt);
+            ac.x += Math.sin(e.course * D2R) * ac.spd / 3600 * dt; ac.y += Math.cos(e.course * D2R) * ac.spd / 3600 * dt;
+            return true;
+        }
         const vmax = Math.sqrt(Math.max(0, 2 * (brake / 3600) * left)) * 3600 + 15;
         // Down to a 30 kt roll, not a crawl, until it's time to slow for the turn-off.
         ac.spd = Math.max(15, Math.min(Math.max(ac.spd - brake * dt, Math.min(ac.spd, 30)), vmax));
@@ -4405,7 +4446,8 @@ function tick(dt) {
     for (const ac of G.aircraft) {
         if (ac.state !== 'air' || ac.kind !== 'arr') continue;
         if (ac.divert) continue;
-        if (ac.transit) transitNav(ac);
+        if (ac.gaDep) gaDepNav(ac);
+        else if (ac.transit) transitNav(ac);
         else if (ac.overfly) overflyNav(ac);
         else if (ac.circuit && !ac.appr) circuitNav(ac);
         else if (!ac.appr && (ac.pattern || towerInbound(ac))) patternNav(ac);
@@ -4567,8 +4609,10 @@ function step(ac, dt) {
         // Once established, down the glideslope; from above, at a normal rate to catch it.
         tAlt = Math.min(gsAlt, ac.alt);
         rate = ac.appr.gs ? 2200 : p.desc;
+        // The practical's unstable approach: the tester stays high and fast, to be sent around (on its own at the 1.2 mile check).
+        if (ac.testHigh) tAlt = Math.min(ac.alt, gsAlt + 900);
         // Stabilized by 1,000 ft above the field or go around.
-        if (ac.appr.along < 1000 / GS_FT_PER_NM && ac.alt > gsAlt + 300) { goAround(ac, 'not stabilized'); return; }
+        if (ac.appr.along < (ac.testHigh ? 1.2 : 1000 / GS_FT_PER_NM) && ac.alt > gsAlt + 300) { goAround(ac, 'not stabilized'); return; }
     }
     if (ac.appr) {
         // The approach clearance cancelled assigned speeds; the crew flies its own profile unless one was restated.
@@ -4577,6 +4621,7 @@ function step(ac, dt) {
         else tSpd = al > 15 ? Math.min(ac.tSpd, 210) : al > 8 ? 180 : 160;
         // A speed to hold until a given mile final (a restated one, 7110.65 5-7-1), then its own profile.
         if (ac.appr.spd != null && al >= (ac.appr.spdUntil ?? FAF_NM)) tSpd = ac.appr.spd;
+        if (ac.testHigh) tSpd = Math.max(tSpd, 200);
     }
     if (ac.holdAt) tSpd = Math.min(tSpd, ac.alt <= 6000 ? 200 : ac.alt <= 14000 ? 230 : 265);  // holding speeds
     // "Adjust speed to follow aircraft ahead": its speed, within this one's limits, until inside the final approach fix.
@@ -6029,6 +6074,13 @@ function groundMenu(ac, add) {
 }
 
 function airMenu(ac, add) {
+    if (ac.gaDep) {
+        if (ac.gaDep.asked && !ac.gaDep.approved) for (const d of ['north', 'east', 'south', 'west']) add(`${d[0].toUpperCase() + d.slice(1)}bound departure approved`, { cmd: { depDir: d } });
+        if (ac.freq === 'TWR') add('Frequency change approved', { cmd: { freqChange: true } }, !!ac.gaDep.approved);
+        add('Misc. messages', { sub: miscMenu(ac) });
+        add('Standby / corrections', { sub: standbyMenu });
+        return;
+    }
     if (ac.transit) {
         if (ac.transit.ok === null) {
             add('Transition approved', { cmd: { transit: 'ok' } }, true);
@@ -6350,6 +6402,7 @@ function closeContext() { const el = $('#ctx'); if (el) el.hidden = true; }
 function wantsYou(a) {
     if (a.divert || a.standbyUntil > G.t) return false;
     if (a.transit) return a.transit.asked && a.transit.ok === null;
+    if (a.gaDep) return a.freq === 'TWR' && (a.gaDep.asked && !a.gaDep.approved || !!a.gaDep.fcAsked);
     if (a.circuit && a.circuit.leg === 'down' && !a.landClr) return true;
     return !!(a.emerg || a.crossReq || a.wxReq || a.lowAlt || a.reminded || a.request || a.checkInPending || a.divReq
         || (a.state === 'gate' && a.kind === 'dep' && a.called) || a.state === 'pushed' || a.state === 'clear'
@@ -6491,6 +6544,7 @@ function runCommand(text) {
         else if (t === 'SEQ' || t === 'NUM') c.seqNo = true;
         else if (t === 'ITO' || t === 'IMM') c.immediate = true;
         else if (t === 'FC' || t === 'FREQ') c.freqChange = true;
+        else if (t === 'DEPN' || t === 'DEPE' || t === 'DEPS' || t === 'DEPW') c.depDir = { N: 'north', E: 'east', S: 'south', W: 'west' }[t[3]];
         else if (t === 'EPT' || t === 'PROG') c.expectProg = true;
         else if (t === 'GW' || t === 'FOL' || t === 'FOLLOW') {
             const o = G.aircraft.find(a => a.cs === toks[i + 1] || (a.cs.endsWith(toks[i + 1] || '#') && /^\d+$/.test(toks[i + 1] || '')));
@@ -6622,7 +6676,7 @@ function testWatch(ac, c) {
     if (c.entry) testSaw('Pattern', 'Gave pattern entries', ac);
     if (c.seqLand || c.seqBehind) testSaw('Pattern', 'Sequenced arrivals', ac);
     if (c.transit && c.transit !== 'no') testSaw('Transition', 'Approved a transition', ac);
-    if (c.goAround) testSaw('Go-Around', 'Sent an arrival around', ac);
+    if (c.goAround) testSaw('Go-Around', G.test.ga?.target === ac ? (G.test.ga.high ? 'Sent the unstable (high and fast) arrival around' : 'Sent the arrival around for the blocked runway') : 'Sent an arrival around', ac);
     if (c.exitRwy) testSaw('Runway Exit', c.exitRwy.expedite ? 'Used exit runway with expedite' : 'Used exit runway', ac);
     if (c.msg?.[0] === 'atis' && ac.test === 'A3') testSaw('Runway Usage', 'Asked the pilot with the old ATIS to recheck it', ac);
 }
@@ -6683,9 +6737,73 @@ function testSpawn(sp) {
     return ac;
 }
 
+/**
+ * The practical's go-around. Once in every test the examiner blocks the runway in front of one of the arrivals, on a
+ * 2–4½ mile final: the aircraft landing ahead stops on the runway, a departure lined up won't go, or one holding short
+ * lines up without a clearance. Send the arrival around in time (or it goes around on its own: a major error). Then it
+ * asks to leave, "request departure to the north": approve that direction, then the frequency change.
+ */
+function testGoAround() {
+    const T = G.test;
+    if (T.ga) return;
+    for (const tgt of Object.values(T.ac)) {
+        if (tgt.kind !== 'arr' || tgt.state !== 'air' || tgt.freq !== 'TWR' || !tgt.appr || tgt.appr.along < 2 || tgt.appr.along > 6 || tgt.gone) continue;
+        const e = tgt.appr.end, rw = `runway ${e.id}`;
+        const onIt = o => o !== tgt && !o.gone && o.test;
+        let blk = tgt.appr.along > 4.5 ? null : G.aircraft.find(o => onIt(o) && o.state === 'rollout' && o.landEnd.phys === e.phys), say;
+        if (blk) say = `Tower, ${blk.radio}, we've stopped on ${rw}, brake problem, give us a minute.`;
+        if (!blk && tgt.appr.along <= 4.5 && (blk = G.aircraft.find(o => onIt(o) && (o.state === 'luaw' || o.state === 'lineup' && o.lineupThen === 'luaw') && o.rwy.phys === e.phys)))
+            say = `Tower, ${blk.radio}, we'll need another minute on ${rw}, checklist.`;
+        if (!blk && tgt.appr.along <= 4.5 && (blk = G.aircraft.find(o => onIt(o) && o.kind === 'dep' && o.state === 'wait' && o.freq === 'TWR' && o.rwy.phys === e.phys && G.ground?.holds.get(o.rwy)))) {
+            startLineup(blk, 'luaw');
+            say = `Lining up ${blk.rwy.id}, ${blk.radio}.`;
+        }
+        // Nothing to block it with: the last jet in flies its approach high and fast instead, to be seen and sent around.
+        const jets = ['A1', 'A2', 'A3'].map(k => T.ac[k]);
+        const high = !blk && jets.every(Boolean) && jets.includes(tgt) && jets.filter(a => a.state === 'air' && !a.gone).length === 1 && tgt.appr.loc && tgt.appr.along > 3.5;
+        if (!blk && !high) continue;
+        // It asks to leave toward where it's going: anywhere but straight back over the field.
+        const dir = ['north', 'east', 'south', 'west'].filter(d => Math.abs(diff({ north: 0, east: 90, south: 180, west: 270 }[d], e.course)) <= 90)[Math.floor(Math.random() * 2)] || 'north';
+        T.ga = { target: tgt, blocker: blk || null, dir, t: G.t, high };
+        if (high) { tgt.testHigh = true; return; }
+        blk.testBlock = tgt;
+        pilot(blk, say);
+        return;
+    }
+}
+
+/** The tester's pilot holding the runway: until the arrival behind has gone around or landed. */
+function testBlocking(ac) {
+    const tgt = ac.testBlock;
+    if (!tgt) return false;
+    if (tgt.appr && !tgt.gone && tgt.state === 'air') return true;
+    ac.testBlock = null;
+    pilot(ac, ac.state === 'rollout' ? `${ac.radio}, sorted, vacating the runway.` : `${ac.radio}, ready for departure ${ac.rwy.id}.`);
+    if (ac.state === 'rollout' || ac.state === 'luaw') ac.remindAt = G.t + 60;
+    return false;
+}
+
+/** After the practical's go-around: runway heading until its departure is approved, then away and off frequency. */
+function gaDepNav(ac) {
+    const g = ac.gaDep, H = { north: 0, east: 90, south: 180, west: 270 };
+    ac.circuit = null; ac.pattern = null; ac.orbit = null; ac.holdAt = null; ac.direct = null;
+    if (!g.approved) {
+        if (!g.asked && G.t >= g.askAt && ac.alt - G.world.elev > 400) { g.asked = true; g.askedT = G.t; pilot(ac, `Tower, ${ac.radio}, request departure to the ${g.dir}.`); }
+        if (g.asked && G.t - g.askedT > 60 && !g.late) { g.late = true; testRecord('Go-Around', 'minor', `Its request to depart to the ${g.dir} wasn't answered within a minute`, ac); pilot(ac, `Tower, ${ac.radio}, again, request departure to the ${g.dir}.`); }
+        return;
+    }
+    ac.tHdg = H[g.approved]; ac.turn = null; ac.tSpd = 250;
+    ac.tAlt = Math.max(ac.tAlt, Math.round((G.world.elev + 4500) / 500) * 500);
+    if (g.fc) { if (Math.hypot(ac.x, ac.y) > 12) ac.gone = true; return; }
+    if (!g.fcAsked && G.t - g.approvedT > 30) { g.fcAsked = G.t; pilot(ac, `Tower, ${ac.radio}, request frequency change.`); }
+    if (g.fcAsked && G.t - g.fcAsked > 60 && !g.fcLate) { g.fcLate = true; testRecord('Go-Around', 'minor', 'Its frequency change request wasn\'t answered within a minute', ac); }
+    if (Math.hypot(ac.x, ac.y) > 15) { g.fc = true; ac.freq = 'VFR'; pilot(ac, `${ac.radio}, leaving your airspace, switching to advisory.`); }
+}
+
 /** Whether a test pilot's part is over: departed (switched or gone), landed and parked, or through the airspace. */
 function testDone(ac) {
     if (!ac || ac.gone) return true;
+    if (ac.gaDep) return ac.gaDep.fc;
     if (ac.kind === 'dep' && !ac.patternWork) return ac.state === 'air' && ac.freq !== 'TWR';
     return ac.state === 'gate' && ac.kind === 'arr';
 }
@@ -6705,6 +6823,7 @@ function testTick() {
         const ac = testSpawn(sp);
         if (ac) T.ac[sp.key] = ac; else if (now > sp.at + 60) T.failedSpawn[sp.key] = true;
     }
+    testGoAround();
     for (const [key, ac] of Object.entries(T.ac)) {
         // D1: once pushed, asks for the other runway (facilitate it, or say unable).
         if (key === 'D1' && ac.state === 'pushed' && !ac.rwyAsked) {
@@ -6742,6 +6861,7 @@ function testReport(abort) {
     if (!T || T.reported) return;
     T.done = true; T.reported = true;
     if (!abort && T.used.size < 2 && G.world.ends.some(e => e.phys !== G.world.ends[0].phys)) testRecord('Runway Usage', 'minor', 'Only one runway was used: use both where you can (IFATC 4.1.4)');
+    if (!abort && !T.ga) testRecord('Go-Around', 'note', "The examiner's go-around never came up this time (no arrival flew a final)");
     const ev = T.events, majors = ev.filter(e => e.sev === 'major'), minors = ev.filter(e => e.sev === 'minor');
     const pass = !abort && !majors.length && minors.length <= TEST_MAX_MINOR;
     const mmss = t => `${Math.floor(Math.max(0, t) / 60)}:${String(Math.floor(Math.max(0, t) % 60)).padStart(2, '0')}`;
