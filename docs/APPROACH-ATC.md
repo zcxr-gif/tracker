@@ -980,6 +980,15 @@ The controls work the way the Infinite Flight ATC client does.
   callout, so a long press or a drag never turns into a text selection.
 - The command line is still there for keyboard players. The arrow keys turn
   the selected aircraft 5° (10° with Shift) or climb and descend it 1,000 ft.
+- **Dragging needs the aircraft selected first.** A touch on an aircraft
+  that isn't selected only selects it, and dragging from it pans the map,
+  so a stray grab while panning never gives a clearance. Once it's
+  selected, press on it and drag (a deliberate 18 px before it counts). Let
+  go back on the aircraft to cancel the drag.
+- **Colours**: every aircraft symbol is white, on the ground and in the
+  air (red when it's in conflict, low or in an emergency). Ground
+  aircraft's tags are white too. Taxiway names aren't drawn on the map:
+  they're in the clearances.
 - **Drag** an airborne target:
   - to give a heading. The line shows the heading, the distance and the
     minutes to the end of it. Let go and an altitude ladder opens beside the

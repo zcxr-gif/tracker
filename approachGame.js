@@ -5019,6 +5019,7 @@ PALETTE.radar = {
     arr: '#4fd1ff',
     dep: '#f2c14e',
     sel: '#ffffff',
+    plane: '#ffffff',                     // the aircraft themselves, on the ground and in the air
     bad: '#ff5468',
     good: '#3ddc97',
 };
@@ -5039,6 +5040,7 @@ PALETTE.chart = {
     arr: '#1d5fbf',
     dep: '#a8560a',
     sel: '#111111',
+    plane: '#1a1a1a',                     // white would vanish on the pale chart
     bad: '#d0102a',
     good: '#0f8a55',
 };
@@ -5405,21 +5407,6 @@ function drawSurface() {
     c.beginPath();
     for (const l of gr.lines) l.pts.forEach((p, i) => { const [x, y] = toS(p.x, p.y); if (i) c.lineTo(x, y); else c.moveTo(x, y); });
     c.stroke();
-    if (s > 70) {
-        c.font = '700 10px "JetBrains Mono", monospace';
-        c.fillStyle = chart ? '#6b4f00' : 'rgba(242,193,78,0.9)';
-        c.textAlign = 'center'; c.textBaseline = 'middle';
-        // Tiles cut taxiways into pieces: label each name once per ~0.4 NM, not once per piece.
-        const placed = [];
-        for (const l of gr.lines) {
-            if (!l.name || l.kind !== 'taxiway' || l.pts.length < 2) continue;
-            const m = l.pts[Math.floor(l.pts.length / 2)];
-            if (placed.some(p => p.name === l.name && Math.hypot(p.x - m.x, p.y - m.y) < 0.4)) continue;
-            placed.push({ name: l.name, x: m.x, y: m.y });
-            const [x, y] = toS(m.x, m.y);
-            c.fillText(l.name, x, y);
-        }
-    }
     if (s > 60 && gr.gates) {
         // Stands: names only clutter the field (they're in the strips and the card).
         const taken = new Set(G.aircraft.filter(a => a.stand && (a.state === 'gate' || a.state === 'push' || a.purpose === 'gate')).map(a => a.stand));
@@ -5453,12 +5440,12 @@ function surfaceTag(a) {
 function drawSurfaceAircraft(a) {
     const c = ctx;
     const [x, y] = toS(a.x, a.y);
-    const base = a.kind === 'arr' ? COLORS.arr : COLORS.dep;
-    const col = a === G.selected ? COLORS.sel : a.color || base;
+    // White, aircraft and tag: the arrival/departure colours blend into the taxiway lines.
+    const col = a.color || COLORS.plane;
     const dim = !mine(a);
     c.globalAlpha = dim ? 0.6 : 1;
-    if (!drawIcon(c, a.type, col, x, y, a.hdg, view.scale)) {
-        c.fillStyle = col;
+    if (!drawIcon(c, a.type, COLORS.plane, x, y, a.hdg, view.scale)) {
+        c.fillStyle = COLORS.plane;
         c.fillRect(x - 3, y - 3, 6, 6);
     }
     c.font = '700 10px "JetBrains Mono", monospace';
@@ -5501,11 +5488,13 @@ function drawAircraft(a) {
         if (a.alarm && Math.floor(performance.now() / 300) % 2) { c.lineWidth = 2; c.beginPath(); c.arc(x, y, 14, 0, Math.PI * 2); c.stroke(); c.lineWidth = 1; }
     }
 
-    // Target: a radar return, or the aircraft itself.
-    c.fillStyle = col;
-    if (iconMode && drawIcon(c, a.type, col, x, y, a.hdg, view.scale)) { /* drawn */ }
+    // Target: a radar return, or the aircraft itself; white, red when it needs you (conflict, low altitude, emergency).
+    const pc = col === COLORS.bad ? col : COLORS.plane;
+    c.fillStyle = pc;
+    if (iconMode && drawIcon(c, a.type, pc, x, y, a.hdg, view.scale)) { /* drawn */ }
     else if (a.kind === 'arr') c.fillRect(x - 3.5, y - 3.5, 7, 7);
     else { c.beginPath(); c.moveTo(x, y - 5); c.lineTo(x + 5, y); c.lineTo(x, y + 5); c.lineTo(x - 5, y); c.closePath(); c.fill(); }
+    c.fillStyle = col;
 
     // Data block.
     const vs = a.tAlt - a.alt;
@@ -5779,11 +5768,14 @@ function bindScope() {
         }
         closeLadder(); closeContext();
         const ac = G && hitAircraft(sx, sy);
+        // Drag-to-command only on the aircraft already selected: a touch on any other one selects it (and a drag from it
+        // pans the map), so a stray grab while panning never gives a clearance.
+        const armed = !!ac && G.selected === ac;
         if (ac) select(ac);
-        const gnd = ac && G.ground && ac.state !== 'air' && ac.state !== 'roll';
+        const gnd = armed && G.ground && ac.state !== 'air' && ac.state !== 'roll';
         // Headings only for aircraft in the air; on the ground it's taxiing (or, with no taxi map, the runway).
-        const twr = ac && !G.ground && (ac.state === 'wait' || ac.state === 'luaw');
-        drag = { id: e.pointerId, mode: gnd ? 'gnd' : ac && ac.state === 'air' ? 'ac' : twr ? 'twr' : ac ? 'sel' : 'pan', ac, sx, sy, px: sx, py: sy, moved: false, hdg: null, vx: view.x, vy: view.y };
+        const twr = armed && !G.ground && (ac.state === 'wait' || ac.state === 'luaw');
+        drag = { id: e.pointerId, mode: gnd ? 'gnd' : armed && ac.state === 'air' ? 'ac' : twr ? 'twr' : armed ? 'sel' : 'pan', ac, sx, sy, px: sx, py: sy, moved: false, hdg: null, vx: view.x, vy: view.y };
         // Hold on a target for Infinite Flight's quick menu.
         if (ac) { const d = drag; d.lpTimer = setTimeout(() => { if (drag === d && !d.moved) { d.lp = true; openContext(ac, sx, sy); } }, 550); }
     });
@@ -5799,7 +5791,8 @@ function bindScope() {
             return;
         }
         if (!drag || drag.id !== e.pointerId) return;
-        if (Math.hypot(sx - drag.sx, sy - drag.sy) > 8 && !drag.lp) { drag.moved = true; clearTimeout(drag.lpTimer); }
+        // Panning starts at 8 px; a command drag needs a deliberate 18 px.
+        if (Math.hypot(sx - drag.sx, sy - drag.sy) > (drag.mode === 'pan' ? 8 : 18) && !drag.lp) { drag.moved = true; clearTimeout(drag.lpTimer); }
         drag.px = sx; drag.py = sy;
         if (drag.mode === 'pan' && drag.moved) {
             view.x = drag.vx - (sx - drag.sx) / view.scale;
@@ -5831,6 +5824,8 @@ function bindScope() {
         drag = null;
         clearTimeout(d.lpTimer);
         if (e.type === 'pointercancel' || d.lp) return;
+        // Dropped back on the aircraft: cancelled.
+        if (d.moved && d.mode !== 'pan' && d.mode !== 'sel') { const [ax, ay] = toS(d.ac.x, d.ac.y); if (Math.hypot(d.px - ax, d.py - ay) < 22) return; }
         if (d.mode === 'gnd' && d.moved && d.ac.state === 'gate') {
             if (d.plan && !d.plan.err) issue(d.ac, d.plan.cmd); else if (d.plan) sys(`${d.ac.cs}: ${d.plan.label}.`);
             renderCard(true);
@@ -5843,7 +5838,7 @@ function bindScope() {
         } else if (d.mode === 'ac' && d.moved && d.hdg != null) {
             // As in Infinite Flight: the heading, then pick the altitude (or keep it) from the ladder.
             if (mine(d.ac)) altitudeLadder(d.ac, d.hdg, d.scan); else issue(d.ac, { hdg: d.hdg });
-        } else if (d.mode === 'pan' && !d.moved) {
+        } else if (d.mode === 'pan' && !d.moved && !d.ac) {
             const f = hitFix(d.sx, d.sy);
             if (f && G.selected && G.selected.state !== 'roll') { issue(G.selected, { direct: f }); }
             else select(null);
