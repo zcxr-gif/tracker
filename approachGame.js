@@ -7361,6 +7361,7 @@ function applyTerrain(game, d) {
  * nobody can take Ground, Tower or Approach while someone else has it, and
  * whatever nobody has, the system works, as it does alone. Public sessions are
  * listed on the start screen; private ones are joined with their code.
+ * Everyone plays signed in with their InFlight account, under its IF username.
  */
 let NET = null;     // { role: 'host'|'guest', session, you, regW, reg, pub | sub, actor, inTick, ... }
 const NOTE_KINDS = new Set(['sys', 'bad', 'good']);
@@ -7374,7 +7375,6 @@ const REG_SKIP = ['xing', 'proj', 'procs'];
 const PUB_MS = 250, SURF_CHUNK = 200000;
 
 const netSend = (type, data, to) => net.send(type, data, to);
-const playerName = () => ($('#mp-name')?.value || '').trim().slice(0, 20) || 'Controller';
 const groundRegistry = () => buildRegistry({ g: G.ground || null }, { base: 1e6, into: NET.regW });
 const allPositions = session => [...new Set(session.players.flatMap(p => p.positions))];
 
@@ -7411,9 +7411,9 @@ const onlineMeta = () => ({
 
 async function hostOnline(visibility) {
     if (!chosen) { toastStart('Choose an airport first.'); return; }
-    store.set('mpName', playerName());
+    if (!ME) { toastStart('Sign in with your InFlight account to play online.'); return; }
     try {
-        const r = await net.call('host', { name: playerName(), visibility, positions: opts.positions, meta: onlineMeta() });
+        const r = await net.call('host', { visibility, positions: opts.positions, meta: onlineMeta() });
         NET = { role: 'host', session: r.session, you: r.you, pending: new Set(), lastPub: 0, meta: onlineMeta() };
         await listen();
     } catch (err) { toastStart(err.message); return; }
@@ -7515,9 +7515,9 @@ function setOnlinePositions(list) {
 
 async function joinOnline(code, positions) {
     if (!DATA) return;
-    store.set('mpName', playerName());
+    if (!ME) { toastStart('Sign in with your InFlight account to play online.'); return; }
     try {
-        const r = await net.call('join', { code, name: playerName(), positions });
+        const r = await net.call('join', { code, positions });
         const meta = r.session.meta;
         if (!DATA.byIcao.get(meta.icao)) { net.call('leave').catch(() => {}); toastStart(`${meta.icao} isn't in this game's airport list.`); return; }
         NET = { role: 'guest', session: r.session, you: r.you, sub: new Subscriber({ keepAc: LOCAL_AC }), silenced: new Set(), surf: null, queued: null };
@@ -7689,14 +7689,34 @@ function renderOnline() {
     }
 }
 
+/** The signed-in InFlight account (approachNet.account()), or null; read when Online is opened. */
+let ME = null;
+
+/** Who you'll play as, or a way to sign in: online play uses your InFlight login. */
+async function renderAccount() {
+    const el = $('#mp-me');
+    try { ME = await net.account(); } catch { ME = null; }
+    for (const id of ['mp-public', 'mp-private', 'mp-join', 'mp-code']) $('#' + id).disabled = !ME;
+    el.innerHTML = !ME
+        ? `<span>Online play uses your InFlight account.</span><a class="btn primary" href="/">Sign in on the map</a>`
+        : ME.name ? `<span>Playing as <b>${escapeHtml(ME.name)}</b>, your InFlight account.</span>`
+        : '<span>Signed in. Add your IF username in your profile on the map, and others will see it here.</span>';
+    return ME;
+}
+
 function bindOnline() {
-    $('#mp-name').value = store.get('mpName', '');
     $('#mp-public').onclick = () => hostOnline('public');
     $('#mp-private').onclick = () => hostOnline('private');
     $('#mp-join').onclick = () => peekOnline($('#mp-code').value);
     $('#mp-code').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); peekOnline($('#mp-code').value); } });
     $('#mp-refresh').onclick = () => listOnline();
-    $('#online').addEventListener('toggle', () => { if ($('#online').open) listOnline(); });
+    $('#online').addEventListener('toggle', () => { if ($('#online').open) renderAccount().then(() => listOnline()); });
+    // Signing in on the map (in another tab) shows up here.
+    $('#online').addEventListener('toggle', () => net.onAccountChange(() => {
+        // Out of a session, the next call reconnects as whoever is signed in now.
+        if (!NET) net.disconnect();
+        if ($('#online').open) renderAccount().then(() => listOnline(true));
+    }).catch(() => {}), { once: true });
     // A free frequency in a listed (or looked-up) session: join on it.
     const pick = e => {
         const b = e.target.closest('[data-join]');
@@ -7726,7 +7746,7 @@ function bindOnline() {
         bgLast = now;
     }, 500);
     const code = new URLSearchParams(location.search).get('join');
-    if (code) { $('#online').open = true; $('#mp-code').value = code.toUpperCase(); peekOnline(code); }
+    if (code) { $('#online').open = true; $('#mp-code').value = code.toUpperCase(); renderAccount().then(() => peekOnline(code)); }
 }
 
 /** A session as a row: the airport, the host, the rules, and a button per frequency (taken ones show who has them). */
@@ -7743,6 +7763,7 @@ function sessionRow(s) {
 
 async function listOnline(quiet) {
     const el = $('#mp-list');
+    if (!ME) { el.innerHTML = '<div class="mp-none">Sign in to see the sessions open now.</div>'; return; }
     if (!quiet) el.innerHTML = '<div class="loading">Looking for sessions…</div>';
     try {
         const { sessions } = await net.call('list');
@@ -7754,6 +7775,7 @@ async function peekOnline(code) {
     code = String(code || '').trim().toUpperCase();
     const el = $('#mp-found');
     if (!code) { el.innerHTML = ''; return; }
+    if (!ME) { el.innerHTML = '<div class="mp-none">Sign in on the map, then come back to this link to join.</div>'; return; }
     el.innerHTML = '<div class="loading">Looking up the code…</div>';
     try {
         const { session } = await net.call('peek', code);

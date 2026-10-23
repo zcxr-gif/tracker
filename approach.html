@@ -140,7 +140,10 @@
         .online-sec summary::after { content: '▸'; }
         .online-sec[open] summary::after { content: '▾'; }
         .online-sec input { height: 34px; min-width: 0; flex: 1; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); padding: 0 10px; font-size: .84rem; }
-        .mp-me { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: .8rem; color: var(--ink2); }
+        .mp-me { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px; font-size: .8rem; color: var(--ink2); line-height: 1.4; }
+        .mp-me b { color: var(--ink); }
+        .mp-me .btn { display: inline-flex; align-items: center; text-decoration: none; flex: none; white-space: nowrap; }
+        .online-sec .btn:disabled, .online-sec input:disabled { opacity: .45; cursor: not-allowed; }
         .mp-host, .mp-join { display: flex; gap: 6px; margin-top: 10px; }
         .mp-host .btn { flex: 1; }
         .mp-join input { font-family: var(--mono); text-transform: uppercase; letter-spacing: .12em; }
@@ -693,7 +696,7 @@
 
                 <details class="ctl-sec online-sec" id="online">
                     <summary>Online <small>one controller per frequency</small></summary>
-                    <div class="mp-me"><label for="mp-name">Your name</label><input id="mp-name" maxlength="20" placeholder="Controller" autocomplete="nickname" spellcheck="false"></div>
+                    <div class="mp-me" id="mp-me"><span>Checking your InFlight sign-in…</span></div>
                     <div class="mp-host">
                         <button type="button" class="btn" id="mp-public">Host public</button>
                         <button type="button" class="btn" id="mp-private">Host private</button>

@@ -32,7 +32,10 @@ its calls and yours to it.
 
 ## Online
 
-**Online** on the start screen hosts a session or joins one. Each session is
+**Online** on the start screen hosts a session or joins one. You play signed
+in with your InFlight account (sign in on the map; the same login works here),
+under its IF username, which nobody can type in for you. One account takes one
+seat in a session, so a second tab can't take the other frequencies. Each session is
 one airport with up to three controllers, **one per frequency**: nobody can
 take Ground, Tower or Approach while someone else in the session has it. A
 controller may hold more than one, and the system works whatever nobody holds,
