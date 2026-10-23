@@ -7316,6 +7316,7 @@ async function startGame(airport, level, test) {
     const u = new URL(location.href);
     u.searchParams.set('airport', airport.icao);
     u.searchParams.delete('join');
+    u.searchParams.delete('online');
     history.replaceState(null, '', u);
     if (NET?.role === 'host' && G === game) hostReady();
 }
@@ -7692,13 +7693,20 @@ function renderOnline() {
 /** The signed-in InFlight account (approachNet.account()), or null; read when Online is opened. */
 let ME = null;
 
+/** The map's sign-in, which sends you back here (to this invite, with Online open) once you're in. See AuthUI.checkSignInReturn. */
+function signInLink() {
+    const back = new URL(location.href);
+    back.searchParams.set('online', '1');
+    return `/?signin=1&next=${encodeURIComponent(back.pathname + back.search)}`;
+}
+
 /** Who you'll play as, or a way to sign in: online play uses your InFlight login. */
 async function renderAccount() {
     const el = $('#mp-me');
     try { ME = await net.account(); } catch { ME = null; }
     for (const id of ['mp-public', 'mp-private', 'mp-join', 'mp-code']) $('#' + id).disabled = !ME;
     el.innerHTML = !ME
-        ? `<span>Online play uses your InFlight account.</span><a class="btn primary" href="/">Sign in on the map</a>`
+        ? `<span>Online play uses your InFlight account.</span><a class="btn primary" href="${signInLink()}">Sign in</a>`
         : ME.name ? `<span>Playing as <b>${escapeHtml(ME.name)}</b>, your InFlight account.</span>`
         : '<span>Signed in. Add your IF username in your profile on the map, and others will see it here.</span>';
     return ME;
@@ -7745,7 +7753,9 @@ function bindOnline() {
         if (document.hidden && NET?.role === 'host') simulate(Math.min(2, (now - (bgLast || now)) / 1000));
         bgLast = now;
     }, 500);
-    const code = new URLSearchParams(location.search).get('join');
+    const q = new URLSearchParams(location.search), code = q.get('join');
+    // Back from signing in on the map: straight to Online.
+    if (q.has('online') && !code) $('#online').open = true;
     if (code) { $('#online').open = true; $('#mp-code').value = code.toUpperCase(); renderAccount().then(() => peekOnline(code)); }
 }
 
@@ -7775,7 +7785,7 @@ async function peekOnline(code) {
     code = String(code || '').trim().toUpperCase();
     const el = $('#mp-found');
     if (!code) { el.innerHTML = ''; return; }
-    if (!ME) { el.innerHTML = '<div class="mp-none">Sign in on the map, then come back to this link to join.</div>'; return; }
+    if (!ME) { el.innerHTML = '<div class="mp-none">Sign in, and you\'ll come straight back to this session.</div>'; return; }
     el.innerHTML = '<div class="loading">Looking up the code…</div>';
     try {
         const { session } = await net.call('peek', code);
