@@ -6,6 +6,10 @@
 import { ProAccess } from './proAccess.js';
 import { StripeCheckoutModal } from './stripeCheckoutModal.js';
 
+// Where to send a pilot back to after signing in (see checkSignInReturn).
+const RETURN_KEY = 'inflight_signin_return';
+const RETURN_TTL_MS = 30 * 60 * 1000;
+
 export const AuthUI = {
     _isOpen: false,
     _mode: 'signin',
@@ -17,11 +21,62 @@ export const AuthUI = {
         this._supabase = supabaseClient;
         this.setupRecoveryListener();
         this.checkPaymentStatus();
+        this.checkSignInReturn();
         // Finish any upgrade that was paid for but never provisioned — a
         // dropped redirect, a tab closed on Stripe's receipt page, or a grant
         // that failed server-side. Without this the pilot's only route back is
         // finding the "Restore Pro access" button themselves.
         this.retryPendingProActivation();
+    },
+
+    /**
+     * Sign in for another page, then go back to it. Approach (and anything else
+     * that needs an account) links to `/?signin=1&next=<path>`: the sign-in
+     * opens here, and once signed in the pilot lands back where they were — an
+     * Approach invite link included. Kept in localStorage for half an hour, so
+     * the trip survives a Stripe checkout or a confirmation email; dropped when
+     * the sign-in is closed without signing in.
+     */
+    async checkSignInReturn() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('signin')) {
+            const next = this._safeReturn(params.get('next'));
+            params.delete('signin');
+            params.delete('next');
+            const rest = params.toString();
+            window.history.replaceState({}, document.title, window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+            if (next) {
+                try { localStorage.setItem(RETURN_KEY, JSON.stringify({ next, at: Date.now() })); } catch (_) { /* private mode: no trip back */ }
+            }
+            let signedIn = false;
+            try { signedIn = !!(await this._supabase.auth.getSession()).data?.session; } catch (_) { /* treated as signed out */ }
+            if (signedIn) { if (this._takeReturn()) return; }
+            else setTimeout(() => this.open('choose'), 300);
+        }
+        this._supabase.auth.onAuthStateChange((event) => {
+            if (event === 'SIGNED_IN' && !this._finalizing) this._takeReturn();
+        });
+    },
+
+    /** Goes back to the page that sent the pilot here to sign in, if any. True when leaving. */
+    _takeReturn() {
+        let r = null;
+        try { r = JSON.parse(localStorage.getItem(RETURN_KEY) || 'null'); } catch (_) { /* nothing kept */ }
+        if (!r) return false;
+        try { localStorage.removeItem(RETURN_KEY); } catch (_) { /* nothing to drop */ }
+        const next = this._safeReturn(r.next);
+        if (!next || !(Date.now() - r.at < RETURN_TTL_MS)) return false;
+        window.location.replace(next);
+        return true;
+    },
+
+    /** Only a path on this site: never another origin, a protocol-relative URL or a script. */
+    _safeReturn(next) {
+        if (typeof next !== 'string' || !/^\/(?![\/\\])/.test(next)) return null;
+        try {
+            const u = new URL(next, window.location.origin);
+            return u.origin === window.location.origin ? u.pathname + u.search + u.hash : null;
+        } catch (_) { return null; }
     },
 
     /** Best-effort recovery of an unresolved checkout; never blocks boot. */
@@ -74,6 +129,7 @@ export const AuthUI = {
                 if (sessionId && (userData || signedIn)) {
                     try {
                         const outcome = await this.finalizePaidCheckout(sessionId, userData);
+                        if (outcome.isPro && this._takeReturn()) return;
 
                         this.open();
                         if (!outcome.isPro) {
@@ -146,6 +202,13 @@ export const AuthUI = {
      * @returns {Promise<{isPro: boolean, reason: string, hadRow: boolean}>}
      */
     async finalizePaidCheckout(sessionId, userData) {
+        // It signs in partway through: no going back to another page (checkSignInReturn) until it's done.
+        this._finalizing = true;
+        try { return await this._finalizePaidCheckout(sessionId, userData); }
+        finally { this._finalizing = false; }
+    },
+
+    async _finalizePaidCheckout(sessionId, userData) {
         // 1. Verify with Stripe and provision server-side. Nothing else grants
         //    Pro, so this has to run for every kind of checkout.
         const { data: result, error: functionError } = await this._supabase.functions.invoke('process-stripe-payment', {
@@ -300,6 +363,10 @@ export const AuthUI = {
         if (overlay) overlay.classList.remove('open');
         this._isOpen = false;
         this._tempSignUpData = null;
+        // Closed without signing in: no trip back to the page that asked.
+        this._supabase?.auth.getSession().then(({ data }) => {
+            if (!data?.session) { try { localStorage.removeItem(RETURN_KEY); } catch (_) { /* nothing kept */ } }
+        }).catch(() => {});
     },
 
     switchMode(mode) {
@@ -860,6 +927,7 @@ export const AuthUI = {
                 catch (_) { pending = null; }
 
                 const outcome = await this.finalizePaidCheckout(result.sessionId, pending);
+                if (outcome.isPro && this._takeReturn()) return;
 
                 // Straight into the app, the way the success-URL return does.
                 this.close();

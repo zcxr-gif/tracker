@@ -1,7 +1,10 @@
 {
   "scripts": {
     "build:data": "node tools/build-data.js",
+    "build:nav": "node tools/build-nav.mjs",
+    "build:freqs": "node tools/build-freqs.mjs",
     "verify:data": "node tools/verify-data.js",
+    "test:approach-sync": "node tools/test-approach-sync.mjs",
     "test:panels": "node tools/test-crew-panel-render.js",
     "test:checkout": "node tools/test-checkout-modal.js",
     "test:crew-data": "node tools/test-crew-data-feed.js",
@@ -30,7 +33,10 @@
     "build:fg-aircraft": "node tools/build-fg-aircraft.mjs",
     "build:modulepreload": "node tools/build-modulepreload.mjs",
     "check:modulepreload": "node tools/build-modulepreload.mjs --check",
-    "test:fg-aircraft": "node tools/test-fg-aircraft.mjs"
+    "test:fg-aircraft": "node tools/test-fg-aircraft.mjs",
+    "build:navaids": "node tools/build-navaids.mjs",
+    "nav:gen": "node tools/gen-nav.mjs",
+    "nav:check": "node tools/check-nav.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.9",
