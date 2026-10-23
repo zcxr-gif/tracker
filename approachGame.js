@@ -2677,12 +2677,33 @@ function startCircuit(ac) {
 }
 
 /** Where the legs are: downwind 1 NM out for props, 1.5 for jets; base 1.5 / 2.5 NM from the threshold (less on a short approach). */
+/**
+ * How wide the downwind is: as wide as the aircraft's own 180° turn at pattern speed (90 kt props, 200 kt jets), so it
+ * rolls out on downwind and on final without overshooting. The FAA's guidance is about ½–1 NM out for light aircraft and
+ * wider for bigger, faster ones: here about 1 NM for a Cessna, 2.6 NM for an E175, 2.8 for an A320, 3.2 for a 777-300ER
+ * and 3.8 for an A380 (by its bank, SIZE). 1 NM at least, 4 at most.
+ */
+function downwindNm(ac) {
+    const prop = isProp(ac), tas = (prop ? 90 : 200) * (1 + circuitAlt(ac) / 1000 * 0.02);
+    const rate = Math.min(TURN_RATE, 1091 * Math.tan((ac.perf.bank || MAX_BANK) * D2R) / tas);
+    return clamp(2 * (tas / 3600) / (rate * D2R) * 1.05, 1, 4);
+}
+
+/** The radius of the turn onto final, at base speed (80 kt props, 160 kt jets), by the aircraft's bank. */
+function baseTurnNm(ac) {
+    const tas = (isProp(ac) ? 80 : 160) * (1 + circuitAlt(ac) / 1000 * 0.02);
+    return (tas / 3600) / (Math.min(TURN_RATE, 1091 * Math.tan((ac.perf.bank || MAX_BANK) * D2R) / tas) * D2R);
+}
+
 function circuitGeom(ac) {
-    const k = ac.circuit, e = k.end, prop = isProp(ac);
+    const k = ac.circuit, e = k.end, prop = isProp(ac), dw = downwindNm(ac);
+    // Base far enough out to roll out on a stabilised final: jets 4 NM of final (on the glidepath by 1,000 ft, so
+    // their base turn is about 5 NM out), props 1 NM; a short approach 3 and 0.5. Never inside the threshold 45° behind.
+    const fin = k.short ? (prop ? 0.5 : 3) : (prop ? 1 : 4);
     return {
-        off: (prop ? 1 : 1.5) * k.side,
-        baseAt: k.baseAt ?? (k.short ? (prop ? 0.8 : 1.5) : (prop ? 1.5 : 2.5)),
-        upEnd: -(e.len + (prop ? 0.5 : 1)),
+        off: dw * k.side,
+        baseAt: k.baseAt ?? Math.max(k.short ? 0.8 : dw, fin + baseTurnNm(ac)),
+        upEnd: -(e.len + (prop ? 0.5 : dw * 0.5)),
         P: (along, off) => ptOnFinal(e, along, off),
     };
 }
@@ -4610,6 +4631,10 @@ function approachLateral(ac) {
         const lead = radius * (1 - Math.cos(Math.min(Math.abs(ia), 90) * D2R)) + tas / 3600 * 2 * Math.abs(Math.sin(ia * D2R)) + 0.1;
         if (Math.abs(g.xt) < 0.15 || (closing && Math.abs(g.xt) <= lead)) {
             ap.loc = true;
+        } else if (ap.type === 'VIS') {
+            // A visual (or the pattern) has no localizer to lose: the pilot turns in to the centerline, up to 45°.
+            ac.tHdg = norm(c - Math.sign(g.xt) * Math.min(45, Math.abs(g.xt) * 60)); ac.turn = null;
+            return true;
         } else if (g.along < FAF_NM) {
             ac.appr = null;
             pilot(ac, `${ac.radio}, we're through the ${e.id} localizer, request vectors.`);
@@ -7033,7 +7058,7 @@ async function init() {
 
 // ?debug exposes the running game for scripted checks from the console.
 if (new URLSearchParams(location.search).has('debug')) {
-    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly, divertTarget, finalGapAhead, closingOn, perf };
+    window.approach = { get G() { return G; }, tick, issue, runCommand, findEnd, startGame, get DATA() { return DATA; }, toS, render: () => renderHud(), spawnArrival, spawnDeparture, renderCard, broadcastAtis, select, spawnTransit, spawnVfrInbound, shiftWind, atisNotified, sayMessage, MISC_COMMON, atisWarnings, vectorScan, mvaAt, spawnOverfly, divertTarget, finalGapAhead, closingOn, perf, downwindNm };
 }
 
 init();

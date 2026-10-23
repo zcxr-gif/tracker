@@ -1242,10 +1242,20 @@ Tower, light aircraft and the odd jet do circuits off your runway.
   ATIS says *No pattern work*. More of them at busier traffic levels (1 to 4
   at once).
 - **The pattern**: upwind, crosswind, downwind, base and final.
-  - **Props** fly it at 1,000 ft above the field, with downwind 1 NM out
-    and base 1.5 NM from the threshold.
-  - **Jets** fly it at 1,500 ft, 1.5 NM out, with base at 2.5 NM.
-  - **Turns** start a turn radius early, as a pilot leads them.
+  - **Height**: props at 1,000 ft above the field, jets at 1,500 ft.
+  - **Downwind width by size**: as wide as the aircraft's own 180° turn at
+    pattern speed (90 kt props, 200 kt jets), so it rolls out on downwind and
+    final without overshooting. The FAA's guidance is about ½–1 NM out for
+    light aircraft and wider for bigger, faster ones. Here: a Cessna about
+    1 NM, E175 2.6, A320 2.8, 787 2.9, 777-300ER 3.2, A380 3.6 (1–4 NM).
+  - **Base**: far enough out to roll out on a stabilised final: 4 NM of
+    final for jets (on the glidepath by 1,000 ft), so they turn base about
+    5 NM from the threshold; props about 1.5 NM. Never inside the point
+    where the threshold is 45° behind. A short approach brings it in (3 NM
+    of final for jets).
+  - **Turns** start a turn radius early, as a pilot leads them. Turning in on
+    a visual or the pattern, an aircraft that hasn't captured the centerline
+    yet turns in at up to 45° (before, it dropped the approach and flew on).
   - **Descent** starts on base, onto a 3° path.
 - **Departing**: they hold short *"…ready for departure, remaining in the
   pattern"*, and the takeoff clearance carries the direction: *"make right
